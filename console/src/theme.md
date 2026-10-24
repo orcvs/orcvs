@@ -574,8 +574,9 @@ display label. When a selection is missing, malformed, conflicted or of the
 wrong appearance, a Theme notice in the top bar names the Theme, the setting
 and the file problem, and the appearance's built-in is shown in its place; the
 settings file is never rewritten, so repairing the Theme file presents it on
-the next launch. The notices also name any loaded Theme with a text state below
-the contrast floor; such a Theme still loads and can be selected.
+the next launch. The notices also name any loaded Theme with a text state that
+fails the contrast floor, which a Comment does not; such a Theme still loads
+and can be selected.
 
 ## Source colours
 
@@ -690,7 +691,8 @@ Each result reports its role, its state (a `CursorPlacement` of `plain`,
 `Cursor`, `Region` or `Region, Cursor's Cell`, crossed with the Portal roles
 the Cell plays: none, Input Portal, Output Portal, or both), the effective foreground and
 background, the measured ratio against the 4.5:1 floor, and whether it is an
-accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
+accepted exception. Every role but Comment is held to the floor: a Comment
+state below it is reported and does not fail (`ContrastResult::fails`). The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"), and the returned
 `ContrastReport` carries it too; the scope is stated once, in the module's
 `# Scope` section. `validate` measures text contrast only: never Token-colour

@@ -40,6 +40,9 @@
 //!   from `text`, so the open fill is measured with `text` — the pair
 //!   actually painted.
 //!
+//! Comment is measured in every state like any Source role, but a Comment
+//! below the floor does not fail ([`Role::held_to_floor`]).
+//!
 //! Pairwise colour-vision separation of the Source glyph channels is a
 //! test-only check on the built-in Themes, in the `colour_vision` child
 //! module. It is not applied to a loaded Theme document.
@@ -113,6 +116,16 @@ impl Role {
         Self::NoteValid,
         Self::NoteInvalid,
     ];
+
+    ///
+    /// Whether a state of this role below [`CONTRAST_FLOOR`] fails. Comment is
+    /// measured and reported like every role, but is not held to the floor: a
+    /// Theme sets it apart from the code around it by drawing it faint, so the
+    /// floor would take away the contrast that marks it as a Comment.
+    ///
+    pub(crate) const fn held_to_floor(self) -> bool {
+        !matches!(self, Self::Comment)
+    }
 
     /// The Source Paint fact this role reads, or `None` for a console-chrome
     /// role.
@@ -454,6 +467,14 @@ impl ContrastResult {
     pub(crate) fn passes(&self) -> bool {
         self.ratio >= CONTRAST_FLOOR
     }
+
+    ///
+    /// Whether this state counts against the Theme: below the floor, of a
+    /// role [held to it](Role::held_to_floor), and not an accepted exception.
+    ///
+    pub(crate) fn fails(&self) -> bool {
+        !self.passes() && self.role.held_to_floor() && !self.accepted
+    }
 }
 
 ///
@@ -647,17 +668,13 @@ mod tests {
             .clone()
     }
 
-    /// The below-floor results of `report` that are not accepted exceptions
-    /// — the shipped-Theme gate's comparison. A plain filter
-    /// over `report.results` rather than a separately parameterized
-    /// function: acceptance is already baked into each `ContrastResult` by
-    /// `validate`, so there is nothing left for a test-only helper to do but
-    /// filter.
+    /// The results of `report` that [fail](ContrastResult::fails) — the
+    /// shipped-Theme gate's comparison.
     pub(super) fn unaccepted(report: &ContrastReport) -> Vec<&ContrastResult> {
         report
             .results
             .iter()
-            .filter(|result| !result.passes() && !result.accepted)
+            .filter(|result| result.fails())
             .collect()
     }
 
@@ -1462,24 +1479,40 @@ mod tests {
         );
     }
 
+    ///
+    /// A Comment drawn in its own background's colour measures 1:1 and is
+    /// reported, yet does not fail; the same glyph colour on an Ordinary Cell
+    /// does.
+    ///
+    #[test]
+    fn a_comment_below_the_floor_is_reported_and_does_not_fail() {
+        let background = okabe_ito().grid_background;
+        let theme = Theme {
+            source_comment: background,
+            source_ordinary: background,
+            ..okabe_ito()
+        };
+        let report = validate(&theme);
+        let plain = State::SourceGrid {
+            cursor: CursorPlacement::Plain,
+            portals: PortalRoles::NONE,
+        };
+
+        let comment = find(&report, Role::Comment, plain);
+        assert!(!comment.passes(), "Comment measures {:.2}:1", comment.ratio);
+        assert!(!comment.fails());
+        assert!(find(&report, Role::Ordinary, plain).fails());
+    }
+
     // === The shipped-Theme gate ===
 
     ///
-    /// Every below-floor state of every shipped Theme must be an accepted
-    /// exception, or this test fails and lists them — a real gate, not
-    /// `#[ignore]`d. Every tinted role background is a uniform 10% opacity
-    /// (that role's own foreground colour at alpha `0x1A`), and every
-    /// measured ratio is at or above the 4.5:1 floor through this real
-    /// shipped composition — `console/src/theme.md` records the exact
-    /// figures. There is therefore nothing to except: `accepted_failures`
-    /// for `okabe-ito` is empty, and this test's own run is what proves that
-    /// emptiness is correct rather than merely convenient.
-    ///
-    /// `orcvs_light()` clears the floor in every reachable state the same
-    /// way rather than by exception. `shipped` is a hand-kept array rather
-    /// than the Theme registry's built-ins, which are private to
-    /// `crate::theme_registry`: a built-in added there is not gated until it
-    /// is added here too.
+    /// No shipped Theme has a state that [fails](ContrastResult::fails), or
+    /// this test fails and lists them. A Comment below the floor does not
+    /// fail, and with every accepted-exception list empty, any other state
+    /// below it does. `shipped` is a hand-kept array rather than the Theme
+    /// registry's built-ins, which are private to `crate::theme_registry`: a
+    /// built-in added there is not gated until it is added here too.
     ///
     #[test]
     fn shipped_theme_gate() {
