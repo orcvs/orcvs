@@ -32,9 +32,12 @@ anchor unless the entry names another place. A value Function can also stand in 
 operand, nested: `.+.^3C01` uses the Note `.^3C` answers as Add's first operand. A Function that
 performs an effect, such as playing a note, writes no answer and cannot be nested.
 
-**Runs.** Most Functions take a Turn every Tick. Some are inert until a Bang reaches them: a Bang
-activates a root whose anchor is directly south of the `**`, or one whose Cells touch the `**` on
-its row. Each entry says which kind it is.
+**Runs.** Most Functions take a Turn every Tick. Some are inert until a Bang reaches them. A Bang
+activates each root whose anchor is aligned with the `**` in one of four places: in the same two
+columns one row north or one row south, or in the two Cells immediately before or after it on its
+row. A `**` that touches another Function's operand activates nothing: `!>0064C4**` does not
+play, because the Cells before the `**` are the operand `C4`, not the anchor `!>`. Each entry says
+which kind of Function it is.
 
 **Clear.** Some value Functions answer a Clear rather than a value: they write two empty Cells. An
 invalid Function writes nothing at all, so its last answer stays where it was.
@@ -666,6 +669,17 @@ After Tick `0`, the Bang has activated `*v`, which emits `vv` south:
 vv
 ```
 
+A Bang activates a root on the row above it too, so this plays one note:
+
+```orcvs
+!>0064C4
+**
+```
+
+```orcvs tick 0 plays 1
+!>0064C4
+```
+
 ### `*>` Bang East
 
 Inert until a Bang reaches it. Each Bang it receives emits a `>>` into the two Cells after it.
@@ -844,6 +858,17 @@ After Tick `0`:
 
 ```orcvs tick 0 plays 1
 
+!>0064C4
+```
+
+A `**` after the last operand does not reach the anchor. It still empties itself, and nothing
+plays:
+
+```orcvs
+!>0064C4**
+```
+
+```orcvs tick 0
 !>0064C4
 ```
 
