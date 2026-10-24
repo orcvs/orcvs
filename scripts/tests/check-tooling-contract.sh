@@ -53,6 +53,7 @@ make_fixture() {
   # fixture matches and every one of those rules is dead code in this suite.
   cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/release-captures.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
+  cp "$repo_root/scripts/ci-compile-needed.sh" "$fixture_dir/scripts/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
@@ -518,6 +519,18 @@ test_source_built_cargo_tool_is_rejected() {
   make_fixture
   printf '\n[tools."cargo:foo"]\nversion = "1.0.0"\n' >> "$fixture_dir/mise.toml"
   assert_rejected "a cargo tool declared as a table"
+}
+
+test_compile_skipped_for_non_markdown_is_rejected() {
+  make_fixture
+  # Only a Markdown-only diff may skip the compile. A wider pattern lets a change
+  # cargo reads — a `.toml` test fixture under `.scratch/`, say — merge unbuilt.
+  perl -pi -e 's/^(  if \[\[ "\$path" != )\*\.md( \]\]; then)$/$1*.md \&\& "\$path" != .scratch\/*$2/' "$fixture_dir/scripts/ci-compile-needed.sh"
+  assert_rejected "a compile decision that skips more than Markdown"
+
+  make_fixture
+  perl -pi -e 's/^        run: mise run check_docs$/        run: echo nothing/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a skipped compile that no longer runs the contract and planner"
 }
 
 test_automatically_triggered_miri_workflow_is_rejected() {
@@ -1215,6 +1228,7 @@ case "${1:-all}" in
   contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
   source-built-cargo-tool) test_source_built_cargo_tool_is_rejected ;;
+  compile-skip-scope) test_compile_skipped_for_non_markdown_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
@@ -1240,6 +1254,7 @@ case "${1:-all}" in
   spaced-merge-guard) test_spaced_key_merge_guard_is_rejected ;;
   all)
     bash "$repo_root/scripts/tests/check-ci-results.sh"
+    bash "$repo_root/scripts/tests/ci-compile-needed.sh"
     test_missing_merge_queue_trigger_is_rejected
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
@@ -1330,6 +1345,7 @@ case "${1:-all}" in
     test_contract_assertions_read_their_whole_input
     test_unpinned_workflow_linter_is_rejected
     test_source_built_cargo_tool_is_rejected
+    test_compile_skipped_for_non_markdown_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected

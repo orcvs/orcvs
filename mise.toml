@@ -308,6 +308,19 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked
 '''
 
+[tasks.check_docs]
+description = "Pull-request tier for a Markdown-only change"
+# What CI runs in place of `check_pull_request` when a pull request's diff is
+# Markdown alone (`scripts/ci-compile-needed.sh`). No crate compiles or reads a
+# `.md` file, so cargo has nothing new to say; these three read Markdown: the
+# contract checks the ADR numbering in `docs/adr/`, and the planner reads every
+# `.scratch/` issue.
+run = '''
+bash scripts/check-tooling-contract.sh
+node --test scripts/tests/roadmap.test.ts
+node scripts/roadmap.ts > /dev/null
+'''
+
 [tasks.check_merge]
 description = "Merge verification tier"
 run = '''

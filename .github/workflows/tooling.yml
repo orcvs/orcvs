@@ -38,8 +38,10 @@ on:
       - '.github/workflows/tooling.yml'
       - '.vscode/launch.json'
       - 'scripts/check-ci-results.sh'
+      - 'scripts/ci-compile-needed.sh'
       - 'scripts/check-tooling-contract.sh'
       - 'scripts/tests/check-ci-results.sh'
+      - 'scripts/tests/ci-compile-needed.sh'
       - 'scripts/tests/check-tooling-contract.sh'
   pull_request:
     branches: [main]
@@ -60,8 +62,10 @@ on:
       - '.github/workflows/tooling.yml'
       - '.vscode/launch.json'
       - 'scripts/check-ci-results.sh'
+      - 'scripts/ci-compile-needed.sh'
       - 'scripts/check-tooling-contract.sh'
       - 'scripts/tests/check-ci-results.sh'
+      - 'scripts/tests/ci-compile-needed.sh'
       - 'scripts/tests/check-tooling-contract.sh'
 
 permissions:

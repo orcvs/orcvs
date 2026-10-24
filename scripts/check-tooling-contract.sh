@@ -686,6 +686,19 @@ assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: carg
 assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: github-actions$'
 assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: rust-toolchain$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
+# A Markdown-only pull request skips the compile and runs `check_docs`. The
+# decision is the script's, and it compiles for every other event and diff;
+# both halves are pinned so neither the skip nor its light tier can drift.
+assert_contains "$root_dir/.github/workflows/test.yml" '^          bash scripts/ci-compile-needed.sh >> "[$]GITHUB_OUTPUT"$'
+assert_contains "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile == 'true'$"
+assert_contains "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile != 'true'$"
+assert_contains "$root_dir/.github/workflows/test.yml" '^        run: mise run check_docs$'
+assert_contains "$root_dir/.github/workflows/test.yml" "^    if: needs[.]changes[.]outputs[.]compile == 'true'$"
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^bash scripts/check-tooling-contract.sh$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node --test scripts/tests/roadmap.test.ts$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/roadmap[.]ts > /dev/null$'
+assert_contains "$root_dir/scripts/ci-compile-needed.sh" '^  if [[][[] "[$]path" != [*][.]md []][]]; then$'
+assert_contains "$root_dir/scripts/ci-compile-needed.sh" '^if [[][[] "[$][{]CI_EVENT:[?][}]" != pull_request [|][|] -z "[$][{]CHANGED_FILES:-[}]" []][]]; then$'
 # Counting each component pins which merge tier runs, not merely that some step
 # carries a guard: dropping the native step while adding a guard elsewhere leaves
 # the guard count at two, and `cargo deny` and the 256-case persistence run
@@ -705,9 +718,9 @@ assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [
 assert_contains "$root_dir/.github/workflows/test.yml" '^  merge_group:$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    types: \[checks_requested\]$'
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 3
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 4
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 7
 assert_contains "$root_dir/.github/workflows/test.yml" '^    if: always[(][)]$'
-assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[full-gate, macos, wasm\]$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[changes, full-gate, macos, wasm\]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^        run: bash scripts/check-ci-results.sh$'
 assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
 # `@v1` is how a mutable tag is usually written, so matching a bare digit after
