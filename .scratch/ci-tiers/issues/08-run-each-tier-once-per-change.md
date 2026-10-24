@@ -24,3 +24,11 @@ Linux job skips `check_pull_request` and runs the native merge tier, and the WAS
 `check_wasm` and runs the browser suite. macOS still runs `check_pull_request` there, so the
 queued candidate gets one full native pass. `ci` is unchanged: every job still reports. No setting
 changes.
+
+### Merge settings
+
+The change skips steps, never jobs: on `merge_group`, `changes`, `full-gate`, `macos`, `wasm` and
+`ci` all still run, and `compile` is always `true` there. So whichever of those checks the merge
+queue's ruleset requires still reports on every queued candidate, and the setting needs no change.
+The narrower guarantee this leaves is stated in `docs/tooling.md`: Linux-only and WASM-only
+conflicts between queued pull requests surface on the push run rather than in the queue.

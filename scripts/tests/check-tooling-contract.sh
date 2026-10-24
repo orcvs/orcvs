@@ -547,6 +547,12 @@ test_merge_queue_skipping_macos_is_rejected() {
   # candidate. Skipping it there leaves the queue checking nothing native.
   perl -pi -e "s/^      - run: mise run test_midi_loopback$/      - if: github.event_name != 'merge_group'\n        run: mise run test_midi_loopback/" "$fixture_dir/.github/workflows/test.yml"
   assert_rejected "a merge queue that skips a third step"
+
+  # The count alone holds while the guard moves: two guards, one of them on
+  # macOS's native tier instead of the WASM compile.
+  make_fixture
+  perl -0pi -e "s/      - if: github.event_name != 'merge_group'\n        run: mise run check_wasm/      - run: mise run check_wasm/; s/      - run: mise run check_pull_request\n/      - if: github.event_name != 'merge_group'\n        run: mise run check_pull_request\n/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a merge queue guard moved from the WASM compile to macOS"
 }
 
 test_automatically_triggered_miri_workflow_is_rejected() {
