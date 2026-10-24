@@ -1,5 +1,5 @@
 //! The Overview: the whole Grid and its margin, one texel per Cell in the
-//! Theme's colours, docked at the right of the Source View.
+//! Theme's colours, floating over the window's bottom-right corner.
 
 use std::iter::repeat_n;
 use std::ops::Range;
@@ -10,11 +10,12 @@ use egui::{
     Color32, ColorImage, CursorIcon, Painter, PointerButton, Rect, Response, Sense, Stroke,
     StrokeKind, TextureHandle, TextureOptions, Vec2,
 };
+use orcvs::grid::Grid;
 use orcvs::render_frame::{RenderCell, RenderFrame};
 use orcvs::source::RevisionId;
 
 use super::Console;
-use super::source_view::{ShownSourceView, SourceView, extent};
+use super::source_view::{ShownSourceView, extent};
 use crate::grid_viewport::{PictureMap, SourceCellPoint, SourceCellRect};
 use crate::style::{CellColours, CursorPlacement};
 use crate::theme::{Appearance, Theme, ThemeIdentity};
@@ -87,68 +88,33 @@ impl Overview {
     }
 }
 
-///
-/// The Overview as shown in one Render Frame, for the Source View to be drawn
-/// on once the Source has been presented under that frame's Pan.
-///
-pub(super) struct ShownOverview {
-    painter: Painter,
-    picture: Rect,
-    response: Response,
-}
-
-impl ShownOverview {
-    ///
-    /// Outlines `source`'s [`ShownSourceView::outline`] on the picture:
-    /// clipped to the picture on an axis the console shows all of, and not
-    /// drawn when it shows all of both, where there is nowhere to Pan. The
-    /// stroke lies inside the outline, so a clipped edge stays on the picture.
-    ///
-    pub(super) fn outline_source_view(&self, source: &ShownSourceView, theme: &Theme) {
-        let Some(outline) = source.outline() else {
-            return;
-        };
-        self.painter.rect_stroke(
-            PictureMap::new(source.extent(), self.picture).rect_to_picture(outline),
-            0.0,
-            Stroke::new(
-                theme.overview_source_view_width.points(),
-                theme.overview_source_view,
-            ),
-            StrokeKind::Inside,
-        );
-    }
-}
-
 impl Overview {
     ///
-    /// Pans the Source View to follow a press or drag on `shown`: on the press
-    /// frame the grab is fixed from where the press landed against `source`'s
-    /// outline, and each Render Frame the button is held asks `view` to
-    /// centre on the pointer plus that grab. The Source View applies it on the
-    /// next Render Frame, inside the bounds of every Pan.
+    /// The centre a press or drag on `response` asks the Source View to Pan
+    /// to: on the press frame the grab is fixed from where the press landed
+    /// against `source`'s outline, and each Render Frame the button is held
+    /// answers the pointer plus that grab.
     ///
-    /// Nothing happens where `source` has no outline, as the Source View
+    /// Nothing is asked where `source` has no outline, as the Source View
     /// offers no Pan there either. It never selects, so the Cursor and the
     /// Region stay where they were.
     ///
-    pub(super) fn pan_source_view(
+    fn requested_centre(
         &mut self,
-        shown: &ShownOverview,
+        response: &Response,
+        picture: Rect,
         source: &ShownSourceView,
-        view: &mut SourceView,
-    ) {
+    ) -> Option<SourceCellPoint> {
         let Some(outline) = source.outline() else {
             // No press fixes a grab here, so an earlier gesture's is dropped and a
             // drag that can Pan only partway through centres on the pointer.
             self.grab = Vec2::ZERO;
-            return;
+            return None;
         };
-        let response = &shown.response;
         if let Some(pointer) = response.interact_pointer_pos()
             && response.dragged_by(PointerButton::Primary)
         {
-            let at = PictureMap::new(source.extent(), shown.picture).to_cells(pointer);
+            let at = PictureMap::new(source.extent(), picture).to_cells(pointer);
             if response.drag_started_by(PointerButton::Primary) {
                 self.grab = if outline.contains(at) {
                     outline.center() - at
@@ -156,71 +122,123 @@ impl Overview {
                     Vec2::ZERO
                 };
             }
-            view.centre_on(at + self.grab);
             response.ctx.set_cursor_icon(CursorIcon::Grabbing);
             response.ctx.request_repaint();
-        } else if response.hovered() {
-            response.ctx.set_cursor_icon(CursorIcon::Grab);
+            Some(at + self.grab)
+        } else {
+            if response.hovered() {
+                response.ctx.set_cursor_icon(CursorIcon::Grab);
+            }
+            None
         }
     }
+}
+
+///
+/// Outlines `source`'s [`ShownSourceView::outline`] on `picture`: clipped to
+/// the picture on an axis the console shows all of, and not drawn when it
+/// shows all of both, where there is nowhere to Pan. The stroke lies inside
+/// the outline, so a clipped edge stays on the picture.
+///
+fn outline_source_view(painter: &Painter, picture: Rect, source: &ShownSourceView, theme: &Theme) {
+    let Some(outline) = source.outline() else {
+        return;
+    };
+    painter.rect_stroke(
+        PictureMap::new(source.extent(), picture).rect_to_picture(outline),
+        0.0,
+        Stroke::new(
+            theme.overview_source_view_width.points(),
+            theme.overview_source_view,
+        ),
+        StrokeKind::Inside,
+    );
+}
+
+///
+/// Where the picture of `grid`'s extent lies in `window`: pinned so its
+/// corner is the window's bottom-right corner, on whole physical pixels.
+///
+/// It is square, at a whole number of physical pixels per texel, so every
+/// Cell is a crisp block of one size: the largest number up to the whole
+/// pixels per point that fits, with a `border` along its inner edges, in
+/// half the window's width and the height from `below_menu` to the window's
+/// bottom. It answers `None` where one pixel per texel does not fit.
+///
+fn place_picture(
+    window: Rect,
+    below_menu: f32,
+    border: f32,
+    grid: Grid,
+    pixels_per_point: f32,
+) -> Option<Rect> {
+    let texels = extent(grid).size();
+    let room = Vec2::new(window.width() / 2.0, window.bottom() - below_menu) - Vec2::splat(border);
+    let pixels_per_texel = pixels_per_point
+        .floor()
+        .max(1.0)
+        .min((room * pixels_per_point / texels).min_elem().floor());
+    if pixels_per_texel < 1.0 {
+        return None;
+    }
+    let side = texels * pixels_per_texel / pixels_per_point;
+    Some(Rect::from_min_size(
+        (window.max - side).round_to_pixels(pixels_per_point),
+        side,
+    ))
 }
 
 impl Console {
     ///
     /// Shows the Overview pinned to the window's bottom-right corner, when it
-    /// is open, and answers where its picture lies. It floats over the Source
-    /// and the bottom panel, so it takes no width from the Source, with no
-    /// margin: the bottom panel's border along the two edges that face the
-    /// rest of the console, and the picture filling the rest.
+    /// is open and fits below `below_menu`, the menu bar's bottom, and answers
+    /// the centre a press or drag on it asks the Source View to Pan to. It
+    /// floats over the Source and the bottom panel, so it takes no width from
+    /// the Source, with no margin: the bottom panel's border along the two
+    /// edges that face the rest of the console, and the picture filling the
+    /// rest, placed by [`place_picture`].
     ///
-    /// The picture is drawn square, at a whole number of physical pixels per
-    /// texel, on whole physical pixels, so every Cell is a crisp block of one
-    /// size: the largest number up to the whole pixels per point that fits
-    /// with its border in half the window's width and the height below the
-    /// menu bar, and none at all, answering `None`, where one pixel per texel
-    /// does not. It is not clipped to fit: a press maps to a Pan only across
-    /// the whole picture. Like every egui Area it is drawn from its second
-    /// pass, the first only measuring it, and it does not fade in. It senses
-    /// a drag and nothing else: sensing focus would put it in the Tab order,
-    /// where a focused widget keeps every key from the Source.
+    /// It marks the Region and the Cursor and outlines the Source View as the
+    /// Source was presented this Render Frame, so it is shown after the
+    /// Source. The picture is not clipped to fit: a press maps to a Pan only
+    /// across the whole picture. Like every egui Area it is drawn from its
+    /// second pass, the first only measuring it, and it does not fade in. It
+    /// senses a drag and nothing else: sensing focus would put it in the Tab
+    /// order, where a focused widget keeps every key from the Source.
     ///
     pub(super) fn show_overview(
         &mut self,
-        root: &mut egui::Ui,
+        root: &egui::Ui,
+        below_menu: f32,
         revision: RevisionId,
         frame: &RenderFrame,
         appearance: Appearance,
-    ) -> Option<ShownOverview> {
+    ) -> Option<SourceCellPoint> {
         if !self.overview_open {
             return None;
         }
         let ctx = root.ctx().clone();
-        let pixels_per_point = ctx.pixels_per_point();
-        let window = ctx.content_rect();
-        let below_menu = Rect::from_x_y_ranges(
-            window.x_range(),
-            root.available_rect_before_wrap().top()..=window.bottom(),
-        );
         // The stroke egui's panel separator draws on the bottom panel.
         let border = root.visuals().widgets.noninteractive.bg_stroke;
-        let room = (below_menu.size() * Vec2::new(0.5, 1.0) - Vec2::splat(border.width))
-            * pixels_per_point
-            / extent(frame.grid()).size();
-        let pixels_per_texel = pixels_per_point
-            .floor()
-            .max(1.0)
-            .min(room.min_elem().floor());
-        if pixels_per_texel < 1.0 {
-            return None;
-        }
+        let rect = place_picture(
+            ctx.content_rect(),
+            below_menu,
+            border.width,
+            frame.grid(),
+            ctx.pixels_per_point(),
+        )?;
         let theme = self.themes.presented(appearance);
         let texture = self
             .overview
             .texture(&ctx, revision, frame, theme, appearance);
-        let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
-        let rect = Rect::from_min_size((window.max - side).round_to_pixels(pixels_per_point), side);
+        // `place_picture` sized the picture from the extent, so whole pixels
+        // per texel hold only while the texture is drawn from that extent.
+        debug_assert_eq!(texture.size_vec2(), extent(frame.grid()).size());
+        let texture = texture.id();
+        let source = self.source_view.shown();
+        let overview = &mut self.overview;
         let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
-        let shown = egui::Area::new(egui::Id::new("overview"))
+        egui::Area::new(egui::Id::new("overview"))
             .fixed_pos(bordered.min)
             .movable(false)
             .fade_in(false)
@@ -243,21 +261,17 @@ impl Console {
                     egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source overview")
                 });
                 ui.painter().image(
-                    texture.id(),
+                    texture,
                     rect,
                     Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     Color32::WHITE,
                 );
                 let painter = ui.painter_at(rect);
                 mark_region_and_cursor(&painter, rect, frame, theme);
-                ShownOverview {
-                    painter,
-                    picture: rect,
-                    response,
-                }
+                outline_source_view(&painter, rect, &source, theme);
+                overview.requested_centre(&response, rect, &source)
             })
-            .inner;
-        Some(shown)
+            .inner
     }
 }
 
@@ -377,8 +391,12 @@ mod tests {
     use orcvs::grid::Grid;
     use orcvs::source::Tick;
 
-    use super::draw_picture;
+    use egui::{Pos2, Rect, Vec2};
+
+    use super::{draw_picture, place_picture};
+    use crate::console::menu_bar::TOP_PANEL_HEIGHT;
     use crate::console::source_view::extent;
+    use crate::console::{DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
     use crate::theme::{Theme, okabe_ito, orcvs_light};
 
     /// The margin around the Grid in texels, read from the extent.
@@ -515,5 +533,126 @@ mod tests {
         assert_ne!(dark, light);
         assert_eq!(texel(&light, 7, 1), orcvs_light().grid_background);
         assert_eq!(texel(&light, 0, 0), orcvs_light().source_function);
+    }
+
+    /// The bottom panel's separator, which borders the picture's inner edges.
+    const BORDER: f32 = 1.0;
+
+    /// The picture's rect in a window of `size` at the origin.
+    fn placed(size: Vec2, pixels_per_point: f32) -> Option<Rect> {
+        let window = Rect::from_min_size(Pos2::ZERO, size);
+        place_picture(
+            window,
+            TOP_PANEL_HEIGHT,
+            BORDER,
+            Grid::new(),
+            pixels_per_point,
+        )
+    }
+
+    ///
+    /// The 256 by 256 Grid and its two-Cell margin are 260 texels a side,
+    /// placed square at the window's bottom-right corner at a whole number of
+    /// physical pixels per texel, up to the whole pixels per point: one at 1×
+    /// and 1.5×, two at 2× and 3 at 3.5×.
+    ///
+    #[test]
+    fn the_picture_is_whole_physical_pixels_per_texel_up_to_the_whole_pixels_per_point() {
+        let window = Vec2::new(2000.0, 1400.0);
+        for (pixels_per_point, pixels_per_texel) in [(1.0, 1.0), (1.5, 1.0), (2.0, 2.0), (3.5, 3.0)]
+        {
+            let picture = placed(window, pixels_per_point)
+                .unwrap_or_else(|| panic!("at {pixels_per_point}×: the picture was not placed"));
+            let physical = picture.size() * pixels_per_point;
+            assert!(
+                (physical - Vec2::splat(260.0 * pixels_per_texel)).length() < 1e-3,
+                "at {pixels_per_point}×: the picture is {physical:?} physical pixels"
+            );
+            assert!(
+                (picture.max - window.to_pos2()).length() < 1e-3,
+                "at {pixels_per_point}×: the picture {picture:?} is not at the corner"
+            );
+        }
+    }
+
+    ///
+    /// A window whose corner is not on a whole physical pixel gets the
+    /// picture's corner rounded to one, so every texel lands on whole physical
+    /// pixels, and keeps the picture's size.
+    ///
+    #[test]
+    fn the_picture_is_placed_on_whole_physical_pixels_at_a_fractional_corner() {
+        for pixels_per_point in [1.0, 1.25, 1.5, 2.0] {
+            let window = Vec2::new(1000.3, 700.7);
+            let picture = placed(window, pixels_per_point).expect("the picture fits");
+            let physical = picture.min * pixels_per_point;
+            assert_eq!(
+                physical,
+                physical.round(),
+                "at {pixels_per_point}×: the corner {:?} is not on a whole physical pixel",
+                picture.min
+            );
+            assert!(
+                (picture.max - window.to_pos2()).length() * pixels_per_point
+                    <= 0.5_f32.hypot(0.5) + 1e-3,
+                "at {pixels_per_point}×: the picture {picture:?} is not at the corner"
+            );
+        }
+    }
+
+    ///
+    /// A window too small for the picture at its usual size gets it at the
+    /// largest whole number of physical pixels per texel that fits, in half the
+    /// window's width and the height below the menu bar, and no Overview
+    /// at all where one pixel per texel does not fit. A window that holds it
+    /// again gets it back at its usual size.
+    ///
+    #[test]
+    fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below_one() {
+        let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
+        let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 259.0);
+        let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
+        let usual = Vec2::from(DEFAULT_VIEW_SIZE);
+        for (size, pixels_per_point, pixels_per_texel) in [
+            (narrow, 2.0, Some(1.0)),
+            (narrow, 1.5, Some(1.0)),
+            (narrow, 1.0, None),
+            (short, 2.0, Some(1.0)),
+            (short, 1.0, None),
+            (smallest, 1.0, None),
+            (smallest, 2.0, Some(1.0)),
+            (usual, 1.0, Some(1.0)),
+            (usual, 1.5, Some(1.0)),
+            (usual, 2.0, Some(2.0)),
+        ] {
+            let picture = placed(size, pixels_per_point);
+            match pixels_per_texel {
+                Some(pixels_per_texel) => {
+                    let picture = picture.unwrap_or_else(|| {
+                        panic!("{size:?} at {pixels_per_point}×: the Overview is hidden")
+                    });
+                    let physical = picture.size() * pixels_per_point;
+                    assert!(
+                        (physical - Vec2::splat(260.0 * pixels_per_texel)).length() < 1e-3,
+                        "{size:?} at {pixels_per_point}×: the picture is {physical:?} physical \
+                         pixels"
+                    );
+                    assert!(
+                        picture.left() >= size.x / 2.0,
+                        "{size:?} at {pixels_per_point}×: the picture {picture:?} takes more \
+                         than half the width"
+                    );
+                    assert!(
+                        (picture.max - size.to_pos2()).length() < 1e-3,
+                        "{size:?} at {pixels_per_point}×: the picture {picture:?} is not in the \
+                         window's bottom-right corner"
+                    );
+                }
+                None => assert_eq!(
+                    picture, None,
+                    "{size:?} at {pixels_per_point}×: the Overview was shown"
+                ),
+            }
+        }
     }
 }

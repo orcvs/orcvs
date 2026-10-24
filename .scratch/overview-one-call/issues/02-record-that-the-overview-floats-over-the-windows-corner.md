@@ -4,9 +4,13 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `docs/adr/0081-the-overview-floats-over-the-windows-corner.md` exists in the repository's ADR format and amends ADR 0080.
-- [ ] ADR 0080's status line and `docs/adr/README.md` reference it.
-- [ ] No module doc or comment in `console` calls the Overview docked.
-- [ ] `RUSTDOCFLAGS="-D warnings" cargo doc --package console --no-deps --document-private-items --locked` passes.
+- [x] `docs/adr/0081-the-overview-floats-over-the-windows-corner.md` exists in the repository's ADR format and amends ADR 0080.
+- [x] ADR 0080's status line references it. (`docs/adr/README.md` keeps no list of ADRs, so it has nothing to reference it from.)
+- [x] No module doc or comment in `console` calls the Overview docked.
+- [x] `RUSTDOCFLAGS="-D warnings" cargo doc --package console --no-deps --document-private-items --locked` passes.
+
+## Comments
+
+- 2026-10-24: `docs/adr/README.md` documents numbering and keeps no list of ADRs, so 0081 is referenced from ADR 0080's status line alone. `overview.rs`'s module doc says the Overview floats over the window's corner without citing 0081, which names no constraint the code cannot show. `CONTEXT.md`'s Overview entry says it floats over the window's corner in place of "beside the Source View".

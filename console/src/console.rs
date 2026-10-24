@@ -3,13 +3,13 @@
 //! `Console::ui` composes each Render Frame from the modules that own its
 //! parts, in this order: `input` keeps Tab for the Source and routes the
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
-//! native, guards the close; `panel` shows the bottom Panel; `overview`
-//! docks the Overview at the right when it is open, and outlines the Source
-//! View on it and Pans it from a press once `source_view` has presented the
-//! Source, which `shapes` draws in the Glyphs `glyphs` lays out; `repaint` schedules the next timed
-//! Render Frame; `diagnostics_panel` fills the Panel's
-//! Diagnostics readouts; `files` asks its discard question and
-//! titles the window; `input` latches the keyboard owner; and a View menu appearance
+//! native, guards the close; `panel` shows the bottom Panel; `source_view`
+//! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays
+//! out; `overview` floats the Overview over the window's corner when it is
+//! open and answers where a press on it Pans the Source View; `repaint`
+//! schedules the next timed Render Frame; `diagnostics_panel` fills the
+//! Panel's Diagnostics readouts; `files` asks its discard question and titles
+//! the window; `input` latches the keyboard owner; and a View menu appearance
 //! change applies last, once every widget of the frame has been styled.
 
 mod diagnostics_panel;
@@ -350,6 +350,9 @@ impl eframe::App for Console {
         self.keep_tab_for_source(&ctx);
         self.observe_playback_diagnostics();
         let menu = self.show_menu_bar(root);
+        // The Overview fits below this. Nothing shown before the Overview
+        // may take room from the top, or it would overlap what does.
+        let below_menu = root.available_rect_before_wrap().top();
         // A File command chosen from the menu or by its chord, run once the
         // menu bar is done and the chords are read.
         let file_chord = self.route_keys(&ctx);
@@ -372,15 +375,12 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
-        // Outlined after the Source, from the Pan this Render Frame settled.
-        let overview = self.show_overview(root, revision, &frame, appearance);
         self.show_source_panel(root, &frame, appearance);
-        let shown = self.source_view.shown();
-        if let Some(overview) = overview {
-            overview.outline_source_view(&shown, self.themes.presented(appearance));
-            self.overview
-                .pan_source_view(&overview, &shown, &mut self.source_view);
+        // After the Source, so it outlines the Pan this Render Frame settled.
+        if let Some(centre) = self.show_overview(root, below_menu, revision, &frame, appearance) {
+            self.source_view.centre_on(centre);
         }
+        let shown = self.source_view.shown();
 
         request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));
 

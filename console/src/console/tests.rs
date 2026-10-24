@@ -12,7 +12,7 @@ use crate::grid_viewport::{
     snapped_cell,
 };
 use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
-use crate::theme::{Theme, okabe_ito, orcvs_light};
+use crate::theme::{Appearance, Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use orcvs::grid::{COL_COUNT, Grid, Position, ROW_COUNT};
 
@@ -6253,80 +6253,44 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
 }
 
 ///
-/// A window too small for the picture at its usual size gets it at the
-/// largest whole number of physical pixels per texel that fits, in half the
-/// window's width and the height below the menu bar, and no Overview
-/// at all where one pixel per texel does not fit. The View menu's choice is
-/// kept, so the Overview returns at its usual size once the window holds it.
+/// A window too small for the picture at its usual size shrinks or hides the
+/// Overview without changing the View menu's choice, so it returns at its
+/// usual size once the window holds it again, at each pixels per point.
 ///
 #[tokio::test]
-async fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below_one() {
+async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() {
     let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
     let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 259.0);
     let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
-    for (size, pixels_per_point, pixels_per_texel) in [
-        (narrow, 2.0, Some(1.0)),
-        (narrow, 1.5, Some(1.0)),
-        (narrow, 1.0, None),
-        (short, 2.0, Some(1.0)),
-        (short, 1.0, None),
-        (smallest, 1.0, None),
-        (smallest, 2.0, Some(1.0)),
+    for (size, pixels_per_point) in [
+        (narrow, 2.0),
+        (narrow, 1.5),
+        (narrow, 1.0),
+        (short, 2.0),
+        (short, 1.0),
+        (smallest, 1.0),
+        (smallest, 2.0),
     ] {
         let (ctx, mut console, mut host) = fresh_console();
         console.overview_open = true;
-        let screen = Rect::from_min_size(Pos2::ZERO, size);
-        let mut shapes = Vec::new();
-        for _ in 0..2 {
-            (shapes, _) = console_output_at(
-                &ctx,
-                screen,
-                Vec::new(),
-                &mut console,
-                &mut host,
-                pixels_per_point,
-            );
-        }
-        let image = overview_image(&shapes).map(|(_, image)| image);
-        match pixels_per_texel {
-            Some(pixels_per_texel) => {
-                let image = image.unwrap_or_else(|| {
-                    panic!("{size:?} at {pixels_per_point}×: the Overview is hidden")
-                });
-                let physical = image.size() * pixels_per_point;
-                assert!(
-                    (physical - Vec2::splat(260.0 * pixels_per_texel)).length() < 1e-3,
-                    "{size:?} at {pixels_per_point}×: the image is {physical:?} physical pixels"
-                );
-                assert!(
-                    image.left() >= screen.center().x,
-                    "{size:?} at {pixels_per_point}×: the image {image:?} takes more than half \
-                     the width"
-                );
-                assert!(
-                    (image.max - screen.max).length() < 1e-3,
-                    "{size:?} at {pixels_per_point}×: the image {image:?} is not in the window's \
-                     bottom-right corner"
+        let mut pass = |size: Vec2| {
+            let screen = Rect::from_min_size(Pos2::ZERO, size);
+            let mut shapes = Vec::new();
+            for _ in 0..2 {
+                (shapes, _) = console_output_at(
+                    &ctx,
+                    screen,
+                    Vec::new(),
+                    &mut console,
+                    &mut host,
+                    pixels_per_point,
                 );
             }
-            None => assert_eq!(
-                image, None,
-                "{size:?} at {pixels_per_point}×: the Overview was shown"
-            ),
-        }
+            overview_image(&shapes).map(|(_, image)| image)
+        };
 
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        for _ in 0..2 {
-            (shapes, _) = console_output_at(
-                &ctx,
-                screen,
-                Vec::new(),
-                &mut console,
-                &mut host,
-                pixels_per_point,
-            );
-        }
-        let (_, image) = overview_image(&shapes).unwrap_or_else(|| {
+        pass(size);
+        let image = pass(Vec2::from(DEFAULT_VIEW_SIZE)).unwrap_or_else(|| {
             panic!("{size:?} at {pixels_per_point}×: the Overview did not return")
         });
         let usual = 260.0 * pixels_per_point.floor().max(1.0);
@@ -6334,7 +6298,92 @@ async fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below
             (image.size() * pixels_per_point - Vec2::splat(usual)).length() < 1e-3,
             "{size:?} at {pixels_per_point}×: the Overview returned at {image:?}"
         );
+        assert!(
+            (image.max - Vec2::from(DEFAULT_VIEW_SIZE).to_pos2()).length() < 1e-3,
+            "{size:?} at {pixels_per_point}×: the Overview returned away from the corner at \
+             {image:?}"
+        );
+        assert!(
+            console.overview_open,
+            "{size:?} at {pixels_per_point}×: closed"
+        );
     }
+}
+
+///
+/// A press on the Overview's picture answers the centre it asks the Source
+/// View to Pan to and leaves the Source View as it was: the Pan moves only
+/// once that centre is passed to `SourceView::centre_on`, as `Console::ui`
+/// does.
+///
+#[tokio::test]
+async fn a_press_on_the_overview_answers_a_centre_and_leaves_the_source_view_to_apply_it() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.overview_open = true;
+    let mut shapes = Vec::new();
+    for _ in 0..2 {
+        (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    }
+    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let source = console.source_view.shown();
+    let map = PictureMap::new(source.extent(), picture);
+    let press = picture.center();
+    let outline = source.outline().expect("the Source View can Pan");
+    assert!(
+        !outline.contains(map.to_cells(press)),
+        "the press {press:?} lands inside the outline {outline:?}"
+    );
+    let pan = console.source_view.pan;
+
+    let revision = console.orcvs.source().revision();
+    let frame = console.orcvs.render_frame();
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        events: vec![
+            Event::PointerMoved(press),
+            Event::PointerButton {
+                pos: press,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ],
+        ..Default::default()
+    };
+    let mut answered = None;
+    let mut output = ctx.run_ui(input, |root| {
+        let appearance = Appearance::from(root.ctx().theme());
+        answered = console.show_overview(root, TOP_PANEL_HEIGHT, revision, &frame, appearance);
+    });
+    output.textures_delta.clear();
+    output.drop_without_applying_deltas();
+
+    let centre = answered.expect("the press asked for no centre");
+    assert!(
+        (centre - map.to_cells(press)).length() < 1e-3,
+        "the press asked for {centre:?}, not the pressed point {:?}",
+        map.to_cells(press)
+    );
+    assert_eq!(
+        console.source_view.pan, pan,
+        "the press moved the Source View"
+    );
+
+    console.source_view.centre_on(centre);
+    let release = vec![Event::PointerButton {
+        pos: press,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    }];
+    console_output_at(&ctx, screen, release, &mut console, &mut host, 1.0);
+    let shown = console.source_view.shown().shown();
+    assert!(
+        (shown.center() - centre).length() < 1e-3,
+        "the Source View is centred on {:?}, not the answered {centre:?}",
+        shown.center()
+    );
 }
 
 ///
