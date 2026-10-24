@@ -438,10 +438,10 @@ pub(super) fn show_source_scene(
     // pressed partway through a Region drag, which stays one. Alt is the one
     // Pan gesture the pointer can announce before it starts: a middle-drag
     // has no hover state to show, and a wheel Pan is not a grab.
-    let pannable = pannable(console.size(), padded_size);
-    if pannable && drag_panning {
+    let can_pan = pannable(console.size(), padded_size);
+    if can_pan && drag_panning {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-    } else if pannable && alt && view.region_drag.is_none() && pan.contains_pointer() {
+    } else if can_pan && alt && view.region_drag.is_none() && pan.contains_pointer() {
         ui.ctx().set_cursor_icon(CursorIcon::Grab);
     }
 

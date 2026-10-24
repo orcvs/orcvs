@@ -6456,14 +6456,22 @@ fn source_area(shapes: &[Shape], theme: &Theme) -> Rect {
 }
 
 ///
-/// The Source View as the Overview draws it: each stroked rectangle inside the
-/// Overview's picture, which nothing else strokes.
+/// The Source View as the Overview draws it in `theme`: each rectangle inside
+/// the Overview's picture stroked in the Theme's outline colour and width.
 ///
-fn source_view_outlines(shapes: &[Shape], picture: Rect) -> Vec<egui::epaint::RectShape> {
+fn source_view_outlines(
+    shapes: &[Shape],
+    picture: Rect,
+    theme: &Theme,
+) -> Vec<egui::epaint::RectShape> {
+    let stroke = egui::Stroke::new(
+        theme.overview_source_view_width.points(),
+        theme.overview_source_view,
+    );
     shapes
         .iter()
         .filter_map(|shape| match shape {
-            Shape::Rect(rect) if rect.stroke.width > 0.0 && picture.contains_rect(rect.rect) => {
+            Shape::Rect(rect) if rect.stroke == stroke && picture.contains_rect(rect.rect) => {
                 Some(rect.clone())
             }
             _ => None,
@@ -6506,9 +6514,10 @@ fn overview_pass(
 ) -> (Option<egui::epaint::RectShape>, Rect, Rect) {
     let (shapes, _) = console_output_at(ctx, screen, events, console, host, 1.0);
     let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
-    let mut outlines = source_view_outlines(&shapes, picture);
+    let theme = okabe_ito();
+    let mut outlines = source_view_outlines(&shapes, picture, &theme);
     assert!(outlines.len() <= 1, "more than one outline: {outlines:?}");
-    (outlines.pop(), picture, source_area(&shapes, &okabe_ito()))
+    (outlines.pop(), picture, source_area(&shapes, &theme))
 }
 
 ///
