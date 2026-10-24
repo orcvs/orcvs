@@ -4913,6 +4913,40 @@ async fn an_unequal_cell_is_measured_across_by_its_width_and_down_by_its_height(
 }
 
 ///
+/// Releasing a drag held past the edge does not jump the Source View to
+/// the Cursor: the frame the button comes up still scrolls at most a Cell.
+///
+#[tokio::test]
+async fn releasing_a_drag_past_the_edge_scrolls_no_more_than_a_cell() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+    let mut orcvs = running_orcvs(64, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    let from = viewport.cell_rect(20, 5).center();
+    let far = Pos2::new(screen.max.x + 400.0, from.y);
+    console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
+    // Far enough out that the Cursor is many Cells past the edge.
+    console_frame(
+        &ctx,
+        screen,
+        vec![Event::PointerMoved(far)],
+        &mut orcvs,
+        &mut view,
+    );
+
+    for events in [release_at(far), Vec::new(), Vec::new()] {
+        let before = view.pan.x;
+        console_frame(&ctx, screen, events, &mut orcvs, &mut view);
+        assert!(
+            before - view.pan.x <= CELL_SIZE.x,
+            "a frame around the release scrolled {}",
+            before - view.pan.x
+        );
+    }
+}
+
+///
 /// Alt with a primary drag, and a middle drag, Pan and leave the Region as
 /// it was.
 ///

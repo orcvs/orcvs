@@ -1019,18 +1019,21 @@ mod tests {
     }
 
     ///
-    /// Releasing a drag held past the edge does not jump the Source View to
-    /// the Cursor: the frame the button comes up still scrolls at most a Cell.
+    /// A Region drag's frames, the release frame among them, scroll at most a
+    /// Cell toward a Cursor many Cells past the edge, and the frames after
+    /// the release do not follow it in full: the paced frame already counted
+    /// the Cursor as seen.
     ///
     #[test]
-    fn releasing_a_drag_past_the_edge_scrolls_no_more_than_a_cell() {
+    fn the_frames_after_a_paced_cursor_move_do_not_follow_it_in_full() {
         let grid = Grid::with_shape(64, 32);
         let console = Vec2::new(400.0, 200.0);
         let mut view = SourceView::new(CELL_SIZE);
         view.settle(still(console, grid, (20, 5)));
         view.region_drag = grid.position(20, 5);
         // Far enough out that the Cursor, the Cell nearest the pointer, is
-        // many Cells past the edge.
+        // many Cells past the edge: column 63 ends 66 Cells along, 392
+        // points past a 400 point console.
         let far = Pos2::new(console.x + 400.0, 100.0);
 
         // The release frame still has the drag; the caller clears it after.
