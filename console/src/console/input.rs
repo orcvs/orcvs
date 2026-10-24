@@ -165,6 +165,31 @@ impl FileCommand {
 }
 
 ///
+/// The chord that shows or hides Diagnostics, on native, where `View →
+/// Diagnostics` shows it. The web binds none: the browser reserves ⌘D.
+///
+pub(super) const DIAGNOSTICS_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::D);
+
+///
+/// Whether a toolkit event is the Diagnostics chord: the command modifier
+/// and D, with no Shift or Alt and no key repeat.
+///
+#[cfg(not(target_arch = "wasm32"))]
+fn toggles_diagnostics(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Key {
+            key: Key::D,
+            pressed: true,
+            repeat: false,
+            modifiers,
+            ..
+        } if modifiers.command && !modifiers.alt && !modifiers.shift
+    )
+}
+
+///
 /// The File command a toolkit event's chord asks for, or none.
 ///
 /// Matches the command modifier with exactly the shortcut's Shift and no Alt,
@@ -267,6 +292,9 @@ impl Console {
         // keeps command-modified letters from the Source.
         #[cfg(not(target_arch = "wasm32"))]
         {
+            if ctx.input(|i| i.events.iter().any(toggles_diagnostics)) {
+                self.diagnostics_open = !self.diagnostics_open;
+            }
             ctx.input(|i| i.events.iter().find_map(file_command))
         }
         #[cfg(target_arch = "wasm32")]

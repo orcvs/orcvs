@@ -95,6 +95,8 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 #[cfg(feature = "release-capture")]
 mod capture;
 
+mod live_editing;
+
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
 ///
@@ -343,6 +345,48 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
     assert!(harness.query_by_label("FPS").is_none());
     assert_eq!(panel_rect(&harness), compact);
     assert_eq!(source_rect(&harness), compact_source);
+}
+
+///
+/// View → Diagnostics is a check box named Diagnostics, its label before its
+/// box, and the command D chord shows and hides Diagnostics as it does.
+///
+#[tokio::test]
+async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    assert!(harness.state().diagnostics_open);
+
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.run_steps(1);
+    let item = harness.get_by_label("Diagnostics");
+    let node = item.accesskit_node();
+    assert_eq!(node.role(), egui::accesskit::Role::CheckBox);
+    assert_eq!(node.toggled(), Some(egui::accesskit::Toggled::True));
+    let zoom_in = menu_item(&harness, "Zoom In").rect();
+    let diagnostics = item.rect();
+    assert_eq!(
+        (diagnostics.left(), diagnostics.right()),
+        (zoom_in.left(), zoom_in.right()),
+        "the Diagnostics item is not laid out across the menu as Zoom In is"
+    );
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
+    harness.run_steps(2);
+    assert!(
+        !harness.state().diagnostics_open,
+        "command D did not hide Diagnostics"
+    );
+    assert!(harness.query_by_label("FPS").is_none());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
+    harness.run_steps(2);
+    assert!(
+        harness.state().diagnostics_open,
+        "command D did not show Diagnostics"
+    );
 }
 
 ///
@@ -3729,6 +3773,89 @@ async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
         harness.state().shown_title.as_deref(),
         Some("Untitled — Orcvs"),
         "a Source written back to what it opened on is still marked"
+    );
+}
+
+///
+/// Opens `Help → Examples` and clicks the example named `name` in it.
+///
+fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {
+    harness.get_by_label("Help").click();
+    harness.step();
+    harness.run_steps(1);
+    // egui labels a submenu's button with its arrow.
+    harness.get_by_label("Examples ⏵").hover();
+    harness.step();
+    harness.run_steps(1);
+    harness.get_by_label(name).click();
+    harness.step();
+    harness.run_steps(2);
+}
+
+///
+/// Every `Help → Examples` item opens its shipped Source File as an
+/// Untitled, saved Source, so Save asks where to write it and the shipped
+/// file is never overwritten.
+///
+#[tokio::test]
+async fn the_help_menu_opens_every_shipped_example() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    for example in &crate::examples::EXAMPLES {
+        choose_example(&mut harness, example.name);
+        assert!(
+            !asking(&harness),
+            "{} asked over a saved Source",
+            example.name
+        );
+        assert_eq!(
+            harness.state().orcvs.source().snapshot(),
+            example.source().snapshot(),
+            "Help → Examples → {} did not open it",
+            example.name
+        );
+        assert_eq!(
+            harness.state().shown_title.as_deref(),
+            Some("Untitled — Orcvs"),
+            "{} opened with a name or as unsaved",
+            example.name
+        );
+    }
+}
+
+///
+/// An example asks before discarding unsaved changes, and cancelling
+/// changes nothing.
+///
+#[tokio::test]
+async fn an_example_asks_before_discarding_unsaved_changes() {
+    let mut harness = console_with_unsaved_changes();
+    let written = cells(harness.state());
+    let example = &crate::examples::EXAMPLES[0];
+
+    choose_example(&mut harness, example.name);
+    assert!(
+        asking(&harness),
+        "{} discarded unsaved changes unasked",
+        example.name
+    );
+    answer(&mut harness, "Cancel");
+    harness.run_steps(1);
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "cancelling changed the Source"
+    );
+
+    choose_example(&mut harness, example.name);
+    answer(&mut harness, DISCARD);
+    harness.run_steps(1);
+    assert_eq!(
+        harness.state().orcvs.source().snapshot(),
+        example.source().snapshot(),
+        "confirming did not open {}",
+        example.name
     );
 }
 
