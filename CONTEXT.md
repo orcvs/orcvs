@@ -338,6 +338,10 @@ _Avoid_: Palette, Visuals, chrome palette, colour settings, override
 The region of the Source's space the console shows, at the Source's own Cell size in points; Zoom changes how many physical pixels a point is, never that size. It shows no further than a margin of two Cells past the Grid's edges: the Grid is bounded, so its presentation is too, and the margin holds no Positions.
 _Avoid_: Canvas, camera, viewport, document, scroll position
 
+**Source Cells**:
+A place or region of the Source's space measured in Cells, columns across and rows down, from the Grid's top-left. Every Position lies on whole Source Cells, but Source Cells also name the places between Positions and the margin past the Grid's edges, which holds no Position. The Source View and the Overview each show a region of Source Cells.
+_Avoid_: Padded Cells, texel space, grid coordinates, coordinates
+
 **Pan**:
 Moving the Source View across the Source, as far as the margin past the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan. A Pan is made by wheel, middle-drag, Alt-drag, or a press or drag on the Overview.
 _Avoid_: Scroll, drag
