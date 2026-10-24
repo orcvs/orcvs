@@ -24,3 +24,4 @@ Issue 01 first. Nothing else can be measured until one run is green.
 - `issues/06-install-the-cargo-tools-as-release-binaries.md`
 - `issues/07-skip-the-compile-when-no-rust-input-changed.md`
 - `issues/08-run-each-tier-once-per-change.md`
+- `issues/09-verify-each-tool-download-against-a-recorded-checksum.md`
