@@ -311,13 +311,9 @@ fn painted(
     portals: PortalRoles,
     theme: &Theme,
 ) -> (Color32, Color32) {
-    let visuals = CellColours::new(theme).colours(fact, portals, cursor);
+    let displayed = CellColours::new(theme).displayed(fact, portals, cursor);
 
-    let grid_surface = theme.window_background.blend(theme.grid_background);
-    let effective_background =
-        grid_surface.blend(visuals.background.unwrap_or(Color32::TRANSPARENT));
-
-    (visuals.foreground, effective_background)
+    (displayed.foreground, displayed.background)
 }
 
 /// How many console-chrome states [`chrome`] measures.

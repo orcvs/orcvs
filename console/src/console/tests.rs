@@ -6753,6 +6753,8 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
     // entirely, leaving no fill to show.
     let texel = overview_cells(picture, 0..1, 0..1).width();
     let (region_at, region) = mark_at(overview_cells(picture, 9..13, 7..9), "the Region mark");
+    // The Region's mark shows where the Region is, so it is the Theme's
+    // `region.background` itself rather than any one Cell's Region fill.
     assert_eq!(region.fill, theme.region_background);
     assert_eq!(region.stroke.color, theme.region_border);
     assert!(

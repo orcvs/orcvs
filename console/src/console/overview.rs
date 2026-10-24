@@ -299,10 +299,14 @@ impl Console {
 /// Marks `frame`'s Region and then its Cursor's Cell on `picture` in the
 /// Theme's Region and Cursor fills and borders, so moving either changes no
 /// texel. A Region of one Cell is the Cursor's Cell and gets no mark of its
-/// own. The Cursor keeps its border inside a spanning Region, where the
-/// Source shows only the Region's, so the Overview always shows where the
-/// Cursor is. The Cursor's Cell is the texel the picture would draw for it
-/// at the Cursor's placement, so its fill is the one the Source gives it.
+/// own. The Region's mark shows where the Region is, not how its Cells look:
+/// it is one rect of `region.background` over the picture, so it tints Cells
+/// the Source leaves untinted inside a Region, such as a Portal's, and an
+/// opaque `region.background` hides the texels it covers. The Cursor keeps
+/// its border inside a spanning Region, where the Source shows only the
+/// Region's, so the Overview always shows where the Cursor is. The Cursor's
+/// Cell is the texel the picture would draw for it at the Cursor's placement,
+/// so its fill is the one the Source gives it.
 ///
 fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame, theme: &Theme) {
     let texel = picture.size() / padded_source(frame.grid(), Vec2::splat(1.0));
@@ -337,12 +341,7 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
     painter.rect(
         cells(cursor.x()..cursor.x() + 1, cursor.y()..cursor.y() + 1),
         0.0,
-        cell_texel(
-            &mut CellColours::new(theme),
-            frame.at(cursor),
-            placement,
-            theme.grid_background,
-        ),
+        cell_texel(&mut CellColours::new(theme), frame.at(cursor), placement),
         border(theme.cursor_border_width.points(), theme.cursor_border),
         StrokeKind::Inside,
     );
@@ -350,13 +349,15 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
 
 ///
 /// Draws `frame` into `picture` in `theme`'s colours: one texel per Cell,
-/// row by row, with the margin around the Grid as Grid background.
+/// row by row, with the margin around the Grid as the surface the Source is
+/// displayed on.
 ///
-/// Each Cell's colour is its Plain colours from the Cell colour table reduced
-/// by a fixed rule: the role's foreground where the Cell is occupied,
-/// otherwise its background where it has one, otherwise the Grid background;
-/// composited over the Grid background, as the Source draws it. The Cursor and
-/// the Region are not drawn, so moving them changes no texel.
+/// Each Cell's colour is its Plain displayed colours reduced by a fixed rule:
+/// the displayed foreground where the Cell is occupied, otherwise the
+/// displayed background. Both are composited down to the console's opaque
+/// surface, as the Source shows them, so every texel is opaque and the
+/// floating Overview never shows the Source beneath it. The Cursor and the
+/// Region are not drawn, so moving them changes no texel.
 ///
 /// `picture`'s pixels are cleared and refilled, so a picture redrawn at the
 /// same size allocates nothing.
@@ -365,8 +366,8 @@ pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage
     let grid = frame.grid();
     let width = grid.columns() + 2 * MARGIN;
     let height = grid.rows() + 2 * MARGIN;
-    let background = theme.grid_background;
     let mut colours = CellColours::new(theme);
+    let background = colours.surface();
 
     picture.size = [width, height];
     picture.source_size = egui::vec2(width as f32, height as f32);
@@ -377,7 +378,7 @@ pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage
         pixels.extend(repeat_n(background, MARGIN));
         pixels.extend(
             row.iter()
-                .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain, background)),
+                .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain)),
         );
         pixels.extend(repeat_n(background, MARGIN));
     }
@@ -385,23 +386,20 @@ pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage
 }
 
 ///
-/// The texel for `cell` at `placement`: its colours' foreground where it is
-/// occupied, otherwise its background where it has one, otherwise
-/// `background`, composited over `background` as the Source draws it.
+/// The texel for `cell` at `placement`: its displayed foreground where it is
+/// occupied, otherwise its displayed background.
 ///
 fn cell_texel(
     colours: &mut CellColours<'_>,
     cell: &RenderCell,
     placement: CursorPlacement,
-    background: Color32,
 ) -> Color32 {
-    let visuals = colours.colours(cell.source_paint(), cell.portal_roles(), placement);
-    let colour = if cell.content().is_some() {
-        visuals.foreground
+    let displayed = colours.displayed(cell.source_paint(), cell.portal_roles(), placement);
+    if cell.content().is_some() {
+        displayed.displayed_foreground()
     } else {
-        visuals.background.unwrap_or(Color32::TRANSPARENT)
-    };
-    background.blend(colour)
+        displayed.background
+    }
 }
 
 #[cfg(test)]
@@ -504,6 +502,31 @@ mod tests {
                 "column {column}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_translucent_grid_and_token_still_draw_an_opaque_picture() {
+        let mut orcvs = running_orcvs(4, 2);
+        write_row(&mut orcvs, 0, ".+");
+        let mut theme = okabe_ito();
+        theme.grid_background = Color32::from_rgba_unmultiplied(40, 60, 80, 128);
+        theme.source_function = Color32::from_rgba_unmultiplied(200, 100, 50, 128);
+        let picture = picture(&orcvs, &theme);
+
+        let surface = theme.window_background.blend(theme.grid_background);
+        assert_eq!(
+            texel(&picture, 0, 0),
+            surface
+                .blend(theme.source_function_background)
+                .blend(theme.source_function),
+            "an occupied Function Cell"
+        );
+        assert_eq!(texel(&picture, 3, 1), surface, "an empty Cell");
+        assert_eq!(picture.pixels[0], surface, "the margin");
+        assert!(
+            picture.pixels.iter().all(|texel| texel.a() == 255),
+            "a texel is translucent"
+        );
     }
 
     #[tokio::test]

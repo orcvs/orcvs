@@ -98,6 +98,24 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 };
 
 ///
+/// A Cell's colours as [`CellColours::displayed`] answers them: the opaque
+/// background it shows, and the foreground the Theme draws over it.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DisplayedColours {
+    pub(crate) background: Color32,
+    pub(crate) foreground: Color32,
+}
+
+impl DisplayedColours {
+    /// The foreground composited over the background: what a viewer sees of
+    /// an occupied Cell's Token.
+    pub(crate) fn displayed_foreground(self) -> Color32 {
+        self.background.blend(self.foreground)
+    }
+}
+
+///
 /// A Cell's whole colour decision for one Theme, built once per Paint: the
 /// Cursor, Region-Cursor, Region and base fills, each already composited over
 /// `theme.cell_background`, and [`cell_visuals`]'s answer for each fact and
@@ -122,6 +140,7 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
 ///
 pub(crate) struct CellColours<'a> {
     theme: &'a Theme,
+    surface: Color32,
     cursor_fill: Option<Color32>,
     region_cursor_fill: Option<Color32>,
     region_fill: Option<Color32>,
@@ -136,6 +155,7 @@ impl<'a> CellColours<'a> {
     pub(crate) fn new(theme: &'a Theme) -> Self {
         Self {
             theme,
+            surface: theme.window_background.blend(theme.grid_background),
             cursor_fill: compose_cell_fill(theme.cell_background, theme.cursor_background),
             region_cursor_fill: compose_cell_fill(
                 theme.cell_background,
@@ -178,6 +198,37 @@ impl<'a> CellColours<'a> {
             background,
             ..visuals
         }
+    }
+
+    ///
+    /// The colours of a Cell carrying `paint`, playing `portal_roles` and at
+    /// `placement`, as the console displays them: its background composited
+    /// over [`Self::surface`], so it is opaque, and its foreground as the
+    /// Theme gives it, drawn over that background.
+    ///
+    pub(crate) fn displayed(
+        &mut self,
+        paint: SourcePaint,
+        portal_roles: PortalRoles,
+        placement: CursorPlacement,
+    ) -> DisplayedColours {
+        let visuals = self.colours(paint, portal_roles, placement);
+        DisplayedColours {
+            background: self
+                .surface
+                .blend(visuals.background.unwrap_or(Color32::TRANSPARENT)),
+            foreground: visuals.foreground,
+        }
+    }
+
+    ///
+    /// The opaque surface every Cell is displayed on: `grid.background`
+    /// composited over `window.background`, the console's paint order under
+    /// the Source panel. It is opaque because a Theme's `window.background`
+    /// always is.
+    ///
+    pub(crate) fn surface(&self) -> Color32 {
+        self.surface
     }
 
     #[inline]
