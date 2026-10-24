@@ -554,6 +554,12 @@ the line. `.scratch/verification-gaps/issues/13-bump-the-mise-tool-pins-automati
 what that costs and the three options for closing it; the decision is about which bots run against
 the repository and what write permission they hold, so it is not one a checkout can take.
 
+Every pin in `[tools]` installs a release binary: `aqua:` where the aqua registry has the package,
+`github:` where it does not. None uses the `cargo:` backend, which compiles the tool from source
+whenever mise's cache misses. CI's mise cache is keyed on this file and saved only on `main`, so
+every pull request that edits `mise.toml` misses it, and four source builds there cost minutes of a
+job bounded at twenty. The contract rejects a `cargo:` entry.
+
 Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
 affected platform or feature gates, and `mise run audit_deps`.
 

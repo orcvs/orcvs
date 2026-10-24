@@ -155,10 +155,13 @@ assert_only_trigger() {
 }
 
 assert_contains "$root_dir/mise.toml" '^\[tools\]$'
-assert_contains "$root_dir/mise.toml" '^"cargo:cargo-nextest"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
-assert_contains "$root_dir/mise.toml" '^"cargo:cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
-assert_contains "$root_dir/mise.toml" '^"cargo:trunk"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
-assert_contains "$root_dir/mise.toml" '^"cargo:wasm-pack"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+assert_contains "$root_dir/mise.toml" '^"aqua:nextest-rs/nextest/cargo-nextest"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+assert_contains "$root_dir/mise.toml" '^"aqua:EmbarkStudios/cargo-deny"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+assert_contains "$root_dir/mise.toml" '^"github:trunk-rs/trunk"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+assert_contains "$root_dir/mise.toml" '^"github:rustwasm/wasm-pack"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
+# A `cargo:` tool compiles from source on every mise cache miss, and CI misses on
+# each pull request that edits `mise.toml`. The release binaries above cost seconds.
+assert_not_contains "$root_dir/mise.toml" '^"cargo:'
 # The roadmap suite runs through node's own test runner, so the tier that runs it
 # needs the runtime pinned here rather than inherited from whatever the machine has.
 assert_contains "$root_dir/mise.toml" '^node[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'

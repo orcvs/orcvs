@@ -503,6 +503,14 @@ test_unpinned_workflow_linter_is_rejected() {
   assert_rejected "a workflow security linter pinned only to a major version"
 }
 
+test_source_built_cargo_tool_is_rejected() {
+  make_fixture
+  # A `cargo:` tool compiles from source on every mise cache miss, and CI misses
+  # on each pull request that edits `mise.toml`.
+  perl -pi -e 's/^"github:trunk-rs\/trunk"/"cargo:trunk"/' "$fixture_dir/mise.toml"
+  assert_rejected "a cargo tool built from source instead of installed as a release binary"
+}
+
 test_automatically_triggered_miri_workflow_is_rejected() {
   # `verification-gaps/12` kept Miri as a path taken on purpose. Every trigger
   # below turns it back into something a change pays for without anyone
@@ -1197,6 +1205,7 @@ case "${1:-all}" in
   bench-floor-not-last) test_bench_floor_check_not_last_is_rejected ;;
   contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
+  source-built-cargo-tool) test_source_built_cargo_tool_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
@@ -1311,6 +1320,7 @@ case "${1:-all}" in
     test_bench_floor_check_not_last_is_rejected
     test_contract_assertions_read_their_whole_input
     test_unpinned_workflow_linter_is_rejected
+    test_source_built_cargo_tool_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected
