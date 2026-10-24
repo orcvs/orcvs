@@ -22,7 +22,7 @@ running Source while it runs and when it closes, and opens on it next time, or o
 the first time.
 
 **Help > Function Reference** replaces the running Source with one worked example of every
-Function.
+Function, asking first if the running Source has unsaved changes.
 
 To see a result of your own, follow [Your first result](docs/first-result.md). It takes a few
 minutes and needs no MIDI device.
