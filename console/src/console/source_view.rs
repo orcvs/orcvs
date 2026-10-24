@@ -473,7 +473,7 @@ pub(super) fn show_source_scene(
         Pos2::ZERO
     };
     let grid = presented_grid(origin, source_grid, cell, ui.ctx().pixels_per_point());
-    view.shown = ShownSourceView::new(&grid, console, source_grid);
+    view.shown = ShownSourceView::new(grid, console, source_grid);
 
     // The pointer offers a Pan only where there is one: not on a Grid that
     // with its margins fits the console on both axes, and not for Alt
@@ -564,9 +564,9 @@ impl ShownSourceView {
     /// The Source View presented as `viewport` in `console`, over the extent
     /// of `grid`.
     ///
-    pub(super) fn new(viewport: &GridViewport, console: Rect, grid: Grid) -> Self {
+    pub(super) fn new(viewport: GridViewport, console: Rect, grid: Grid) -> Self {
         Self {
-            viewport: *viewport,
+            viewport,
             console,
             extent: extent(grid),
         }
@@ -595,7 +595,7 @@ impl ShownSourceView {
 
     /// The region of Source Cells the console shows, unclipped.
     pub(super) fn shown(&self) -> SourceCellRect {
-        self.screen().rect_to_cells(self.console)
+        self.screen().rect_to_cells(self.console())
     }
 
     ///
@@ -603,7 +603,7 @@ impl ShownSourceView {
     /// the console shows the whole extent and so has nowhere to Pan.
     ///
     pub(super) fn outline(&self) -> Option<SourceCellRect> {
-        let console = self.console.size();
+        let console = self.console().size();
         let extent = self.extent.size() * self.screen().cell();
         let pannable = slack(console.x, extent.x).is_some() || slack(console.y, extent.y).is_some();
         pannable.then(|| self.shown().intersect(self.extent))
@@ -613,6 +613,11 @@ impl ShownSourceView {
     #[cfg(test)]
     pub(super) fn viewport(&self) -> GridViewport {
         self.viewport
+    }
+
+    /// The console area the Source was drawn in.
+    pub(super) fn console(&self) -> Rect {
+        self.console
     }
 
     /// The region of Source Cells the Source View can show.

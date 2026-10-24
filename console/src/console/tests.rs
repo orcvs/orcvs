@@ -266,7 +266,7 @@ fn diagnostics_derive_frame_rate_and_read_the_visible_region_in_source_cells() {
     };
     assert!(is_presentable(viewport.rect.min));
     assert_eq!(
-        ShownSourceView::new(&viewport, console, Grid::with_shape(32, 32)).shown(),
+        ShownSourceView::new(viewport, console, Grid::with_shape(32, 32)).shown(),
         SourceCellRect::from_min_max(
             SourceCellPoint::new(3.0, -2.0),
             SourceCellPoint::new(73.0, 18.0)
@@ -5401,7 +5401,7 @@ fn the_shown_source_view_maps_the_grids_corner_where_paint_drew_it() {
     let cell = snapped_cell(CELL_SIZE, 1.5);
     let viewport = presented_grid(Pos2::new(-40.3, 17.9), grid, cell, 1.5);
     let console = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
-    let shown = ShownSourceView::new(&viewport, console, grid);
+    let shown = ShownSourceView::new(viewport, console, grid);
 
     assert_eq!(
         shown.screen().to_screen(SourceCellPoint::new(0.0, 0.0)),
@@ -5418,7 +5418,10 @@ fn the_shown_source_view_maps_the_grids_corner_where_paint_drew_it() {
 #[test]
 fn the_source_view_has_an_outline_exactly_where_it_can_pan() {
     let grid = Grid::with_shape(32, 32);
-    let viewport = presented_grid(Pos2::ZERO, grid, CELL_SIZE, 1.0);
+    let viewport = GridViewport {
+        cell_size: CELL_SIZE,
+        rect: Rect::from_min_size(Pos2::new(24.0, 36.0), 32.0 * CELL_SIZE),
+    };
     let whole = extent(grid).size() * CELL_SIZE;
     for (console, pannable) in [
         (whole, false),
@@ -5426,7 +5429,7 @@ fn the_source_view_has_an_outline_exactly_where_it_can_pan() {
         (whole - Vec2::new(1.0, 0.0), true),
         (whole - Vec2::new(0.0, 1.0), true),
     ] {
-        let shown = ShownSourceView::new(&viewport, Rect::from_min_size(Pos2::ZERO, console), grid);
+        let shown = ShownSourceView::new(viewport, Rect::from_min_size(Pos2::ZERO, console), grid);
         let clamped = clamp_pan(Vec2::splat(-1_000.0), console, whole);
         assert_eq!(
             shown.outline().is_some(),
