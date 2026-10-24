@@ -842,6 +842,14 @@ test_pull_request_tier_without_the_inspection_feature_is_rejected() {
   assert_rejected "a pull-request tier that never compiles the inspection feature"
 }
 
+test_pull_request_tier_without_the_windows_lint_is_rejected() {
+  make_fixture
+  # No job runs on Windows, so this is the only line that compiles for it.
+  # Removing it lets a break behind `cfg(windows)` reach `main` unseen.
+  perl -pi -e 's/^(mise run check_windows)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never compiles for Windows"
+}
+
 test_caret_egui_requirement_is_rejected() {
   make_fixture
   # A caret requirement reads "0.36.2 or any later 0.36", so the lockfile is the
@@ -1206,6 +1214,7 @@ case "${1:-all}" in
   inspection-launcher-outside-inspect) test_inspection_launcher_outside_the_inspect_task_is_rejected ;;
   two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
+  windows-lint) test_pull_request_tier_without_the_windows_lint_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
   split-egui-stack) test_split_egui_stack_is_rejected ;;
   shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
@@ -1320,6 +1329,7 @@ case "${1:-all}" in
     test_inspection_launcher_outside_the_inspect_task_is_rejected
     test_two_inspection_assignments_on_one_line_is_rejected
     test_pull_request_tier_without_the_inspection_feature_is_rejected
+    test_pull_request_tier_without_the_windows_lint_is_rejected
     test_caret_egui_requirement_is_rejected
     test_split_egui_stack_is_rejected
     test_shipped_kittest_dependency_is_rejected

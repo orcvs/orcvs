@@ -267,6 +267,11 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFL
 # file compiles the feature and no test fails when it stops being compiled.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_inspection$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_inspection' '^run = .cargo clippy --package console --all-targets --features inspection --locked -- -D warnings.$'
+# No CI job runs on Windows, so this is the only compilation of the `cfg(windows)`
+# paths in midir, rfd, winit and eframe. Pinned for the reason `check_inspection`
+# is: deleting it is invisible.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_windows$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_windows' '^run = .cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked -- -D warnings.$'
 # The launcher binds loopback, and this is the assertion that keeps it there.
 # `bind_addr_from_env` maps `1`/`true` to `127.0.0.1:5719` and anything else
 # that is not empty/`0`/`false` to a `host:port`
