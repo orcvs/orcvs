@@ -1,6 +1,6 @@
 # An Overview of the whole Grid
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
