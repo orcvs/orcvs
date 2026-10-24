@@ -346,6 +346,112 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
 }
 
 ///
+/// Ticks or unticks the View menu's "Overview" checkbox.
+///
+fn toggle_overview(harness: &mut Harness<'_, Console>) {
+    harness.get_by_label("View").click();
+    harness.step();
+    harness.get_by_label("Overview").click();
+    harness.run_steps(3);
+}
+
+///
+/// View → Overview docks the Overview at the right of the Source View, which
+/// gives it the width rather than being covered, and unticking it gives the
+/// width back. A Cursor in view stays in view across both.
+///
+#[tokio::test]
+async fn the_view_menu_docks_the_overview_beside_the_source_and_keeps_the_cursor_in_view() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    assert!(
+        harness.query_by_label("Source overview").is_none(),
+        "a fresh console opened with the Overview showing"
+    );
+    let without = source_rect(&harness);
+
+    // The Cursor near the right edge, where the Overview's width lands.
+    let near_edge = Pos2::new(without.right() - 3.0 * CELL_SIZE.x, without.center().y);
+    click_at(&mut harness, near_edge);
+    harness.run_steps(1);
+    let (column, row) = cursor(harness.state());
+    assert!(column > 0, "the click did not move the Cursor");
+
+    toggle_overview(&mut harness);
+    let overview = harness.get_by_label("Source overview").rect();
+    let with = source_rect(&harness);
+    assert!(
+        with.right() <= overview.left(),
+        "the Overview {overview:?} covers the Source {with:?}"
+    );
+    assert!(with.width() < without.width());
+    assert!(
+        with.contains_rect(presented_source(&harness).cell_rect(column, row)),
+        "showing the Overview left the Cursor out of view"
+    );
+
+    toggle_overview(&mut harness);
+    assert!(
+        harness.query_by_label("Source overview").is_none(),
+        "unticking left the Overview showing"
+    );
+    assert_eq!(source_rect(&harness), without);
+    assert!(
+        without.contains_rect(presented_source(&harness).cell_rect(column, row)),
+        "hiding the Overview left the Cursor out of view"
+    );
+}
+
+///
+/// The Overview is one labelled node with no node per Cell. It senses a drag
+/// alone, so it is not focusable, and Tab still steps the Cursor.
+///
+#[tokio::test]
+async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    toggle_overview(&mut harness);
+
+    let overview = harness.get_by_label("Source overview");
+    assert_eq!(
+        overview.children().count(),
+        0,
+        "the Overview exposes child nodes"
+    );
+    let rect = overview.rect();
+    let senses: Vec<_> = harness.ctx.viewport(|viewport| {
+        viewport
+            .prev_pass
+            .widgets
+            .layers()
+            .flat_map(|(_, widgets)| widgets)
+            .filter(|widget| widget.rect == rect)
+            .map(|widget| widget.sense)
+            .collect()
+    });
+    assert_eq!(
+        senses,
+        [egui::Sense::DRAG],
+        "the Overview senses more than a drag"
+    );
+
+    let before = cursor(harness.state());
+    for _ in 0..3 {
+        harness.key_press(Key::Tab);
+        harness.run_steps(1);
+        assert!(
+            !harness.get_by_label("Source overview").is_focused(),
+            "Tab focused the Overview"
+        );
+    }
+    assert_ne!(
+        cursor(harness.state()),
+        before,
+        "Tab did not reach the Source"
+    );
+}
+
+///
 /// A fresh console shrunk to the smallest window it allows still shows the
 /// Source: the docked Diagnostics it opens with leave the Grid room for a
 /// whole row of Cells inside its margins.
@@ -365,6 +471,35 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
         source.height() >= usable,
         "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
          and its margins take"
+    );
+}
+
+///
+/// The Overview in the smallest window the console allows, beside the
+/// Diagnostics it opens with, keeps to the height beside the Source View and
+/// to half its width, so the Source keeps a row of Cells and the rest.
+///
+#[tokio::test]
+async fn the_smallest_window_fits_the_overview_beside_the_source() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE_MIN));
+    harness.state_mut().overview_open = true;
+    harness.run_steps(2);
+
+    let overview = harness.get_by_label("Source overview").rect();
+    let source = source_rect(&harness);
+    assert!(
+        overview.top() >= source.top() && overview.bottom() <= source.bottom(),
+        "the Overview {overview:?} is taller than the Source {source:?} beside it"
+    );
+    assert!(
+        overview.width() <= source.width(),
+        "the Overview {overview:?} takes more width than the Source {source:?} keeps"
+    );
+    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE;
+    assert!(
+        source.width() >= usable.x && source.height() >= usable.y,
+        "the Overview leaves the Source {source:?}, under the {usable:?} a Cell and its \
+         margins take"
     );
 }
 
