@@ -6597,22 +6597,21 @@ fn source_area(shapes: &[Shape], theme: &Theme) -> Rect {
 
 ///
 /// The Source View as the Overview draws it in `theme`: each rectangle inside
-/// the Overview's picture stroked in the Theme's outline colour, which no
-/// other mark on the picture is.
+/// the Overview's picture stroked in the Theme's outline colour and width.
 ///
 fn source_view_outlines(
     shapes: &[Shape],
     picture: Rect,
     theme: &Theme,
 ) -> Vec<egui::epaint::RectShape> {
+    let stroke = egui::Stroke::new(
+        theme.overview_source_view_width.points(),
+        theme.overview_source_view,
+    );
     shapes
         .iter()
         .filter_map(|shape| match shape {
-            Shape::Rect(rect)
-                if rect.stroke.width > 0.0
-                    && rect.stroke.color == theme.overview_source_view
-                    && picture.contains_rect(rect.rect) =>
-            {
+            Shape::Rect(rect) if rect.stroke == stroke && picture.contains_rect(rect.rect) => {
                 Some(rect.clone())
             }
             _ => None,

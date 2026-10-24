@@ -295,6 +295,11 @@ tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 name = "paint"
 harness = false
 
+# Its own binary so adding it moves none of the `paint` floors.
+[[bench]]
+name = "overview"
+harness = false
+
 # The stored value is a Source the `persistence` feature serializes; without
 # the feature there is nothing to measure.
 [[bench]]

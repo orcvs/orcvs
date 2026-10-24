@@ -154,7 +154,10 @@ impl Overview {
         cell: Vec2,
         view: &mut SourceView,
     ) {
+        // No press fixes a grab here, so an earlier gesture's is dropped and a
+        // drag that can Pan only partway through centres on the pointer.
         if !pannable(visible.size(), padded_source(grid, cell)) {
+            self.grab = Vec2::ZERO;
             return;
         }
         let response = &shown.response;

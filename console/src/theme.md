@@ -145,7 +145,7 @@ reproduces the values on this page:
 | `selection.border` | `#65E6BE` | fixed: Selection stroke (selected text, active widget border) |
 | `selection.border.rest` | `#52C3A3` | fixed: Selection stroke at rest (hovered and open widget border) |
 | `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
-| `overview.source_view` | `#FFFFFF` | decided here: the Source View's outline on the Overview, white, the lightest colour there is, and not the Cursor's `#EAEBE5` |
+| `overview.source_view` | `#FFFFFF` | decided here: the Source View's outline on the Overview, white, the lightest the Theme can draw, and not the Cursor's `#EAEBE5` |
 
 `text.muted`, `link`, `code.background` and `input.cursor` are independent
 Theme properties, not egui's own inherited defaults left unread: their
@@ -262,7 +262,7 @@ or decided here.
 | `code.background` | `#E6E6E6` | egui's own default light code-span background |
 | `input.cursor` | `#00537D` | egui's own default light text cursor and IME underline |
 | `error`, `warning` | `#90426F` | borrowed from Bang, as in Okabe–Ito |
-| `overview.source_view` | `#000000` | black, mirroring Okabe–Ito's white: the darkest colour there is, and not the Cursor's ink |
+| `overview.source_view` | `#000000` | black, mirroring Okabe–Ito's white: the darkest the Theme can draw, and not the Cursor's ink |
 
 #### What moved, and what held
 
