@@ -32,6 +32,19 @@ assert_occurs_exactly() {
   fi
 }
 
+# The line after one matching `first`, comment lines skipped, matches `next`:
+# pins a step's `if:` to the `run:` it guards rather than to the file.
+assert_line_followed_by() {
+  local file="$1"
+  local first="$2"
+  local next="$3"
+  if ! grep -Ev '^[[:space:]]*#' "$file" | awk -v first="$first" -v next_line="$next" \
+    'guarded && $0 ~ next_line { found = 1 } { guarded = ($0 ~ first) } END { exit !found }'; then
+    echo "expected $file to follow $first with: $next" >&2
+    exit 1
+  fi
+}
+
 assert_not_contains() {
   local file="$1"
   local pattern="$2"
@@ -693,7 +706,7 @@ assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull
 # decision is the script's, and it compiles for every other event and diff;
 # both halves are pinned so neither the skip nor its light tier can drift.
 assert_contains "$root_dir/.github/workflows/test.yml" '^          bash scripts/ci-compile-needed.sh >> "[$]GITHUB_OUTPUT"$'
-assert_contains "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile == 'true'$"
+assert_contains "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile == 'true' && github[.]event_name != 'merge_group'$"
 assert_contains "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile != 'true'$"
 assert_contains "$root_dir/.github/workflows/test.yml" '^        run: mise run check_docs$'
 assert_contains "$root_dir/.github/workflows/test.yml" "^    if: needs[.]changes[.]outputs[.]compile == 'true'$"
@@ -710,6 +723,14 @@ assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPON
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'ORCVS_MERGE_COMPONENT: wasm$' 1
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" 'run: mise run check_merge$' 2
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_wasm$'
+# The merge queue runs each tier once: the pull request ran the pull-request tier
+# on Linux and the WASM compile, so the queue runs the merge-only gates there and
+# macOS runs the native tier on the queued candidate. Exactly two steps skip on
+# `merge_group`, and macOS carries no such guard.
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "github[.]event_name != 'merge_group'" 2
+assert_line_followed_by "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile == 'true' && github[.]event_name != 'merge_group'$" '^        run: mise run check_pull_request$'
+assert_line_followed_by "$root_dir/.github/workflows/test.yml" "^      - if: github[.]event_name != 'merge_group'$" '^        run: mise run check_wasm$'
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^      - run: mise run check_pull_request$' 1
 # A push to `main` must not cancel an earlier commit's run. The group interpolated
 # the pull request number, which is empty on a push, so every push shared one
 # group; `dd20cba6` landed with two of three jobs cancelled and was never re-run.
@@ -721,7 +742,7 @@ assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [
 assert_contains "$root_dir/.github/workflows/test.yml" '^  merge_group:$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    types: \[checks_requested\]$'
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 3
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 7
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 8
 assert_contains "$root_dir/.github/workflows/test.yml" '^    if: always[(][)]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[changes, full-gate, macos, wasm\]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^        run: bash scripts/check-ci-results.sh$'
