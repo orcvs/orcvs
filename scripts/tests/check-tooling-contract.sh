@@ -42,7 +42,7 @@ make_fixture() {
   # set from the `$repo_root` paths below and holds `tooling.yml`'s path filter
   # against it. A fixture without it has nothing for that assertion to read.
   cp "$repo_root/scripts/tests/check-tooling-contract.sh" "$fixture_dir/scripts/tests/"
-  cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
+  cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$repo_root/rust-toolchain.toml" "$fixture_dir/"
   cp "$repo_root/console/Cargo.toml" "$repo_root/console/Trunk.toml" "$fixture_dir/console/"
   cp "$repo_root/console/assets/sw.js" "$fixture_dir/console/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
@@ -894,6 +894,18 @@ test_pull_request_tier_without_the_inspection_feature_is_rejected() {
   assert_rejected "a pull-request tier that never compiles the inspection feature"
 }
 
+test_toolchain_action_off_the_channel_is_rejected() {
+  # Every rust-toolchain action names the channel `rust-toolchain.toml` pins, at
+  # one commit. A bump of the file alone leaves the workflows behind.
+  make_fixture
+  perl -pi -e 's/^channel = "[0-9.]+"$/channel = "9.9.9"/' "$fixture_dir/rust-toolchain.toml"
+  assert_rejected "a toolchain channel the workflows' action does not name"
+
+  make_fixture
+  perl -pi -e 's/rust-toolchain@[0-9a-f]{40}/rust-toolchain\@0000000000000000000000000000000000000000/' "$fixture_dir/.github/workflows/miri.yml"
+  assert_rejected "a rust-toolchain action at a second commit"
+}
+
 test_caret_egui_requirement_is_rejected() {
   make_fixture
   # A caret requirement reads "0.36.2 or any later 0.36", so the lockfile is the
@@ -1261,6 +1273,7 @@ case "${1:-all}" in
   inspection-launcher-outside-inspect) test_inspection_launcher_outside_the_inspect_task_is_rejected ;;
   two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
+  toolchain-action-channel) test_toolchain_action_off_the_channel_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
   split-egui-stack) test_split_egui_stack_is_rejected ;;
   shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
