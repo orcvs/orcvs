@@ -6,10 +6,10 @@ The test helpers that rebuild the Source View's geometry ask the shown Source Vi
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `visible_source_region` is gone, and the readout's tests expect Cells.
-- [ ] No test helper restates the margin or the padded Source; each one left is a call on `ShownSourceView` or the map, or is deleted.
-- [ ] No test reads `SOURCE_MARGIN_CELLS`.
-- [ ] The independent oracles 03 keeps stay independent.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+- [x] `visible_source_region` is gone, and the readout's tests expect Cells.
+- [x] No test helper restates the margin or the padded Source; each one left is a call on `ShownSourceView` or the map, or is deleted.
+- [x] No test reads `SOURCE_MARGIN_CELLS`.
+- [x] The independent oracles 03 keeps stay independent.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
