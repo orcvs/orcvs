@@ -8,10 +8,33 @@ Tests that stay as wiring: `wheel_pans_a_larger_source_to_its_edges_and_a_smalle
 
 **Blocked by:** cell-geometry/02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `show_source_scene` reads egui into a `PanInput` and decides no Pan rule itself; `follow_cursor`, `overshoot` and `edge_scroll` are called only from `settle`.
-- [ ] `settle` tables pin the order: a follow and a requested centre on one frame settle at the centre; a requested centre past an edge settles at the clamp; Alt pressed during a Region drag edge-scrolls rather than Pans; a resize follows a Cursor shown in full and leaves one Panned partly out of view.
-- [ ] Edge scroll is tested for its pace and its one-Cell cap, and `repaint` is true exactly when the pointer is past the edge during a Region drag.
-- [ ] Every listed test keeps its name and what it asserts; every other existing test passes unchanged.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+- [x] `show_source_scene` reads egui into a `PanInput` and decides no Pan rule itself; `follow_cursor`, `overshoot` and `edge_scroll` are called only from `settle`.
+- [x] `settle` tables pin the order: a follow and a requested centre on one frame settle at the centre; a requested centre past an edge settles at the clamp; Alt pressed during a Region drag edge-scrolls rather than Pans; a resize follows a Cursor shown in full and leaves one Panned partly out of view.
+- [x] Edge scroll is tested for its pace and its one-Cell cap, and `repaint` is true exactly when the pointer is past the edge during a Region drag.
+- [x] Every listed test keeps its name and what it asserts; every other existing test passes unchanged.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_wasm` passes.
+
+## Comments
+
+### Implemented, 2026-10-24
+
+- **`Settled` has a fourth field, `drag_panned`.** Decision 5 names three. The Grabbing hand shows while
+  a drag Pans, and whether a primary drag Pans is the Alt-during-a-Region-drag rule. Deriving it in
+  `show_source_scene` from `PanInput` would restate that rule there, so the settle answers it.
+- **The `settle` tests live in `source_view.rs`'s own `tests` module**, not `console/src/console/tests.rs`.
+  A Region drag in progress is the private `region_drag` field, which `show_source_scene` sets from the
+  painted `GridViewport`; only a test inside the module can set it without a seam in shipped code.
+- **All eleven listed tests converted.** None asserted more than the Pan. The two zoom tests also checked
+  that the `console_pass` fixture ran at the zoom it asked for (`ctx.zoom_factor()`, the viewport's Cell).
+  Those are checks on the egui pass, which a `settle` test no longer makes; the zoom reaches `settle`
+  as the console's size and `snapped_cell` at that scale, and `a_zoom_that_would_open_a_gap_…` keeps
+  its check that the snapped Cell is unchanged. The egui zoom wiring stays covered by
+  `a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it` and
+  `a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_show_it`.
+- **`releasing_a_drag_past_the_edge_scrolls_no_more_than_a_cell`** now plays the release as the caller
+  does: the first frame settles with the Region drag still set, then the test clears it, as
+  `show_source_scene` does once the button is up.
+- `ShownSourceView::outline` and `settle`'s `can_pan` share one predicate, `pannable`, over the same
+  `slack` the clamp uses.
