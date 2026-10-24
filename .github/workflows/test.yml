@@ -45,10 +45,6 @@ jobs:
         env:
           CI_EVENT: ${{ github.event_name }}
         run: |
-          if [ "$CI_EVENT" = pull_request ]; then
-            CHANGED_FILES="$(git diff --name-only HEAD^1 HEAD)"
-            export CHANGED_FILES
-          fi
           bash scripts/ci-compile-needed.sh >> "$GITHUB_OUTPUT"
 
   full-gate:

@@ -531,6 +531,14 @@ test_compile_skipped_for_non_markdown_is_rejected() {
   make_fixture
   perl -pi -e 's/^        run: mise run check_docs$/        run: echo nothing/' "$fixture_dir/.github/workflows/test.yml"
   assert_rejected "a skipped compile that no longer runs the contract and planner"
+
+  make_fixture
+  perl -pi -e 's/ --no-renames//' "$fixture_dir/scripts/ci-compile-needed.sh"
+  assert_rejected "a compile decision that reads a renamed Rust file as Markdown"
+
+  make_fixture
+  perl -pi -e 's/^mise run check_docs$/node scripts\/roadmap.ts > \/dev\/null/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that copies the Markdown gates instead of running check_docs"
 }
 
 test_automatically_triggered_miri_workflow_is_rejected() {
