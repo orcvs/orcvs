@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792823360475,
+  "lastUpdate": 1792823369425,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -117669,6 +117669,135 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/da86b474a2971bd69351389f0c8f6e51efd713ba"
         },
         "date": 1792821609596,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 1,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 2,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled blocks",
+            "value": 38880,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled bytes",
+            "value": 15647309,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled blocks",
+            "value": 38880,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled bytes",
+            "value": 15647309,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 3501,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 8,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 4832,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 3629,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 17,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 13013,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 3885,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 29,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 28642,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5426868cadbc3303c3c9fb1f341cd99f2a2c89d8",
+          "message": "Merge pull request #300 from orcvs/claude/theme-example-covers-catalogue\n\nCheck the Theme tests' key lists against the catalogue",
+          "timestamp": "2026-10-24T06:12:56Z",
+          "tree_id": "064d9371234b18af0e67b88196883ca6146d4a9c",
+          "url": "https://github.com/orcvs/orcvs/commit/5426868cadbc3303c3c9fb1f341cd99f2a2c89d8"
+        },
+        "date": 1792823369353,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
