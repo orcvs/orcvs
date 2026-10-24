@@ -808,6 +808,65 @@ mod tests {
     const OKABE_ITO_COPY_TOML: &str =
         include_str!("../../.scratch/theming/examples/okabe-ito-copy.toml");
 
+    ///
+    /// Every property name `style_catalogue` spells: the two optional fills,
+    /// then each key enum's, in the catalogue's order.
+    ///
+    macro_rules! catalogue_names {
+        ($($group:ident { $($variant:ident($field:ident) => $name:literal),* $(,)? })*) => {
+            &[$($($name,)*)*]
+        };
+    }
+
+    const CATALOGUE_NAMES: &[&str] = crate::theme::style_catalogue!(catalogue_names);
+
+    /// How many properties each part of `style_catalogue` holds.
+    struct CatalogueCounts {
+        fills: usize,
+        colors: usize,
+        grid_widths: usize,
+        chrome_widths: usize,
+    }
+
+    macro_rules! catalogue_counts {
+        (
+            OptionalFill { $($fill:ident($fill_field:ident) => $fill_name:literal),* $(,)? }
+            ColorKey { $($color:ident($color_field:ident) => $color_name:literal),* $(,)? }
+            GridWidthKey { $($grid:ident($grid_field:ident) => $grid_name:literal),* $(,)? }
+            ChromeWidthKey { $($chrome:ident($chrome_field:ident) => $chrome_name:literal),* $(,)? }
+        ) => {
+            CatalogueCounts {
+                fills: [$($fill_name),*].len(),
+                colors: [$($color_name),*].len(),
+                grid_widths: [$($grid_name),*].len(),
+                chrome_widths: [$($chrome_name),*].len(),
+            }
+        };
+    }
+
+    const CATALOGUE_COUNTS: CatalogueCounts = crate::theme::style_catalogue!(catalogue_counts);
+
+    /// The `"name" = value` lines of an example document, as name and value.
+    fn example_entries(toml: &str) -> Vec<(&str, &str)> {
+        toml.lines()
+            .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
+            .collect()
+    }
+
+    ///
+    /// Asserts `entries` names every catalogue property once and nothing
+    /// else, in any order. A document inherits what it omits from its parent,
+    /// so an example that resolves to its parent proves nothing about the
+    /// properties it leaves out.
+    ///
+    fn assert_spells_the_catalogue(entries: &[(&str, &str)]) {
+        let mut names = entries.iter().map(|&(name, _)| name).collect::<Vec<_>>();
+        names.sort_unstable();
+        let mut catalogue = CATALOGUE_NAMES.to_vec();
+        catalogue.sort_unstable();
+        assert_eq!(names, catalogue);
+    }
+
     fn my_dark() -> ThemeDocument {
         ThemeDocument {
             parent: "okabe-ito".to_owned(),
@@ -913,10 +972,8 @@ mod tests {
     ///
     #[test]
     fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
+        assert_spells_the_catalogue(&example_entries(OKABE_ITO_COPY_TOML));
         let document = decodes(OKABE_ITO_COPY_TOML);
-        assert_eq!(document.colors.len(), 48);
-        assert_eq!(document.grid_widths.len(), 9);
-        assert_eq!(document.chrome_widths.len(), 6);
         assert_eq!(document.cursor_background, Some(OptionalFill::None));
         assert_eq!(document.region_cursor_background, Some(OptionalFill::None));
         assert_eq!(document.appearance, Some(Appearance::Dark));
@@ -931,18 +988,15 @@ mod tests {
     }
 
     ///
-    /// Each of the example's 65 property names, alone in a document, sets
-    /// exactly one property, whose key spells that name — and the 65 reach
-    /// 65 different properties, so every catalogue entry is reachable by
+    /// Each catalogue property name, alone in a document at the example's
+    /// value, sets exactly one property, whose key spells that name — and no
+    /// two reach the same property, so every catalogue entry is reachable by
     /// its own spelling and by no other.
     ///
     #[test]
     fn every_catalogue_property_name_selects_its_own_property() {
-        let entries = OKABE_ITO_COPY_TOML
-            .lines()
-            .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
-            .collect::<Vec<_>>();
-        assert_eq!(entries.len(), 65, "48 colours, 2 optional fills, 15 widths");
+        let entries = example_entries(OKABE_ITO_COPY_TOML);
+        assert_spells_the_catalogue(&entries);
         let mut reached = Vec::new();
         for (name, value) in entries {
             let document = decodes(&style(&[(name, value)]));
@@ -991,10 +1045,10 @@ mod tests {
     #[test]
     fn a_style_that_is_not_a_table_is_refused() {
         let in_order = [
-            ["\"#FFFFFF\""; 48].as_slice(),
-            &["0.5"; 9],
-            &["1"; 5],
-            &["\"none\""; 2],
+            vec!["\"#FFFFFF\""; CATALOGUE_COUNTS.colors],
+            vec!["0.5"; CATALOGUE_COUNTS.grid_widths],
+            vec!["1"; CATALOGUE_COUNTS.chrome_widths],
+            vec!["\"none\""; CATALOGUE_COUNTS.fills],
         ]
         .concat()
         .join(", ");
@@ -2004,8 +2058,7 @@ mod tests {
         // Each key beside the field a reader addresses by name, written here
         // rather than taken from `style_catalogue!`, so a key routed to the
         // wrong field fails even though the macro's reader and writer agree.
-        // Keep it in step with the catalogue's `ColorKey` list, whose count
-        // the array's length restates.
+        // The catalogue's count is what says the list is complete.
         let fields: [(ColorKey, Field<Color32>); 48] = [
             (ColorKey::WindowBackground, |theme| theme.window_background),
             (ColorKey::PanelBackground, |theme| theme.panel_background),
@@ -2092,6 +2145,7 @@ mod tests {
                 theme.overview_source_view
             }),
         ];
+        assert_eq!(fields.len(), CATALOGUE_COUNTS.colors);
 
         for &(key, field) in &fields {
             let colour = Color32::from_rgb(1, 2, 3);
@@ -2181,6 +2235,8 @@ mod tests {
                 theme.overview_source_view_width.points()
             }),
         ];
+        assert_eq!(grid_fields.len(), CATALOGUE_COUNTS.grid_widths);
+        assert_eq!(chrome_fields.len(), CATALOGUE_COUNTS.chrome_widths);
         let every_field: Vec<Field<f32>> = grid_fields
             .iter()
             .map(|&(_, field)| field)
