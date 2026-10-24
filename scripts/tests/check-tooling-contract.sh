@@ -504,11 +504,20 @@ test_unpinned_workflow_linter_is_rejected() {
 }
 
 test_source_built_cargo_tool_is_rejected() {
-  make_fixture
   # A `cargo:` tool compiles from source on every mise cache miss, and CI misses
   # on each pull request that edits `mise.toml`.
-  perl -pi -e 's/^"github:trunk-rs\/trunk"/"cargo:trunk"/' "$fixture_dir/mise.toml"
+  # Each case keeps the four release-binary pins, so only the ban can reject it.
+  make_fixture
+  perl -pi -e 's/^\[tools\]$/[tools]\n"cargo:foo" = "1.0.0"/' "$fixture_dir/mise.toml"
   assert_rejected "a cargo tool built from source instead of installed as a release binary"
+
+  make_fixture
+  perl -pi -e "s/^\\[tools\\]\$/[tools]\n'cargo:foo' = \"1.0.0\"/" "$fixture_dir/mise.toml"
+  assert_rejected "a single-quoted cargo tool"
+
+  make_fixture
+  printf '\n[tools."cargo:foo"]\nversion = "1.0.0"\n' >> "$fixture_dir/mise.toml"
+  assert_rejected "a cargo tool declared as a table"
 }
 
 test_automatically_triggered_miri_workflow_is_rejected() {

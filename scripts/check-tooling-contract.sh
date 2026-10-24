@@ -161,7 +161,8 @@ assert_contains "$root_dir/mise.toml" '^"github:trunk-rs/trunk"[[:space:]]*=[[:s
 assert_contains "$root_dir/mise.toml" '^"github:rustwasm/wasm-pack"[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'
 # A `cargo:` tool compiles from source on every mise cache miss, and CI misses on
 # each pull request that edits `mise.toml`. The release binaries above cost seconds.
-assert_not_contains "$root_dir/mise.toml" '^"cargo:'
+# Matched as a key in either quote style and as a `[tools."cargo:…"]` table.
+assert_not_contains "$root_dir/mise.toml" '^[[:space:]]*([[]tools[.])?["'"'"']cargo:'
 # The roadmap suite runs through node's own test runner, so the tier that runs it
 # needs the runtime pinned here rather than inherited from whatever the machine has.
 assert_contains "$root_dir/mise.toml" '^node[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"$'

@@ -3,12 +3,8 @@
 
 # Pinned for reproducible local and CI gates. See docs/tooling.md.
 #
-# The four cargo tools install from their upstream release binaries rather than
-# through the `cargo:` backend. `cargo:` compiles each one from source whenever
-# mise's cache misses, and CI's misses on every pull request that edits this
-# file. That compile takes minutes of a job bounded at twenty; a download takes
-# seconds.
-# `aqua:` where the aqua registry has the package, `github:` where it does not.
+# Every tool installs a pinned release binary: `aqua:` where the aqua registry
+# has the package, `github:` where it does not.
 [tools]
 "aqua:nextest-rs/nextest/cargo-nextest" = "0.9.137"
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
