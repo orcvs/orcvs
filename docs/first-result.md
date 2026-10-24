@@ -112,6 +112,7 @@ press **Command Shift R** on macOS, or **Ctrl Shift R** on Linux and Windows, be
 
 - **Help > Function Reference** replaces the running Source with one worked example of every
   Function. Playing it shows each result being written.
+- The [Function reference](functions.md) describes every Function, with an example you can type.
 - [`CONTEXT.md`](../CONTEXT.md) defines each term this walkthrough used: Source, Grid, Cell,
   Expression, Function, Number, Tick, Playback.
 - Sound needs a MIDI destination chosen under the Panel's **O** and a Function that sends MIDI,

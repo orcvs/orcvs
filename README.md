@@ -31,6 +31,8 @@ minutes and needs no MIDI device.
 
 - [`CONTEXT.md`](CONTEXT.md) is the glossary: Source, Grid, Cell, Function, Tick, Portal and the
   rest.
+- [Function reference](docs/functions.md) lists every Function with its operands, what it does,
+  and an example checked against the language.
 - [`docs/adr/`](docs/adr/) records each language and architecture decision.
 - [`console/assets/function_reference.orcvs`](console/assets/function_reference.orcvs) is the Source
   the Function Reference opens.
