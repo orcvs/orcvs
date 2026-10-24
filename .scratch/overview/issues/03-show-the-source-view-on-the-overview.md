@@ -7,6 +7,6 @@
 **Status:** ready-for-agent
 
 - [ ] Built test-first at the Shape level: the outline is the Source View's visible region in Source points, offset by the margin and scaled to the Overview — not the visible Positions, which carry an extra Cell each side — at its predicted rect after a Pan and after a Zoom; clipped on an axis with nowhere to Pan; absent when neither axis can Pan.
-- [ ] The outline key is added to the Theme's style catalogue, the Theme schema and both built-in Themes within ADR 0053's chrome width bounds; a custom Theme missing it is refused as any missing key is.
+- [ ] The outline key is added to the Theme's style catalogue, the Theme schema and both built-in Themes within ADR 0053's chrome width bounds; a custom Theme that leaves it out inherits its parent's value, as any omitted key does, and one that sets its width out of bounds is refused.
 - [ ] Nothing on the Overview animates.
 - [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass; `mise run check_wasm` passes.

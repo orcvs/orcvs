@@ -30,4 +30,4 @@ A stored Source keeps the Grid it was stored with. Nothing resizes a Grid, so a 
 
 ## Amendment, 2026-10-23: the Overview Pans
 
-The Pan gestures above are wheel or two-finger scroll, middle-drag, and Alt with a primary drag. A press or drag on the Overview is a fourth, recorded in [ADR 0080](0080-the-overview-pans-over-a-cached-picture.md). It is bounded by the same margin and, like the others, never moves the Cursor.
+The Decision above names three Pan gestures: wheel or two-finger scroll, middle-drag, and Alt (Option) with a primary drag. [ADR 0046](0046-the-primary-drag-selects-a-region.md) keeps them while giving the plain primary drag to Region selection, and [ADR 0047](0047-the-source-view-has-a-margin.md) adds the pointer cursors they show. A press or drag on the Overview is a fourth, recorded in [ADR 0080](0080-the-overview-pans-over-a-cached-picture.md). It is bounded by the same margin and, like the others, never moves the Cursor.
