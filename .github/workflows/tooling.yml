@@ -24,6 +24,7 @@ on:
     paths:
       - 'mise.toml'
       - 'Cargo.toml'
+      - 'rust-toolchain.toml'
       - 'lang/Cargo.toml'
       - 'orcvs/Cargo.toml'
       - 'console/Cargo.toml'
@@ -46,6 +47,7 @@ on:
     paths:
       - 'mise.toml'
       - 'Cargo.toml'
+      - 'rust-toolchain.toml'
       - 'lang/Cargo.toml'
       - 'orcvs/Cargo.toml'
       - 'console/Cargo.toml'

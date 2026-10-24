@@ -42,7 +42,7 @@ make_fixture() {
   # set from the `$repo_root` paths below and holds `tooling.yml`'s path filter
   # against it. A fixture without it has nothing for that assertion to read.
   cp "$repo_root/scripts/tests/check-tooling-contract.sh" "$fixture_dir/scripts/tests/"
-  cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$fixture_dir/"
+  cp "$repo_root/mise.toml" "$repo_root/Cargo.toml" "$repo_root/rust-toolchain.toml" "$fixture_dir/"
   cp "$repo_root/console/Cargo.toml" "$repo_root/console/Trunk.toml" "$fixture_dir/console/"
   cp "$repo_root/console/assets/sw.js" "$fixture_dir/console/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
@@ -850,6 +850,14 @@ test_pull_request_tier_without_the_windows_lint_is_rejected() {
   assert_rejected "a pull-request tier that never compiles for Windows"
 }
 
+test_toolchain_without_the_windows_target_is_rejected() {
+  make_fixture
+  # The Windows lint needs the target's standard library, which rustup installs
+  # from the toolchain file. Without the entry the lint fails only when it runs.
+  perl -pi -e 's/, "x86_64-pc-windows-msvc"//' "$fixture_dir/rust-toolchain.toml"
+  assert_rejected "a toolchain that does not install the Windows target"
+}
+
 test_caret_egui_requirement_is_rejected() {
   make_fixture
   # A caret requirement reads "0.36.2 or any later 0.36", so the lockfile is the
@@ -1215,6 +1223,7 @@ case "${1:-all}" in
   two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
   windows-lint) test_pull_request_tier_without_the_windows_lint_is_rejected ;;
+  windows-target) test_toolchain_without_the_windows_target_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
   split-egui-stack) test_split_egui_stack_is_rejected ;;
   shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
@@ -1330,6 +1339,7 @@ case "${1:-all}" in
     test_two_inspection_assignments_on_one_line_is_rejected
     test_pull_request_tier_without_the_inspection_feature_is_rejected
     test_pull_request_tier_without_the_windows_lint_is_rejected
+    test_toolchain_without_the_windows_target_is_rejected
     test_caret_egui_requirement_is_rejected
     test_split_egui_stack_is_rejected
     test_shipped_kittest_dependency_is_rejected

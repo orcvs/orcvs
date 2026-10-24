@@ -123,10 +123,14 @@ description = "Lint the shipped crates for the Windows target"
 #
 # `--lib --bins` rather than `--all-targets`. The test and bench targets pull
 # in criterion, whose `alloca` build script compiles C for the target and needs
-# `lib.exe` or `clang-cl`; the shipped crates build no target-side C. Default
-# features only: `persistence` is what turns eframe's Windows storage path on,
-# and turning it off removes Windows code rather than adding any.
-run = 'cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked -- -D warnings'
+# `lib.exe` or `clang-cl`; the shipped crates build no target-side C. The pair
+# is default-features then `--no-default-features`, as everywhere else in the
+# tier, so a `cfg(windows)` fallback that only the feature-off build reaches is
+# linted too.
+run = '''
+cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked -- -D warnings
+cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --no-default-features --locked -- -D warnings
+'''
 
 [tasks.test]
 alias = 't'

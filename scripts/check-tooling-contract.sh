@@ -271,7 +271,12 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_inspection' '^run = .carg
 # paths in midir, rfd, winit and eframe. Pinned for the reason `check_inspection`
 # is: deleting it is invisible.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_windows$'
-assert_toml_task_contains "$root_dir/mise.toml" 'check_windows' '^run = .cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked -- -D warnings.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_windows' '^cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked -- -D warnings$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_windows' '^cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --no-default-features --locked -- -D warnings$'
+# The lint needs the target's standard library. rustup installs the toolchain
+# file's `targets` with the pinned channel, which is also how the WASM job gets
+# `wasm32-unknown-unknown`; without the entry the line fails with E0463.
+assert_contains "$root_dir/rust-toolchain.toml" '^targets = .*"x86_64-pc-windows-msvc"'
 # The launcher binds loopback, and this is the assertion that keeps it there.
 # `bind_addr_from_env` maps `1`/`true` to `127.0.0.1:5719` and anything else
 # that is not empty/`0`/`false` to a `host:port`
