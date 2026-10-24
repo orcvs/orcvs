@@ -85,8 +85,8 @@ impl GridWidth {
 }
 
 ///
-/// A chrome (panel/widget/selection/input-caret) stroke width in display
-/// points: 0 to 2 inclusive (`schema.md`'s width catalogue).
+/// A chrome (panel/widget/selection/input-caret/Overview outline) stroke
+/// width in display points: 0 to 2 inclusive (`schema.md`'s width catalogue).
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ChromeWidth(f32);
@@ -100,7 +100,7 @@ impl ChromeWidth {
     }
 
     /// Consumed by `style.rs::style`'s chrome borders, input caret and IME
-    /// underline widths.
+    /// underline widths, and by the Source View's outline on the Overview.
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -179,6 +179,7 @@ macro_rules! style_catalogue {
                 InputCursor(input_cursor) => "input.cursor",
                 Error(error) => "error",
                 Warning(warning) => "warning",
+                OverviewSourceView(overview_source_view) => "overview.source_view",
             }
             GridWidthKey {
                 GridBorder(grid_border_width) => "grid.border.width",
@@ -197,6 +198,7 @@ macro_rules! style_catalogue {
                 WidgetBorder(widget_border_width) => "widget.border.width",
                 WidgetInactiveBorder(widget_inactive_border_width) => "widget.inactive.border.width",
                 InputCursor(input_cursor_width) => "input.cursor.width",
+                OverviewSourceView(overview_source_view_width) => "overview.source_view.width",
             }
         }
     };
@@ -283,6 +285,8 @@ pub struct Theme {
     pub(crate) input_cursor: Color32,
     pub(crate) error: Color32,
     pub(crate) warning: Color32,
+    /// The Source View's outline on the Overview.
+    pub(crate) overview_source_view: Color32,
 
     /// Omitted in a document: inherit the parent's value. `None` here: the
     /// optional fill is cleared, enabling its existing fallback. `Some`: an
@@ -306,6 +310,7 @@ pub struct Theme {
     pub(crate) widget_border_width: ChromeWidth,
     pub(crate) widget_inactive_border_width: ChromeWidth,
     pub(crate) input_cursor_width: ChromeWidth,
+    pub(crate) overview_source_view_width: ChromeWidth,
 }
 
 impl Theme {
@@ -475,6 +480,7 @@ pub fn okabe_ito() -> Theme {
         input_cursor: straight_rgba(0xC0_DE_FF_FF),
         error: straight_rgba(0xCC_79_A7_FF),
         warning: straight_rgba(0xCC_79_A7_FF),
+        overview_source_view: straight_rgba(0xFF_FF_FF_FF),
 
         cursor_background: None,
         region_cursor_background: None,
@@ -494,6 +500,7 @@ pub fn okabe_ito() -> Theme {
         widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
         input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
+        overview_source_view_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
     }
 }
 
@@ -600,6 +607,7 @@ pub fn orcvs_light() -> Theme {
         input_cursor: straight_rgba(0x00_53_7D_FF),
         error: straight_rgba(0x90_42_6F_FF),
         warning: straight_rgba(0x90_42_6F_FF),
+        overview_source_view: straight_rgba(0x00_00_00_FF),
 
         cursor_background: None,
         region_cursor_background: None,
@@ -619,6 +627,7 @@ pub fn orcvs_light() -> Theme {
         widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
         input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
+        overview_source_view_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
     }
 }
 
@@ -704,6 +713,7 @@ mod tests {
         assert_eq!(theme.input_cursor, straight_rgba(0xC0_DE_FF_FF));
         assert_eq!(theme.error, straight_rgba(0xCC_79_A7_FF));
         assert_eq!(theme.warning, straight_rgba(0xCC_79_A7_FF));
+        assert_eq!(theme.overview_source_view, straight_rgba(0xFF_FF_FF_FF));
 
         assert_eq!(theme.cursor_background, None);
         assert_eq!(theme.region_cursor_background, None);
@@ -722,6 +732,7 @@ mod tests {
         assert_eq!(theme.widget_border_width.points(), 1.0);
         assert_eq!(theme.widget_inactive_border_width.points(), 0.0);
         assert_eq!(theme.input_cursor_width.points(), 2.0);
+        assert_eq!(theme.overview_source_view_width.points(), 1.0);
     }
 
     ///
@@ -871,6 +882,7 @@ mod tests {
         assert_eq!(theme.input_cursor, straight_rgba(0x00_53_7D_FF));
         assert_eq!(theme.error, straight_rgba(0x90_42_6F_FF));
         assert_eq!(theme.warning, straight_rgba(0x90_42_6F_FF));
+        assert_eq!(theme.overview_source_view, straight_rgba(0x00_00_00_FF));
 
         // Shared with Okabe–Ito: both optional Cursor fills are cleared.
         assert_eq!(theme.cursor_background, None);
@@ -892,6 +904,7 @@ mod tests {
         assert_eq!(theme.widget_border_width.points(), 1.0);
         assert_eq!(theme.widget_inactive_border_width.points(), 0.0);
         assert_eq!(theme.input_cursor_width.points(), 2.0);
+        assert_eq!(theme.overview_source_view_width.points(), 1.0);
     }
 
     ///

@@ -97,6 +97,7 @@ property or production test seam is introduced.
 | `input.cursor` | `#C0DEFF` |
 | `error` | `#CC79A7` |
 | `warning` | `#CC79A7` |
+| `overview.source_view` | `#FFFFFF` |
 
 | Width property | Default, display points | Inclusive range |
 |---|---:|---|
@@ -114,6 +115,7 @@ property or production test seam is introduced.
 | `widget.border.width` | 1 | 0–2 |
 | `widget.inactive.border.width` | 0 | 0–2 |
 | `input.cursor.width` | 2 | 0–2 |
+| `overview.source_view.width` | 1 | 0–2 |
 
 Zero width suppresses that stroke, not fills or other strokes; a Source Cell border of zero width withdraws from its edges, so the next fact's line shows there. Diagnostic/Portal
 width defaults to 0.5 while its transparent colour preserves the current absence.
@@ -159,6 +161,7 @@ built-in colours but no longer borrow the live Bang property.
 | Inactive IME underline | Same width; existing half-linear colour attenuation |
 | Links; code spans | `link`; `code.background` |
 | Error/warning messages | `error`; `warning` |
+| The Source View's outline on the Overview | `overview.source_view`, `overview.source_view.width` |
 
 Disabled widget opacity remains the existing 0.5 toolkit operation applied to
 Theme-derived colours. Icon/foreground stroke geometry, corner radii, layout,

@@ -75,6 +75,11 @@ pub(super) struct SourceView {
     previous_console: Option<(Vec2, Vec2)>,
     /// Where the Source's own top-left was presented on the last frame.
     pub(super) origin: Pos2,
+    /// The point of the padded Source, in Cells from its top-left, that the
+    /// next Render Frame centres the console on, when one has been asked for.
+    /// Counted in Cells so [`show_source_scene`] measures it with the Cell it
+    /// snaps that Render Frame, and bounds it by the same clamp as every Pan.
+    requested_centre: Option<Pos2>,
 }
 
 impl SourceView {
@@ -87,8 +92,36 @@ impl SourceView {
             region_drag: None,
             previous_console: None,
             origin: Pos2::ZERO,
+            requested_centre: None,
         }
     }
+
+    ///
+    /// Asks the next Render Frame to Pan the console's centre onto `point`, a
+    /// point of the padded Source in Cells from its top-left. A later request
+    /// before that frame replaces this one. It is a Pan alone, so it moves no
+    /// Cursor and is not pulled back to it.
+    ///
+    pub(super) fn centre_on(&mut self, point: Pos2) {
+        self.requested_centre = Some(point);
+    }
+}
+
+///
+/// The padded Source's size in points: the Grid at `cell` with a margin of
+/// [`SOURCE_MARGIN_CELLS`] on every side.
+///
+pub(super) fn padded_source(grid: Grid, cell: Vec2) -> Vec2 {
+    (Vec2::new(grid.columns() as f32, grid.rows() as f32) + Vec2::splat(2.0 * SOURCE_MARGIN_CELLS))
+        * cell
+}
+
+///
+/// Whether a console of `console` points has somewhere to Pan over a padded
+/// Source of `padded` points: on either axis the padded Source is larger.
+///
+pub(super) fn pannable(console: Vec2, padded: Vec2) -> bool {
+    padded.x > console.x || padded.y > console.y
 }
 
 ///
@@ -413,8 +446,13 @@ pub(super) fn show_source_scene(
         }
     }
 
-    let source_size = Vec2::new(source_grid.columns() as f32, source_grid.rows() as f32) * cell;
-    let padded_size = source_size + 2.0 * margin;
+    // A requested centre places the padded Source outright, after any follow
+    // of this frame, so the clamp below bounds it as it bounds every Pan.
+    if let Some(centre) = view.requested_centre.take() {
+        view.pan = console.size() / 2.0 - centre.to_vec2() * cell;
+    }
+
+    let padded_size = padded_source(source_grid, cell);
     view.pan = clamp_pan(view.pan, console.size(), padded_size);
 
     // The pointer offers a Pan only where there is one: not on a Grid that
@@ -422,10 +460,10 @@ pub(super) fn show_source_scene(
     // pressed partway through a Region drag, which stays one. Alt is the one
     // Pan gesture the pointer can announce before it starts: a middle-drag
     // has no hover state to show, and a wheel Pan is not a grab.
-    let pannable = padded_size.x > console.width() || padded_size.y > console.height();
-    if pannable && drag_panning {
+    let can_pan = pannable(console.size(), padded_size);
+    if can_pan && drag_panning {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-    } else if pannable && alt && view.region_drag.is_none() && pan.contains_pointer() {
+    } else if can_pan && alt && view.region_drag.is_none() && pan.contains_pointer() {
         ui.ctx().set_cursor_icon(CursorIcon::Grab);
     }
 

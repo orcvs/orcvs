@@ -53,6 +53,7 @@ make_fixture() {
   # fixture matches and every one of those rules is dead code in this suite.
   cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/release-captures.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
+  cp "$repo_root/scripts/ci-compile-needed.sh" "$fixture_dir/scripts/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
   if ! bash "$fixture_dir/scripts/check-tooling-contract.sh" >/dev/null; then
     echo "fresh tooling-contract fixture does not satisfy the contract" >&2
@@ -503,6 +504,57 @@ test_unpinned_workflow_linter_is_rejected() {
   assert_rejected "a workflow security linter pinned only to a major version"
 }
 
+test_source_built_cargo_tool_is_rejected() {
+  # A `cargo:` tool compiles from source on every mise cache miss, and CI misses
+  # on each pull request that edits `mise.toml`.
+  # Each case keeps the four release-binary pins, so only the ban can reject it.
+  make_fixture
+  perl -pi -e 's/^\[tools\]$/[tools]\n"cargo:foo" = "1.0.0"/' "$fixture_dir/mise.toml"
+  assert_rejected "a cargo tool built from source instead of installed as a release binary"
+
+  make_fixture
+  perl -pi -e "s/^\\[tools\\]\$/[tools]\n'cargo:foo' = \"1.0.0\"/" "$fixture_dir/mise.toml"
+  assert_rejected "a single-quoted cargo tool"
+
+  make_fixture
+  printf '\n[tools."cargo:foo"]\nversion = "1.0.0"\n' >> "$fixture_dir/mise.toml"
+  assert_rejected "a cargo tool declared as a table"
+}
+
+test_compile_skipped_for_non_markdown_is_rejected() {
+  make_fixture
+  # Only a Markdown-only diff may skip the compile. A wider pattern lets a change
+  # cargo reads — a `.toml` test fixture under `.scratch/`, say — merge unbuilt.
+  perl -pi -e 's/^(  if \[\[ "\$path" != )\*\.md( \]\]; then)$/$1*.md \&\& "\$path" != .scratch\/*$2/' "$fixture_dir/scripts/ci-compile-needed.sh"
+  assert_rejected "a compile decision that skips more than Markdown"
+
+  make_fixture
+  perl -pi -e 's/^        run: mise run check_docs$/        run: echo nothing/' "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a skipped compile that no longer runs the contract and planner"
+
+  make_fixture
+  perl -pi -e 's/ --no-renames//' "$fixture_dir/scripts/ci-compile-needed.sh"
+  assert_rejected "a compile decision that reads a renamed Rust file as Markdown"
+
+  make_fixture
+  perl -pi -e 's/^mise run check_docs$/node scripts\/roadmap.ts > \/dev\/null/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that copies the Markdown gates instead of running check_docs"
+}
+
+test_merge_queue_skipping_macos_is_rejected() {
+  make_fixture
+  # macOS is the one job that runs the native pull-request tier on the queued
+  # candidate. Skipping it there leaves the queue checking nothing native.
+  perl -pi -e "s/^      - run: mise run test_midi_loopback$/      - if: github.event_name != 'merge_group'\n        run: mise run test_midi_loopback/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a merge queue that skips a third step"
+
+  # The count alone holds while the guard moves: two guards, one of them on
+  # macOS's native tier instead of the WASM compile.
+  make_fixture
+  perl -0pi -e "s/      - if: github.event_name != 'merge_group'\n        run: mise run check_wasm/      - run: mise run check_wasm/; s/      - run: mise run check_pull_request\n/      - if: github.event_name != 'merge_group'\n        run: mise run check_pull_request\n/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a merge queue guard moved from the WASM compile to macOS"
+}
+
 test_automatically_triggered_miri_workflow_is_rejected() {
   # `verification-gaps/12` kept Miri as a path taken on purpose. Every trigger
   # below turns it back into something a change pays for without anyone
@@ -856,6 +908,18 @@ test_toolchain_without_the_windows_target_is_rejected() {
   # from the toolchain file. Without the entry the lint fails only when it runs.
   perl -pi -e 's/, "x86_64-pc-windows-msvc"//' "$fixture_dir/rust-toolchain.toml"
   assert_rejected "a toolchain that does not install the Windows target"
+}
+
+test_toolchain_action_off_the_channel_is_rejected() {
+  # Every rust-toolchain action names the channel `rust-toolchain.toml` pins, at
+  # one commit. A bump of the file alone leaves the workflows behind.
+  make_fixture
+  perl -pi -e 's/^channel = "[0-9.]+"$/channel = "9.9.9"/' "$fixture_dir/rust-toolchain.toml"
+  assert_rejected "a toolchain channel the workflows' action does not name"
+
+  make_fixture
+  perl -pi -e 's/rust-toolchain@[0-9a-f]{40}/rust-toolchain\@0000000000000000000000000000000000000000/' "$fixture_dir/.github/workflows/miri.yml"
+  assert_rejected "a rust-toolchain action at a second commit"
 }
 
 test_caret_egui_requirement_is_rejected() {
@@ -1213,6 +1277,9 @@ case "${1:-all}" in
   bench-floor-not-last) test_bench_floor_check_not_last_is_rejected ;;
   contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
+  source-built-cargo-tool) test_source_built_cargo_tool_is_rejected ;;
+  compile-skip-scope) test_compile_skipped_for_non_markdown_is_rejected ;;
+  merge-queue-macos) test_merge_queue_skipping_macos_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
@@ -1224,6 +1291,7 @@ case "${1:-all}" in
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
   windows-lint) test_pull_request_tier_without_the_windows_lint_is_rejected ;;
   windows-target) test_toolchain_without_the_windows_target_is_rejected ;;
+  toolchain-action-channel) test_toolchain_action_off_the_channel_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
   split-egui-stack) test_split_egui_stack_is_rejected ;;
   shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
@@ -1240,6 +1308,7 @@ case "${1:-all}" in
   spaced-merge-guard) test_spaced_key_merge_guard_is_rejected ;;
   all)
     bash "$repo_root/scripts/tests/check-ci-results.sh"
+    bash "$repo_root/scripts/tests/ci-compile-needed.sh"
     test_missing_merge_queue_trigger_is_rejected
     test_invalid_fresh_fixture_is_rejected
     test_commented_requirement_is_rejected
@@ -1329,6 +1398,9 @@ case "${1:-all}" in
     test_bench_floor_check_not_last_is_rejected
     test_contract_assertions_read_their_whole_input
     test_unpinned_workflow_linter_is_rejected
+    test_source_built_cargo_tool_is_rejected
+    test_compile_skipped_for_non_markdown_is_rejected
+    test_merge_queue_skipping_macos_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected

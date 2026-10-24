@@ -18,8 +18,25 @@ Verification has two trigger tiers:
   tier at proptest's full case count, and a compile of the release captures. CI distributes these gates across the existing Linux and WASM
   jobs on `merge_group`, after a push to `main`, or on manual dispatch.
 
-`mise run check` runs both tiers locally. The merge queue verifies the combined candidate before it
-reaches `main`, including browser behaviour and macOS coverage. Development happens on macOS, so its
+A pull request whose diff is Markdown alone does not compile. The `changes` job asks
+`scripts/ci-compile-needed.sh`, which answers `false` only for a pull request whose every changed
+path ends in `.md`, counting both sides of a rename; the Linux job then runs `mise run check_docs` —
+the tooling contract and the roadmap planner, the only gates that read Markdown — and the WASM job
+is skipped. `check_pull_request` runs `check_docs` as its first step, so a Markdown-reading gate is
+added in one place and both tiers run it.
+`scripts/check-ci-results.sh` accepts that skip only on a pull request. No crate compiles or reads a
+`.md` file, which is the whole of the rule: `.scratch/` is not exempt as a directory, because a test
+includes a `.toml` from it. The merge queue, pushes to `main` and manual dispatch always compile.
+
+The merge queue runs each tier once. In the queue the Linux job runs only the native merge tier
+and the WASM job only the browser suite; macOS runs `check_pull_request` and the native merge tier.
+The Linux pull-request tier and `check_wasm` therefore ran on the pull request's own merge with
+`main` as it stood then, not on the queued candidate. A conflict between two queued pull requests
+that only those gates would catch — a wasm-only build break, a feature-off build, a rustdoc or
+workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
+
+`mise run check` runs both tiers locally. The merge queue verifies the combined candidate with the
+merge tier, the browser suite and the macOS native tier before it reaches `main`. Development happens on macOS, so its
 clean-runner verification is deferred until that point. Push runs retain full verification and warm
 the caches that pull-request and queue runs restore, and a failed push run still requires repair
 before normal development continues. What the queue defers is behaviour rather than compilation: a
@@ -566,6 +583,11 @@ has no mise ecosystem and no near prospect of one. The seven pins there move onl
 the line. `.scratch/verification-gaps/issues/13-bump-the-mise-tool-pins-automatically.md` records
 what that costs and the three options for closing it; the decision is about which bots run against
 the repository and what write permission they hold, so it is not one a checkout can take.
+
+Every pin in `[tools]` installs a release binary: `aqua:` where the aqua registry has the package,
+`github:` where it does not. CI's mise cache is keyed on this file and saved only on `main`, so a
+pull request that edits `mise.toml` installs every tool afresh, and a download keeps that to seconds.
+The contract rejects a `cargo:` entry, because that backend compiles the tool from source.
 
 Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
 affected platform or feature gates, and `mise run audit_deps`.

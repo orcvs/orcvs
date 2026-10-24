@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use egui::{
     Color32, Event, Key, Modifiers, MouseWheelUnit, Pos2, Rect, Shape, TouchPhase, Vec2,
     emath::GuiRounding as _,
@@ -21,7 +23,7 @@ use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
 use super::source_view::{
-    SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, show_source_scene,
+    SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, padded_source, show_source_scene,
     source_panel_frame,
 };
 use super::{Console, DEFAULT_VIEW_SIZE};
@@ -6266,4 +6268,598 @@ async fn the_panel_repaints_once_playback_publishes_an_installed_destination() {
         "Playback published the installed destination and no frame was asked for, so the \
          Panel still shows the status it painted"
     );
+}
+
+///
+/// One pass of the whole running Console at a device scale, answering the
+/// Shapes it painted and each texture upload it asked the renderer for: the
+/// texture, where a partial update lands, and the size of the image.
+///
+fn console_output_at(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+    pixels_per_point: f32,
+) -> (Vec<Shape>, Vec<TextureUpload>) {
+    use eframe::App as _;
+
+    let mut input = egui::RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..Default::default()
+    };
+    input
+        .viewports
+        .get_mut(&egui::ViewportId::ROOT)
+        .expect("the root viewport")
+        .native_pixels_per_point = Some(pixels_per_point);
+    let mut output = ctx.run_ui(input, |root| console.ui(root, host));
+    let mut painted = Vec::new();
+    for clipped in &output.shapes {
+        flatten(clipped.shape.clone(), &mut painted);
+    }
+    let uploads = output
+        .textures_delta
+        .set
+        .iter()
+        .flat_map(|(id, deltas)| {
+            deltas
+                .iter()
+                .map(|delta| (*id, delta.pos, delta.image.size()))
+        })
+        .collect();
+    output.textures_delta.clear();
+    output.drop_without_applying_deltas();
+    (painted, uploads)
+}
+
+type TextureUpload = (egui::TextureId, Option<[usize; 2]>, [usize; 2]);
+
+///
+/// The Overview's picture as painted: the one Mesh drawn from a texture other
+/// than the font atlas, its texture and the rectangle it covers.
+///
+fn overview_image(shapes: &[Shape]) -> Option<(egui::TextureId, Rect)> {
+    let images: Vec<_> = shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::default() => {
+                Some((mesh.texture_id, mesh.calc_bounds()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        images.len() <= 1,
+        "more than one textured image: {images:?}"
+    );
+    images.first().copied()
+}
+
+///
+/// The Overview's 256 by 256 Grid and its two-Cell margin are 260 texels a
+/// side, drawn square at a whole number of physical pixels per texel on whole
+/// physical pixels: one at 1× and 1.5×, two at 2×.
+///
+#[tokio::test]
+async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel() {
+    for (pixels_per_point, pixels_per_texel) in [(1.0, 1.0), (1.5, 1.0), (2.0, 2.0)] {
+        let (ctx, mut console, mut host) = fresh_console();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        let (shapes, _) = console_output_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut console,
+            &mut host,
+            pixels_per_point,
+        );
+        assert_eq!(
+            overview_image(&shapes),
+            None,
+            "the Overview is shown on start"
+        );
+
+        console.overview_open = true;
+        let (shapes, _) = console_output_at(
+            &ctx,
+            screen,
+            Vec::new(),
+            &mut console,
+            &mut host,
+            pixels_per_point,
+        );
+        let (_, image) = overview_image(&shapes).expect("the Overview drew no image");
+        let physical = image.size() * pixels_per_point;
+        // Within float error of a point that is a fraction of a pixel.
+        let whole = |pixels: Vec2, expected: Vec2| (pixels - expected).length() < 1e-3;
+        assert!(
+            whole(physical, Vec2::splat(260.0 * pixels_per_texel)),
+            "{pixels_per_point}×: the image is {physical:?} physical pixels"
+        );
+        let corner = (image.min * pixels_per_point).to_vec2();
+        assert!(
+            whole(corner, corner.round()),
+            "{pixels_per_point}×: the image's corner {corner:?} is off the pixel grid"
+        );
+        assert!(
+            screen.contains_rect(image),
+            "{pixels_per_point}×: the image {image:?} leaves the window"
+        );
+    }
+}
+
+///
+/// The picture is uploaded when the Overview is first shown and again, as one
+/// whole-image update in place, only when the Source or the appearance
+/// changes; a Render Frame where neither did uploads nothing, even when the
+/// Cursor moved or the Region changed.
+///
+#[tokio::test]
+async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_changes() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.overview_open = true;
+    let (shapes, textures) =
+        console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    let (texture, _) = overview_image(&shapes).expect("the Overview drew no image");
+    let uploads = |textures: &[TextureUpload]| {
+        textures
+            .iter()
+            .filter(|(id, _, _)| *id == texture)
+            .map(|(_, pos, size)| (*pos, *size))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(uploads(&textures), [(None, [260, 260])], "the first upload");
+
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "an unchanged Render Frame uploaded");
+
+    let typed = vec![Event::Text("a".to_owned())];
+    let (_, textures) = console_output_at(&ctx, screen, typed, &mut console, &mut host, 1.0);
+    assert_eq!(
+        uploads(&textures),
+        [(Some([0, 0]), [260, 260])],
+        "an edit did not update the whole picture in place"
+    );
+
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "the frame after an edit uploaded");
+
+    let grid = console.orcvs.grid();
+    console
+        .orcvs
+        .select(grid.position(9, 7).expect("inside the grid"));
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "a Cursor move uploaded");
+
+    console
+        .orcvs
+        .extend(grid.position(12, 8).expect("inside the grid"));
+    let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(uploads(&textures), [], "a Region change uploaded");
+
+    ctx.set_theme(egui::ThemePreference::Light);
+    let (shapes, textures) =
+        console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    assert_eq!(
+        uploads(&textures),
+        [(Some([0, 0]), [260, 260])],
+        "an appearance change did not update the whole picture in place"
+    );
+    assert_eq!(
+        overview_image(&shapes).map(|(id, _)| id),
+        Some(texture),
+        "the Overview drew from a second texture"
+    );
+}
+
+///
+/// The Source panel's area: the largest rectangle filled with the Grid
+/// background, which `source_panel_frame` paints across it.
+///
+fn source_area(shapes: &[Shape], theme: &Theme) -> Rect {
+    shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(rect) if rect.fill == theme.grid_background => Some(rect.rect),
+            _ => None,
+        })
+        .max_by(|a, b| a.area().total_cmp(&b.area()))
+        .expect("the Source panel painted no background")
+}
+
+///
+/// The Source View as the Overview draws it in `theme`: each rectangle inside
+/// the Overview's picture stroked in the Theme's outline colour and width.
+///
+fn source_view_outlines(
+    shapes: &[Shape],
+    picture: Rect,
+    theme: &Theme,
+) -> Vec<egui::epaint::RectShape> {
+    let stroke = egui::Stroke::new(
+        theme.overview_source_view_width.points(),
+        theme.overview_source_view,
+    );
+    shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(rect) if rect.stroke == stroke && picture.contains_rect(rect.rect) => {
+                Some(rect.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+///
+/// Where the Source View falls on the Overview's `picture` for a console of
+/// `console` points at `pan`, on a window that leaves somewhere to Pan on
+/// both axes. The picture is one square texel per Cell of the Grid and its
+/// margin, so the outline starts as many texels in as the Pan has moved Cells
+/// and spans as many texels as the console holds Cells.
+///
+fn unclipped_outline(pan: Vec2, console: Vec2, cell: Vec2, picture: Rect) -> Rect {
+    let texel = picture.width() / (COL_COUNT as f32 + 2.0 * SOURCE_MARGIN_CELLS);
+    Rect::from_min_size(picture.min + -pan / cell * texel, console / cell * texel)
+}
+
+fn assert_near(actual: Rect, expected: Rect, situation: &str) {
+    let off = (actual.min - expected.min)
+        .length()
+        .max((actual.max - expected.max).length());
+    assert!(
+        off < 1e-3,
+        "{situation}: the outline is at {actual:?}, not {expected:?}"
+    );
+}
+
+///
+/// One pass of an open Overview: the outline it stroked, if any, the picture
+/// and the Source panel's area.
+///
+fn overview_pass(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> (Option<egui::epaint::RectShape>, Rect, Rect) {
+    let (shapes, _) = console_output_at(ctx, screen, events, console, host, 1.0);
+    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let theme = okabe_ito();
+    let mut outlines = source_view_outlines(&shapes, picture, &theme);
+    assert!(outlines.len() <= 1, "more than one outline: {outlines:?}");
+    (outlines.pop(), picture, source_area(&shapes, &theme))
+}
+
+///
+/// The Overview outlines the part of the padded Source the Source View shows,
+/// in the Theme's colour and width, and the outline follows a wheel Pan the
+/// Render Frame it happens: it moves against the Pan by the Pan scaled to the
+/// picture.
+///
+#[tokio::test]
+async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let theme = okabe_ito();
+    console.overview_open = true;
+    let cell = snapped_cell(console.source_view.cell, 1.0);
+
+    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let before = outline.expect("the Overview drew no outline");
+    assert_eq!(before.stroke.color, theme.overview_source_view);
+    assert_eq!(
+        before.stroke.width,
+        theme.overview_source_view_width.points()
+    );
+    let expected = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    assert_near(before.rect, expected, "at rest");
+
+    let wheel = wheel_at(area.center(), Vec2::new(-240.0, -180.0));
+    let (outline, picture, area) = overview_pass(&ctx, screen, wheel, &mut console, &mut host);
+    let after = outline.expect("the Overview drew no outline after a Pan");
+    let pan = console.source_view.pan;
+    assert_ne!(pan, Vec2::ZERO, "the wheel did not Pan");
+    let expected = unclipped_outline(pan, area.size(), cell, picture);
+    assert_near(after.rect, expected, "after a Pan");
+    let scale = picture.size() / padded_source(console.orcvs.grid(), cell);
+    assert_near(
+        after.rect,
+        before.rect.translate(-pan * scale),
+        "against the Pan",
+    );
+}
+
+///
+/// The Cells of `columns` and `rows` on the Overview's `picture`: one square
+/// texel per Cell, past the margin.
+///
+fn overview_cells(picture: Rect, columns: Range<usize>, rows: Range<usize>) -> Rect {
+    let texel = picture.width() / (COL_COUNT as f32 + 2.0 * SOURCE_MARGIN_CELLS);
+    let corner = |column: usize, row: usize| {
+        picture.min
+            + (Vec2::new(column as f32, row as f32) + Vec2::splat(SOURCE_MARGIN_CELLS)) * texel
+    };
+    Rect::from_min_max(
+        corner(columns.start, rows.start),
+        corner(columns.end, rows.end),
+    )
+}
+
+///
+/// The Overview marks the Region's Cells and then the Cursor's Cell over its
+/// picture, each in the Theme's fill and border for it, and the Source View's
+/// outline over both. A Region of one Cell is the Cursor's Cell and gets no
+/// mark of its own.
+///
+#[tokio::test]
+async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_the_outline() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let theme = okabe_ito();
+    console.overview_open = true;
+    let grid = console.orcvs.grid();
+    let at = |x, y| grid.position(x, y).expect("inside the grid");
+    console.orcvs.select(at(9, 7));
+    console.orcvs.extend(at(12, 8));
+
+    let near =
+        |a: Rect, b: Rect| (a.min - b.min).length() < 1e-3 && (a.max - b.max).length() < 1e-3;
+
+    let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let mark_at = |rect: Rect, situation: &str| {
+        let found: Vec<_> = shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, shape)| match shape {
+                Shape::Rect(mark) if near(mark.rect, rect) => Some((index, mark.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(found.len(), 1, "{situation}: {found:?} at {rect:?}");
+        found[0].clone()
+    };
+    // An inside stroke half a texel wide or wider covers a one-texel side
+    // entirely, leaving no fill to show.
+    let texel = overview_cells(picture, 0..1, 0..1).width();
+    let (region_at, region) = mark_at(overview_cells(picture, 9..13, 7..9), "the Region mark");
+    assert_eq!(region.fill, theme.region_background);
+    assert_eq!(region.stroke.color, theme.region_border);
+    assert!(
+        region.stroke.width > 0.0 && region.stroke.width < texel / 2.0,
+        "the Region's border is {} wide on {texel} texels",
+        region.stroke.width
+    );
+    assert_eq!(region.stroke_kind, egui::StrokeKind::Inside);
+    let (cursor_at, cursor) = mark_at(overview_cells(picture, 12..13, 8..9), "the Cursor mark");
+    // The Source fills the Cursor's empty Cell with no Region tint when the
+    // Theme clears the Region Cursor's fill.
+    assert_eq!(cursor.fill, theme.grid_background);
+    assert_eq!(cursor.stroke.color, theme.cursor_border);
+    assert!(
+        cursor.stroke.width > 0.0 && cursor.stroke.width < texel / 2.0,
+        "the Cursor's border is {} wide on {texel} texels",
+        cursor.stroke.width
+    );
+    assert_eq!(cursor.stroke_kind, egui::StrokeKind::Inside);
+
+    let image_at = shapes
+        .iter()
+        .position(|shape| matches!(shape, Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::default()))
+        .expect("the Overview drew no image");
+    let outline = source_view_outlines(&shapes, picture, &theme)
+        .pop()
+        .expect("the Overview drew no outline");
+    let outline_at = shapes
+        .iter()
+        .position(|shape| matches!(shape, Shape::Rect(rect) if *rect == outline))
+        .expect("the outline is among the shapes");
+    assert!(
+        image_at < region_at && region_at < cursor_at && cursor_at < outline_at,
+        "drawn out of order: image {image_at}, Region {region_at}, Cursor {cursor_at}, outline {outline_at}"
+    );
+
+    console.orcvs.select(at(30, 20));
+    let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    let marks: Vec<_> = shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(mark)
+                if picture.contains_rect(mark.rect)
+                    && mark.stroke.color != theme.overview_source_view =>
+            {
+                Some(mark.rect)
+            }
+            _ => None,
+        })
+        .collect();
+    let expected = overview_cells(picture, 30..31, 20..21);
+    assert!(
+        matches!(marks[..], [mark] if near(mark, expected)),
+        "a one-Cell Region marked {marks:?}, not the Cursor's Cell alone at {expected:?}"
+    );
+}
+
+///
+/// The Overview's Cursor mark fill on the empty Cell at column 12, row 8, in a
+/// Theme inheriting Okabe-Ito with `style` added: first as the far corner of
+/// a Region from column 9, row 7, then with the Region collapsed to it.
+///
+fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
+    use crate::theme::{Appearance, ThemeIdentity};
+    use crate::theme_registry::tests_support::{id, load};
+
+    let source = format!(
+        "format = \"orcvs-theme\"\nversion = 1\n\
+         name = \"Fills\"\ninherits = \"okabe-ito\"\n[style]\n{style}"
+    );
+    let mut themes = ThemeRegistry::built_in();
+    load(&mut themes, "fills.toml", source.as_bytes());
+    let config = crate::config::Config {
+        theme_selection: crate::theme_selection::ThemeSelection::new(
+            id("fills"),
+            ThemeIdentity::default_for(Appearance::Light),
+        ),
+        ..crate::config::Config::default()
+    };
+    let ctx = egui::Context::default();
+    let mut console = start_console(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        themes,
+        config,
+    );
+    let mut host = eframe::Frame::_new_kittest();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.overview_open = true;
+    let grid = console.orcvs.grid();
+    let at = |x, y| grid.position(x, y).expect("inside the grid");
+
+    let mut cursor_fill = |console: &mut Console| {
+        let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), console, &mut host, 1.0);
+        let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+        let cell = overview_cells(picture, 12..13, 8..9);
+        shapes
+            .iter()
+            .find_map(|shape| match shape {
+                Shape::Rect(mark)
+                    if (mark.rect.min - cell.min).length() < 1e-3
+                        && (mark.rect.max - cell.max).length() < 1e-3 =>
+                {
+                    Some(mark.fill)
+                }
+                _ => None,
+            })
+            .expect("the Overview drew no Cursor mark")
+    };
+    console.orcvs.select(at(9, 7));
+    console.orcvs.extend(at(12, 8));
+    let in_region = cursor_fill(&mut console);
+    console.orcvs.select(at(12, 8));
+    (in_region, cursor_fill(&mut console))
+}
+
+///
+/// The Cursor mark fills the Cursor's Cell as the Source does: with the Region
+/// Cursor's fill inside a spanning Region, and the Cursor's own fill once the
+/// Region is one Cell.
+///
+#[tokio::test]
+async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell() {
+    let (in_region, alone) = cursor_mark_fills(
+        "\"cursor.background\" = \"#102030\"\n\"region.cursor.background\" = \"#405060\"\n",
+    );
+    assert_eq!(
+        in_region,
+        Color32::from_rgb(0x40, 0x50, 0x60),
+        "inside a spanning Region"
+    );
+    assert_eq!(
+        alone,
+        Color32::from_rgb(0x10, 0x20, 0x30),
+        "with a one-Cell Region"
+    );
+}
+
+///
+/// With both Cursor fills cleared, the Source fills the Cursor's Cell with the
+/// Cell base, inside a spanning Region or not, so the Cursor mark does too.
+///
+#[tokio::test]
+async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_fills_are_cleared() {
+    let (in_region, alone) = cursor_mark_fills("\"cell.background\" = \"#203040\"\n");
+    let base = Color32::from_rgb(0x20, 0x30, 0x40);
+    assert_eq!(in_region, base, "inside a spanning Region");
+    assert_eq!(alone, base, "with a one-Cell Region");
+}
+
+///
+/// egui's zoom in shrinks the console in points and not the Source, so the
+/// outline shrinks with it, still at the rect the Pan and the console predict.
+///
+#[tokio::test]
+async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    console.overview_open = true;
+    let (before, _, _) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let before = before.expect("the Overview drew no outline");
+
+    ctx.set_zoom_factor(2.0);
+    let zoomed_in = Rect::from_min_size(Pos2::ZERO, screen.size() / 2.0);
+    let (after, picture, area) =
+        overview_pass(&ctx, zoomed_in, Vec::new(), &mut console, &mut host);
+    let after = after.expect("the Overview drew no outline zoomed in");
+    let cell = snapped_cell(console.source_view.cell, ctx.pixels_per_point());
+    let expected = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    assert_near(after.rect, expected, "zoomed in");
+    assert!(
+        after.rect.width() < before.rect.width() && after.rect.height() < before.rect.height(),
+        "zooming in did not shrink the outline: {:?} then {:?}",
+        before.rect,
+        after.rect
+    );
+}
+
+///
+/// On an axis the console already shows the whole padded Source on, the
+/// outline is clipped to the picture's edges; on the other it is not.
+///
+#[tokio::test]
+async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
+    let (ctx, mut console, mut host) = fresh_console();
+    // Wide enough for the padded Source's 260 Columns beside the Overview,
+    // and the default height, which shows a few Rows.
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, DEFAULT_VIEW_SIZE[1]));
+    console.overview_open = true;
+    let cell = snapped_cell(console.source_view.cell, 1.0);
+    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+    let outline = outline.expect("the Overview drew no outline").rect;
+    let padded = padded_source(console.orcvs.grid(), cell);
+    assert!(
+        area.width() >= padded.x && area.height() < padded.y,
+        "the console {area:?} is not wide and short beside the padded Source {padded:?}"
+    );
+    assert!(
+        (outline.left() - picture.left()).abs() < 1e-3
+            && (outline.right() - picture.right()).abs() < 1e-3,
+        "the outline {outline:?} was not clipped to the picture {picture:?} across"
+    );
+    assert!(
+        outline.height() < picture.height(),
+        "the outline spans the picture down: {outline:?}"
+    );
+    let down = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    assert!(
+        (outline.top() - down.top()).abs() < 1e-3
+            && (outline.bottom() - down.bottom()).abs() < 1e-3,
+        "down, the outline {outline:?} is not the console's Rows at {down:?}"
+    );
+}
+
+///
+/// A console that shows the whole padded Source on both axes has nowhere to
+/// Pan, so the Overview draws no outline over its picture.
+///
+#[tokio::test]
+async fn the_overview_draws_no_outline_when_neither_axis_can_pan() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, 6000.0));
+    console.overview_open = true;
+    let cell = snapped_cell(console.source_view.cell, 1.0);
+    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+    let padded = padded_source(console.orcvs.grid(), cell);
+    assert!(
+        area.width() >= padded.x && area.height() >= padded.y,
+        "the console {area:?} does not hold the padded Source {padded:?}"
+    );
+    assert!(screen.contains_rect(picture));
+    assert_eq!(outline, None, "an outline was drawn with nowhere to Pan");
 }
