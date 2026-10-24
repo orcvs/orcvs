@@ -69,8 +69,15 @@ impl Overview {
         if !current {
             draw_picture(frame, theme, Arc::make_mut(&mut self.picture));
             self.drawn_from = Some((revision, theme.identity.clone(), appearance));
+            // A partial update must lie inside the texture, so a picture of
+            // another Grid's size replaces the texture's image outright.
             if let Some(texture) = &mut self.texture {
-                texture.set_partial([0, 0], Arc::clone(&self.picture), TextureOptions::NEAREST);
+                let picture = Arc::clone(&self.picture);
+                if texture.size() == picture.size {
+                    texture.set_partial([0, 0], picture, TextureOptions::NEAREST);
+                } else {
+                    texture.set(picture, TextureOptions::NEAREST);
+                }
             }
         }
         self.texture.get_or_insert_with(|| {
@@ -194,16 +201,22 @@ fn outline(visible: Rect, grid: Grid, cell: Vec2) -> Rect {
 
 impl Console {
     ///
-    /// Shows the Overview in a panel docked at the right, when it is open,
-    /// and answers where its picture lies. Shown before the Source, so it
-    /// takes width rather than covering Cells.
+    /// Shows the Overview pinned to the window's bottom-right corner, when it
+    /// is open, and answers where its picture lies. It floats over the Source
+    /// and the bottom panel, so it takes no width from the Source, with no
+    /// margin: the bottom panel's border along the two edges that face the
+    /// rest of the console, and the picture filling the rest.
     ///
     /// The picture is drawn square, at a whole number of physical pixels per
     /// texel, on whole physical pixels, so every Cell is a crisp block of one
-    /// size: the most that keeps it within the height beside the Source and
-    /// half its width. Where not even one pixel per texel fits, it is scaled
-    /// down to fit, so the whole Grid stays on it. It senses a drag and nothing else: sensing focus would put it in
-    /// the Tab order, where a focused widget keeps every key from the Source.
+    /// size: the largest number up to the whole pixels per point that fits
+    /// with its border in half the window's width and the height below the
+    /// menu bar, and none at all, answering `None`, where one pixel per texel
+    /// does not. It is not clipped to fit: a press maps to a Pan only across
+    /// the whole picture. Like every egui Area it is drawn from its second
+    /// pass, the first only measuring it, and it does not fade in. It senses
+    /// a drag and nothing else: sensing focus would put it in the Tab order,
+    /// where a focused widget keeps every key from the Source.
     ///
     pub(super) fn show_overview(
         &mut self,
@@ -216,28 +229,49 @@ impl Console {
             return None;
         }
         let ctx = root.ctx().clone();
+        let pixels_per_point = ctx.pixels_per_point();
+        let window = ctx.content_rect();
+        let below_menu = Rect::from_x_y_ranges(
+            window.x_range(),
+            root.available_rect_before_wrap().top()..=window.bottom(),
+        );
+        // The stroke egui's panel separator draws on the bottom panel.
+        let border = root.visuals().widgets.noninteractive.bg_stroke;
+        let room = (below_menu.size() * Vec2::new(0.5, 1.0) - Vec2::splat(border.width))
+            * pixels_per_point
+            / padded_source(frame.grid(), Vec2::splat(1.0));
+        let pixels_per_texel = pixels_per_point
+            .floor()
+            .max(1.0)
+            .min(room.min_elem().floor());
+        if pixels_per_texel < 1.0 {
+            return None;
+        }
         let theme = self.themes.presented(appearance);
         let texture = self
             .overview
             .texture(&ctx, revision, frame, theme, appearance);
-        let pixels_per_point = ctx.pixels_per_point();
-        let panel_frame = egui::Frame::side_top_panel(root.style());
-        let room = root.available_rect_before_wrap().size() * Vec2::new(0.5, 1.0)
-            - panel_frame.total_margin().sum();
-        let fits = (room / texture.size_vec2()).min_elem().max(0.0) * pixels_per_point;
-        let whole = pixels_per_point.floor().max(1.0).min(fits.floor());
-        let pixels_per_texel = if whole >= 1.0 { whole } else { fits };
         let side = texture.size_vec2() * pixels_per_texel / pixels_per_point;
-        let shown = egui::Panel::right("overview")
-            .resizable(false)
-            .exact_size(side.x + panel_frame.total_margin().sum().x)
-            .frame(panel_frame)
-            .show(root, |ui| {
-                let corner = ui
-                    .available_rect_before_wrap()
-                    .min
-                    .round_to_pixels(pixels_per_point);
-                let rect = Rect::from_min_size(corner, side);
+        let rect = Rect::from_min_size((window.max - side).round_to_pixels(pixels_per_point), side);
+        let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
+        let shown = egui::Area::new(egui::Id::new("overview"))
+            .fixed_pos(bordered.min)
+            .movable(false)
+            .fade_in(false)
+            // Sized as the bordered picture from the first pass and never
+            // moved to fit the window, so the layer is that rect and takes no
+            // pointer from the Source around it.
+            .default_size(bordered.size())
+            .constrain(false)
+            .sense(Sense::hover())
+            .show(&ctx, |ui| {
+                // Each line just outside the picture, as the separator lies
+                // just outside the bottom panel's frame.
+                let inset = border.width / 2.0;
+                ui.painter()
+                    .hline(bordered.x_range(), rect.top() - inset, border);
+                ui.painter()
+                    .vline(rect.left() - inset, bordered.y_range(), border);
                 let response = ui.allocate_rect(rect, Sense::DRAG);
                 response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source overview")

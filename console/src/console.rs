@@ -81,7 +81,7 @@ pub struct Console {
     source_view: SourceView,
     diagnostics_open: bool,
     diagnostics_timing: TimingReadouts,
-    /// Whether the View menu shows the Overview. Off on start and not saved.
+    /// Whether the View menu shows the Overview. On at start and not saved.
     overview_open: bool,
     overview: Overview,
     /// The BPM field's widget id, so a later pass can find the rectangle it
@@ -223,7 +223,7 @@ impl Console {
             source_view: SourceView::new(config.cell),
             diagnostics_open: true,
             diagnostics_timing: TimingReadouts::default(),
-            overview_open: false,
+            overview_open: true,
             overview: Overview::default(),
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
@@ -372,8 +372,7 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
-        // Shown before the Source so it takes width, and outlined after it,
-        // from the Pan this Render Frame settled.
+        // Outlined after the Source, from the Pan this Render Frame settled.
         let overview = self.show_overview(root, revision, &frame, appearance);
         let source = self.show_source_panel(root, &frame, appearance);
         if let Some(overview) = overview {

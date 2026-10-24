@@ -356,38 +356,45 @@ fn toggle_overview(harness: &mut Harness<'_, Console>) {
 }
 
 ///
-/// View → Overview docks the Overview at the right of the Source View, which
-/// gives it the width rather than being covered, and unticking it gives the
-/// width back. A Cursor in view stays in view across both.
+/// A fresh console shows the Overview pinned to the window's bottom-right
+/// corner, over the Source and the bottom panel, with no margin, taking no
+/// width from the Source; View → Overview hides it and shows it again.
 ///
 #[tokio::test]
-async fn the_view_menu_docks_the_overview_beside_the_source_and_keeps_the_cursor_in_view() {
+async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_menu_toggles_it() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    assert!(
-        harness.query_by_label("Source overview").is_none(),
-        "a fresh console opened with the Overview showing"
-    );
-    let without = source_rect(&harness);
-
-    // The Cursor near the right edge, where the Overview's width lands.
-    let near_edge = Pos2::new(without.right() - 3.0 * CELL_SIZE.x, without.center().y);
-    click_at(&mut harness, near_edge);
-    harness.run_steps(1);
-    let (column, row) = cursor(harness.state());
-    assert!(column > 0, "the click did not move the Cursor");
-
-    toggle_overview(&mut harness);
     let overview = harness.get_by_label("Source overview").rect();
+    let window = Vec2::from(DEFAULT_VIEW_SIZE).to_pos2();
+    assert!(
+        (overview.max - window).length() < 1e-3,
+        "the Overview {overview:?} is not in the window's corner {window:?}"
+    );
+    // The Overview's layer is the picture and its border and no more, so the
+    // Source and the bottom panel beside it still take the pointer.
+    let border = harness
+        .ctx
+        .global_style()
+        .visuals
+        .widgets
+        .noninteractive
+        .bg_stroke
+        .width;
+    let area = harness
+        .ctx
+        .memory(|memory| memory.area_rect(egui::Id::new("overview")));
+    assert_eq!(
+        area,
+        Some(egui::Rect::from_min_max(
+            overview.min - Vec2::splat(border),
+            overview.max
+        )),
+        "the Overview's layer is not its bordered picture"
+    );
     let with = source_rect(&harness);
     assert!(
-        with.right() <= overview.left(),
-        "the Overview {overview:?} covers the Source {with:?}"
-    );
-    assert!(with.width() < without.width());
-    assert!(
-        with.contains_rect(presented_source(&harness).cell_rect(column, row)),
-        "showing the Overview left the Cursor out of view"
+        overview.bottom() > with.bottom(),
+        "the Overview {overview:?} does not reach over the bottom panel below {with:?}"
     );
 
     toggle_overview(&mut harness);
@@ -395,11 +402,15 @@ async fn the_view_menu_docks_the_overview_beside_the_source_and_keeps_the_cursor
         harness.query_by_label("Source overview").is_none(),
         "unticking left the Overview showing"
     );
-    assert_eq!(source_rect(&harness), without);
-    assert!(
-        without.contains_rect(presented_source(&harness).cell_rect(column, row)),
-        "hiding the Overview left the Cursor out of view"
+    assert_eq!(
+        source_rect(&harness),
+        with,
+        "hiding the Overview resized the Source"
     );
+
+    toggle_overview(&mut harness);
+    assert_eq!(harness.get_by_label("Source overview").rect(), overview);
+    assert_eq!(source_rect(&harness), with);
 }
 
 ///
@@ -410,7 +421,6 @@ async fn the_view_menu_docks_the_overview_beside_the_source_and_keeps_the_cursor
 async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    toggle_overview(&mut harness);
 
     let overview = harness.get_by_label("Source overview");
     assert_eq!(
@@ -425,7 +435,9 @@ async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
             .widgets
             .layers()
             .flat_map(|(_, widgets)| widgets)
-            .filter(|widget| widget.rect == rect)
+            // The Area holding the picture and its Ui sit at the same rect
+            // and sense hover alone, which neither focuses nor drags.
+            .filter(|widget| widget.rect == rect && widget.sense != egui::Sense::hover())
             .map(|widget| widget.sense)
             .collect()
     });
@@ -559,7 +571,6 @@ fn console_with_overview_and_region() -> Harness<'static, Console> {
         !harness.state().orcvs.region().is_one_cell(),
         "Shift with the arrows did not extend the Region"
     );
-    toggle_overview(&mut harness);
     harness
 }
 
@@ -766,35 +777,6 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
         source.height() >= usable,
         "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
          and its margins take"
-    );
-}
-
-///
-/// The Overview in the smallest window the console allows, beside the
-/// Diagnostics it opens with, keeps to the height beside the Source View and
-/// to half its width, so the Source keeps a row of Cells and the rest.
-///
-#[tokio::test]
-async fn the_smallest_window_fits_the_overview_beside_the_source() {
-    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE_MIN));
-    harness.state_mut().overview_open = true;
-    harness.run_steps(2);
-
-    let overview = harness.get_by_label("Source overview").rect();
-    let source = source_rect(&harness);
-    assert!(
-        overview.top() >= source.top() && overview.bottom() <= source.bottom(),
-        "the Overview {overview:?} is taller than the Source {source:?} beside it"
-    );
-    assert!(
-        overview.width() <= source.width(),
-        "the Overview {overview:?} takes more width than the Source {source:?} keeps"
-    );
-    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE;
-    assert!(
-        source.width() >= usable.x && source.height() >= usable.y,
-        "the Overview leaves the Source {source:?}, under the {usable:?} a Cell and its \
-         margins take"
     );
 }
 

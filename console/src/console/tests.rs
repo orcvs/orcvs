@@ -26,7 +26,7 @@ use super::source_view::{
     SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, padded_source, show_source_scene,
     source_panel_frame,
 };
-use super::{Console, DEFAULT_VIEW_SIZE};
+use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 
 /// The Source View's margin at a device scale of one.
 const MARGIN: Vec2 = Vec2::new(
@@ -6348,29 +6348,18 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
     for (pixels_per_point, pixels_per_texel) in [(1.0, 1.0), (1.5, 1.0), (2.0, 2.0)] {
         let (ctx, mut console, mut host) = fresh_console();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-        let (shapes, _) = console_output_at(
-            &ctx,
-            screen,
-            Vec::new(),
-            &mut console,
-            &mut host,
-            pixels_per_point,
-        );
-        assert_eq!(
-            overview_image(&shapes),
-            None,
-            "the Overview is shown on start"
-        );
-
-        console.overview_open = true;
-        let (shapes, _) = console_output_at(
-            &ctx,
-            screen,
-            Vec::new(),
-            &mut console,
-            &mut host,
-            pixels_per_point,
-        );
+        // An egui Area is drawn from its second pass; the first measures it.
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            (shapes, _) = console_output_at(
+                &ctx,
+                screen,
+                Vec::new(),
+                &mut console,
+                &mut host,
+                pixels_per_point,
+            );
+        }
         let (_, image) = overview_image(&shapes).expect("the Overview drew no image");
         let physical = image.size() * pixels_per_point;
         // Within float error of a point that is a fraction of a pixel.
@@ -6385,8 +6374,143 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
             "{pixels_per_point}×: the image's corner {corner:?} is off the pixel grid"
         );
         assert!(
-            screen.contains_rect(image),
-            "{pixels_per_point}×: the image {image:?} leaves the window"
+            whole(image.max.to_vec2(), screen.max.to_vec2()),
+            "{pixels_per_point}×: the image {image:?} is not in the window's bottom-right corner"
+        );
+    }
+}
+
+///
+/// The Overview is bordered as the bottom panel is: the Theme's panel border,
+/// the stroke egui's panel separator reads, along the two edges that face the
+/// rest of the console, just outside the picture, which stays in the window's
+/// corner.
+///
+#[tokio::test]
+async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    // An egui Area is drawn from its second pass; the first measures it.
+    let mut shapes = Vec::new();
+    for _ in 0..2 {
+        (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    }
+    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    assert_eq!(
+        picture.max, screen.max,
+        "the picture left the window's corner"
+    );
+
+    let theme = okabe_ito();
+    let width = theme.panel_border_width.points();
+    let stroke = egui::Stroke::new(width, theme.panel_border);
+    assert_eq!(
+        ctx.global_style().visuals.widgets.noninteractive.bg_stroke,
+        stroke,
+        "the panel separator is not the Theme's panel border"
+    );
+    let corner = picture.min - Vec2::splat(width);
+    let top = [
+        Pos2::new(corner.x, picture.top() - width / 2.0),
+        Pos2::new(picture.right(), picture.top() - width / 2.0),
+    ];
+    let left = [
+        Pos2::new(picture.left() - width / 2.0, corner.y),
+        Pos2::new(picture.left() - width / 2.0, picture.bottom()),
+    ];
+    for (edge, points) in [("top", top), ("left", left)] {
+        assert!(
+            shapes.iter().any(|shape| matches!(
+                shape,
+                Shape::LineSegment { points: drawn, stroke: drawn_stroke }
+                    if *drawn == points && *drawn_stroke == stroke
+            )),
+            "no {edge} border {points:?} in {stroke:?}"
+        );
+    }
+}
+
+///
+/// A window too small for the picture at its usual size gets it at the
+/// largest whole number of physical pixels per texel that fits, in half the
+/// window's width and the height below the menu bar, and no Overview
+/// at all where one pixel per texel does not fit. The View menu's choice is
+/// kept, so the Overview returns at its usual size once the window holds it.
+///
+#[tokio::test]
+async fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below_one() {
+    let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
+    let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 259.0);
+    let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
+    for (size, pixels_per_point, pixels_per_texel) in [
+        (narrow, 2.0, Some(1.0)),
+        (narrow, 1.5, Some(1.0)),
+        (narrow, 1.0, None),
+        (short, 2.0, Some(1.0)),
+        (short, 1.0, None),
+        (smallest, 1.0, None),
+        (smallest, 2.0, Some(1.0)),
+    ] {
+        let (ctx, mut console, mut host) = fresh_console();
+        console.overview_open = true;
+        let screen = Rect::from_min_size(Pos2::ZERO, size);
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            (shapes, _) = console_output_at(
+                &ctx,
+                screen,
+                Vec::new(),
+                &mut console,
+                &mut host,
+                pixels_per_point,
+            );
+        }
+        let image = overview_image(&shapes).map(|(_, image)| image);
+        match pixels_per_texel {
+            Some(pixels_per_texel) => {
+                let image = image.unwrap_or_else(|| {
+                    panic!("{size:?} at {pixels_per_point}×: the Overview is hidden")
+                });
+                let physical = image.size() * pixels_per_point;
+                assert!(
+                    (physical - Vec2::splat(260.0 * pixels_per_texel)).length() < 1e-3,
+                    "{size:?} at {pixels_per_point}×: the image is {physical:?} physical pixels"
+                );
+                assert!(
+                    image.left() >= screen.center().x,
+                    "{size:?} at {pixels_per_point}×: the image {image:?} takes more than half \
+                     the width"
+                );
+                assert!(
+                    (image.max - screen.max).length() < 1e-3,
+                    "{size:?} at {pixels_per_point}×: the image {image:?} is not in the window's \
+                     bottom-right corner"
+                );
+            }
+            None => assert_eq!(
+                image, None,
+                "{size:?} at {pixels_per_point}×: the Overview was shown"
+            ),
+        }
+
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+        for _ in 0..2 {
+            (shapes, _) = console_output_at(
+                &ctx,
+                screen,
+                Vec::new(),
+                &mut console,
+                &mut host,
+                pixels_per_point,
+            );
+        }
+        let (_, image) = overview_image(&shapes).unwrap_or_else(|| {
+            panic!("{size:?} at {pixels_per_point}×: the Overview did not return")
+        });
+        let usual = 260.0 * pixels_per_point.floor().max(1.0);
+        assert!(
+            (image.size() * pixels_per_point - Vec2::splat(usual)).length() < 1e-3,
+            "{size:?} at {pixels_per_point}×: the Overview returned at {image:?}"
         );
     }
 }
@@ -6781,11 +6905,12 @@ async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_f
 ///
 /// egui's zoom in shrinks the console in points and not the Source, so the
 /// outline shrinks with it, still at the rect the Pan and the console predict.
+/// The window is twice the default, so zoomed in it still holds the picture.
 ///
 #[tokio::test]
 async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
     let (ctx, mut console, mut host) = fresh_console();
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let screen = Rect::from_min_size(Pos2::ZERO, 2.0 * Vec2::from(DEFAULT_VIEW_SIZE));
     console.overview_open = true;
     let (before, _, _) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let before = before.expect("the Overview drew no outline");
