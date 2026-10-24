@@ -2,11 +2,14 @@
 
 
 # Pinned for reproducible local and CI gates. See docs/tooling.md.
+#
+# Every tool installs a pinned release binary: `aqua:` where the aqua registry
+# has the package, `github:` where it does not.
 [tools]
-"cargo:cargo-nextest" = "0.9.137"
-"cargo:cargo-deny" = "0.20.2"
-"cargo:trunk" = "0.21.14"
-"cargo:wasm-pack" = "0.15.0"
+"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.137"
+"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
+"github:trunk-rs/trunk" = "0.21.14"
+"github:rustwasm/wasm-pack" = "0.15.0"
 # The roadmap planner and its test suite are TypeScript run through node's own
 # type stripping and test runner, so the gate that executes them needs a pinned
 # runtime like every other tool here. `package.json` declares the floor the type

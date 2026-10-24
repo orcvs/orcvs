@@ -503,6 +503,23 @@ test_unpinned_workflow_linter_is_rejected() {
   assert_rejected "a workflow security linter pinned only to a major version"
 }
 
+test_source_built_cargo_tool_is_rejected() {
+  # A `cargo:` tool compiles from source on every mise cache miss, and CI misses
+  # on each pull request that edits `mise.toml`.
+  # Each case keeps the four release-binary pins, so only the ban can reject it.
+  make_fixture
+  perl -pi -e 's/^\[tools\]$/[tools]\n"cargo:foo" = "1.0.0"/' "$fixture_dir/mise.toml"
+  assert_rejected "a cargo tool built from source instead of installed as a release binary"
+
+  make_fixture
+  perl -pi -e "s/^\\[tools\\]\$/[tools]\n'cargo:foo' = \"1.0.0\"/" "$fixture_dir/mise.toml"
+  assert_rejected "a single-quoted cargo tool"
+
+  make_fixture
+  printf '\n[tools."cargo:foo"]\nversion = "1.0.0"\n' >> "$fixture_dir/mise.toml"
+  assert_rejected "a cargo tool declared as a table"
+}
+
 test_automatically_triggered_miri_workflow_is_rejected() {
   # `verification-gaps/12` kept Miri as a path taken on purpose. Every trigger
   # below turns it back into something a change pays for without anyone
@@ -1197,6 +1214,7 @@ case "${1:-all}" in
   bench-floor-not-last) test_bench_floor_check_not_last_is_rejected ;;
   contract-assertions-read-whole-input) test_contract_assertions_read_their_whole_input ;;
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
+  source-built-cargo-tool) test_source_built_cargo_tool_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
@@ -1311,6 +1329,7 @@ case "${1:-all}" in
     test_bench_floor_check_not_last_is_rejected
     test_contract_assertions_read_their_whole_input
     test_unpinned_workflow_linter_is_rejected
+    test_source_built_cargo_tool_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected
