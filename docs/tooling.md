@@ -8,8 +8,8 @@ Verification has two trigger tiers:
 
 - `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the two
   workflow linters, the roadmap planner's test suite, the dependency audit, formatting, clippy with
-  and without the default features, the native tests and doctests under both, and the rustdoc gates
-  under both feature sets.
+  and without the default features, a Windows-target lint of the shipped crates, the native tests and
+  doctests under both, and the rustdoc gates under both feature sets.
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
   the application twice, once under each. Pull requests run the first on Linux and the second on the
   WASM job. macOS runs the native tier only during merge queue verification, pushes to `main`, and
@@ -150,6 +150,19 @@ module to it — what can break is the dependency resolving and the console stil
 the same reason: there is nothing to run. `scripts/check-tooling-contract.sh` pins the line's
 presence in `check_pull_request`, because deleting it is invisible — no test fails when a feature
 stops being compiled.
+
+No CI job runs on Windows, so `mise run check_windows` is the one place that compiles for it: `cargo
+clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked`, with default features and
+with `--no-default-features`. It reaches the `cfg(windows)` code in the console's dependencies —
+midir's WinMM backend, rfd's COM dialogs, winit's Win32 window and eframe's known-folder storage
+path — from the runners the tier already has: Linux on pull requests, and macOS in the merge tier.
+clippy is a check build, so it neither links nor needs the MSVC linker or Windows SDK;
+`rust-toolchain.toml` declares the target so rustup installs it with the pinned channel, the way the
+WASM job gets `wasm32-unknown-unknown`. It is scoped to the shipped crates because the test and bench
+targets pull in criterion, whose `alloca` build script compiles C for the target and needs `lib.exe`
+or `clang-cl`. It proves that Windows compiles, not that it runs; `docs/research/windows-support.md`
+covers what running it would take. `scripts/check-tooling-contract.sh` pins the task, its call in
+`check_pull_request`, and the toolchain target.
 
 `mise run inspect` is the launcher, and two things about it are load-bearing rather than
 convenience. It writes `EGUI_INSPECTION=127.0.0.1:5719` out in full instead of the `EGUI_INSPECTION=1`

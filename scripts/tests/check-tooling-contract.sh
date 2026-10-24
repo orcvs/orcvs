@@ -894,6 +894,22 @@ test_pull_request_tier_without_the_inspection_feature_is_rejected() {
   assert_rejected "a pull-request tier that never compiles the inspection feature"
 }
 
+test_pull_request_tier_without_the_windows_lint_is_rejected() {
+  make_fixture
+  # No job runs on Windows, so this is the only line that compiles for it.
+  # Removing it lets a break behind `cfg(windows)` reach `main` unseen.
+  perl -pi -e 's/^(mise run check_windows)$/# $1/' "$fixture_dir/mise.toml"
+  assert_rejected "a pull-request tier that never compiles for Windows"
+}
+
+test_toolchain_without_the_windows_target_is_rejected() {
+  make_fixture
+  # The Windows lint needs the target's standard library, which rustup installs
+  # from the toolchain file. Without the entry the lint fails only when it runs.
+  perl -pi -e 's/, "x86_64-pc-windows-msvc"//' "$fixture_dir/rust-toolchain.toml"
+  assert_rejected "a toolchain that does not install the Windows target"
+}
+
 test_toolchain_action_off_the_channel_is_rejected() {
   # Every rust-toolchain action names the channel `rust-toolchain.toml` pins, at
   # one commit. A bump of the file alone leaves the workflows behind.
@@ -1273,6 +1289,8 @@ case "${1:-all}" in
   inspection-launcher-outside-inspect) test_inspection_launcher_outside_the_inspect_task_is_rejected ;;
   two-inspection-assignments-one-line) test_two_inspection_assignments_on_one_line_is_rejected ;;
   inspection-feature-gate) test_pull_request_tier_without_the_inspection_feature_is_rejected ;;
+  windows-lint) test_pull_request_tier_without_the_windows_lint_is_rejected ;;
+  windows-target) test_toolchain_without_the_windows_target_is_rejected ;;
   toolchain-action-channel) test_toolchain_action_off_the_channel_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
   split-egui-stack) test_split_egui_stack_is_rejected ;;
@@ -1392,6 +1410,8 @@ case "${1:-all}" in
     test_inspection_launcher_outside_the_inspect_task_is_rejected
     test_two_inspection_assignments_on_one_line_is_rejected
     test_pull_request_tier_without_the_inspection_feature_is_rejected
+    test_pull_request_tier_without_the_windows_lint_is_rejected
+    test_toolchain_without_the_windows_target_is_rejected
     test_caret_egui_requirement_is_rejected
     test_split_egui_stack_is_rejected
     test_shipped_kittest_dependency_is_rejected
