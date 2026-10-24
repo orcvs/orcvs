@@ -1,5 +1,6 @@
 //! The Overview: the whole Grid and its margin, one texel per Cell in the
-//! Theme's colours, docked at the right of the Source View.
+//! Theme's colours, floating over the window's bottom-right corner (ADR
+//! 0081).
 
 use std::iter::repeat_n;
 use std::ops::Range;

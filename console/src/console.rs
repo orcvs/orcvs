@@ -4,7 +4,7 @@
 //! parts, in this order: `input` keeps Tab for the Source and routes the
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `overview`
-//! docks the Overview at the right when it is open, and outlines the Source
+//! floats the Overview over the window's corner when it is open, and outlines the Source
 //! View on it and Pans it from a press once `source_view` has presented the
 //! Source, which `shapes` draws in the Glyphs `glyphs` lays out; `repaint` schedules the next timed
 //! Render Frame; `diagnostics_panel` fills the Panel's

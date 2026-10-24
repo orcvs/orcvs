@@ -1,6 +1,6 @@
 # The Overview Pans over a cached picture
 
-Status: accepted. Amends [ADR 0045](0045-the-source-view-is-a-bounded-space.md)'s list of Pan gestures. Preserves [ADR 0040](0040-the-console-paints-from-a-value.md), [ADR 0052](0052-a-claim-answers-whether-its-slot-is-written.md) and [ADR 0053](0053-one-theme-styles-the-whole-console.md). Settled in `.scratch/overview/`; the evidence is `docs/research/egui-minimap.md`.
+Status: accepted; its placement beside the Source View and its rejection of a floating overlay are amended by [ADR 0081](0081-the-overview-floats-over-the-windows-corner.md). Amends [ADR 0045](0045-the-source-view-is-a-bounded-space.md)'s list of Pan gestures. Preserves [ADR 0040](0040-the-console-paints-from-a-value.md), [ADR 0052](0052-a-claim-answers-whether-its-slot-is-written.md) and [ADR 0053](0053-one-theme-styles-the-whole-console.md). Settled in `.scratch/overview/`; the evidence is `docs/research/egui-minimap.md`.
 
 The Source View shows a small part of a 256 by 256 Grid. The Overview is a reduced picture of the whole Grid and its margin, one block of colour per Cell, docked beside the Source View with the Source View drawn on it as an outline.
 
