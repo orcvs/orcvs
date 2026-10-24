@@ -7,20 +7,17 @@ use std::sync::Arc;
 
 use egui::emath::GuiRounding as _;
 use egui::{
-    Color32, ColorImage, CursorIcon, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
+    Color32, ColorImage, CursorIcon, Painter, PointerButton, Rect, Response, Sense, Stroke,
     StrokeKind, TextureHandle, TextureOptions, Vec2,
 };
-use orcvs::grid::Grid;
 use orcvs::render_frame::{RenderCell, RenderFrame};
 use orcvs::source::RevisionId;
 
 use super::Console;
-use super::source_view::{SOURCE_MARGIN_CELLS, SourceView, padded_source, pannable};
+use super::source_view::{ShownSourceView, SourceView, extent};
+use crate::grid_viewport::{PictureMap, SourceCellPoint, SourceCellRect};
 use crate::style::{CellColours, CursorPlacement};
 use crate::theme::{Appearance, Theme, ThemeIdentity};
-
-/// The margin around the Grid in texels: one texel per Cell of margin.
-const MARGIN: usize = SOURCE_MARGIN_CELLS as usize;
 
 ///
 /// The Overview's picture, kept across Render Frames, and the texture it is
@@ -102,27 +99,17 @@ pub(super) struct ShownOverview {
 
 impl ShownOverview {
     ///
-    /// Outlines the Source View on the picture: `visible`, the part of the
-    /// Source the console shows in its own points, offset by the margin and
-    /// scaled from the padded Source drawn at `cell` to the picture.
-    ///
-    /// Clipped to the picture on an axis the console shows all of, and not
+    /// Outlines `source`'s [`ShownSourceView::outline`] on the picture:
+    /// clipped to the picture on an axis the console shows all of, and not
     /// drawn when it shows all of both, where there is nowhere to Pan. The
     /// stroke lies inside the outline, so a clipped edge stays on the picture.
     ///
-    pub(super) fn outline_source_view(&self, visible: Rect, grid: Grid, cell: Vec2, theme: &Theme) {
-        let padded = padded_source(grid, cell);
-        if !pannable(visible.size(), padded) {
+    pub(super) fn outline_source_view(&self, source: &ShownSourceView, theme: &Theme) {
+        let Some(outline) = source.outline() else {
             return;
-        }
-        let shown = outline(visible, grid, cell);
-        let scale = self.picture.size() / padded;
-        let outline = Rect::from_min_max(
-            self.picture.min + shown.min.to_vec2() * scale,
-            self.picture.min + shown.max.to_vec2() * scale,
-        );
+        };
         self.painter.rect_stroke(
-            outline,
+            PictureMap::new(source.extent(), self.picture).rect_to_picture(outline),
             0.0,
             Stroke::new(
                 theme.overview_source_view_width.points(),
@@ -136,67 +123,46 @@ impl ShownOverview {
 impl Overview {
     ///
     /// Pans the Source View to follow a press or drag on `shown`: on the press
-    /// frame the grab is fixed from where the press landed against `visible`,
-    /// the part of the Source the console shows in its own points at `cell`,
-    /// and each Render Frame the button is held asks `view` to centre on the
-    /// pointer plus that grab. The Source View applies it on the next Render
-    /// Frame, inside the bounds of every Pan.
+    /// frame the grab is fixed from where the press landed against `source`'s
+    /// outline, and each Render Frame the button is held asks `view` to
+    /// centre on the pointer plus that grab. The Source View applies it on the
+    /// next Render Frame, inside the bounds of every Pan.
     ///
-    /// Nothing happens where the console shows all of the padded Source, as
-    /// the Source View offers no Pan there either. It never selects, so the
-    /// Cursor and the Region stay where they were.
+    /// Nothing happens where `source` has no outline, as the Source View
+    /// offers no Pan there either. It never selects, so the Cursor and the
+    /// Region stay where they were.
     ///
     pub(super) fn pan_source_view(
         &mut self,
         shown: &ShownOverview,
-        visible: Rect,
-        grid: Grid,
-        cell: Vec2,
+        source: &ShownSourceView,
         view: &mut SourceView,
     ) {
-        // No press fixes a grab here, so an earlier gesture's is dropped and a
-        // drag that can Pan only partway through centres on the pointer.
-        if !pannable(visible.size(), padded_source(grid, cell)) {
+        let Some(outline) = source.outline() else {
+            // No press fixes a grab here, so an earlier gesture's is dropped and a
+            // drag that can Pan only partway through centres on the pointer.
             self.grab = Vec2::ZERO;
             return;
-        }
+        };
         let response = &shown.response;
         if let Some(pointer) = response.interact_pointer_pos()
             && response.dragged_by(PointerButton::Primary)
         {
-            let padded = padded_source(grid, Vec2::splat(1.0));
-            let at = (pointer - shown.picture.min) * padded / shown.picture.size();
+            let at = PictureMap::new(source.extent(), shown.picture).to_cells(pointer);
             if response.drag_started_by(PointerButton::Primary) {
-                let outlined = outline(visible, grid, cell);
-                let in_cells = Rect::from_min_max(
-                    (outlined.min.to_vec2() / cell).to_pos2(),
-                    (outlined.max.to_vec2() / cell).to_pos2(),
-                );
-                let at = at.to_pos2();
-                self.grab = if in_cells.contains(at) {
-                    in_cells.center() - at
+                self.grab = if outline.contains(at) {
+                    outline.center() - at
                 } else {
                     Vec2::ZERO
                 };
             }
-            view.centre_on((at + self.grab).to_pos2());
+            view.centre_on(at + self.grab);
             response.ctx.set_cursor_icon(CursorIcon::Grabbing);
             response.ctx.request_repaint();
         } else if response.hovered() {
             response.ctx.set_cursor_icon(CursorIcon::Grab);
         }
     }
-}
-
-///
-/// The Source View as the Overview outlines it, in points of the padded Source
-/// drawn at `cell`: `visible`, the part of the Source the console shows in its
-/// own points, offset by the margin and clipped to the padded Source.
-///
-fn outline(visible: Rect, grid: Grid, cell: Vec2) -> Rect {
-    visible
-        .translate(SOURCE_MARGIN_CELLS * cell)
-        .intersect(Rect::from_min_size(Pos2::ZERO, padded_source(grid, cell)))
 }
 
 impl Console {
@@ -239,7 +205,7 @@ impl Console {
         let border = root.visuals().widgets.noninteractive.bg_stroke;
         let room = (below_menu.size() * Vec2::new(0.5, 1.0) - Vec2::splat(border.width))
             * pixels_per_point
-            / padded_source(frame.grid(), Vec2::splat(1.0));
+            / extent(frame.grid()).size();
         let pixels_per_texel = pixels_per_point
             .floor()
             .max(1.0)
@@ -309,16 +275,15 @@ impl Console {
 /// so its fill is the one the Source gives it.
 ///
 fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame, theme: &Theme) {
-    let texel = picture.size() / padded_source(frame.grid(), Vec2::splat(1.0));
+    let extent = extent(frame.grid());
+    let map = PictureMap::new(extent, picture);
+    let texel = picture.size() / extent.size();
     let cells = |columns: Range<usize>, rows: Range<usize>| {
-        let corner = |column: usize, row: usize| {
-            picture.min
-                + (Vec2::new(column as f32, row as f32) + Vec2::splat(SOURCE_MARGIN_CELLS)) * texel
-        };
-        Rect::from_min_max(
+        let corner = |column: usize, row: usize| SourceCellPoint::new(column as f32, row as f32);
+        map.rect_to_picture(SourceCellRect::from_min_max(
             corner(columns.start, rows.start),
             corner(columns.end, rows.end),
-        )
+        ))
     };
     // An inside stroke half a texel wide covers a one-texel mark entirely, so
     // a border keeps to a quarter texel and leaves the middle half to the fill.
@@ -339,7 +304,7 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
     };
     let cursor = frame.cursor();
     painter.rect(
-        cells(cursor.x()..cursor.x() + 1, cursor.y()..cursor.y() + 1),
+        map.rect_to_picture(SourceCellRect::cell(cursor)),
         0.0,
         cell_texel(&mut CellColours::new(theme), frame.at(cursor), placement),
         border(theme.cursor_border_width.points(), theme.cursor_border),
@@ -348,9 +313,9 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
 }
 
 ///
-/// Draws `frame` into `picture` in `theme`'s colours: one texel per Cell,
-/// row by row, with the margin around the Grid as the surface the Source is
-/// displayed on.
+/// Draws `frame` into `picture` in `theme`'s colours: one texel per Source
+/// Cell of the extent, row by row, with the margin around the Grid as the
+/// surface the Source is displayed on.
 ///
 /// Each Cell's colour is its Plain displayed colours reduced by a fixed rule:
 /// the displayed foreground where the Cell is occupied, otherwise the
@@ -364,8 +329,11 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
 ///
 pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage) {
     let grid = frame.grid();
-    let width = grid.columns() + 2 * MARGIN;
-    let height = grid.rows() + 2 * MARGIN;
+    let extent = extent(grid);
+    let (width, height) = (extent.size().x as usize, extent.size().y as usize);
+    // The margin's texels before the Grid on each axis, and after it.
+    let (left, top) = (-extent.min().x() as usize, -extent.min().y() as usize);
+    let (right, bottom) = (width - left - grid.columns(), height - top - grid.rows());
     let mut colours = CellColours::new(theme);
     let background = colours.surface();
 
@@ -373,16 +341,16 @@ pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage
     picture.source_size = egui::vec2(width as f32, height as f32);
     let pixels = &mut picture.pixels;
     pixels.clear();
-    pixels.extend(repeat_n(background, MARGIN * width));
+    pixels.extend(repeat_n(background, top * width));
     for row in frame.cells().chunks(grid.columns()) {
-        pixels.extend(repeat_n(background, MARGIN));
+        pixels.extend(repeat_n(background, left));
         pixels.extend(
             row.iter()
                 .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain)),
         );
-        pixels.extend(repeat_n(background, MARGIN));
+        pixels.extend(repeat_n(background, right));
     }
-    pixels.extend(repeat_n(background, MARGIN * width));
+    pixels.extend(repeat_n(background, bottom * width));
 }
 
 ///
@@ -406,10 +374,17 @@ fn cell_texel(
 mod tests {
     use egui::{Color32, ColorImage};
     use orcvs::app::Orcvs;
+    use orcvs::grid::Grid;
     use orcvs::source::Tick;
 
-    use super::{MARGIN, draw_picture};
+    use super::draw_picture;
+    use crate::console::source_view::extent;
     use crate::theme::{Theme, okabe_ito, orcvs_light};
+
+    /// The margin around the Grid in texels, read from the extent.
+    fn margin() -> usize {
+        -extent(Grid::new()).min().x() as usize
+    }
 
     fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
         Orcvs::with_shape(cols, rows).expect("the test runtime")
@@ -431,7 +406,7 @@ mod tests {
 
     /// The texel of the Cell at `column` and `row`, inside the margin.
     fn texel(picture: &ColorImage, column: usize, row: usize) -> Color32 {
-        picture.pixels[(row + MARGIN) * picture.size[0] + column + MARGIN]
+        picture.pixels[(row + margin()) * picture.size[0] + column + margin()]
     }
 
     #[tokio::test]
@@ -440,7 +415,7 @@ mod tests {
         let theme = okabe_ito();
         let picture = picture(&orcvs, &theme);
 
-        assert_eq!(picture.size, [6 + 2 * MARGIN, 4 + 2 * MARGIN]);
+        assert_eq!(picture.size, [6 + 2 * margin(), 4 + 2 * margin()]);
         assert!(
             picture
                 .pixels
@@ -469,10 +444,11 @@ mod tests {
             assert_eq!(texel(&picture, column + 2, 3), theme.diagnostic_foreground);
         }
         let [width, height] = picture.size;
+        let margin = margin();
         for y in 0..height {
             for x in 0..width {
                 let in_margin =
-                    x < MARGIN || y < MARGIN || x >= width - MARGIN || y >= height - MARGIN;
+                    x < margin || y < margin || x >= width - margin || y >= height - margin;
                 if in_margin {
                     assert_eq!(
                         picture.pixels[y * width + x],

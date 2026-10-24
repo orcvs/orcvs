@@ -1,6 +1,6 @@
 //! The Panel's Diagnostics readouts: frame timing and Source View geometry.
 
-use egui::{Pos2, Rect};
+use super::source_view::ShownSourceView;
 
 const TARGET_FPS: f32 = 60.0;
 const FRAME_BUDGET_SECONDS: f32 = 1.0 / TARGET_FPS;
@@ -47,15 +47,6 @@ pub(super) fn format_cpu_budget_delta(cpu_usage: Option<f32>) -> String {
         .unwrap_or_else(|| "—".to_owned())
 }
 
-///
-/// The part of the Source the console area shows, in the Source's own points:
-/// `console` read back through the `origin` the Source's corner was presented
-/// at.
-///
-pub(super) fn visible_source_region(console: Rect, origin: Pos2) -> Rect {
-    console.translate(-origin.to_vec2())
-}
-
 fn row_height(ui: &egui::Ui) -> f32 {
     ui.spacing()
         .interact_size
@@ -78,9 +69,7 @@ pub(super) fn show_diagnostics(
     ui: &mut egui::Ui,
     frame: &eframe::Frame,
     timing: &mut TimingReadouts,
-    origin: Pos2,
-    console: Rect,
-    cell_size: egui::Vec2,
+    source: &ShownSourceView,
 ) {
     let (now, frame_time) = ui.input(|input| (input.time, input.stable_dt));
     let shown = timing.observe(
@@ -91,7 +80,7 @@ pub(super) fn show_diagnostics(
         },
     );
     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-    egui::ScrollArea::vertical().show(ui, |ui| summary(ui, shown, origin, console, cell_size));
+    egui::ScrollArea::vertical().show(ui, |ui| summary(ui, shown, source));
 }
 
 fn summary(
@@ -100,10 +89,9 @@ fn summary(
         frame_time,
         cpu_usage,
     }: Timing,
-    origin: Pos2,
-    console: Rect,
-    cell_size: egui::Vec2,
+    source: &ShownSourceView,
 ) {
+    let cell_size = source.screen().cell();
     egui::Grid::new("orcvs-diagnostics-summary")
         .num_columns(2)
         .min_col_width(ui.available_width() / 6.0)
@@ -150,7 +138,7 @@ fn summary(
             ui.end_row();
 
             ui.add(egui::Label::new("Visible Source region").extend());
-            ui.monospace(format!("{:.1?}", visible_source_region(console, origin)));
+            ui.monospace(format!("{:.1?}", source.shown()));
             ui.end_row();
         });
 }

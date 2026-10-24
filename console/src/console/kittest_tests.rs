@@ -83,10 +83,10 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
-use super::source_view::{SOURCE_MARGIN_CELLS, padded_source};
+use super::source_view::one_row_between_margins;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
+use crate::grid_viewport::{CELL_SIZE, GridViewport, PictureMap, SourceCellPoint, snapped_cell};
 use crate::theme::{Appearance, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes};
@@ -157,22 +157,12 @@ fn cell_under_cursor(console: &Console) -> Option<char> {
 ///
 /// Where the console presented its Source Grid on the last frame.
 ///
-/// The same call `show_source_scene` makes, asked of the origin the
-/// pass left behind rather than re-derived from a console area — so a
-/// coordinate built from this is the coordinate the Cells were actually painted
-/// at, whatever the window has since done.
+/// The viewport the pass left behind rather than one re-derived from a
+/// console area, so a coordinate built from this is the coordinate the Cells
+/// were actually painted at, whatever the window has since done.
 ///
 fn presented_source(harness: &Harness<'_, Console>) -> GridViewport {
-    let console = harness.state();
-    let grid = console.orcvs.render_frame().grid();
-
-    let pixels_per_point = harness.ctx.pixels_per_point();
-    presented_grid(
-        console.source_view.origin,
-        grid,
-        snapped_cell(console.source_view.cell, pixels_per_point),
-        pixels_per_point,
-    )
+    harness.state().source_view.shown().viewport()
 }
 
 /// The Source's actual input rectangle: the one widget between the bars that
@@ -471,68 +461,43 @@ fn overview_picture(harness: &Harness<'_, Console>) -> egui::Rect {
 }
 
 ///
-/// The Cell the Source is drawn at right now, snapped as the Source scene
-/// snaps it.
+/// The place in Source Cells shown at the centre of the console area.
 ///
-fn drawn_cell(harness: &Harness<'_, Console>) -> Vec2 {
-    snapped_cell(
-        harness.state().source_view.cell,
-        harness.ctx.pixels_per_point(),
+fn source_view_centre(harness: &Harness<'_, Console>) -> SourceCellPoint {
+    harness.state().source_view.shown().shown().center()
+}
+
+///
+/// The Overview's map from Source Cells onto its picture.
+///
+fn overview_map(harness: &Harness<'_, Console>) -> PictureMap {
+    PictureMap::new(
+        harness.state().source_view.shown().extent(),
+        overview_picture(harness),
     )
 }
 
 ///
-/// The padded Source's size in points at the Cell the Source is drawn at.
-///
-fn padded_size(harness: &Harness<'_, Console>) -> Vec2 {
-    padded_source(
-        harness.state().orcvs.render_frame().grid(),
-        drawn_cell(harness),
-    )
-}
-
-///
-/// The point of the padded Source — its top-left at the margin's outer edge —
-/// that the console presents at `point`.
-///
-fn padded_at(harness: &Harness<'_, Console>, point: Pos2) -> Vec2 {
-    point - harness.state().source_view.origin + SOURCE_MARGIN_CELLS * drawn_cell(harness)
-}
-
-///
-/// The point of the padded Source shown at the centre of the console area.
-///
-fn source_view_centre(harness: &Harness<'_, Console>) -> Vec2 {
-    padded_at(harness, source_rect(harness).center())
-}
-
-///
-/// The point of the padded Source that `point` on the Overview's picture
-/// stands for.
-///
-fn padded_point(harness: &Harness<'_, Console>, point: Pos2) -> Vec2 {
-    let picture = overview_picture(harness);
-    (point - picture.min) / picture.size() * padded_size(harness)
-}
-
-///
-/// The Source View as the Overview outlines it: the console area in padded
-/// Source points, mapped onto the picture.
+/// The Source View as the Overview outlines it, before the outline is
+/// clipped to the picture.
 ///
 fn source_view_on_overview(harness: &Harness<'_, Console>) -> egui::Rect {
-    let picture = overview_picture(harness);
-    let scale = picture.size() / padded_size(harness);
-    let console = source_rect(harness);
-    let corner = padded_at(harness, console.min);
-    egui::Rect::from_min_size(picture.min + corner * scale, console.size() * scale)
+    overview_map(harness).rect_to_picture(harness.state().source_view.shown().shown())
 }
 
 ///
-/// Asserts `actual` is within one point of `expected` on both axes.
+/// Asserts `actual` is within one point of `expected` on both axes, at the
+/// Cell the Source was drawn at.
 ///
-fn assert_near(actual: Vec2, expected: Vec2, what: &str) {
+fn assert_near(
+    harness: &Harness<'_, Console>,
+    actual: SourceCellPoint,
+    expected: SourceCellPoint,
+    what: &str,
+) {
+    let cell = harness.state().source_view.shown().screen().cell();
     assert!(
-        (actual - expected).abs().max_elem() <= 1.0,
+        ((actual - expected) * cell).abs().max_elem() <= 1.0,
         "{what}: {actual:?}, expected {expected:?}"
     );
 }
@@ -599,8 +564,9 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
     harness.step();
     harness.step();
     assert_near(
+        &harness,
         source_view_centre(&harness),
-        padded_point(&harness, press),
+        overview_map(&harness).to_cells(press),
         "the press did not centre the Source View on the pressed point",
     );
     assert!(
@@ -614,8 +580,9 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
     harness.step();
     harness.step();
     assert_near(
+        &harness,
         source_view_centre(&harness),
-        padded_point(&harness, dragged_to),
+        overview_map(&harness).to_cells(dragged_to),
         "the Source View did not follow the drag after the press",
     );
 
@@ -648,7 +615,7 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
 ///
 /// A press inside the outline grabs the Source View where it was pressed: it
 /// does not jump, and a drag carries it with the pointer, scaled from the
-/// picture to the padded Source.
+/// picture to the extent.
 ///
 #[tokio::test]
 async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_without_a_jump() {
@@ -664,6 +631,7 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
     harness.step();
     harness.step();
     assert_near(
+        &harness,
         source_view_centre(&harness),
         centre_before,
         "a press inside the outline moved the Source View",
@@ -673,8 +641,12 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
     harness.event(Event::PointerMoved(press + drag));
     harness.step();
     harness.step();
-    let scale = padded_size(&harness) / overview_picture(&harness).size();
+    // Worked by hand from the texel count rather than through the Overview's
+    // map: the picture is 260 texels across and down, one for each of the 256
+    // Columns and Rows and the two margin Cells past either side.
+    let scale = Vec2::splat(260.0) / overview_picture(&harness).size();
     assert_near(
+        &harness,
         source_view_centre(&harness),
         centre_before + drag * scale,
         "the drag did not carry the Source View with the pointer",
@@ -696,8 +668,8 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
 
 ///
 /// A drag past the Grid's far corner stops the Source View at the margin
-/// past it, as every Pan does: the console's far corner rests on the padded
-/// Source's.
+/// past it, as every Pan does: the console's far corner rests on the
+/// extent's.
 ///
 #[tokio::test]
 async fn a_drag_from_the_overview_past_the_grid_stops_at_the_margin() {
@@ -712,10 +684,11 @@ async fn a_drag_from_the_overview_past_the_grid_stops_at_the_margin() {
     harness.step();
     harness.step();
 
-    let console = source_rect(&harness);
+    let shown = harness.state().source_view.shown();
     assert_near(
-        padded_at(&harness, console.max),
-        padded_size(&harness),
+        &harness,
+        shown.shown().max(),
+        shown.extent().max(),
         "the Source View did not stop at the margin past the Grid's far corner",
     );
     primary(&mut harness, beyond, false);
@@ -772,7 +745,7 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
     );
 
     let source = source_rect(&harness);
-    let usable = (2.0 * SOURCE_MARGIN_CELLS + 1.0) * CELL_SIZE.y;
+    let usable = one_row_between_margins(CELL_SIZE.y);
     assert!(
         source.height() >= usable,
         "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
@@ -823,8 +796,7 @@ async fn docked_diagnostics_labels_are_not_truncated() {
                 value_left - label_left > size.x * 0.15 && value_left - label_left < size.x * 0.2,
                 "the label column is not about one sixth of the window width"
             );
-            let region =
-                source_rect(&harness).translate(-harness.state().source_view.origin.to_vec2());
+            let region = harness.state().source_view.shown().shown();
             let value = format!("{region:.1?}");
             let text = harness
                 .output()
@@ -847,7 +819,7 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let assert_region = |harness: &Harness<'_, Console>| {
-        let region = source_rect(harness).translate(-harness.state().source_view.origin.to_vec2());
+        let region = harness.state().source_view.shown().shown();
         assert!(
             harness.query_by_label(&format!("{region:.1?}")).is_some(),
             "Diagnostics do not show this frame's Source region: {region:?}"
@@ -871,7 +843,7 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
     harness.step();
     assert_region(&harness);
 
-    let origin = harness.state().source_view.origin;
+    let origin = presented_source(&harness).rect.min;
     let start = source_rect(&harness).center();
     let end = start - Vec2::new(64.0, 48.0);
     harness.event(Event::PointerMoved(start));
@@ -884,7 +856,7 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
     harness.step();
     harness.event(Event::PointerMoved(end));
     harness.step();
-    assert_ne!(harness.state().source_view.origin, origin);
+    assert_ne!(presented_source(&harness).rect.min, origin);
     assert_region(&harness);
     harness.event(Event::PointerButton {
         pos: end,
@@ -1761,7 +1733,8 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
     // `CELL_SIZE.x` points wide at every zoom.
     let console_width = harness.ctx.content_rect().width();
     let pan = harness.state().source_view.pan;
-    let expected = console_width - (41.0 + SOURCE_MARGIN_CELLS) * CELL_SIZE.x;
+    let margin = -harness.state().source_view.shown().extent().min().x();
+    let expected = console_width - (41.0 + margin) * CELL_SIZE.x;
     assert!(
         (pan.x - expected).abs() < 1e-3 && pan.y == 0.0,
         "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}, not {expected}"

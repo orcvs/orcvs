@@ -8,10 +8,12 @@
 //! from the rendering so it is settled by arithmetic a test can ask about
 //! without a window.
 
-use std::ops::Range;
+use std::fmt;
+use std::ops::{Add, Range, Sub};
 
-use egui::{Pos2, Rect, Vec2, emath::GuiRounding as _};
-use orcvs::grid::{Grid, GridIdentity};
+use egui::emath::{GuiRounding as _, RectTransform};
+use egui::{Pos2, Rect, Vec2};
+use orcvs::grid::{Grid, GridIdentity, Position};
 
 ///
 /// The width and height of one Source Cell in points, before the snap to
@@ -170,6 +172,14 @@ impl GridViewport {
     ///
     pub(crate) fn glyph_size(&self) -> f32 {
         (GLYPH_PER_HEIGHT * self.cell_size.y).min(self.cell_size.x / GLYPH_ADVANCE)
+    }
+
+    ///
+    /// The map from Source Cells to the screen points this Grid was presented
+    /// at: Source Cell `(0, 0)` on the Grid's corner.
+    ///
+    pub(crate) fn screen(&self) -> ScreenMap {
+        ScreenMap::new(self.rect.min, self.cell_size)
     }
 
     ///
@@ -358,13 +368,202 @@ pub fn presented_grid(origin: Pos2, grid: Grid, cell: Vec2, pixels_per_point: f3
     }
 }
 
+///
+/// A place in Source Cells: columns across and rows down from the Grid's
+/// top-left. Every Position lies on whole Source Cells; a fraction is a place
+/// between them, and a negative one or one past the Grid's far edge is in the
+/// margin.
+///
+/// It meets egui's points only through a [`ScreenMap`], so a screen point
+/// cannot stand where Source Cells are meant.
+///
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct SourceCellPoint(Pos2);
+
+impl SourceCellPoint {
+    /// The place `x` Cells across and `y` down from the Grid's top-left.
+    pub(crate) fn new(x: f32, y: f32) -> Self {
+        Self(Pos2::new(x, y))
+    }
+
+    pub(crate) fn x(self) -> f32 {
+        self.0.x
+    }
+
+    pub(crate) fn y(self) -> f32 {
+        self.0.y
+    }
+}
+
+/// Moves the place by a distance in Cells.
+impl Add<Vec2> for SourceCellPoint {
+    type Output = Self;
+
+    fn add(self, cells: Vec2) -> Self {
+        Self(self.0 + cells)
+    }
+}
+
+/// The distance in Cells from one place to another.
+impl Sub for SourceCellPoint {
+    type Output = Vec2;
+
+    fn sub(self, other: Self) -> Vec2 {
+        self.0 - other.0
+    }
+}
+
+impl fmt::Debug for SourceCellPoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+///
+/// A region of Source Cells, from its top-left [`SourceCellPoint`] to its
+/// bottom-right.
+///
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct SourceCellRect(Rect);
+
+impl SourceCellRect {
+    pub(crate) fn from_min_max(min: SourceCellPoint, max: SourceCellPoint) -> Self {
+        Self(Rect::from_min_max(min.0, max.0))
+    }
+
+    /// The Cell at `position`, one Source Cell on each side.
+    pub(crate) fn cell(position: Position) -> Self {
+        let min = Pos2::new(position.x() as f32, position.y() as f32);
+        Self(Rect::from_min_size(min, Vec2::splat(1.0)))
+    }
+
+    pub(crate) fn min(self) -> SourceCellPoint {
+        SourceCellPoint(self.0.min)
+    }
+
+    pub(crate) fn max(self) -> SourceCellPoint {
+        SourceCellPoint(self.0.max)
+    }
+
+    pub(crate) fn center(self) -> SourceCellPoint {
+        SourceCellPoint(self.0.center())
+    }
+
+    /// Columns across and rows down.
+    pub(crate) fn size(self) -> Vec2 {
+        self.0.size()
+    }
+
+    pub(crate) fn contains(self, point: SourceCellPoint) -> bool {
+        self.0.contains(point.0)
+    }
+
+    pub(crate) fn intersect(self, other: Self) -> Self {
+        Self(self.0.intersect(other.0))
+    }
+}
+
+impl fmt::Debug for SourceCellRect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+///
+/// Source Cells placed on the screen: Source Cell `(0, 0)` at `corner`, each
+/// Cell `cell` points across and down.
+///
+/// Placing a Source Cell is `corner + cells × cell`, the multiply-add
+/// [`GridViewport::cell_rect`] mints a corner with, so a map built by
+/// [`GridViewport::screen`] lands every Position exactly where Paint drew it.
+///
+/// A Cell side that is not positive and finite is no Cell: on that axis
+/// every Source Cell lands on the corner and every screen point reads as zero,
+/// so neither way answers NaN.
+///
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ScreenMap {
+    corner: Pos2,
+    cell: Vec2,
+}
+
+impl ScreenMap {
+    pub(crate) fn new(corner: Pos2, cell: Vec2) -> Self {
+        let side = |side: f32| {
+            if side.is_finite() && side > 0.0 {
+                side
+            } else {
+                0.0
+            }
+        };
+        Self {
+            corner,
+            cell: Vec2::new(side(cell.x), side(cell.y)),
+        }
+    }
+
+    /// The Cell's width and height in points.
+    pub(crate) fn cell(self) -> Vec2 {
+        self.cell
+    }
+
+    pub(crate) fn to_screen(self, point: SourceCellPoint) -> Pos2 {
+        self.corner + point.0.to_vec2() * self.cell
+    }
+
+    pub(crate) fn rect_to_screen(self, rect: SourceCellRect) -> Rect {
+        Rect::from_min_max(self.to_screen(rect.min()), self.to_screen(rect.max()))
+    }
+
+    ///
+    /// The place in Source Cells shown at `point`, for continuous geometry.
+    /// It never chooses a Position: which Cell a point falls in is
+    /// [`GridViewport::cell_at`]'s and [`GridViewport::nearest_cell`]'s
+    /// answer, corrected against Paint's own arithmetic.
+    ///
+    pub(crate) fn to_cells(self, point: Pos2) -> SourceCellPoint {
+        let across = |offset: f32, side: f32| if side > 0.0 { offset / side } else { 0.0 };
+        let offset = point - self.corner;
+        SourceCellPoint::new(across(offset.x, self.cell.x), across(offset.y, self.cell.y))
+    }
+
+    pub(crate) fn rect_to_cells(self, rect: Rect) -> SourceCellRect {
+        SourceCellRect::from_min_max(self.to_cells(rect.min), self.to_cells(rect.max))
+    }
+}
+
+///
+/// Source Cells drawn on a picture: `extent` stretched over `picture`, for the
+/// Overview. Unlike a [`ScreenMap`] it is not Paint's arithmetic and need not
+/// land bit for bit where Paint would: the picture is a drawing of its own.
+///
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PictureMap(RectTransform);
+
+impl PictureMap {
+    pub(crate) fn new(extent: SourceCellRect, picture: Rect) -> Self {
+        Self(RectTransform::from_to(extent.0, picture))
+    }
+
+    pub(crate) fn rect_to_picture(self, rect: SourceCellRect) -> Rect {
+        self.0.transform_rect(rect.0)
+    }
+
+    /// The place in Source Cells drawn at `point` on the picture.
+    pub(crate) fn to_cells(self, point: Pos2) -> SourceCellPoint {
+        SourceCellPoint(self.0.inverse().transform_pos(point))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use egui::{Pos2, Rect, Vec2};
 
     use orcvs::grid::Grid;
 
-    use super::{CELL_SIZE, GridViewport, VisiblePositions, presented_grid, snapped_cell};
+    use super::{
+        CELL_SIZE, GridViewport, SourceCellPoint, VisiblePositions, presented_grid, snapped_cell,
+    };
 
     const GRID: usize = 32;
 
@@ -1028,6 +1227,87 @@ mod tests {
                 presented.rect.min
             );
             assert_eq!(presented.cell_at(Pos2::ZERO, sized(8, 8)), None);
+        }
+    }
+
+    ///
+    /// The map lands every whole Source Cell on the corner `cell_rect` mints
+    /// for that Position, bit for bit, at fractional Cells and device scales:
+    /// it is the same multiply-add from the same corner.
+    ///
+    #[test]
+    fn the_screen_map_lands_each_position_on_the_corner_paint_draws_it_at() {
+        for pixels_per_point in [0.3_f32, 1.0, 1.1, 1.5, 2.0] {
+            for cell in [CELL_SIZE, Vec2::new(10.3, 15.7)] {
+                let viewport = presented_grid(
+                    Pos2::new(13.7, -21.3),
+                    sized(32, 32),
+                    snapped_cell(cell, pixels_per_point),
+                    pixels_per_point,
+                );
+                let screen = viewport.screen();
+                for column in 0..32 {
+                    for row in 0..32 {
+                        assert_eq!(
+                            screen.to_screen(SourceCellPoint::new(column as f32, row as f32)),
+                            viewport.cell_rect(column, row).min,
+                            "Cell ({column}, {row}) of {cell:?} at {pixels_per_point} ppp"
+                        );
+                    }
+                }
+                assert_eq!(screen.cell(), viewport.cell_size);
+            }
+        }
+    }
+
+    ///
+    /// A screen point read back into Source Cells and placed again lands
+    /// where it started, within `f32`'s precision, inside the Grid, in the
+    /// margin and between Positions alike.
+    ///
+    #[test]
+    fn a_screen_point_read_into_source_cells_maps_back_to_itself() {
+        let viewport = presented_grid(
+            Pos2::new(13.7, -21.3),
+            sized(32, 32),
+            snapped_cell(CELL_SIZE, 1.5),
+            1.5,
+        );
+        let screen = viewport.screen();
+        for point in [
+            Pos2::new(0.0, 0.0),
+            Pos2::new(-40.25, 17.5),
+            Pos2::new(123.456, 789.012),
+            viewport.rect.max + Vec2::new(30.0, 45.0),
+        ] {
+            let back = screen.to_screen(screen.to_cells(point));
+            assert_close(back.x, point.x, "x");
+            assert_close(back.y, point.y, "y");
+        }
+        let console = Rect::from_min_max(Pos2::new(-5.0, 3.0), Pos2::new(400.0, 300.0));
+        let back = screen.rect_to_screen(screen.rect_to_cells(console));
+        assert_close(back.min.x, console.min.x, "rect min x");
+        assert_close(back.max.y, console.max.y, "rect max y");
+    }
+
+    ///
+    /// A Cell that is no Cell, zero or not finite on an axis, answers no NaN:
+    /// every screen point reads as Source Cell zero on that axis, and every
+    /// Source Cell lands on the corner.
+    ///
+    #[test]
+    fn a_degenerate_cell_maps_without_nan() {
+        for side in [0.0_f32, -3.0, f32::NAN, f32::INFINITY] {
+            let viewport = GridViewport {
+                cell_size: Vec2::new(side, 18.0),
+                rect: Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::ZERO),
+            };
+            let screen = viewport.screen();
+            let cells = screen.to_cells(Pos2::new(55.0, 56.0));
+            assert_eq!(cells.x(), 0.0, "a {side} Cell read a point across");
+            assert_close(cells.y(), 2.0, "down");
+            let placed = screen.to_screen(SourceCellPoint::new(7.0, 1.0));
+            assert_eq!(placed, Pos2::new(10.0, 38.0), "a {side} Cell placed a Cell");
         }
     }
 }

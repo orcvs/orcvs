@@ -10,7 +10,7 @@ use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
 use super::diagnostics_panel::summary_height;
-use super::source_view::SOURCE_MARGIN_CELLS;
+use super::source_view::one_row_between_margins;
 use crate::console_midi;
 use crate::grid_viewport::snapped_cell;
 use crate::midi::destination_presentation;
@@ -24,7 +24,7 @@ pub(super) const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
 /// snapped height the Source draws them, between its margins above and below.
 ///
 fn source_reserve(ui: &egui::Ui, cell: Vec2) -> f32 {
-    (2.0 * SOURCE_MARGIN_CELLS + 1.0) * snapped_cell(cell, ui.ctx().pixels_per_point()).y
+    one_row_between_margins(snapped_cell(cell, ui.ctx().pixels_per_point()).y)
 }
 
 /// Extra left inset on top of `Frame::side_top_panel`'s inner margin.

@@ -7,7 +7,10 @@ use egui::{
 use orcvs::app::{Arrow, InputEvent, InputKey, Orcvs};
 use orcvs::render_frame::RenderFrame;
 
-use crate::grid_viewport::{CELL_SIZE, GridViewport, presented_grid, snapped_cell};
+use crate::grid_viewport::{
+    CELL_SIZE, GridViewport, PictureMap, SourceCellPoint, SourceCellRect, presented_grid,
+    snapped_cell,
+};
 use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
 use crate::theme::{Theme, okabe_ito, orcvs_light};
 use crate::theme_registry::ThemeRegistry;
@@ -15,7 +18,7 @@ use orcvs::grid::{COL_COUNT, Grid, Position, ROW_COUNT};
 
 use super::diagnostics_panel::{
     TIMING_READOUT_INTERVAL_SECONDS, Timing, TimingReadouts, format_cpu_budget_delta,
-    frames_per_second, visible_source_region,
+    frames_per_second,
 };
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
 use super::input::translate_event;
@@ -23,16 +26,23 @@ use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
 use super::source_view::{
-    SOURCE_MARGIN_CELLS, SourceView, clamp_pan, is_presentable, padded_source, show_source_scene,
+    ShownSourceView, SourceView, clamp_pan, extent, is_presentable, show_source_scene,
     source_panel_frame,
 };
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 
-/// The Source View's margin at a device scale of one.
-const MARGIN: Vec2 = Vec2::new(
-    SOURCE_MARGIN_CELLS * CELL_SIZE.x,
-    SOURCE_MARGIN_CELLS * CELL_SIZE.y,
-);
+///
+/// How far the Source View's extent reaches past the Grid's top-left, in
+/// points at `cell`: the margin between the Grid and a console at rest.
+///
+fn margin(cell: Vec2) -> Vec2 {
+    (SourceCellPoint::new(0.0, 0.0) - extent(Grid::new()).min()) * cell
+}
+
+/// Where `view` presented the Grid's top-left on its last frame.
+fn corner(view: &SourceView) -> Pos2 {
+    view.shown().viewport().rect.min
+}
 
 /// Device scales the Source's own Cell is presented at: whole ones, and
 /// fractional ones whose snap draws the Cell under its own points. egui folds its
@@ -238,23 +248,30 @@ fn command_shift_r_alone_translates_to_a_rewind() {
 
 ///
 /// The frame rate is derived. The visible Source region the diagnostics
-/// show is the console area read back through the origin, and the guard is
-/// what keeps that origin a value they can show.
+/// show is the console area read back into Source Cells from the corner Paint
+/// drew the Grid at, and the guard is what keeps that corner a value they can
+/// show.
 ///
 #[test]
-fn diagnostics_derive_frame_rate_and_read_the_visible_region_from_the_origin() {
+fn diagnostics_derive_frame_rate_and_read_the_visible_region_in_source_cells() {
     assert_eq!(frames_per_second(0.02), Some(50.0));
     assert_eq!(frames_per_second(0.0), None);
 
-    // Panned 40 points into the Source and letterboxed 30 points below the
+    // Panned three Cells into the Source and letterboxed two Cells below the
     // console's top, so each axis reads back with its own sign.
-    let console = Rect::from_min_size(Pos2::new(0.0, 24.0), Vec2::new(800.0, 400.0));
-    let origin = Pos2::new(-40.0, 54.0);
-    assert!(is_presentable(origin));
+    let console = Rect::from_min_size(Pos2::new(0.0, 24.0), Vec2::new(840.0, 360.0));
+    let viewport = GridViewport {
+        cell_size: CELL_SIZE,
+        rect: Rect::from_min_size(Pos2::new(-36.0, 60.0), 32.0 * CELL_SIZE),
+    };
+    assert!(is_presentable(viewport.rect.min));
     assert_eq!(
-        visible_source_region(console, origin),
-        Rect::from_min_size(Pos2::new(40.0, -30.0), Vec2::new(800.0, 400.0)),
-        "the visible Source region is not the console area read back through the origin"
+        ShownSourceView::new(&viewport, console, Grid::with_shape(32, 32)).shown(),
+        SourceCellRect::from_min_max(
+            SourceCellPoint::new(3.0, -2.0),
+            SourceCellPoint::new(73.0, 18.0)
+        ),
+        "the visible Source region is not the console area read back into Source Cells"
     );
 
     for unpresentable in [Pos2::new(0.0, f32::NAN), Pos2::new(f32::INFINITY, 0.0)] {
@@ -417,11 +434,11 @@ fn console_pass_at(
     // What `Console::ui` does with the answer, done here for the same
     // reason: the Source Grid reports the Cell and the caller that owns the
     // running Orcvs moves the Cursor to it.
-    if let Some(selection) = presented.selection {
+    if let Some(selection) = presented {
         selection.apply(orcvs);
     }
 
-    (presented.viewport, painted)
+    (view.shown().viewport(), painted)
 }
 
 fn flatten(shape: Shape, into: &mut Vec<Shape>) {
@@ -970,15 +987,8 @@ fn painted_text(ctx: &egui::Context) -> String {
 /// height the menu bar settled the top panel at. The stored transform
 /// already carries that fit, so this asks it rather than re-deriving it.
 ///
-fn console_viewport(ctx: &egui::Context, console: &Console) -> GridViewport {
-    let grid = console.orcvs.render_frame().grid();
-
-    presented_grid(
-        console.source_view.origin,
-        grid,
-        snapped_cell(console.source_view.cell, ctx.pixels_per_point()),
-        ctx.pixels_per_point(),
-    )
+fn console_viewport(console: &Console) -> GridViewport {
+    console.source_view.shown().viewport()
 }
 
 ///
@@ -1011,7 +1021,7 @@ async fn a_click_on_a_cell_moves_the_cursor_of_a_running_console() {
         "a fresh Console did not open with the Cursor in the corner"
     );
 
-    let viewport = console_viewport(&ctx, &console);
+    let viewport = console_viewport(&console);
     let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
     // Pressed on one pass and released on the next, because a click is
     // reported on the release.
@@ -1067,7 +1077,7 @@ async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
         };
         ctx.run_ui(input, |root| console.ui(root, &mut host))
     };
-    let viewport = console_viewport(&ctx, &console);
+    let viewport = console_viewport(&console);
     let cell = crate::grid_viewport::snapped_cell(configured, ctx.pixels_per_point());
     assert_ne!(cell, configured, "the configured Cell snaps to itself");
     assert_eq!(viewport.cell_size, cell);
@@ -1116,17 +1126,17 @@ async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     pinned_at(&mut console.source_view, Vec2::splat(-1_000_000.0));
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let viewport = console_viewport(&ctx, &console);
+    let viewport = console_viewport(&console);
     assert_eq!(
         screen.max.x - viewport.rect.max.x,
-        SOURCE_MARGIN_CELLS * cell.x,
+        margin(cell).x,
         "the far-edge Pan stopped somewhere other than two snapped Cells past the Grid"
     );
 
     console.load_function_reference();
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     assert_eq!(
-        console_viewport(&ctx, &console).cell_size,
+        console_viewport(&console).cell_size,
         cell,
         "opening another Source forgot the configured Cell"
     );
@@ -1969,7 +1979,7 @@ async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click(
     );
 
     focus_bpm_field(&ctx, screen, &mut console, &mut host);
-    let viewport = console_viewport(&ctx, &console);
+    let viewport = console_viewport(&console);
     let grid_cell = viewport.rect.min + Vec2::new(1.5, 0.5) * viewport.cell_size;
     app_pass(&ctx, screen, click_at(grid_cell), &mut console, &mut host);
     app_pass(&ctx, screen, release_at(grid_cell), &mut console, &mut host);
@@ -2101,7 +2111,7 @@ async fn a_source_smaller_than_the_console_sits_at_the_top_left_and_holds_no_cel
         );
         assert_eq!(
             viewport.rect.min,
-            screen.min + MARGIN,
+            screen.min + margin(CELL_SIZE),
             "a {screen_size:?} console did not sit the Source one margin in from its top-left"
         );
 
@@ -2166,7 +2176,7 @@ async fn the_default_window_presents_the_grid_at_its_own_scale() {
     );
     assert_eq!(
         viewport.rect.min,
-        screen.min + MARGIN,
+        screen.min + margin(CELL_SIZE),
         "the default console did not rest the Grid one margin in"
     );
     assert!(
@@ -2544,7 +2554,7 @@ async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
 fn presented(screen: Rect, columns: usize, rows: usize, pixels_per_point: f32) -> GridViewport {
     let cell = snapped_cell(CELL_SIZE, pixels_per_point);
     presented_grid(
-        screen.min + SOURCE_MARGIN_CELLS * cell,
+        screen.min + margin(cell),
         Grid::with_shape(columns, rows),
         cell,
         pixels_per_point,
@@ -4631,7 +4641,7 @@ async fn alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved() {
     };
 
     frame_at(Vec::new(), &mut orcvs, &mut view);
-    let anchor = view.origin;
+    let anchor = corner(&view);
 
     let from = screen.min + Vec2::splat(40.0);
     let moved = Vec2::new(-24.0, -40.0);
@@ -4643,10 +4653,10 @@ async fn alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved() {
     );
 
     assert_eq!(
-        view.origin - anchor,
+        corner(&view) - anchor,
         moved,
         "the Source panned by {:?} for a pointer that moved {moved:?}",
-        view.origin - anchor
+        corner(&view) - anchor
     );
 
     frame_at(alt_primary_release_at(from + moved), &mut orcvs, &mut view);
@@ -4836,7 +4846,10 @@ async fn a_drag_past_the_edge_scrolls_faster_the_further_out_and_stops_at_the_gr
     );
     // Never past the Grid: a Cursor on the last Column brings the margin
     // past it into view, and the console's right edge meets the margin's.
-    assert_eq!(view.pan.x, screen.width() - 32.0 * width - 2.0 * MARGIN.x);
+    assert_eq!(
+        view.pan.x,
+        screen.width() - 32.0 * width - 2.0 * margin(CELL_SIZE).x
+    );
     assert_eq!(selected_cell(&orcvs), (31, 5));
 }
 
@@ -4858,7 +4871,7 @@ async fn an_unequal_cell_is_measured_across_by_its_width_and_down_by_its_height(
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(viewport.cell_size, cell);
-    assert_eq!(viewport.rect.min, screen.min + SOURCE_MARGIN_CELLS * cell);
+    assert_eq!(viewport.rect.min, screen.min + margin(cell));
 
     // A Cursor move to the far corner Pans the least distance that shows its
     // whole Cell and the margin past it.
@@ -4866,7 +4879,7 @@ async fn an_unequal_cell_is_measured_across_by_its_width_and_down_by_its_height(
     orcvs.select(far);
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
-        viewport.cell_rect(63, 63).max + SOURCE_MARGIN_CELLS * cell,
+        viewport.cell_rect(63, 63).max + margin(cell),
         screen.max,
         "the follow did not bring the far Cell and its margin to the console's corner"
     );
@@ -5023,7 +5036,7 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
     const ROWS: usize = 80;
     let screen = Rect::from_min_size(
         Pos2::ZERO,
-        Vec2::new(COLUMNS as f32, ROWS as f32) * CELL_SIZE + 2.0 * MARGIN,
+        Vec2::new(COLUMNS as f32, ROWS as f32) * CELL_SIZE + 2.0 * margin(CELL_SIZE),
     );
     let mut orcvs = running_orcvs(COLUMNS, ROWS);
     let mut view = SourceView::new(CELL_SIZE);
@@ -5142,7 +5155,7 @@ async fn a_culled_row_covers_exactly_the_cells_its_runs_replace() {
     // The Grid's near corner at (-700, -500), so the console shows a window
     // in the middle of it rather than a corner. The Pan places the margin,
     // so it is the margin further.
-    pinned_at(&mut view, Vec2::new(-700.0, -500.0) - MARGIN);
+    pinned_at(&mut view, Vec2::new(-700.0, -500.0) - margin(CELL_SIZE));
     let (viewport, _) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let visible = viewport.visible_positions(screen, orcvs.grid());
 
@@ -5234,7 +5247,7 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
     // The Grid's corner 39.4 Cells up and left once the margin is added:
     // column and row 39 are the first shown, so seam column and row 40 sit
     // just inside the clip, and seam column 72 and row 56 are the last shown.
-    let translation = -39.4 * CELL_SIZE - MARGIN;
+    let translation = -39.4 * CELL_SIZE - margin(CELL_SIZE);
 
     let mut asserted = 0;
     for pixels_per_point in [1.0, 1.5] {
@@ -5364,6 +5377,76 @@ fn clamp_pan_pins_a_smaller_source_at_the_origin_and_a_larger_one_to_its_edges()
 }
 
 ///
+/// The extent is the Grid with a margin of two Cells past each edge.
+///
+#[test]
+fn the_extent_is_the_grid_and_two_cells_past_each_edge() {
+    assert_eq!(
+        extent(Grid::with_shape(32, 20)),
+        SourceCellRect::from_min_max(
+            SourceCellPoint::new(-2.0, -2.0),
+            SourceCellPoint::new(34.0, 22.0)
+        )
+    );
+}
+
+///
+/// The shown Source View's map is the corner Paint drew the Grid at: Source
+/// Cell `(0, 0)` lands on `presented_grid`'s corner, rounded to the device's
+/// pixels, rather than on the unrounded origin it was asked for.
+///
+#[test]
+fn the_shown_source_view_maps_the_grids_corner_where_paint_drew_it() {
+    let grid = Grid::with_shape(32, 32);
+    let cell = snapped_cell(CELL_SIZE, 1.5);
+    let viewport = presented_grid(Pos2::new(-40.3, 17.9), grid, cell, 1.5);
+    let console = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+    let shown = ShownSourceView::new(&viewport, console, grid);
+
+    assert_eq!(
+        shown.screen().to_screen(SourceCellPoint::new(0.0, 0.0)),
+        viewport.rect.min
+    );
+    assert_eq!(shown.screen().cell(), cell);
+}
+
+///
+/// The Overview outlines the Source View exactly where the clamp has
+/// somewhere to Pan: on a console a point narrower or shorter than the extent
+/// and not on one as large as it, on each axis alone.
+///
+#[test]
+fn the_source_view_has_an_outline_exactly_where_it_can_pan() {
+    let grid = Grid::with_shape(32, 32);
+    let viewport = presented_grid(Pos2::ZERO, grid, CELL_SIZE, 1.0);
+    let whole = extent(grid).size() * CELL_SIZE;
+    for (console, pannable) in [
+        (whole, false),
+        (whole + Vec2::new(1.0, 1.0), false),
+        (whole - Vec2::new(1.0, 0.0), true),
+        (whole - Vec2::new(0.0, 1.0), true),
+    ] {
+        let shown = ShownSourceView::new(&viewport, Rect::from_min_size(Pos2::ZERO, console), grid);
+        let clamped = clamp_pan(Vec2::splat(-1_000.0), console, whole);
+        assert_eq!(
+            shown.outline().is_some(),
+            pannable,
+            "a {console:?} console over a {whole:?} extent"
+        );
+        assert_eq!(
+            clamped != Vec2::ZERO,
+            pannable,
+            "the clamp disagrees for a {console:?} console over a {whole:?} extent"
+        );
+    }
+    assert_eq!(
+        SourceView::new(CELL_SIZE).shown().outline(),
+        None,
+        "a Source View before its first frame has an outline"
+    );
+}
+
+///
 /// The console opens at the Source's own Cell size whatever the window size, so a resize
 /// shows more or less of the Source and never a different Cell size.
 ///
@@ -5382,7 +5465,7 @@ async fn a_resize_keeps_the_cell_size_and_shows_more_or_less_of_the_source() {
     assert_eq!(after.cell_size, CELL_SIZE, "a resize changed the Cell size");
     assert_eq!(
         after.rect.min,
-        tall.min + MARGIN,
+        tall.min + margin(CELL_SIZE),
         "a resize moved the Source off its margin in from the top-left"
     );
     click(
@@ -5910,7 +5993,7 @@ async fn a_snapped_grid_smaller_than_the_console_starts_at_its_top_left() {
     );
     assert_eq!(
         viewport.rect.min,
-        screen.min + SOURCE_MARGIN_CELLS * viewport.cell_size,
+        screen.min + margin(viewport.cell_size),
         "a snapped Grid smaller than the console left its margin in from the top-left"
     );
 }
@@ -5942,7 +6025,7 @@ async fn a_far_edge_pan_leaves_no_gap_past_a_snapped_grid() {
         "the fixture snapped nothing, so it asserts nothing: {}",
         viewport.cell_size
     );
-    let gap = screen.max - viewport.rect.max - SOURCE_MARGIN_CELLS * viewport.cell_size;
+    let gap = screen.max - viewport.rect.max - margin(viewport.cell_size);
     assert!(
         gap.x.abs() <= HALF_A_PIXEL && gap.y.abs() <= HALF_A_PIXEL,
         "the far-edge Pan left {gap:?} past the margin between the Grid and the console's edge"
@@ -6005,7 +6088,7 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
     pinned_at(&mut view, Vec2::new(-24.0, -48.0));
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
-    let before = view.origin;
+    let before = corner(&view);
     let target = viewport.cell_rect(5, 5).center();
     double_click(&ctx, screen, target, &mut orcvs, &mut view);
 
@@ -6015,7 +6098,8 @@ async fn a_double_click_selects_a_cell_and_does_not_reset_the_view() {
         "the double click did not reach the Cell under it"
     );
     assert_eq!(
-        view.origin, before,
+        corner(&view),
+        before,
         "the double click reset a view that no longer has a fit to return to"
     );
     assert_eq!(view.pan, Vec2::new(-24.0, -48.0));
@@ -6045,7 +6129,7 @@ async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_un
     };
 
     let before = frame_at(Vec::new(), &mut orcvs, &mut view);
-    let anchor = view.origin;
+    let anchor = corner(&view);
 
     // Press, then move further than `max_click_dist` so the gesture
     // resolves as a drag rather than a click. Drag left and up: the Pan
@@ -6060,10 +6144,10 @@ async fn a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_un
     );
 
     assert_eq!(
-        view.origin - anchor,
+        corner(&view) - anchor,
         moved,
         "the Source panned by {:?} for a pointer that moved {moved:?}",
-        view.origin - anchor
+        corner(&view) - anchor
     );
     assert_eq!(
         after.rect.min - before.rect.min,
@@ -6116,8 +6200,8 @@ async fn wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere() {
     assert_eq!(
         view.pan,
         Vec2::new(
-            WIDE.x - CELL_SIZE.x * 32.0 - 2.0 * MARGIN.x,
-            WIDE.y - CELL_SIZE.y * 32.0 - 2.0 * MARGIN.y
+            WIDE.x - CELL_SIZE.x * 32.0 - 2.0 * margin(CELL_SIZE).x,
+            WIDE.y - CELL_SIZE.y * 32.0 - 2.0 * margin(CELL_SIZE).y
         ),
         "the wheel left the Source short of its edge: {:?}",
         view.pan
@@ -6197,7 +6281,7 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
     output.drop_without_applying_deltas();
 
     assert_ne!(
-        view.origin,
+        corner(&view),
         Pos2::ZERO,
         "the console presented the Source at the identity"
     );
@@ -6620,15 +6704,12 @@ fn source_view_outlines(
 }
 
 ///
-/// Where the Source View falls on the Overview's `picture` for a console of
-/// `console` points at `pan`, on a window that leaves somewhere to Pan on
-/// both axes. The picture is one square texel per Cell of the Grid and its
-/// margin, so the outline starts as many texels in as the Pan has moved Cells
-/// and spans as many texels as the console holds Cells.
+/// Where `console`'s Source View falls on the Overview's `picture`, unclipped:
+/// the console's Source Cells through the Overview's map.
 ///
-fn unclipped_outline(pan: Vec2, console: Vec2, cell: Vec2, picture: Rect) -> Rect {
-    let texel = picture.width() / (COL_COUNT as f32 + 2.0 * SOURCE_MARGIN_CELLS);
-    Rect::from_min_size(picture.min + -pan / cell * texel, console / cell * texel)
+fn unclipped_outline(console: &Console, picture: Rect) -> Rect {
+    let shown = console.source_view.shown();
+    PictureMap::new(shown.extent(), picture).rect_to_picture(shown.shown())
 }
 
 fn assert_near(actual: Rect, expected: Rect, situation: &str) {
@@ -6661,18 +6742,34 @@ fn overview_pass(
 }
 
 ///
-/// The Overview outlines the part of the padded Source the Source View shows,
-/// in the Theme's colour and width, and the outline follows a wheel Pan the
-/// Render Frame it happens: it moves against the Pan by the Pan scaled to the
+/// The Overview outlines the part of the extent the Source View shows, in the
+/// Theme's colour and width, and the outline follows a wheel Pan the Render
+/// Frame it happens: it moves against the Pan by the Pan scaled to the
 /// picture.
+///
+/// Worked by hand from the texel count rather than through the Overview's
+/// map: the picture is 260 square texels across, one for each of the 256
+/// Columns and the two margin Cells past either side, so the outline starts
+/// as many texels in as the Pan has moved Cells and spans as many texels as
+/// the console holds Cells.
 ///
 #[tokio::test]
 async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
+    fn unclipped_outline(pan: Vec2, console: Vec2, cell: Vec2, picture: Rect) -> Rect {
+        let texel = picture.width() / 260.0;
+        Rect::from_min_size(picture.min + -pan / cell * texel, console / cell * texel)
+    }
+
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let theme = okabe_ito();
     console.overview_open = true;
     let cell = snapped_cell(console.source_view.cell, 1.0);
+    // The Pan as Paint drew it: the Grid's corner, on whole physical pixels,
+    // less the two margin Cells before it.
+    let drawn_pan = |console: &Console, area: Rect| {
+        console.source_view.shown().viewport().rect.min - area.min - 2.0 * cell
+    };
 
     let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let before = outline.expect("the Overview drew no outline");
@@ -6681,17 +6778,17 @@ async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
         before.stroke.width,
         theme.overview_source_view_width.points()
     );
-    let expected = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    let expected = unclipped_outline(drawn_pan(&console, area), area.size(), cell, picture);
     assert_near(before.rect, expected, "at rest");
 
     let wheel = wheel_at(area.center(), Vec2::new(-240.0, -180.0));
     let (outline, picture, area) = overview_pass(&ctx, screen, wheel, &mut console, &mut host);
     let after = outline.expect("the Overview drew no outline after a Pan");
-    let pan = console.source_view.pan;
+    let pan = drawn_pan(&console, area);
     assert_ne!(pan, Vec2::ZERO, "the wheel did not Pan");
     let expected = unclipped_outline(pan, area.size(), cell, picture);
     assert_near(after.rect, expected, "after a Pan");
-    let scale = picture.size() / padded_source(console.orcvs.grid(), cell);
+    let scale = Vec2::splat(picture.width() / 260.0) / cell;
     assert_near(
         after.rect,
         before.rect.translate(-pan * scale),
@@ -6700,29 +6797,28 @@ async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
 }
 
 ///
-/// The Cells of `columns` and `rows` on the Overview's `picture`: one square
-/// texel per Cell, past the margin.
-///
-fn overview_cells(picture: Rect, columns: Range<usize>, rows: Range<usize>) -> Rect {
-    let texel = picture.width() / (COL_COUNT as f32 + 2.0 * SOURCE_MARGIN_CELLS);
-    let corner = |column: usize, row: usize| {
-        picture.min
-            + (Vec2::new(column as f32, row as f32) + Vec2::splat(SOURCE_MARGIN_CELLS)) * texel
-    };
-    Rect::from_min_max(
-        corner(columns.start, rows.start),
-        corner(columns.end, rows.end),
-    )
-}
-
-///
 /// The Overview marks the Region's Cells and then the Cursor's Cell over its
 /// picture, each in the Theme's fill and border for it, and the Source View's
 /// outline over both. A Region of one Cell is the Cursor's Cell and gets no
 /// mark of its own.
 ///
+/// Worked by hand from the texel count rather than through the Overview's
+/// map: the picture is 260 square texels across, and a Cell's texel lies past
+/// the two margin texels before the Grid.
+///
 #[tokio::test]
 async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_the_outline() {
+    fn overview_cells(picture: Rect, columns: Range<usize>, rows: Range<usize>) -> Rect {
+        let texel = picture.width() / 260.0;
+        let corner = |column: usize, row: usize| {
+            picture.min + (Vec2::new(column as f32, row as f32) + Vec2::splat(2.0)) * texel
+        };
+        Rect::from_min_max(
+            corner(columns.start, rows.start),
+            corner(columns.end, rows.end),
+        )
+    }
+
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let theme = okabe_ito();
@@ -6849,7 +6945,8 @@ fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
     let mut cursor_fill = |console: &mut Console| {
         let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), console, &mut host, 1.0);
         let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
-        let cell = overview_cells(picture, 12..13, 8..9);
+        let cell = PictureMap::new(console.source_view.shown().extent(), picture)
+            .rect_to_picture(SourceCellRect::cell(at(12, 8)));
         shapes
             .iter()
             .find_map(|shape| match shape {
@@ -6919,11 +7016,9 @@ async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
 
     ctx.set_zoom_factor(2.0);
     let zoomed_in = Rect::from_min_size(Pos2::ZERO, screen.size() / 2.0);
-    let (after, picture, area) =
-        overview_pass(&ctx, zoomed_in, Vec::new(), &mut console, &mut host);
+    let (after, picture, _) = overview_pass(&ctx, zoomed_in, Vec::new(), &mut console, &mut host);
     let after = after.expect("the Overview drew no outline zoomed in");
-    let cell = snapped_cell(console.source_view.cell, ctx.pixels_per_point());
-    let expected = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    let expected = unclipped_outline(&console, picture);
     assert_near(after.rect, expected, "zoomed in");
     assert!(
         after.rect.width() < before.rect.width() && after.rect.height() < before.rect.height(),
@@ -6934,24 +7029,24 @@ async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
 }
 
 ///
-/// On an axis the console already shows the whole padded Source on, the
-/// outline is clipped to the picture's edges; on the other it is not.
+/// On an axis the console already shows the whole extent on, the outline is
+/// clipped to the picture's edges; on the other it is not.
 ///
 #[tokio::test]
 async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
     let (ctx, mut console, mut host) = fresh_console();
-    // Wide enough for the padded Source's 260 Columns beside the Overview,
-    // and the default height, which shows a few Rows.
+    // Wide enough for the extent's 260 Columns beside the Overview, and the
+    // default height, which shows a few Rows.
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, DEFAULT_VIEW_SIZE[1]));
     console.overview_open = true;
     let cell = snapped_cell(console.source_view.cell, 1.0);
     let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     let outline = outline.expect("the Overview drew no outline").rect;
-    let padded = padded_source(console.orcvs.grid(), cell);
+    let extent = console.source_view.shown().extent().size() * cell;
     assert!(
-        area.width() >= padded.x && area.height() < padded.y,
-        "the console {area:?} is not wide and short beside the padded Source {padded:?}"
+        area.width() >= extent.x && area.height() < extent.y,
+        "the console {area:?} is not wide and short beside the extent {extent:?}"
     );
     assert!(
         (outline.left() - picture.left()).abs() < 1e-3
@@ -6962,7 +7057,7 @@ async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
         outline.height() < picture.height(),
         "the outline spans the picture down: {outline:?}"
     );
-    let down = unclipped_outline(console.source_view.pan, area.size(), cell, picture);
+    let down = unclipped_outline(&console, picture);
     assert!(
         (outline.top() - down.top()).abs() < 1e-3
             && (outline.bottom() - down.bottom()).abs() < 1e-3,
@@ -6971,8 +7066,8 @@ async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
 }
 
 ///
-/// A console that shows the whole padded Source on both axes has nowhere to
-/// Pan, so the Overview draws no outline over its picture.
+/// A console that shows the whole extent on both axes has nowhere to Pan, so
+/// the Overview draws no outline over its picture.
 ///
 #[tokio::test]
 async fn the_overview_draws_no_outline_when_neither_axis_can_pan() {
@@ -6982,10 +7077,10 @@ async fn the_overview_draws_no_outline_when_neither_axis_can_pan() {
     let cell = snapped_cell(console.source_view.cell, 1.0);
     let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
-    let padded = padded_source(console.orcvs.grid(), cell);
+    let extent = console.source_view.shown().extent().size() * cell;
     assert!(
-        area.width() >= padded.x && area.height() >= padded.y,
-        "the console {area:?} does not hold the padded Source {padded:?}"
+        area.width() >= extent.x && area.height() >= extent.y,
+        "the console {area:?} does not hold the extent {extent:?}"
     );
     assert!(screen.contains_rect(picture));
     assert_eq!(outline, None, "an outline was drawn with nowhere to Pan");
