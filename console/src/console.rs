@@ -4,10 +4,11 @@
 //! parts, in this order: `input` keeps Tab for the Source and routes the
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `overview`
-//! docks the Overview at the right when it is open; `source_view`
-//! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays out;
-//! `repaint` schedules the next timed Render Frame; `diagnostics_panel` fills
-//! the Panel's Diagnostics readouts; `files` asks its discard question and
+//! docks the Overview at the right when it is open, and outlines the Source
+//! View on it once `source_view` has presented the Source, which `shapes`
+//! draws in the Glyphs `glyphs` lays out; `repaint` schedules the next timed
+//! Render Frame; `diagnostics_panel` fills the Panel's
+//! Diagnostics readouts; `files` asks its discard question and
 //! titles the window; `input` latches the keyboard owner; and a View menu appearance
 //! change applies last, once every widget of the frame has been styled.
 
@@ -22,7 +23,7 @@ mod repaint;
 pub(crate) mod shapes;
 mod source_view;
 
-use self::diagnostics_panel::{TimingReadouts, show_diagnostics};
+use self::diagnostics_panel::{TimingReadouts, show_diagnostics, visible_source_region};
 use self::files::DiscardConfirmation;
 use self::menu_bar::TOP_PANEL_HEIGHT;
 use self::overview::Overview;
@@ -371,8 +372,18 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
-        self.show_overview(root, revision, &frame, appearance);
+        // Shown before the Source so it takes width, and outlined after it,
+        // from the Pan this Render Frame settled.
+        let overview = self.show_overview(root, revision, &frame, appearance);
         let source = self.show_source_panel(root, &frame, appearance);
+        if let Some(overview) = overview {
+            overview.outline_source_view(
+                visible_source_region(source.console, self.source_view.origin),
+                frame.grid(),
+                source.cell_size,
+                self.themes.presented(appearance),
+            );
+        }
 
         request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));
 
