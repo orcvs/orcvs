@@ -4,8 +4,8 @@
 //!
 //! ```toml
 //! [theme]
-//! dark = "okabe-ito"      # a dark Theme's identity
-//! light = "orcvs-light"   # a light Theme's identity
+//! dark = "okabe-ito"      # a dark Theme's identity; default "grayscale-dark"
+//! light = "orcvs-light"   # a light Theme's identity; default "grayscale-light"
 //!
 //! [cell]
 //! width = 12              # points, 8–64

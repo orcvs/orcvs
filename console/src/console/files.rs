@@ -2,6 +2,7 @@
 //! Save As, the question asked before discarding unsaved changes, and on
 //! native the window title and the close guard.
 
+use crate::examples::EXAMPLES;
 use crate::function_reference::function_reference;
 use crate::persistence::default_source;
 use orcvs::source::Source;
@@ -48,6 +49,17 @@ impl Console {
     pub(super) fn load_function_reference(&mut self) {
         if !self.open(function_reference()) {
             self.start_notice("The Function Reference");
+        }
+    }
+
+    ///
+    /// Opens the shipped example at `index` in [`EXAMPLES`]: `Help → Examples`.
+    /// It opens Untitled on native, so Save asks where to write it.
+    ///
+    fn load_example(&mut self, index: usize) {
+        let example = &EXAMPLES[index];
+        if !self.open(example.source()) {
+            self.start_notice(example.name);
         }
     }
 
@@ -373,6 +385,26 @@ pub(super) const FUNCTION_REFERENCE_CONFIRMATION: DiscardConfirmation = DiscardC
     question: "The Source has unsaved changes. Discard them and open the Function Reference?",
     discard: Console::load_function_reference,
 };
+
+///
+/// What each `Help → Examples` item asks before discarding the Source, one
+/// per [`EXAMPLES`] entry in the same order.
+///
+pub(super) const EXAMPLE_CONFIRMATIONS: [DiscardConfirmation; EXAMPLES.len()] = [
+    example_confirmation(|console| console.load_example(0)),
+    example_confirmation(|console| console.load_example(1)),
+];
+
+/// The question an example asks before `discard` opens it.
+const fn example_confirmation(discard: fn(&mut Console)) -> DiscardConfirmation {
+    DiscardConfirmation {
+        #[cfg(not(target_arch = "wasm32"))]
+        question: "The Source has unsaved changes. Discard them and open the example?",
+        #[cfg(target_arch = "wasm32")]
+        question: "The Source holds written content. Discard it and open the example?",
+        discard,
+    }
+}
 
 /// What `File → Open…` asks before its dialog, while there is anything to
 /// lose.

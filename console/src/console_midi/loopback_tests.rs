@@ -9,26 +9,31 @@
 //! reading of the wire format rather than the output adapter's encoder, so a
 //! byte the adapter gets wrong is a difference these tests can see.
 //!
-//! `virtual_port::midi_loopback_through_a_virtual_port` needs the platform's
-//! MIDI service, a sequencer on Linux (`/dev/snd/seq`) or CoreMIDI on macOS,
-//! and is ignored by the ordinary suite so a host without one does not fail
-//! it. `mise run test_midi_loopback` runs it.
+//! The tests in `virtual_port` need the platform's MIDI service, a sequencer
+//! on Linux (`/dev/snd/seq`) or CoreMIDI on macOS, and are ignored by the
+//! ordinary suite so a host without one does not fail them.
+//! `mise run test_midi_loopback` runs them.
 //!
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::time::Instant;
+
 use orcvs::app::{InputEvent, InputKey, Orcvs};
 use orcvs::grid::Grid;
 use orcvs::midi::{MidiConnection, MidiDestinationId, MidiError, MidiOutputAdapter};
-use orcvs::source::Source;
+use orcvs::source::{Source, file};
 
 type Ledger = Arc<Mutex<Vec<Vec<u8>>>>;
 
+/// Each message the destination accepted, with the instant it was sent.
+type SentLedger = Arc<Mutex<Vec<(Instant, Vec<u8>)>>>;
+
 ///
-/// The program every test plays. Each `.=0101` bangs the Cell two rows below
-/// it on every Tick, so each Tick sends a Raw Play, a Control Change, a Pitch
-/// Bend and a Timed Play, each on its own channel.
+/// The program the `midi_loopback` tests play. Each `.=0101` bangs the Cell
+/// two rows below it on every Tick, so each Tick sends a Raw Play, a Control
+/// Change, a Pitch Bend and a Timed Play, each on its own channel.
 ///
 const PROGRAM: [&str; 3] = [
     ".=0101    .=0101    .=0101    .=0101",
@@ -178,7 +183,18 @@ fn assert_plays_the_program(heard: &[Heard]) {
         );
     }
 
-    let safety_reset: Vec<Heard> = (0..16)
+    assert!(
+        heard.ends_with(&safety_reset()),
+        "the stream does not end with the safety reset on all sixteen channels: {heard:?}"
+    );
+}
+
+///
+/// What a stop sends: every channel silenced, its controllers reset and its
+/// bend centred.
+///
+fn safety_reset() -> Vec<Heard> {
+    (0..16)
         .flat_map(|channel| {
             [
                 Heard::ControlChange {
@@ -197,11 +213,7 @@ fn assert_plays_the_program(heard: &[Heard]) {
                 },
             ]
         })
-        .collect();
-    assert!(
-        heard.ends_with(&safety_reset),
-        "the stream does not end with the safety reset on all sixteen channels: {heard:?}"
-    );
+        .collect()
 }
 
 fn program() -> Source {
@@ -225,13 +237,16 @@ fn program() -> Source {
 ///
 struct Recording {
     destination: Box<dyn MidiConnection>,
-    sent: Ledger,
+    sent: SentLedger,
 }
 
 impl MidiConnection for Recording {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
         self.destination.send(message)?;
-        self.sent.lock().unwrap().push(message.to_vec());
+        self.sent
+            .lock()
+            .unwrap()
+            .push((Instant::now(), message.to_vec()));
         Ok(())
     }
 }
@@ -259,79 +274,238 @@ fn space(orcvs: &mut Orcvs) {
 /// The last message of the safety reset: channel 15's bend, centred.
 const LAST_SAFETY_RESET_MESSAGE: [u8; 3] = [0xef, 0x00, 0x40];
 
-/// The Note Off the program's Timed Play is owed: channel 3's `D4`, expired.
-const TIMED_EXPIRY_MESSAGE: [u8; 3] = [0x83, 62, 0x00];
+///
+/// What one run sent, from the Space that started it to the safety reset its
+/// stop sent.
+///
+struct Run {
+    started_at: Instant,
+    tick_period: Duration,
+    /// Every message the destination accepted, with the instant it was sent.
+    sent: Vec<(Instant, Vec<u8>)>,
+    /// How many of `sent` the run's Ticks sent; the rest are the stop's.
+    ticked: usize,
+}
 
-///
-/// Starts playback and waits until the engine has sent the Timed Play's
-/// expiry, the last message the program plays before it is stopped.
-///
-/// The expiry is due a Tick after the note starts, so a fixed sleep would
-/// race the stop on a loaded runner; waiting on the sent ledger does not.
-///
-async fn play(orcvs: &mut Orcvs, sent: &Ledger) {
-    space(orcvs);
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-    while !sent
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|message| message.as_slice() == TIMED_EXPIRY_MESSAGE)
-    {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the engine never sent the Timed Play's expiry"
-        );
-        tokio::time::sleep(Duration::from_millis(1)).await;
+impl Run {
+    fn bytes(&self) -> Vec<Vec<u8>> {
+        self.sent.iter().map(|(_, bytes)| bytes.clone()).collect()
+    }
+
+    ///
+    /// The messages the run's Ticks sent, `heard` as the listener decoded
+    /// them, grouped by the Tick that sent each.
+    ///
+    /// A run's Tick `k` is due `k` periods after its start, and the start
+    /// follows the Space within a period, so the whole periods between the
+    /// Space and a message name the Tick that sent it.
+    ///
+    fn by_tick(&self, heard: &[Heard], ticks: usize) -> Vec<Vec<Heard>> {
+        let mut grouped = vec![Vec::new(); ticks];
+        for (index, ((at, _), message)) in self.sent[..self.ticked].iter().zip(heard).enumerate() {
+            let tick = (at.duration_since(self.started_at).as_nanos() / self.tick_period.as_nanos())
+                as usize;
+            assert!(
+                tick < ticks,
+                "message {index}, {message:?}, was sent at Tick {tick} of a run of {ticks}"
+            );
+            grouped[tick].push(*message);
+        }
+        grouped
     }
 }
 
 ///
-/// Stops playback, waits until the engine has sent the safety reset a stop
-/// owes, and drops the running Orcvs.
+/// Plays `source` into `connection` for exactly `ticks` Ticks, stops, and
+/// answers what the run sent.
 ///
-/// The key press only queues the stop for the engine's task, and yielding
-/// once does not promise that task a turn, so the wait is for the reset's
-/// last message to reach the sent ledger. The program bends channel 2 only,
-/// so nothing it plays can end the ledger with that message.
+/// The run is stopped half a period after its last Tick, so the Tick after it
+/// is not yet due and every earlier one has been sent. The key press only
+/// queues the stop for the engine's task, and yielding once does not promise
+/// that task a turn, so the wait is for the reset's last message to reach the
+/// sent ledger. Neither program bends channel 15, so nothing a Tick sends can
+/// end the ledger with that message.
 ///
-async fn stop(mut orcvs: Orcvs, sent: &Ledger) {
+async fn play(
+    source: Source,
+    destination: MidiDestinationId,
+    connection: Box<dyn MidiConnection>,
+    ticks: u32,
+) -> Run {
+    let sent = SentLedger::default();
+    let mut orcvs = Orcvs::with_source_and_midi_output_adapter(source, MidiOutputAdapter::new())
+        .expect("the test runtime");
+    orcvs
+        .midi_selection_handle()
+        .install(
+            destination,
+            Box::new(Recording {
+                destination: connection,
+                sent: sent.clone(),
+            }),
+        )
+        .expect("a running Orcvs");
+    let tick_period = orcvs.bpm().tick_period();
+
+    let started_at = Instant::now();
     space(&mut orcvs);
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-    while sent.lock().unwrap().last().map(Vec::as_slice) != Some(&LAST_SAFETY_RESET_MESSAGE[..]) {
+    tokio::time::sleep(tick_period * ticks - tick_period / 2).await;
+    let ticked = sent.lock().unwrap().len();
+    space(&mut orcvs);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while sent
+        .lock()
+        .unwrap()
+        .last()
+        .map(|(_, bytes)| bytes.as_slice())
+        != Some(&LAST_SAFETY_RESET_MESSAGE[..])
+    {
         assert!(
-            tokio::time::Instant::now() < deadline,
+            Instant::now() < deadline,
             "the engine never sent the safety reset after the stop"
         );
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
     drop(orcvs);
+
+    let sent = std::mem::take(&mut *sent.lock().unwrap());
+    Run {
+        started_at,
+        tick_period,
+        sent,
+        ticked,
+    }
 }
 
 #[tokio::test(start_paused = true)]
 async fn midi_loopback_in_process() {
-    let sent = Ledger::default();
     let received = Ledger::default();
-    let mut orcvs = Orcvs::with_source_and_midi_output_adapter(program(), MidiOutputAdapter::new())
-        .expect("the test runtime");
-    orcvs
-        .midi_selection_handle()
-        .install(
-            MidiDestinationId::new("in-process"),
-            Box::new(Recording {
-                destination: Box::new(InProcessListener {
-                    received: received.clone(),
-                }),
-                sent: sent.clone(),
-            }),
-        )
-        .expect("a running Orcvs");
+    let run = play(
+        program(),
+        MidiDestinationId::new("in-process"),
+        Box::new(InProcessListener {
+            received: received.clone(),
+        }),
+        3,
+    )
+    .await;
 
-    play(&mut orcvs, &sent).await;
-    stop(orcvs, &sent).await;
-
-    let heard = cross_check(&sent.lock().unwrap(), &received.lock().unwrap());
+    let heard = cross_check(&run.bytes(), &received.lock().unwrap());
     assert_plays_the_program(&heard);
+}
+
+///
+/// The Learn Orca tracker as shipped, its pattern holding `notes` as
+/// (channel, step, Note spelling) in place of its one `C4`.
+///
+/// Channel `c`'s steps are the column `2 + 28(c / 4) + 7(c % 4) + 10` of rows
+/// 14 to 29, each pair marked `|  |` inside the `||` Comment that spans the
+/// row.
+///
+fn tracker(notes: &[(u8, usize, &str)]) -> Source {
+    let text = include_str!("../../../examples/tracker.orcvs").replace("C4", "  ");
+    let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
+    for &(channel, step, note) in notes {
+        let column = 2 + 28 * usize::from(channel / 4) + 7 * usize::from(channel % 4) + 10;
+        let row = &mut rows[14 + step];
+        assert_eq!(
+            &row[column - 1..column + 3],
+            "|  |",
+            "step {step} is marked"
+        );
+        row.replace_range(column..column + 2, note);
+    }
+    file::read(rows.join("\n").as_bytes()).expect("the tracker is a Source File")
+}
+
+///
+/// The tracker's pattern for the loopback: a chord across both groups of
+/// voices on step 0, a lone voice on step 1, the same voice again with
+/// another on step 2, a second chord on step 8, and lone voices on steps 12
+/// and 15. Every other step rests, and so does every voice a step leaves
+/// empty.
+///
+const TRACKER_NOTES: [(u8, usize, &str); 11] = [
+    (0, 0, "C4"),
+    (2, 0, "E4"),
+    (5, 0, "G4"),
+    (3, 1, "D4"),
+    (3, 2, "F4"),
+    (6, 2, "B4"),
+    (1, 8, "G4"),
+    (4, 8, "C4"),
+    (7, 8, "E4"),
+    (0, 12, "A4"),
+    (6, 15, "C5"),
+];
+
+/// Ticks the tracker loopback plays: one bar of sixteen steps, then the first
+/// step of the next.
+const TRACKER_TICKS: u32 = 17;
+
+///
+/// Asserts the tracker run sent, Tick by Tick, exactly what its pattern
+/// plays, and then the stop's safety reset.
+///
+/// Within a Tick, the Note Offs of the Notes whose one-Tick length ends there
+/// come first, in the order those Notes started; the Tick's Note Ons follow
+/// in Source order, row by row from the top and left to right within a row,
+/// which puts channels 3 and 7 first and 0 and 4 last. All on velocity
+/// `0x77`, as each voice's `!~cc77` writes it.
+///
+fn assert_plays_the_tracker(run: &Run, heard: &[Heard]) {
+    let on = |channel, note| Heard::NoteOn {
+        channel,
+        note,
+        velocity: 0x77,
+    };
+    let off = |channel, note| Heard::NoteOff { channel, note };
+    let step_0 = [on(2, 64), on(5, 67), on(0, 60)];
+    let expected: [Vec<Heard>; TRACKER_TICKS as usize] = [
+        step_0.to_vec(),
+        vec![off(2, 64), off(5, 67), off(0, 60), on(3, 62)],
+        vec![off(3, 62), on(3, 65), on(6, 71)],
+        vec![off(3, 65), off(6, 71)],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![on(7, 64), on(1, 67), on(4, 60)],
+        vec![off(7, 64), off(1, 67), off(4, 60)],
+        vec![],
+        vec![],
+        vec![on(0, 69)],
+        vec![off(0, 69)],
+        vec![],
+        vec![on(6, 72)],
+        [vec![off(6, 72)], step_0.to_vec()].concat(),
+    ];
+    let played = run.by_tick(heard, TRACKER_TICKS as usize);
+    for (tick, (played, expected)) in played.iter().zip(&expected).enumerate() {
+        assert_eq!(played, expected, "Tick {tick}");
+    }
+    assert_eq!(
+        &heard[run.ticked..],
+        safety_reset(),
+        "the stop sends the safety reset and nothing else"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_tracker_loopback_in_process() {
+    let received = Ledger::default();
+    let run = play(
+        tracker(&TRACKER_NOTES),
+        MidiDestinationId::new("in-process"),
+        Box::new(InProcessListener {
+            received: received.clone(),
+        }),
+        TRACKER_TICKS,
+    )
+    .await;
+
+    let heard = cross_check(&run.bytes(), &received.lock().unwrap());
+    assert_plays_the_tracker(&run, &heard);
 }
 
 #[test]
@@ -415,11 +589,14 @@ mod virtual_port {
     use midir::os::unix::VirtualInput;
     use midir::{Ignore, MidiInput, MidiInputConnection};
 
-    use orcvs::app::Orcvs;
-    use orcvs::midi::{MidiBackend, MidiConnection, MidiConnectionRequest, MidiOutputAdapter};
+    use orcvs::midi::{MidiBackend, MidiConnection, MidiConnectionRequest};
+    use orcvs::source::Source;
 
     use super::super::ConsoleMidiBackend;
-    use super::{Ledger, Recording, assert_plays_the_program, cross_check, play, program, stop};
+    use super::{
+        Heard, Ledger, Run, TRACKER_NOTES, TRACKER_TICKS, assert_plays_the_program,
+        assert_plays_the_tracker, cross_check, play, program, tracker,
+    };
 
     ///
     /// A listener on a virtual input port, which the platform's MIDI service
@@ -435,10 +612,14 @@ mod virtual_port {
     }
 
     impl VirtualListener {
-        fn open() -> Result<Self, String> {
+        ///
+        /// Opens a port named after `test`, so tests running at once in one
+        /// process each find their own.
+        ///
+        fn open(test: &str) -> Result<Self, String> {
             // The process id keeps two concurrent runs on one host from finding
             // each other's port.
-            let name = format!("Orcvs loopback listener {}", std::process::id());
+            let name = format!("Orcvs loopback listener {test} {}", std::process::id());
             let mut input = MidiInput::new(&name).map_err(|error| error.to_string())?;
             input.ignore(Ignore::None);
             let received = Ledger::default();
@@ -473,10 +654,17 @@ mod virtual_port {
         }
     }
 
-    #[tokio::test]
-    #[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
-    async fn midi_loopback_through_a_virtual_port() {
-        let listener = VirtualListener::open().expect("a virtual input port on this host");
+    ///
+    /// Plays `source` for `ticks` Ticks into a listener on a virtual port
+    /// named after `test`, found through the console's own backend, and
+    /// answers the run with the messages the listener decoded.
+    ///
+    async fn play_through_a_virtual_port(
+        test: &str,
+        source: Source,
+        ticks: u32,
+    ) -> (Run, Vec<Heard>) {
+        let listener = VirtualListener::open(test).expect("a virtual input port on this host");
         let mut backend = ConsoleMidiBackend::new();
         let destinations = backend
             .destinations()
@@ -494,40 +682,37 @@ mod virtual_port {
                 listener.name
             );
         };
-        let sent = Ledger::default();
-        let mut orcvs =
-            Orcvs::with_source_and_midi_output_adapter(program(), MidiOutputAdapter::new())
-                .expect("the test runtime");
-        orcvs
-            .midi_selection_handle()
-            .install(
-                destination.id.clone(),
-                Box::new(Recording {
-                    destination: ready(
-                        backend
-                            .connect(&destination.id)
-                            .expect("the listener's port opens"),
-                    ),
-                    sent: sent.clone(),
-                }),
-            )
-            .expect("a running Orcvs");
-
-        play(&mut orcvs, &sent).await;
-        stop(orcvs, &sent).await;
+        let id = destination.id.clone();
+        let connection = ready(backend.connect(&id).expect("the listener's port opens"));
+        let run = play(source, id, connection, ticks).await;
 
         // Delivery crosses the platform's MIDI service on its own thread, so the
         // received ledger catches up some time after the last send. Two seconds
         // is far beyond any local delivery and bounds a run whose messages were
         // lost.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-        while listener.received.lock().unwrap().len() < sent.lock().unwrap().len()
+        while listener.received.lock().unwrap().len() < run.sent.len()
             && tokio::time::Instant::now() < deadline
         {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
-        let heard = cross_check(&sent.lock().unwrap(), &listener.received.lock().unwrap());
+        let heard = cross_check(&run.bytes(), &listener.received.lock().unwrap());
+        (run, heard)
+    }
+
+    #[tokio::test]
+    #[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
+    async fn midi_loopback_through_a_virtual_port() {
+        let (_, heard) = play_through_a_virtual_port("program", program(), 3).await;
         assert_plays_the_program(&heard);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
+    async fn the_tracker_loopback_through_a_virtual_port() {
+        let (run, heard) =
+            play_through_a_virtual_port("tracker", tracker(&TRACKER_NOTES), TRACKER_TICKS).await;
+        assert_plays_the_tracker(&run, &heard);
     }
 }
