@@ -28,6 +28,11 @@ added in one place and both tiers run it.
 `.md` file, which is the whole of the rule: `.scratch/` is not exempt as a directory, because a test
 includes a `.toml` from it. The merge queue, pushes to `main` and manual dispatch always compile.
 
+The merge queue runs each tier once. The pull request has already passed `check_pull_request` on
+Linux and `check_wasm`, so in the queue the Linux job runs only the native merge tier and the WASM
+job only the browser suite. macOS runs `check_pull_request` on the queued candidate, which is the
+one full native pass over the combined change. A push to `main` runs everything.
+
 `mise run check` runs both tiers locally. The merge queue verifies the combined candidate before it
 reaches `main`, including browser behaviour and macOS coverage. Development happens on macOS, so its
 clean-runner verification is deferred until that point. Push runs retain full verification and warm

@@ -541,6 +541,14 @@ test_compile_skipped_for_non_markdown_is_rejected() {
   assert_rejected "a pull-request tier that copies the Markdown gates instead of running check_docs"
 }
 
+test_merge_queue_skipping_macos_is_rejected() {
+  make_fixture
+  # macOS is the one job that runs the native pull-request tier on the queued
+  # candidate. Skipping it there leaves the queue checking nothing native.
+  perl -pi -e "s/^      - run: mise run test_midi_loopback$/      - if: github.event_name != 'merge_group'\n        run: mise run test_midi_loopback/" "$fixture_dir/.github/workflows/test.yml"
+  assert_rejected "a merge queue that skips a third step"
+}
+
 test_automatically_triggered_miri_workflow_is_rejected() {
   # `verification-gaps/12` kept Miri as a path taken on purpose. Every trigger
   # below turns it back into something a change pays for without anyone
@@ -1237,6 +1245,7 @@ case "${1:-all}" in
   unpinned-workflow-linter) test_unpinned_workflow_linter_is_rejected ;;
   source-built-cargo-tool) test_source_built_cargo_tool_is_rejected ;;
   compile-skip-scope) test_compile_skipped_for_non_markdown_is_rejected ;;
+  merge-queue-macos) test_merge_queue_skipping_macos_is_rejected ;;
   workflow-linting) test_pull_request_tier_without_workflow_linting_is_rejected ;;
   unwatched-rust-toolchain) test_unwatched_rust_toolchain_is_rejected ;;
   feature-off-doctests) test_pull_request_tier_without_feature_off_doctests_is_rejected ;;
@@ -1354,6 +1363,7 @@ case "${1:-all}" in
     test_unpinned_workflow_linter_is_rejected
     test_source_built_cargo_tool_is_rejected
     test_compile_skipped_for_non_markdown_is_rejected
+    test_merge_queue_skipping_macos_is_rejected
     test_pull_request_tier_without_workflow_linting_is_rejected
     test_unwatched_rust_toolchain_is_rejected
     test_pull_request_tier_without_feature_off_doctests_is_rejected

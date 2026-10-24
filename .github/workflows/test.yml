@@ -80,7 +80,10 @@ jobs:
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
-      - if: needs.changes.outputs.compile == 'true'
+      # The merge queue runs the merge-only gates and not this tier again: the
+      # pull request already passed it, and macOS runs it on the queued
+      # candidate below.
+      - if: needs.changes.outputs.compile == 'true' && github.event_name != 'merge_group'
         run: mise run check_pull_request
       - if: needs.changes.outputs.compile != 'true'
         run: mise run check_docs
@@ -141,7 +144,9 @@ jobs:
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
-      - run: mise run check_wasm
+      # Passed on the pull request; the queue runs only the browser suite below.
+      - if: github.event_name != 'merge_group'
+        run: mise run check_wasm
       - if: github.event_name != 'pull_request'
         env:
           ORCVS_MERGE_COMPONENT: wasm
