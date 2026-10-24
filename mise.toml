@@ -267,14 +267,13 @@ description = "Pull-request verification tier"
 # scripts/check-tooling-contract.sh pins.
 env = { PROPTEST_CASES = '32' }
 run = '''
-bash scripts/check-tooling-contract.sh
-# The contract runs here; its fixture suite does not. The suite's verdict depends
-# only on the files `make_fixture` copies, so `.github/workflows/tooling.yml`
-# runs it path-filtered on those instead of twice on every pull request.
+# The contract and the roadmap planner, the gates that read Markdown. The
+# contract's fixture suite does not run here: its verdict depends only on the
+# files `make_fixture` copies, so `.github/workflows/tooling.yml` runs it
+# path-filtered on those instead of on every pull request.
+mise run check_docs
 actionlint
 zizmor --offline .github/workflows
-node --test scripts/tests/roadmap.test.ts
-node scripts/roadmap.ts > /dev/null
 mise run audit_deps
 cargo fmt --all -- --check
 # Each pair below is default-features then `--no-default-features`. `console`
@@ -306,6 +305,19 @@ cargo test --workspace --doc --no-default-features --locked
 # line is the only place `orcvs`'s persistence-gated docs are generated.
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --features persistence --locked
+'''
+
+[tasks.check_docs]
+description = "Pull-request tier for a Markdown-only change"
+# Every gate that reads Markdown. `check_pull_request` runs it first, and CI runs
+# it alone when a pull request's diff is Markdown only (`scripts/ci-compile-needed.sh`):
+# no crate compiles or reads a `.md` file, so cargo has nothing new to say. The
+# contract checks the ADR numbering in `docs/adr/`, and the planner reads every
+# `.scratch/` issue.
+run = '''
+bash scripts/check-tooling-contract.sh
+node --test scripts/tests/roadmap.test.ts
+node scripts/roadmap.ts > /dev/null
 '''
 
 [tasks.check_merge]

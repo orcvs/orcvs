@@ -26,6 +26,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    # Decides whether this run compiles. A pull request whose diff is Markdown
+    # alone cannot change what cargo builds or tests, so it runs the contract and
+    # the roadmap planner and skips the rest; every other event compiles. See
+    # `scripts/ci-compile-needed.sh`.
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    outputs:
+      compile: ${{ steps.decide.outputs.compile }}
+    steps:
+      # Depth two so the pull request's merge commit has its base as first parent.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: decide
+        env:
+          CI_EVENT: ${{ github.event_name }}
+        run: |
+          bash scripts/ci-compile-needed.sh >> "$GITHUB_OUTPUT"
+
   full-gate:
     # Warm, this job finishes in about ninety seconds: it restores `main`'s cache
     # through the key prefix and compiles almost nothing. The first run after a
@@ -37,6 +58,7 @@ jobs:
     # candidate — holds a runner for the six-hour limit instead. The bound is
     # generous against the real cost and cheap against that.
     timeout-minutes: 20
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,7 +80,10 @@ jobs:
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
-      - run: mise run check_pull_request
+      - if: needs.changes.outputs.compile == 'true'
+        run: mise run check_pull_request
+      - if: needs.changes.outputs.compile != 'true'
+        run: mise run check_docs
       - if: github.event_name != 'pull_request'
         env:
           ORCVS_MERGE_COMPONENT: native
@@ -99,6 +124,8 @@ jobs:
       - run: mise run test_midi_loopback
 
   wasm:
+    needs: changes
+    if: needs.changes.outputs.compile == 'true'
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -123,7 +150,7 @@ jobs:
   ci:
     # Required on both PRs and merge groups, including when a dependency fails.
     if: always()
-    needs: [full-gate, macos, wasm]
+    needs: [changes, full-gate, macos, wasm]
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
@@ -133,6 +160,8 @@ jobs:
       - name: Require the checks for this event
         env:
           CI_EVENT: ${{ github.event_name }}
+          COMPILE: ${{ needs.changes.outputs.compile }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
           LINUX_RESULT: ${{ needs.full-gate.result }}
           MACOS_RESULT: ${{ needs.macos.result }}
           WASM_RESULT: ${{ needs.wasm.result }}

@@ -2,14 +2,14 @@
 
 **What to build:** A pull request that touches only documentation or `.scratch/` passes the required `ci` check without compiling the workspace.
 
-**Blocked by:** 06
+**Blocked by:** 06 (stacked on it; independent in substance)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A pull request whose diff touches no Rust source, manifest, lockfile, toolchain, mise or workflow file skips the `full-gate` and `wasm` compiles.
-- [ ] The `ci` aggregate still reports on every pull request and passes for a skipped compile only when no Rust input changed.
-- [ ] The merge queue and pushes to `main` always run the full tier.
-- [ ] The tooling contract and `scripts/tests/check-ci-results.sh` cover the new skipped-is-success case and reject it when Rust inputs changed.
+- [x] A pull request whose diff is Markdown alone skips the `full-gate` and `wasm` compiles. The rule is narrower than "no Rust input": a console test includes a `.toml` from `.scratch/`, so only `.md` paths are exempt.
+- [x] The `ci` aggregate still reports on every pull request and passes for a skipped compile only when no Rust input changed.
+- [x] The merge queue and pushes to `main` always run the full tier.
+- [x] The tooling contract and `scripts/tests/check-ci-results.sh` cover the new skipped-is-success case and reject it when Rust inputs changed.
 
 ## Comments
 

@@ -178,8 +178,11 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check' '^mise run check_merge$'
 # The contract runs in the pull-request tier: nothing else executes it, so a gate
 # that only a local run reaches is a gate that drifts. It costs under a second
 # and it is what fails when someone edits a pinned line, so it is owed by every
-# pull request whatever that pull request touched.
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^bash scripts/check-tooling-contract.sh$'
+# pull request whatever that pull request touched. It runs through `check_docs`,
+# which holds every gate that reads Markdown, so the tier a Markdown-only pull
+# request runs instead cannot fall behind this one.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_docs$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^bash scripts/check-tooling-contract.sh$'
 # Its fixture suite is not, and must not be. The suite copies a tree, breaks one
 # line and re-runs the contract, ninety times over: two minutes, and the tier
 # runs on both the Linux and macOS legs, so every pull request paid it twice —
@@ -223,11 +226,11 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^zizmor --
 # The roadmap planner throws on tracker inconsistency, so its suite guards
 # invariants agents edit constantly. It had never run automatically, and had
 # already drifted by two tests before anything executed it.
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^node --test scripts/tests/roadmap.test.ts$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node --test scripts/tests/roadmap.test.ts$'
 # The suite runs the planner over temporary fixtures and never reads `.scratch/`,
 # so the throws that catch tracker drift — a dangling `Blocked by:`, a dependency
 # cycle, an untagged release blocker — need the planner run against the real tree.
-assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^node scripts/roadmap[.]ts > /dev/null$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/roadmap[.]ts > /dev/null$'
 # `audit_deps` had no caller at all. Dependabot's weekly grouped bumps are exactly
 # the pull requests an advisory, licence, and source audit exists for, and the
 # feature-resolved tree it prints was inspected only when a human typed it.
@@ -686,6 +689,19 @@ assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: carg
 assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: github-actions$'
 assert_contains "$root_dir/.github/dependabot.yml" '^  - package-ecosystem: rust-toolchain$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'run: mise run check_pull_request$'
+# A Markdown-only pull request skips the compile and runs `check_docs`. The
+# decision is the script's, and it compiles for every other event and diff;
+# both halves are pinned so neither the skip nor its light tier can drift.
+assert_contains "$root_dir/.github/workflows/test.yml" '^          bash scripts/ci-compile-needed.sh >> "[$]GITHUB_OUTPUT"$'
+assert_contains "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile == 'true'$"
+assert_contains "$root_dir/.github/workflows/test.yml" "^      - if: needs[.]changes[.]outputs[.]compile != 'true'$"
+assert_contains "$root_dir/.github/workflows/test.yml" '^        run: mise run check_docs$'
+assert_contains "$root_dir/.github/workflows/test.yml" "^    if: needs[.]changes[.]outputs[.]compile == 'true'$"
+assert_contains "$root_dir/scripts/ci-compile-needed.sh" '^  if [[][[] "[$]path" != [*][.]md []][]]; then$'
+assert_contains "$root_dir/scripts/ci-compile-needed.sh" '^if [[][[] "[$][{]CI_EVENT:[?][}]" != pull_request []][]] [|][|]$'
+# Rename detection would list a Rust file renamed to `.md` as the Markdown path
+# alone, and the compile would skip with a source file removed unbuilt.
+assert_contains "$root_dir/scripts/ci-compile-needed.sh" '^   ! changed_files="[$][(]git diff --name-only --no-renames HEAD\^1 HEAD 2>/dev/null[)]" [|][|]$'
 # Counting each component pins which merge tier runs, not merely that some step
 # carries a guard: dropping the native step while adding a guard elsewhere leaves
 # the guard count at two, and `cargo deny` and the 256-case persistence run
@@ -705,9 +721,9 @@ assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [
 assert_contains "$root_dir/.github/workflows/test.yml" '^  merge_group:$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    types: \[checks_requested\]$'
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 3
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 4
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 7
 assert_contains "$root_dir/.github/workflows/test.yml" '^    if: always[(][)]$'
-assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[full-gate, macos, wasm\]$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[changes, full-gate, macos, wasm\]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^        run: bash scripts/check-ci-results.sh$'
 assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
 # `@v1` is how a mutable tag is usually written, so matching a bare digit after
@@ -715,7 +731,7 @@ assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_nam
 assert_not_contains "$root_dir/.github/workflows/test.yml" '(cargo-nextest|cargo-deny|nextest|trunk|wasm-pack)@v?[0-9]'
 assert_not_contains "$root_dir/.github/workflows/test.yml" 'taiki-e/install-action'
 # Dependabot rewrites the version comment beside the SHA on every bump, and this
-# script is the first line of `check_pull_request`, so pinning the patch would
+# script is the first thing `check_pull_request` runs, so pinning the patch would
 # turn each of its own bump pull requests red on all three jobs. The major is
 # what deserves a human: it is where an action's inputs and node runtime move.
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]+# v7([.][0-9]+)*$'
