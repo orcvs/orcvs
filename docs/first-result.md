@@ -17,12 +17,11 @@ The first build takes several minutes. The console opens as a desktop window: a 
 a menu bar above it, and the Panel along the bottom. The Panel shows the tempo under **B**, the
 current Tick under **T**, the time played under **C**, and the MIDI output under **O**.
 
-On macOS the chords below use Command; on Linux and Windows they use Ctrl.
-
 ## Open an empty Source
 
-A first start opens an empty Source. Otherwise choose **File > New** (Command N); if the Source
-holds anything, the console asks first, and **Discard** empties it.
+A first start opens an empty Source. Otherwise choose **File > New**: Command N on macOS, Ctrl N
+on Linux and Windows. If the Source holds anything, the console asks first, and **Discard**
+empties it.
 
 The Grid is now empty. The Cursor, the outlined Cell, is at the top-left Cell, column `00` row
 `00`. The console shows no coordinates; this walkthrough counts columns and rows from that Cell.
@@ -95,7 +94,8 @@ For example, part way through:
 
 Press **Space** again. Playback stops and holds its Tick: **T** and the Clock keep their last
 values, and the next **Space** carries on from the following Tick. To begin again from Tick `0`,
-press **Command Shift R** before you press **Space**.
+press **Command Shift R** on macOS, or **Ctrl Shift R** on Linux and Windows, before you press
+**Space**.
 
 ## If the result differs
 

@@ -32,12 +32,15 @@ Validation record at `47103ec`, on Linux in a headless container. A temporary `e
 not committed, drove `Console::new` with no storage through every step: File > New on the empty
 start, typing `.+0102`, Space, Left Arrow and `5`, Down three and Left six, typing `~.0804`, and
 Space to stop. It observed `03`, then `06`, the Clock answering `00` to `03` within 4.5 seconds,
-and the Clock holding its value for 1.5 seconds after the stop. The Language Map diagnoses
-`.+010a`. The run caught one wrong claim in the first draft, and in `function_reference.rs`'s
+changing every 1.0 seconds at 120 BPM (observed 0.76, 1.00, 0.98, 1.02, 1.00 and 1.00 seconds
+between values), and the Clock holding its value for 1.5 seconds after the stop. After the stop it
+played again and edited `.+0105` to `.+010a`: across 12 Ticks the `06` below stayed, and the
+Render Frame painted the `0a` Cells as an Invalid Number operand, which Paint draws in the Theme's
+diagnostic foreground. The run caught one wrong claim in the first draft, and in `function_reference.rs`'s
 module documentation: a console that restores nothing starts empty, not on the Function Reference.
 
 Not checked: a window on macOS or Windows, rewinding with Command Shift R, how the diagnostic
-colour looks, and a person from the intended audience following the walkthrough. A fresh-context
+colour looks on screen, and a person from the intended audience following the walkthrough. A fresh-context
 model review raised fourteen gaps; the ones that would block a reader were fixed, namely the ALSA
 prerequisite's order, the File > New chord, Cursor columns, the Clock's row, and where BPM and the
 Tick are shown.
