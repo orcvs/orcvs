@@ -20,21 +20,20 @@ Tests that stay as wiring: `wheel_pans_a_larger_source_to_its_edges_and_a_smalle
 
 ### Implemented, 2026-10-24
 
-- **`Settled` has a fourth field, `drag_panned`.** Decision 5 names three. The Grabbing hand shows while
-  a drag Pans, and whether a primary drag Pans is the Alt-during-a-Region-drag rule. Deriving it in
-  `show_source_scene` from `PanInput` would restate that rule there, so the settle answers it.
+- **`Settled` answers the hand, not `can_pan`.** Decision 5 names `{ pan, repaint, can_pan }`. Which
+  hand the pointer shows depends on whether a drag Panned and on Alt outside a Region drag, which are
+  Pan rules; deciding it from `can_pan` in `show_source_scene` would restate them there. So `settle`
+  answers `hand: Option<CursorIcon>` from `can_pan` and those rules, and `show_source_scene` only sets
+  it, as decision 4 keeps the icon there.
 - **The `settle` tests live in `source_view.rs`'s own `tests` module**, not `console/src/console/tests.rs`.
   A Region drag in progress is the private `region_drag` field, which `show_source_scene` sets from the
   painted `GridViewport`; only a test inside the module can set it without a seam in shipped code.
-- **All eleven listed tests converted.** None asserted more than the Pan. The two zoom tests also checked
-  that the `console_pass` fixture ran at the zoom it asked for (`ctx.zoom_factor()`, the viewport's Cell).
-  Those are checks on the egui pass, which a `settle` test no longer makes; the zoom reaches `settle`
-  as the console's size and `snapped_cell` at that scale, and `a_zoom_that_would_open_a_gap_…` keeps
-  its check that the snapped Cell is unchanged. The egui zoom wiring stays covered by
-  `a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it` and
-  `a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_show_it`.
+- **Nine of the eleven listed tests converted.** The two zoom tests,
+  `a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside` and
+  `a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it`, stay `console_pass` tests: each
+  also asserts egui's zoom factor and the Cell the pass presented, which only an egui pass can answer.
 - **`releasing_a_drag_past_the_edge_scrolls_no_more_than_a_cell`** now plays the release as the caller
   does: the first frame settles with the Region drag still set, then the test clears it, as
   `show_source_scene` does once the button is up.
-- `ShownSourceView::outline` and `settle`'s `can_pan` share one predicate, `pannable`, over the same
+- `ShownSourceView::outline` and `settle`'s Pan offer share one predicate, `pannable`, over the same
   `slack` the clamp uses.

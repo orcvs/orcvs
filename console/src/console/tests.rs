@@ -5475,6 +5475,96 @@ async fn pinch_and_command_wheel_do_not_zoom() {
 }
 
 ///
+/// A zoom that would open a gap past an edge settles the Source View back
+/// inside the margin, through the same `clamp_pan` a Pan uses.
+///
+/// egui's zoom changes the console's size in points and never the Source's,
+/// so zooming out widens the console around a Pan pinned to the far edge.
+/// The Cursor sits on the far corner the pinned Pan already shows, so the
+/// Cursor follow has nothing to do: what settles the gap is `clamp_pan`.
+///
+#[tokio::test]
+async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    orcvs.select(orcvs.grid().position(31, 31).expect("inside the grid"));
+
+    // 32 Cells and a margin of two either side is 36 Cells, so the far edge
+    // of a console is 36 Cells less its size in.
+    let far_edge = |console: f32| Vec2::splat(console) - 36.0 * CELL_SIZE;
+    pinned_at(&mut view, far_edge(200.0));
+    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(
+        view.pan,
+        far_edge(200.0),
+        "the fixture did not open already pinned to the far edge"
+    );
+
+    // At half zoom the same window is 400 points across, the size egui's
+    // integration reports once the zoom factor has changed.
+    ctx.set_zoom_factor(0.5);
+    let zoomed_out = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
+    let viewport = console_frame(&ctx, zoomed_out, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(ctx.zoom_factor(), 0.5, "the pass did not run zoomed out");
+    assert_eq!(
+        viewport.cell_size, CELL_SIZE,
+        "the zoom changed the Cell's points"
+    );
+    assert_eq!(
+        view.pan,
+        far_edge(400.0),
+        "the zoom left a gap past the Grid: {:?}",
+        view.pan
+    );
+}
+
+///
+/// A zoom that would leave the Cursor outside the Source View Pans the
+/// least distance that shows it, the same as a Cursor move does.
+///
+#[tokio::test]
+async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
+    // inside a 200 point console and past a 160 point one.
+    orcvs.select(orcvs.grid().position(13, 8).expect("inside the grid"));
+
+    console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(
+        view.pan,
+        Vec2::ZERO,
+        "the fixture's first frame already Panned"
+    );
+
+    // At 1.25 the same window is 160 points across.
+    ctx.set_zoom_factor(1.25);
+    let zoomed_in = Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0));
+    console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
+
+    assert_eq!(ctx.zoom_factor(), 1.25, "the pass did not run zoomed in");
+    // The Cell snaps to 12 by 17.6 points, so the Cursor's Cell ends 16 and
+    // 11 of those along, and the least Pan puts that end on the console's.
+    let cell = snapped_cell(CELL_SIZE, 1.25);
+    assert_eq!(
+        view.pan,
+        Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * cell,
+        "the zoom did not Pan the least distance that shows the Cursor: {:?}",
+        view.pan
+    );
+
+    // A frame at the zoom it already had is not a zoom, so a Pan away from
+    // the Cursor stays where it was put.
+    view.pan = Vec2::ZERO;
+    console_frame(&ctx, zoomed_in, Vec::new(), &mut orcvs, &mut view);
+    assert_eq!(view.pan, Vec2::ZERO, "an unchanged zoom chased the Cursor");
+}
+
+///
 /// A browser's page zoom is followed as egui's own zoom is.
 ///
 /// On the web the browser zooms the page and eframe reports it as a larger

@@ -215,11 +215,25 @@ impl SourceView {
         let extent = extent(grid).size() * cell;
         self.pan = clamp_pan(self.pan, console_size, extent);
 
+        // The pointer offers a Pan only where there is one: not on a Grid that
+        // with its margins fits the console on both axes, and not for Alt
+        // pressed partway through a Region drag, which stays one. Alt is the
+        // one Pan gesture the pointer can announce before it starts: a
+        // middle-drag has no hover state to show, and a wheel Pan is not a
+        // grab.
+        let can_pan = pannable(console_size, extent);
+        let hand = if can_pan && drag.is_some() {
+            Some(CursorIcon::Grabbing)
+        } else if can_pan && alt && !dragging_region && contains_pointer {
+            Some(CursorIcon::Grab)
+        } else {
+            None
+        };
+
         Settled {
             pan: self.pan,
             repaint,
-            can_pan: pannable(console_size, extent),
-            drag_panned: drag.is_some(),
+            hand,
         }
     }
 }
@@ -245,7 +259,9 @@ pub(super) struct PanInput {
     pub(super) console: Rect,
     /// The Cell snapped to whole physical pixels.
     pub(super) cell: Vec2,
+    /// The Grid the Source View Pans over.
     pub(super) grid: Grid,
+    /// The Cursor this frame draws.
     pub(super) cursor: Position,
 }
 
@@ -253,17 +269,15 @@ pub(super) struct PanInput {
 /// The Pan [`SourceView::settle`] settled on, and what the caller asks of
 /// egui for it.
 ///
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Debug)]
 pub(super) struct Settled {
     /// The Pan, inside the clamp.
     pub(super) pan: Vec2,
     /// Whether a Region drag's pointer is past the console's edge, so the
     /// next frame scrolls further.
     pub(super) repaint: bool,
-    /// Whether the extent leaves anywhere to Pan.
-    pub(super) can_pan: bool,
-    /// Whether a drag Panned this frame.
-    pub(super) drag_panned: bool,
+    /// The hand the pointer shows over the console, where a Pan is on offer.
+    pub(super) hand: Option<CursorIcon>,
 }
 
 ///
@@ -567,15 +581,8 @@ pub(super) fn show_source_scene(
     let grid = presented_grid(origin, source_grid, cell, ui.ctx().pixels_per_point());
     view.shown = ShownSourceView::new(grid, console, source_grid);
 
-    // The pointer offers a Pan only where there is one: not on a Grid that
-    // with its margins fits the console on both axes, and not for Alt
-    // pressed partway through a Region drag, which stays one. Alt is the one
-    // Pan gesture the pointer can announce before it starts: a middle-drag
-    // has no hover state to show, and a wheel Pan is not a grab.
-    if settled.can_pan && settled.drag_panned {
-        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-    } else if settled.can_pan && alt && view.region_drag.is_none() && pan.contains_pointer() {
-        ui.ctx().set_cursor_icon(CursorIcon::Grab);
+    if let Some(hand) = settled.hand {
+        ui.ctx().set_cursor_icon(hand);
     }
 
     let clicked = show_source(ui, frame, font_family, grid, console, theme);
@@ -752,11 +759,11 @@ impl Console {
 
 #[cfg(test)]
 mod tests {
-    use egui::{Pos2, Rect, Vec2};
+    use egui::{CursorIcon, Pos2, Rect, Vec2};
     use orcvs::grid::Grid;
 
     use super::{PanInput, SourceView, edge_scroll};
-    use crate::grid_viewport::{CELL_SIZE, SourceCellPoint, snapped_cell};
+    use crate::grid_viewport::{CELL_SIZE, SourceCellPoint};
 
     /// A console 200 points square, the size most of these settle under.
     const CONSOLE: Vec2 = Vec2::new(200.0, 200.0);
@@ -1012,90 +1019,6 @@ mod tests {
     }
 
     ///
-    /// A zoom that would open a gap past an edge settles the Source View back
-    /// inside the margin, through the same `clamp_pan` a Pan uses.
-    ///
-    /// egui's zoom changes the console's size in points and never the Source's,
-    /// so zooming out widens the console around a Pan pinned to the far edge.
-    /// The Cursor sits on the far corner the pinned Pan already shows, so the
-    /// Cursor follow has nothing to do: what settles the gap is `clamp_pan`.
-    ///
-    #[test]
-    fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
-        let grid = Grid::with_shape(32, 32);
-        let mut view = SourceView::new(CELL_SIZE);
-
-        // 32 Cells and a margin of two either side is 36 Cells, so the far edge
-        // of a console is 36 Cells less its size in.
-        let far_edge = |console: f32| Vec2::splat(console) - 36.0 * CELL_SIZE;
-        view.pan = far_edge(200.0);
-        view.settle(still(CONSOLE, grid, (31, 31)));
-        assert_eq!(
-            view.pan,
-            far_edge(200.0),
-            "the fixture did not open already pinned to the far edge"
-        );
-
-        // At half zoom the same window is 400 points across, at the Cell the
-        // zoom snaps to.
-        let cell = snapped_cell(CELL_SIZE, 0.5);
-        assert_eq!(cell, CELL_SIZE, "the zoom changed the Cell's points");
-        view.settle(PanInput {
-            cell,
-            ..still(Vec2::splat(400.0), grid, (31, 31))
-        });
-        assert_eq!(
-            view.pan,
-            far_edge(400.0),
-            "the zoom left a gap past the Grid: {:?}",
-            view.pan
-        );
-    }
-
-    ///
-    /// A zoom that would leave the Cursor outside the Source View Pans the
-    /// least distance that shows it, the same as a Cursor move does.
-    ///
-    #[test]
-    fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
-        let grid = Grid::with_shape(32, 32);
-        let mut view = SourceView::new(CELL_SIZE);
-        // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
-        // inside a 200 point console and past a 160 point one.
-        view.settle(still(CONSOLE, grid, (13, 8)));
-        assert_eq!(
-            view.pan,
-            Vec2::ZERO,
-            "the fixture's first frame already Panned"
-        );
-
-        // At 1.25 the same window is 160 points across, and the Cell snaps to
-        // 12 by 17.6 points, so the Cursor's Cell ends 16 and 11 of those
-        // along, and the least Pan puts that end on the console's.
-        let cell = snapped_cell(CELL_SIZE, 1.25);
-        let zoomed_in = PanInput {
-            cell,
-            ..still(Vec2::splat(160.0), grid, (13, 8))
-        };
-        view.settle(zoomed_in);
-        assert_eq!(
-            view.pan,
-            Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * cell,
-            "the zoom did not Pan the least distance that shows the Cursor: {:?}",
-            view.pan
-        );
-
-        // A frame at the zoom it already had is not a zoom, so a Pan away from
-        // the Cursor stays where it was put.
-        view.pan = Vec2::ZERO;
-        view.settle(PanInput {
-            cell,
-            ..still(Vec2::splat(160.0), grid, (13, 8))
-        });
-        assert_eq!(view.pan, Vec2::ZERO, "an unchanged zoom chased the Cursor");
-    }
-
-    ///
     /// Releasing a drag held past the edge does not jump the Source View to
     /// the Cursor: the frame the button comes up still scrolls at most a Cell.
     ///
@@ -1182,10 +1105,7 @@ mod tests {
         });
 
         assert_eq!(settled.pan, Vec2::new(-2.0, 0.0));
-        assert!(
-            !settled.drag_panned,
-            "Alt turned the Region drag into a Pan"
-        );
+        assert_eq!(settled.hand, None, "Alt offered a Pan during a Region drag");
     }
 
     ///
@@ -1262,19 +1182,24 @@ mod tests {
     }
 
     ///
-    /// `can_pan` answers whether the extent leaves anywhere to Pan.
+    /// The pointer offers a Pan with Alt held over the console only where the
+    /// extent leaves anywhere to Pan.
     ///
     #[test]
-    fn can_pan_is_whether_the_extent_overflows_the_console() {
+    fn the_grab_hand_shows_only_where_the_extent_overflows_the_console() {
         // Eight Cells and their margins are 144 by 216 points, inside a 400
         // point console; 32 are 432 by 648.
         let console = Vec2::splat(400.0);
-        for (grid, can_pan) in [
-            (Grid::with_shape(8, 8), false),
-            (Grid::with_shape(32, 32), true),
+        for (grid, hand) in [
+            (Grid::with_shape(8, 8), None),
+            (Grid::with_shape(32, 32), Some(CursorIcon::Grab)),
         ] {
-            let settled = SourceView::new(CELL_SIZE).settle(still(console, grid, (0, 0)));
-            assert_eq!(settled.can_pan, can_pan);
+            let settled = SourceView::new(CELL_SIZE).settle(PanInput {
+                alt: true,
+                contains_pointer: true,
+                ..still(console, grid, (0, 0))
+            });
+            assert_eq!(settled.hand, hand);
         }
     }
 }
