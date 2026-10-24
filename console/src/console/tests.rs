@@ -29,7 +29,7 @@ use super::source_view::{
     ShownSourceView, SourceView, clamp_pan, extent, is_presentable, show_source_scene,
     source_panel_frame,
 };
-use super::{Console, DEFAULT_VIEW_SIZE};
+use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 
 ///
 /// How far the Source View's extent reaches past the Grid's top-left, in
@@ -6515,6 +6515,39 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
             "no {edge} border {points:?} in {stroke:?}"
         );
     }
+}
+
+///
+/// A window too small for the picture hides the Overview without changing the
+/// View menu's choice, so it returns at its usual size once the window holds
+/// it again.
+///
+#[tokio::test]
+async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() {
+    let (ctx, mut console, mut host) = fresh_console();
+    console.overview_open = true;
+    let mut pass = |size: Vec2, console: &mut Console| {
+        let screen = Rect::from_min_size(Pos2::ZERO, size);
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            (shapes, _) = console_output_at(&ctx, screen, Vec::new(), console, &mut host, 1.0);
+        }
+        overview_image(&shapes).map(|(_, image)| image)
+    };
+
+    let hidden = pass(Vec2::from(DEFAULT_VIEW_SIZE_MIN), &mut console);
+    assert_eq!(
+        hidden, None,
+        "the smallest window at 1× showed the Overview"
+    );
+    assert!(console.overview_open, "hiding the Overview closed it");
+
+    let image =
+        pass(Vec2::from(DEFAULT_VIEW_SIZE), &mut console).expect("the Overview did not return");
+    assert!(
+        (image.size() - Vec2::splat(260.0)).length() < 1e-3,
+        "the Overview returned at {image:?}"
+    );
 }
 
 ///

@@ -1,6 +1,5 @@
 //! The Overview: the whole Grid and its margin, one texel per Cell in the
-//! Theme's colours, floating over the window's bottom-right corner (ADR
-//! 0081).
+//! Theme's colours, floating over the window's bottom-right corner.
 
 use std::iter::repeat_n;
 use std::ops::Range;
@@ -100,7 +99,7 @@ impl Overview {
     /// offers no Pan there either. It never selects, so the Cursor and the
     /// Region stay where they were.
     ///
-    fn pan_source_view(
+    fn requested_centre(
         &mut self,
         response: &Response,
         picture: Rect,
@@ -267,7 +266,7 @@ impl Console {
                 let painter = ui.painter_at(rect);
                 mark_region_and_cursor(&painter, rect, frame, theme);
                 outline_source_view(&painter, rect, &source, theme);
-                overview.pan_source_view(&response, rect, &source)
+                overview.requested_centre(&response, rect, &source)
             })
             .inner
     }
