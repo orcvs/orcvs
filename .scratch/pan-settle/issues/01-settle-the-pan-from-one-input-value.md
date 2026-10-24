@@ -6,7 +6,7 @@ Tests that convert to `settle` tests, keeping their names and assertions: `a_fre
 
 Tests that stay as wiring: `wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere`, `a_middle_drag_pans_by_the_pointer_and_a_later_click_selects_the_cell_under_it`, `alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved`, `a_drag_past_the_edge_scrolls_faster_the_further_out_and_stops_at_the_grid`, `a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it`, `a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_show_it`, `a_far_edge_pan_leaves_no_gap_past_a_snapped_grid`, `a_cursor_follow_shows_the_whole_snapped_cursor_cell`, the Region and Paint tests, and the kittest Overview-centre and grab-hand tests.
 
-**Blocked by:** source-cells/02
+**Blocked by:** cell-geometry/02
 
 **Status:** ready-for-agent
 

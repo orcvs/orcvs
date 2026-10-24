@@ -6,7 +6,7 @@ Nothing here changes how any Pan behaves or what the console paints. No speedup 
 
 ## Decisions
 
-1. **Blocked by Source Cells 02.** That ticket moves `cursor_cell`, `followed_cell`, the requested centre and the clamp's bound onto the Source View map, in the same body this extracts from; the settle is extracted from code that already speaks Source Cells.
+1. **Blocked by cell-geometry 02.** That ticket moves `cursor_cell`, `followed_cell`, the requested centre and the clamp's bound onto the Source View map, in the same body this extracts from; the settle is extracted from code that already measures in Cells.
 2. **The settle owns the Pan rules, in order:** the gesture deltas, the Cursor-move and resize-follow checks with the `previous_cursor` and `previous_console` bookkeeping, the follow or the Region drag's edge scroll, the requested centre, and the clamp. It answers the settled Pan, `repaint` (a Region drag's pointer is past the console's edge) and `can_pan`.
 3. **The adapter only reads.** `show_source_scene` reads raw facts into the input value: the middle-drag and primary-drag deltas, `alt`, whether the console contains the pointer, the smooth-scroll delta, the pointer, the console's size, the snapped Cell, the Grid and the Cursor. The settle decides what they mean, including that Alt pressed partway through a Region drag leaves it a Region drag.
 4. **What stays in `show_source_scene`:** the cursor icon (from `can_pan`), `request_repaint` (from `repaint`), the origin and Paint, and setting and clearing `region_drag`, whose anchor needs the painted `GridViewport`. The settle reads only whether a Region drag is in progress, before this frame clears it, so a release still paces its last frame.
