@@ -20,8 +20,12 @@ build**, served from the site's own `public/app/` directory.
   Vite never touches the wasm-bindgen output. One MDX component, for example
   `<Console example="cell-tracker" />`, can wrap the iframe and the "load this example" links, so
   every page embeds the console the same way.
-- **The toolchain cost is small.** The repo already pins Node in `mise.toml` and has a
-  `package.json` for the roadmap script. Starlight adds npm packages, not a new runtime.
+- **The toolchain cost is small, with one Node bump.** The repo already pins Node in `mise.toml`
+  and has a `package.json` for the roadmap script, so Starlight adds npm packages, not a new
+  runtime. Astro 7.4.2 declares `engines.node >=22.23.4` [5]. The repo pins Node 22.23.1, so
+  adopting Astro moves the `mise.toml` pin to 22.23.4 (released 2026-10-20 [101]), a patch release
+  on the same line, which the roadmap gate then runs on too. Starlight 0.42.7 declares no `engines`
+  of its own [7].
 - **GitHub Pages is enough.** The console is single-threaded, so it needs no cross-origin isolation
   headers, which GitHub Pages cannot set [77][86] (inference for eframe from [20][81]). Web MIDI in
   a same-origin iframe needs no `allow` attribute [93][94].
@@ -53,10 +57,12 @@ now an empty "moved" stub [4]. These findings come from the files deployed on
   `loadExample(key)` [1][2]. Clicking any `pre.orca` code block in the prose loads that block too
   [1].
 - **Sound comes from a patched MIDI output.** `patchOrcaToEnfer()` replaces Orca's MIDI output
-  device with an object whose `send` forwards each message to `enferClient.io.onMessage` [1]. Enfer
-  is a small Tone.js sample synth, pinned at commit `68eb59d`, that maps note-on channels to drum
-  kits and pads and control changes to mixer knobs (from the Learn Orca investigation in this
-  project, not re-fetched here). The page plays sound with no MIDI device and no permission prompt.
+  device with an object whose `send` forwards each message to `enferClient.io.onMessage` [1]. So
+  the page plays sound with no MIDI device and no MIDI permission prompt. What Enfer is inside is
+  UNVERIFIED: that it is a Tone.js sample synth by hundred rabbits, pinned at a particular commit,
+  that maps note-on channels to drum kits and control changes to mixer knobs. `main.js` names no
+  iframe `src` and no commit [1], and Enfer's repository could not be reached from here. Section 5
+  depends only on the bridge, which `main.js` shows.
 - **The site is hand-written.** No static site generator markers were visible [1][3]. It is served
   by sourcehut pages [3].
 
@@ -119,9 +125,11 @@ What decided the ranking:
 - **The Rust-native generators cost more agent work.** mdBook has search and a docs layout but no
   components. Zola, Hugo and Eleventy have neither a docs theme nor search UI, so an agent would
   build and then maintain both.
-- **Trunk alone is not a site generator.** It allows one Rust `main` per build and documents no
-  multi-page build [75]. Every page would be hand-written HTML with no Markdown, navigation or
-  search.
+- **Trunk alone is not a site generator.** Its guide describes a build driven by one target HTML
+  file, with one Rust `main` link in it [75][102]. Neither the 0.21.14 guide nor the current one has
+  a section on building several pages [103] (that it cannot is an inference from that absence).
+  The deciding point holds either way: Trunk renders no Markdown and has no navigation or search
+  [75], so every page would be hand-written HTML.
 - **Training data is UNVERIFIED.** GitHub stars are the only proxy found: Hugo 89.7k, Docusaurus
   66.2k, Astro 61.7k, mdBook 22.1k, VitePress 18.3k, Zola 17.4k, Starlight 9.2k [67][52][8][23][43]
   [33][9].
@@ -130,8 +138,7 @@ Risks of the recommendation:
 
 - Starlight is pre-1.0 [6]; expect occasional breaking upgrades. Pin it in `package.json` and the
   lockfile.
-- The Node version Astro 7 requires was not checked against the repo's pinned Node 22.23.1
-  (UNVERIFIED).
+- Astro needs Node 22.23.4 or newer [5], three patch releases past the repo's pin.
 
 ## 4. Hosting
 
@@ -147,6 +154,23 @@ Risks of the recommendation:
   `actions/deploy-pages@v5` [19]. Current majors are `configure-pages` v6,
   `upload-pages-artifact` v5 and `deploy-pages` v5 [83][84][85]. Astro needs `site` and, for a
   project page, `base: '/orcvs'` [19].
+- **CI builds the console and the site in one job, and nothing built is committed.** A committed
+  WASM build would go stale against `main`. The deploy job runs on pushes to `main`:
+  1. Install the `mise.toml` tools, so Trunk, Rust and Node are the pinned ones.
+  2. In `console/`, run
+     `trunk build --release --locked --public-url /orcvs/app/ --dist ../site/public/app`.
+     `--release` matters: `check_wasm` builds the debug profile, which is not what readers should
+     download. `--public-url` and `--dist` are Trunk's `public_url` and `dist` settings [75][104].
+  3. In `site/`, run the Astro build with `site` set to the Pages URL and `base: '/orcvs'` [19]. It
+     copies `public/app/` into its output unchanged [14].
+  4. Upload the output with `upload-pages-artifact` and publish it with `deploy-pages` [83][84].
+
+  The base path is written twice, and the two must agree: Trunk's public URL is Astro's `base`
+  followed by `/app/`. If they differ, every asset URL in the embed breaks. Both values should come
+  from one variable in the workflow, and a check after step 3 should fail the job if
+  `public/app/index.html` does not name `/orcvs/app/` as its base. Adding the workflow also brings
+  in the tooling-contract gates in `CLAUDE.md` (`check-tooling-contract.sh`, `actionlint`,
+  `zizmor`).
 - **Move to Cloudflare or Netlify only if headers become necessary.** Both read a `_headers` file
   [87][88][90]. Threads in the console would be that trigger.
 
@@ -155,29 +179,63 @@ Risks of the recommendation:
 These are console changes. Each would become a ticket, and the sound target an ADR, once the
 framework is chosen.
 
-1. **Load a Source from the URL.** Learn Orca's parent page calls into Orca's globals [1]. eframe
-   has none [20]. The smallest Orcvs equivalent is reading a query parameter at startup: one that
-   names a shipped example (`?example=cell-tracker`, from `console/src/examples.rs`) and one that
-   carries Source text for prose snippets. The site then changes examples by changing the iframe's
-   `src`. That reloads the WASM (served from the browser cache), which is simpler than a
-   `postMessage` protocol and keeps the console's input surface to one read at startup. A
-   wasm-bindgen export is the alternative if reload time proves too slow; measure it first.
+1. **Load a Source from the URL, stopped.** Learn Orca's parent page calls into Orca's globals [1].
+   eframe has none [20]. The smallest Orcvs equivalent is reading the URL once at startup:
+   `?example=<name>` names a shipped example (`console/src/examples.rs`), and a fragment such as
+   `#source=<percent-encoded text>` carries a prose snippet. The site changes examples by changing
+   the iframe's `src`. That reloads the WASM from the browser cache, which is simpler than a
+   `postMessage` protocol. A wasm-bindgen export is the alternative if reload time proves too slow;
+   measure it first.
+
+   A URL is input anyone can craft, so the ticket has to fix the boundary:
+   - **Nothing plays until the reader acts.** A Source from the URL loads with Playback stopped,
+     and only the reader starts it. This matters because the console asks for Web MIDI access at
+     startup (`console/src/web_midi.rs`) and, once access is granted, selects the first destination
+     every frame until one is selected (`MidiDeviceSelection::observe_frame`, `console/src/midi.rs`).
+     A link that started Playback by itself could send notes to a visitor's device.
+   - **The text is parsed as a Source File, and rejected whole if it does not parse.** It goes
+     through the same reader as opening a file, with a byte limit checked before decoding. The limit
+     is the ticket's to set. Lessons should prefer `?example=` and short snippets: the fragment never
+     reaches the server, but browsers cap URL length (the cap is UNVERIFIED), so a long Source
+     belongs in `examples/`.
+   - **The embed never overwrites saved work.** The embed and the full console share an origin, so
+     they share eframe's storage, and the `persistence` feature restores the Source from it. A
+     Source loaded from the URL must neither replace nor be saved over the reader's stored Source.
+   - **Tests at the boundary.** `CLAUDE.md` asks for boundary or property tests at a parser
+     boundary. The ticket needs them for malformed percent-encoding, text over the limit, text that
+     is not a valid Source File, an unknown example name, and both parameters given at once.
 2. **Skip the service worker in the embed.** The same parameter, or a separate `?embed`, stops
    `index.html` registering `sw.js` (section 2).
-3. **Hand keyboard focus to the console only on click.** Since eframe 0.28 the canvas takes
-   keyboard input only while focused, and an embedded canvas can be one part of a larger page [91]
-   [97]. Fixes in 0.35 and 0.36 stopped the host page scrolling when the canvas takes focus [91].
-   eframe's default stops propagation of every event it handles [99]; the iframe keeps those events
-   inside it anyway (inference).
-4. **A built-in sound target.** Learn Orca plays sound because Enfer receives MIDI bytes directly
-   [1]. Orcvs already has the seam for this: `MidiBackend` (`orcvs/src/midi.rs`) lists
-   destinations and connects to one, and the web console's backend is `console/src/web_midi.rs`. A
-   second web backend, or an extra destination in the existing one, could offer a destination such
-   as "Built-in synth" whose connection turns note-on and note-off bytes into Web Audio voices. The
-   embed would select it by default. It needs no MIDI permission, and Web MIDI devices would still
-   be listed beside it. How many voices, which sounds, and whether native gets it too are design
-   decisions for an ADR. A Tone.js iframe like Enfer is possible, but bridging JavaScript from
-   eframe costs more than Web Audio from Rust through `web-sys` (inference).
+3. **Check keyboard focus; build nothing unless the check fails.** Since eframe 0.28 the canvas
+   takes keyboard input only while focused [91][97], and an iframe keeps its events from the host
+   page (inference). So this is probably no work. The first embed ticket carries it as acceptance
+   conditions, checked in a real browser:
+   - Before the reader clicks the embed, arrow keys and Space scroll the lesson page, and the
+     console's Cursor does not move.
+   - After one click in the embed, arrow keys move the Cursor and the lesson page does not scroll.
+   - Tab or a click outside the embed returns keys to the page.
+
+   Only if one of these fails is there console work, and the failing condition is its test.
+4. **A built-in sound target.** Learn Orca plays sound because its bridge hands MIDI bytes
+   straight to a synth [1]. Orcvs already has the seam for this: `MidiBackend` (`orcvs/src/midi.rs`)
+   lists destinations and connects to one, and the web console's backend is
+   `console/src/web_midi.rs`. A second web backend, or an extra destination in the existing one,
+   could offer a destination such as "Built-in synth" whose connection turns note-on and note-off
+   bytes into Web Audio voices. The embed would select it by default. It needs no MIDI permission,
+   and Web MIDI devices would still be listed beside it.
+
+   It still needs a user gesture. Starting Web Audio sound outside a user input event is subject to
+   the browser's autoplay rules, and by default Firefox lets an audio context play only after
+   sticky activation [105]. The `autoplay` Permissions Policy defaults to `self`, so a same-origin
+   iframe is not blocked by policy [105]. Whether a click on the lesson page counts as activation
+   inside the iframe is UNVERIFIED. So the embed is silent until the reader has interacted with
+   it. The first point above already makes the reader start Playback, so creating or resuming the
+   audio context on that action fits it. Learn Orca has the same constraint, because Enfer is Web
+   Audio too (inference).
+
+   How many voices, which sounds, and whether native gets it too are design decisions for an ADR.
+   A Tone.js iframe like Enfer is possible, but bridging JavaScript from eframe costs more than Web
+   Audio from Rust through `web-sys` (inference).
 
 ## Sources
 
@@ -254,5 +312,10 @@ framework is chosen.
 97. https://github.com/emilk/egui/releases (0.28.0 notes)
 99. https://raw.githubusercontent.com/emilk/egui/main/crates/eframe/src/epi.rs (`WebOptions`)
 100. https://raw.githubusercontent.com/emilk/eframe_template/main/README.md
+101. https://nodejs.org/dist/index.json
+102. https://raw.githubusercontent.com/trunk-rs/trunk/main/guide/src/commands/index.md
+103. https://raw.githubusercontent.com/trunk-rs/trunk/v0.21.14/guide/src/SUMMARY.md ; https://raw.githubusercontent.com/trunk-rs/trunk/main/guide/src/SUMMARY.md
+104. https://raw.githubusercontent.com/trunk-rs/trunk/main/guide/src/configuration/index.md
+105. https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Autoplay
 
 Source numbers follow the research notes they came from, so unused numbers are skipped.
