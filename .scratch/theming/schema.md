@@ -183,7 +183,7 @@ built-in colours but no longer borrow the live Bang property.
 | Text selection | `selection.background`, `selection.border`, `selection.border.width` |
 | Input caret and active IME underline | `input.cursor`, `input.cursor.width` |
 | Inactive IME underline | Same width; existing half-linear colour attenuation |
-| Links; code spans | `link`; `code.background` |
+| Links; text egui marks as code (`RichText::code`, `Ui::code`), which the console does not show | `link`; `code.background` |
 | Error/warning messages | `error`; `warning` |
 | The Source View's outline on the Overview | `overview.source_view`, `overview.source_view.width` |
 

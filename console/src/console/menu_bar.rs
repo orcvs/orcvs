@@ -10,12 +10,17 @@ use crate::examples::EXAMPLES;
 use crate::theme_selection::SelectedThemes;
 
 /// The height the top panel takes from the window, leaving the rest to the
-/// console. It is the panel's own minimum, which the menu bar does not exceed.
-pub(super) const TOP_PANEL_HEIGHT: f32 = 32.0;
+/// console: the bottom Panel's compact height, so the two bars match.
+pub(super) const TOP_PANEL_HEIGHT: f32 = super::panel::BOTTOM_PANEL_HEIGHT;
 
-/// The horizontal gap between the top menu bar's own items — its menu
-/// buttons.
-pub(super) const MENU_BAR_GAP: f32 = 16.0;
+///
+/// The top bar's item spacing: what leaves the bottom Panel's Readout group
+/// gap between two menu labels once each button has padded its own. No item
+/// adds space of its own.
+///
+pub(super) fn menu_bar_gap(ui: &egui::Ui) -> f32 {
+    (super::panel::readout_group_gap(ui) - 2.0 * ui.spacing().button_padding.x).max(0.0)
+}
 
 ///
 /// A File menu item for `command`, carrying its chord as shortcut text on
@@ -31,20 +36,25 @@ fn file_menu_item(ui: &mut egui::Ui, command: FileCommand) -> bool {
 ///
 /// A menu item that toggles `checked`, laid out as a button so its label
 /// aligns with the menu's other items, with its check box after the label
-/// and, on native, `shortcut` before the box. Named and announced as a
+/// and, on native, any `shortcut` before the box. Named and announced as a
 /// check box. Answers the item's response.
 ///
 fn trailing_checkbox(
     ui: &mut egui::Ui,
     checked: &mut bool,
     label: &str,
-    #[cfg_attr(target_arch = "wasm32", expect(unused_variables))] shortcut: egui::KeyboardShortcut,
+    #[cfg_attr(target_arch = "wasm32", expect(unused_variables))] shortcut: Option<
+        egui::KeyboardShortcut,
+    >,
 ) -> egui::Response {
     let box_id = egui::Id::new(("orcvs-trailing-checkbox", label));
     let box_size = egui::Vec2::splat(ui.spacing().icon_width);
     let item = egui::Button::new(label);
     #[cfg(not(target_arch = "wasm32"))]
-    let item = item.shortcut_text(ui.ctx().format_shortcut(&shortcut));
+    let item = match shortcut {
+        Some(shortcut) => item.shortcut_text(ui.ctx().format_shortcut(&shortcut)),
+        None => item,
+    };
     let shown = item
         .right_text(egui::Atom::custom(box_id, box_size))
         .atom_ui(ui);
@@ -97,7 +107,6 @@ fn show_notices(ui: &mut egui::Ui, themes: &mut SelectedThemes, files: &mut Vec<
     if count == 0 {
         return;
     }
-    ui.add_space(MENU_BAR_GAP);
     let title =
         egui::RichText::new(format!("Notices ({count})")).color(ui.visuals().error_fg_color);
     ui.menu_button(title, |ui| {
@@ -146,6 +155,12 @@ pub(super) const MODE_GLYPHS: [&str; 3] = ["◐", "☾", "☼"];
 /// Shown into a right-to-left layout, so the buttons are added in reverse.
 ///
 fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
+    // Icon-sized and spaced as egui spaces them, not the bar's full height
+    // and menu gap: the mode opens no menu. Shown in its own scope, so the bar
+    // keeps its spacing.
+    let compact = ui.ctx().global_style().spacing.clone();
+    ui.spacing_mut().interact_size.y = compact.interact_size.y;
+    ui.spacing_mut().item_spacing.x = compact.item_spacing.x;
     let mode = ui.ctx().options(|options| options.theme_preference);
     let system = ui.input(|input| input.raw.system_theme);
     let choices = [
@@ -229,12 +244,23 @@ impl Console {
             file_command: None,
             appearance_change: None,
         };
+        // No vertical margin, so the menu buttons can reach the bar's bottom
+        // edge.
+        let mut frame = egui::Frame::side_top_panel(root.style().as_ref());
+        frame.inner_margin.top = 0;
+        frame.inner_margin.bottom = 0;
         let top_panel = egui::Panel::top("top_panel")
-            .resizable(true)
-            .min_size(TOP_PANEL_HEIGHT);
+            .resizable(false)
+            .exact_size(TOP_PANEL_HEIGHT)
+            .frame(frame);
 
         top_panel.show(root, |ui| {
+            // A menu opens from its button's bottom edge, so each menu button
+            // is the bar's full height, its label centred within it, and its
+            // menu opens below the bar.
+            ui.spacing_mut().interact_size.y = ui.available_height();
             egui::MenuBar::new().ui(ui, |ui| {
+                ui.spacing_mut().item_spacing.x = menu_bar_gap(ui);
                 // New, Open…, Save, Save As… and Quit on native; New alone on
                 // the web.
                 ui.menu_button("File", |ui| {
@@ -257,7 +283,6 @@ impl Console {
                         }
                     }
                 });
-                ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("View", |ui| {
                     // The web has no zoom items: the browser's page zoom is
                     // its one zoom, and egui's factor would multiply it.
@@ -270,11 +295,10 @@ impl Console {
                         ui,
                         &mut self.diagnostics_open,
                         "Diagnostics",
-                        super::input::DIAGNOSTICS_SHORTCUT,
+                        Some(super::input::DIAGNOSTICS_SHORTCUT),
                     );
-                    ui.checkbox(&mut self.overview_open, "Overview");
+                    trailing_checkbox(ui, &mut self.overview_open, "Overview", None);
                 });
-                ui.add_space(MENU_BAR_GAP);
                 ui.menu_button("Help", |ui| {
                     if ui.button("Function Reference").clicked() {
                         // The web keeps its unasked Function reference; on
@@ -300,7 +324,7 @@ impl Console {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Rightmost: the mode, which is a control rather than a
                     // menu, and applied once the frame is done.
-                    choice.appearance_change = mode_control(ui);
+                    choice.appearance_change = ui.scope(mode_control).inner;
                     // Theme, settings and Source File notices sit
                     // in the bar until dismissed; `report` has already sent
                     // each to the developer console.
@@ -363,7 +387,7 @@ mod tests {
     ///
     /// The trailing box paints exactly the box and mark `egui::Checkbox`
     /// paints, so an egui upgrade that changes a checkbox's look fails here
-    /// rather than leaving View → Diagnostics unlike every other checkbox.
+    /// rather than leaving the View menu's toggles unlike every other checkbox.
     ///
     #[test]
     fn the_trailing_box_paints_as_egui_paints_a_checkbox() {
@@ -377,7 +401,7 @@ mod tests {
                     ui,
                     &mut checked.clone(),
                     "Diagnostics",
-                    super::super::input::DIAGNOSTICS_SHORTCUT,
+                    Some(super::super::input::DIAGNOSTICS_SHORTCUT),
                 );
             });
             assert!(!egui_box.is_empty(), "egui painted no box");

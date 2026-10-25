@@ -97,6 +97,8 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 mod capture;
 
 mod live_editing;
+mod menu_bar_layout;
+mod panel_readouts;
 mod splash;
 
 ///
@@ -1208,6 +1210,48 @@ fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
 ///
 fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
     harness.get_by_label(label).accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+}
+
+///
+/// The top bar is the compact bottom Panel's height. Its menu buttons fill
+/// that height with their labels centred, so a menu opens from the bar's
+/// bottom edge; the mode buttons, which open no menu, sit centred in it.
+///
+#[tokio::test]
+async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
+    let top = egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("top_panel"))
+        .expect("the console shows its top bar")
+        .outer_rect;
+    assert_eq!(
+        top.height(),
+        super::panel::BOTTOM_PANEL_HEIGHT,
+        "the top bar is not the compact bottom Panel's height"
+    );
+    for label in ["File", "View", "Help"] {
+        let rect = harness.get_by_label(label).rect();
+        // The bar's separator line takes its last point.
+        assert!(
+            rect.top() == top.top() && top.bottom() - rect.bottom() <= 1.0,
+            "{label} does not span the top bar's height: {rect:?} in {top:?}"
+        );
+    }
+    for label in ["Follow the OS", "Dark", "Light"] {
+        let rect = harness.get_by_label(label).rect();
+        assert!(
+            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() / 2.0,
+            "{label} is not an icon centred in the top bar: {rect:?} in {top:?}"
+        );
+    }
+
+    harness.get_by_label("File").click();
+    harness.step();
+    harness.run_steps(1);
+    let new = menu_item(&harness, "New").rect();
+    assert!(
+        new.top() >= top.bottom(),
+        "the File menu opens inside the top bar: New at {new:?}, bar {top:?}"
+    );
 }
 
 ///

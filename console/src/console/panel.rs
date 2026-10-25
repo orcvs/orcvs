@@ -90,6 +90,14 @@ fn panel_readout_gaps(ui: &egui::Ui) -> (f32, f32) {
     )
 }
 
+///
+/// The gap between the Panel's Readout groups, `GROUP_GAP_CELLS` monospace
+/// cells, which the top bar's menus share.
+///
+pub(super) fn readout_group_gap(ui: &egui::Ui) -> f32 {
+    panel_readout_gaps(ui).1
+}
+
 pub(super) fn panel_monospace_id(ui: &egui::Ui) -> FontId {
     ui.style()
         .text_styles
@@ -124,6 +132,10 @@ pub(super) fn reserved_monospace(ui: &mut egui::Ui, text: &str, width: f32) -> e
         .anchor_size(rect.left_center(), galley.size())
         .min;
     ui.painter().galley(pos, galley, ui.visuals().text_color());
+    // A painted galley has no AccessKit node of its own; name the slot as
+    // the Label it reads as.
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), text));
     response
 }
 
@@ -355,6 +367,11 @@ impl Console {
         let (scan, selected) = ui
             .add_enabled_ui(presentation.enabled, |ui| {
                 apply_panel_field_spacing(ui);
+                // The field draws no arrow, so it reserves no icon slot. The
+                // popup builds its own Ui from the context's style, so the
+                // list keeps egui's icon spacing.
+                ui.spacing_mut().icon_width = 0.0;
+                ui.spacing_mut().icon_spacing = 0.0;
                 let mut selected = None;
                 let mut scan = false;
                 let combo_response = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
@@ -411,6 +428,7 @@ impl Console {
             ui.ctx().request_repaint();
         }
         if let Some(status) = self.midi.status() {
+            ui.add_space(panel_readout_gaps(ui).1);
             ui.colored_label(ui.visuals().error_fg_color, status);
         }
     }

@@ -984,8 +984,8 @@ fn painted_text(ctx: &egui::Context) -> String {
 ///
 /// The same call `show_source_scene` makes, and for the reason the
 /// `presented` helper cannot serve here: that one fits the Grid to a console
-/// area, and a running Console's console area is the screen less whatever
-/// height the menu bar settled the top panel at. The stored transform
+/// area, and a running Console's console area is the screen less the top
+/// panel and the Panel. The stored transform
 /// already carries that fit, so this asks it rather than re-deriving it.
 ///
 fn console_viewport(console: &Console) -> GridViewport {

@@ -94,6 +94,13 @@ inactive IME underline keeps egui's half-linear attenuation of `input.cursor`
 rather than a separate property. `error` and `warning` are independent Theme
 properties, not computed from Bang.
 
+`code.background` is egui's `code_bg_color`: the fill behind text egui lays
+out as code, `RichText::code` or `Ui::code`, which it sets in monospace over
+that fill. It is not Orcvs Source, which the Grid paints from its own roles.
+The console shows no such text, so the property paints nothing today; it is
+mapped so that text marked as code takes the Theme's colour rather than
+egui's own default.
+
 The border widths are Theme properties too, in display points, and each
 built-in's table below records its widths. `schema.md` lists them with the
 chrome widths. `overview.source_view.width` is a chrome width, and
