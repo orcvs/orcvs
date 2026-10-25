@@ -338,9 +338,9 @@ fn fact_index(paint: SourcePaint) -> usize {
 /// Function and a Bang bypassed exactly as they are there.
 ///
 /// Colour composites with [`blend_channel`], equivalent to the pinned [`Color32::blend`] operation
-/// every other channel in this module uses, so the transparent Okabe–Ito
-/// defaults of `diagnostic.border` and each Portal's border leave
-/// `theme.grid_border` showing unchanged.
+/// every other channel in this module uses, so a transparent
+/// `diagnostic.border` or Portal border leaves `theme.grid_border` showing
+/// unchanged.
 ///
 /// Width is *picked* rather than blended — a stroke has one width, and
 /// composing two would not mean alpha compositing — so whichever channel
@@ -572,10 +572,8 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 /// Every composited channel below uses [`compose_cell_fill`] (background) or
 /// [`blend_channel`] (foreground): a transparent Theme channel
 /// therefore reveals whatever sits beneath it, and an opaque one replaces it
-/// outright, which is what lets the Okabe–Ito built-in — every tinted role
-/// background a translucent tint, and Ordinary, Comment and untouched Bang
-/// transparent — reproduce its recorded appearance while an arbitrary custom Theme can
-/// still compose partial alpha correctly. [`role_and_portal`] answers the
+/// outright, so a Theme's opaque, translucent and transparent channels all
+/// compose as its record states. [`role_and_portal`] answers the
 /// foreground and the *raw*, not-yet-composited background (a role's own
 /// channel, blended with Diagnostic and the painting Portal as those apply); this
 /// function composites that raw answer over `theme.cell_background` and
@@ -795,7 +793,7 @@ impl RoleChannels {
 /// Pending slot draws `colour` outright, and an Invalid one — Cells whose
 /// written content failed to bind — blends the Diagnostic foreground channel
 /// over it, so a transparent `diagnostic.foreground` still reveals the
-/// declared role while an opaque one (Okabe–Ito's) replaces it. `.+0`'s
+/// declared role while an opaque one replaces it. `.+0`'s
 /// second operand is this Invalid case: one Cell holds `0`,
 /// the other is blank, and `written` is true for the whole slot, so both
 /// Cells alike answer Diagnostic — `paint.rs`'s blank-glyph fallback is what
@@ -840,17 +838,15 @@ fn operand_paint(
 /// `visuals.weak_text_color` is set explicitly from `theme.text_muted`
 /// rather than left `None`: egui's own default derives a weak text colour
 /// from `text_color() * weak_text_alpha` (`egui-0.36.2/src/style.rs`'s
-/// `Visuals::weak_text_color`, `weak_text_alpha` defaulting to `0.6`), and
-/// the Okabe–Ito built-in's own `text_muted` value is `text`'s colour at
-/// that same `0.6` gamma multiply, so Okabe–Ito's chrome is unchanged while
-/// a custom Theme's `text.muted` is honoured instead of silently recomputed
-/// from `text` whatever the Theme actually declares.
+/// `Visuals::weak_text_color`, `weak_text_alpha` defaulting to `0.6`), so
+/// a Theme's `text.muted` is honoured instead of silently recomputed from
+/// `text` whatever the Theme actually declares.
 ///
 /// `visuals.hyperlink_color`/`code_bg_color` read `link`/`code.background`
-/// directly: egui's own dark defaults for both already equal Okabe–Ito's
-/// values, which is exactly the "second fixed palette hidden in `Visuals`
-/// defaults" the schema's audit line exists to catch — a custom Theme's
-/// `link`/`code.background` would otherwise never reach these two fields.
+/// directly: egui's own defaults for both are the "second fixed palette
+/// hidden in `Visuals` defaults" the schema's audit line exists to catch,
+/// and a Theme's `link`/`code.background` would otherwise never reach these
+/// two fields.
 ///
 /// `visuals.text_cursor.stroke` and `visuals.ime_composition`'s active
 /// underline both read `input.cursor`/`.width` — "Input caret and active
@@ -862,9 +858,9 @@ fn operand_paint(
 /// not a themed property.
 ///
 /// `visuals.widgets.hovered`/`.active.fg_stroke` read `text.active`, not
-/// `selection.border`: Okabe–Ito's own values for the two happen to
-/// coincide, which is why reading the wrong key would still look right
-/// under Okabe–Ito — `hovered_and_active_foreground_reads_text_active_
+/// `selection.border`: the default Themes' values for the two coincide,
+/// which is why reading the wrong key would still look right under them —
+/// `hovered_and_active_foreground_reads_text_active_
 /// not_selection_border` retunes them apart to prove the wiring.
 ///
 /// `Visuals::dark_mode`, and every other field `Visuals::dark`/`Visuals::light`
@@ -950,8 +946,8 @@ pub fn style(theme: &Theme) -> Style {
     visuals.widgets.hovered.bg_stroke =
         bounded_stroke(theme.widget_border_width, theme.selection_border_rest);
     // "Hovered/active widget foreground" — `text.active`, not `selection.border`:
-    // Okabe–Ito's own values for the two coincide, which is why reading the
-    // wrong key would still look right until a custom Theme set them apart.
+    // the default Themes' values for the two coincide, which is why reading
+    // the wrong key would still look right until a custom Theme set them apart.
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, theme.text_active);
     visuals.widgets.active.bg_fill = theme.selection_background;
     visuals.widgets.active.weak_bg_fill = theme.selection_background;
@@ -1261,18 +1257,21 @@ mod tests {
     }
 
     ///
-    /// Every chrome field `style` sets reads the Theme key the record maps it
-    /// to, for every built-in the registry holds. Each field is asserted on
-    /// its own rather than as one `Visuals` equality, so a regression names
-    /// the one field that moved instead of a giant struct diff.
-    /// `widgets.inactive.bg_stroke` is a real colour at the Theme's inactive
-    /// border width, not `Stroke::NONE`, even where that width is zero: both
-    /// paint nothing, but the values differ.
+    /// `theme.md` is the decided record for the chrome. For every built-in
+    /// the registry holds, its table there holds the Theme's values, and
+    /// every chrome field `style` sets reads the Theme key the record maps it
+    /// to, so a change to the chrome fails here and the same commit must
+    /// change the record. Each field is asserted on its own rather than as
+    /// one `Visuals` equality, so a regression names the one field that moved
+    /// instead of a giant struct diff. `widgets.inactive.bg_stroke` is a real
+    /// colour at the Theme's inactive border width, not `Stroke::NONE`, even
+    /// where that width is zero: both paint nothing, but the values differ.
     ///
     #[test]
-    fn every_built_in_chrome_reads_its_theme_keys() {
+    fn every_built_in_chrome_matches_its_record() {
         let registry = crate::theme_registry::ThemeRegistry::built_in();
         for theme in crate::theme_registry::tests_support::built_ins(&registry) {
+            crate::theme::record::assert_matches_its_table(theme);
             assert_chrome_reads_its_keys(theme);
         }
     }
@@ -1525,7 +1524,7 @@ mod tests {
     /// `selection.border`. A Theme may give `text_active` and
     /// `selection_border` one value, as the dark default does, and reading
     /// the wrong key would then still pass
-    /// `every_built_in_chrome_reads_its_theme_keys`; retuning `text_active`
+    /// `every_built_in_chrome_matches_its_record`; retuning `text_active`
     /// alone, away from `selection_border`, is what proves the wiring.
     ///
     #[test]
@@ -1906,7 +1905,7 @@ mod tests {
 
     ///
     /// The dark default's `widget.inactive.border.width` is 0, so the idle
-    /// border paints nothing (`every_built_in_chrome_reads_its_theme_keys`'s
+    /// border paints nothing (`every_built_in_chrome_matches_its_record`'s
     /// own doc has the full width-vs-colour distinction).
     ///
     #[test]

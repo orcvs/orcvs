@@ -1,16 +1,11 @@
 # Console palette
 
-This is the decided console palette. `restyle-egui-console/03`
-checks a capture against these tokens. A later palette change is a documented
+This is the decided console palette. A later palette change is a documented
 change, not drift.
 
-Under ADR 0053 the page records the four built-in Themes: Grayscale Dark and
-Grayscale Light, the console's defaults; Okabe–Ito, the hue-separated dark
-Theme; and Orcvs Light, its light counterpart. A value belongs to Okabe–Ito
-unless it sits under **The Orcvs Light built-in Theme** or **The grayscale
-built-in Themes**, or names one of those Themes; the values above the Themes
-section are Okabe–Ito's. Each one maps
-to a named property, recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
+Under ADR 0053 the page records the two built-in Themes, Grayscale Dark and
+Grayscale Light, each appearance's default. Each value maps to a named
+property, recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
 Source Grid, its borders and the Cursor's and Region's colours paint from the
 resolved Theme (`console/src/theme.rs`). Since `03`, the rest of the chrome —
 `egui::Visuals`, including inherited toolkit colours such as weak text,
@@ -19,16 +14,7 @@ width — reads the same resolved Theme too (`console/src/style.rs::style`), and
 the opaque window backdrop is a Theme property the resolver refuses to leave
 nonopaque. Nothing the console draws is a compiled constant.
 
-- Page: `#0B1112` (`rgb(11, 17, 18)`)
-- Cell grid line: `rgba(29, 55, 49, 0.28)`
-- 8 × 8 sector seam: `rgba(55, 101, 86, 0.43)`
-- Cursor frame: `#EAEBE5` (`rgb(234, 235, 229)`)
-- Selection fill: `#0A2A22` (`rgb(10, 42, 34)`)
-- Region fill: white at 17% opacity (`rgba(255, 255, 255, 0.17)`), a Theme value (`region.background`, ADR 0053)
-- Selection stroke at rest, on a hovered or open widget: `#52C3A3` (`rgb(82, 195, 163)`)
-- Selection stroke, on selected text and an active widget: `#65E6BE` (`rgb(101, 230, 190)`)
-
-The Cursor is an off-white outline on its Cell's four edges, drawn once over
+The Cursor is an outline on its Cell's four edges, in `cursor.border`, drawn once over
 every line beside it and the same on all four sides (ADR 0078). It is still:
 nothing about the Cursor moves or schedules a repaint of its own.
 
@@ -101,383 +87,23 @@ described below remain in force under ADR 0053. Issue `06` carries the explicit
 composition table and overlap tests for transparent, partial-alpha and opaque
 channels.
 
-The Okabe–Ito built-in Theme sets every named property explicitly, so that it
-reproduces the values on this page:
-
-| Property | Okabe–Ito value | Replaced control |
-|---|---|---|
-| `grid.background` Source background | `#000000` | Source colours → Source background |
-| `source.comment` Comment | `#999999` | Source colours → Comment |
-| `source.ordinary` Ordinary, Char | `#EAEBE5` | Source colours → Ordinary |
-| `source.number` Number | `#56B4E9` | Source colours → Number |
-| `source.note` Note | `#F0E442` | Source colours → Note |
-| `source.function` Function | `#009E73` | Source colours → Function |
-| `source.bang` Bang | `#CC79A7` | Source colours → Bang |
-| `source.ordinary.background` | `#00000000` | No current role fill |
-| `source.comment.background`, `source.bang.background` | `#00000000` | No current role fill |
-| `source.function.background` | `#009E731A` | Function's own colour at 10% opacity |
-| `source.number.background` | `#56B4E91A` | Number's own colour at 10% opacity |
-| `source.note.background` | `#F0E4421A` | Note's own colour at 10% opacity |
-| `diagnostic.foreground` | `#D55E00` | Source colours → Diagnostic |
-| `output_portal.foreground` | `#E69F00` | Source colours → Output Portal |
-| `output_portal.background` | `#E69F001A` | Output Portal's own colour at 10% opacity |
-| `input_portal.foreground` | `#AC77FA` | decided here: Input Portal, see **Input Portal** below |
-| `input_portal.background` | `#AC77FA1A` | Input Portal's own colour at 10% opacity |
-| `input_portal.border` | `#00000000` | no Portal border, as for Output Portal |
-| `locked.foreground` | `#00000000` | decided here: Locked keeps the glyph, see **Locked** below |
-| `locked.background` | `#000000CC` | `grid.background` at 80%, washing out the role tint |
-| `locked.border` | `#EAEBE580` | `source.ordinary` at 50%, framing each locked Cell |
-| `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border` | `#00000000` | no role borders; the Grid line shows |
-| `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
-| `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
-| `cursor.border` | `#EAEBE5` | fixed: Cursor outline |
-| `cursor.background` | none | fixed: Cursor cell fill |
-| `cursor.foreground` | none | the glyph under the Cursor keeps its role colour |
-| `region.background` | white at 17% | fixed: Region fill |
-| `region.cursor.background` | none | fixed: Cursor cell fill in a Region |
-| `region.cursor.foreground` | none | the glyph on the Region's Cursor Cell falls back to `cursor.foreground` |
-| `window.background` | `#0B1112` | fixed: Page (the opaque window backdrop; `03`'s resolver refuses any other alpha) |
-| `panel.background` | `#0B1112` | fixed: Page |
-| `panel.border` | `#1C3932` (actual opaque conversion) | fixed: chrome stroke |
-| `widget.inactive.border` | `#1C3932` | fixed: chrome stroke (width 0 keeps idle widgets' border absent) |
-| `text` | `#EAEBE5` | fixed: widget text |
-| `text.active` | `#65E6BE` | fixed: Selection stroke (hovered/active widget text) |
-| `text.muted` | `#E9EBE499` | fixed: egui's own weak-text attenuation (0.6 of `text`) |
-| `input.background` | `#000000` | fixed: borrowed from Source background |
-| `link` | `#5AAAFF` | fixed: egui's own default hyperlink colour |
-| `code.background` | `#404040` | fixed: egui's own default code-span background |
-| `input.cursor` | `#C0DEFF` | fixed: egui's own default text cursor and active IME underline |
-| `selection.background` | `#0A2A22` | fixed: Selection fill |
-| `selection.border` | `#65E6BE` | fixed: Selection stroke (selected text, active widget border) |
-| `selection.border.rest` | `#52C3A3` | fixed: Selection stroke at rest (hovered and open widget border) |
-| `error`, `warning` | `#CC79A7` | fixed: borrowed from Bang |
-| `overview.source_view` | `#FFFFFF` | decided here: the Source View's outline on the Overview, white, the lightest the Theme can draw, and not the Cursor's `#EAEBE5` |
-
 `text.muted`, `link`, `code.background` and `input.cursor` are independent
-Theme properties, not egui's own inherited defaults left unread: their
-Okabe–Ito values equal what egui already defaulted to (0.6-attenuated `text`
-for weak text, its own dark-mode hyperlink/code/cursor colours), which is why
-today's appearance is unchanged, but a custom Theme now reaches all four
-instead of the toolkit silently keeping its own second palette. The inactive
-IME underline keeps egui's existing half-linear attenuation of `input.cursor`
+Theme properties, not egui's own inherited defaults left unread, so a custom
+Theme reaches all four and the toolkit keeps no second palette of its own. The
+inactive IME underline keeps egui's half-linear attenuation of `input.cursor`
 rather than a separate property. `error` and `warning` are independent Theme
-properties that preserve Bang's built-in value without being computed from it
-— `.scratch/theming/issues/05`'s live borrow is gone.
+properties, not computed from Bang.
 
-The border widths are Theme properties too, in display points: `grid.border.width`
-0.5, `sector.seam.width` 0.75, `cell.selection.border.width` 0.5,
-`cursor.border.width` and `region.border.width` 1,
-`diagnostic.border.width`, `output_portal.border.width`,
-`input_portal.border.width`, `locked.border.width` and each
-`source.<role>.border.width` 0.5,
-`panel.border.width`, `selection.border.width` and `widget.border.width` 1,
-`widget.inactive.border.width` 0 (which is why that border stays absent at
-its default), `input.cursor.width` 2 and `overview.source_view.width` 1, a
-chrome width. `schema.md`
-lists them with the chrome widths. `cell.selection.border.width` is accepted
-and read by nothing: the Cursor's outline is its Cell's edges, at
-`cursor.border.width`.
+The border widths are Theme properties too, in display points, and each
+built-in's table below records its widths. `schema.md` lists them with the
+chrome widths. `overview.source_view.width` is a chrome width, and
+`widget.inactive.border.width` 0 keeps an idle widget's border absent.
+`cell.selection.border.width` is accepted and read by nothing: the Cursor's
+outline is its Cell's edges, at `cursor.border.width`.
 
 A visible role border frames every Cell its role claims, whether the Cell holds content or not, so a Comment's blank Cells and a Pending operand slot take their role's border. An unclaimed Cell draws as Ordinary, and takes the Ordinary border only while it holds content, so an empty Cell keeps the Grid line at `grid.border.width`.
 
-### The Orcvs Light built-in Theme
-
-`orcvs-light` is the light built-in, prepared by `.scratch/theming/issues/04`
-and **accepted by the user on 2026-09-23**. It is a complete Theme:
-every named property below has an exact value, including the ones it shares
-with Okabe–Ito, which are written out rather than left to a toolkit default,
-and including ADR 0053's border-width keys. It declares itself light.
-
-Its **chrome** colours start from the hand-tuned `LIGHT_PALETTE` whose values
-`.scratch/theming/issues/04` records, mapped onto the named keys as `04`'s
-2026-09-21 comment directs. That palette predates the named-key format: it says nothing
-about Comment, Diagnostic or Output Portal, and its `marker`,
-`highlight` and four `bloom_*` pairs name tokens this console retired (the
-Marker and Highlight Glyphs went with `retired-glyph-vocabulary`; the four
-bloom rings went with the Cursor Effect).
-
-Its **Source glyph hues do not**. The proposal's glyph colours were prepared
-here first and then dropped, by the user's 2026-09-23 decision, after a review
-found its Function green `#087A5A` and its Bang red `#C33445` at near-identical
-relative luminance — 1.01:1, one tone on a greyscale display — and a
-colour-vision measurement of the whole definition found worse than that: its
-Diagnostic `#A34A00` and Output Portal `#7A5200` measure 0.70 apart under
-simulated protanopia, and its Number `#3564A0` and Note `#7553A2` 2.16 under
-deuteranopia. Those are pairs a red–green colour-blind reader reads as one
-colour, and pairs the dark built-in keeps apart by construction, because the
-Okabe–Ito assignment is published as safe for red–green deficiency. The
-rejected definition passed the contrast floor in all 84 states the report
-measured then while doing it; **Orcvs Light's colour-vision evidence** below
-records the whole comparison, and
-`contrast::colour_vision::tests::the_rejected_light_glyph_definition_fails_this_gate`
-keeps it as a regression.
-
-Every glyph hue is therefore re-picked from the same Okabe–Ito palette, under
-the same role-to-hue assignment the dark built-in already uses. Each hue is kept
-exactly — the OKLCh hue angle moves by at most 0.7°, which is rounding into
-8-bit sRGB rather than a change of hue — and only lightness moves, as far as a
-near-white ground requires, and for Diagnostic and Output Portal as far as the
-colour-vision floor requires on top of that.
-
-The **Provenance** column below says, for every property, whether the value is
-the chrome proposal's, an adjustment of it, an Okabe–Ito hue at a new lightness,
-or decided here.
-
-| Property | Orcvs Light value | Provenance |
-|---|---|---|
-| `window.background` | `#EFF4F2` | proposal `page` (the opaque backdrop) |
-| `panel.background` | `#EFF4F2` | proposal `page` |
-| `grid.background` | `#FAFCFB` | proposal `source` |
-| `cell.background` | `#00000000` | shared with Okabe–Ito, recorded explicitly |
-| `source.ordinary` | `#303F3B` | proposal `ordinary` (also Char) |
-| `source.comment` | `#4E5A56` | decided here; the proposal has no Comment |
-| `source.number` | `#006D9B` | Okabe–Ito sky blue `#56B4E9`, darkened |
-| `source.note` | `#706900` | Okabe–Ito yellow `#F0E442`, darkened |
-| `source.function` | `#007555` | Okabe–Ito bluish green `#009E73`, darkened |
-| `source.bang` | `#90426F` | Okabe–Ito reddish purple `#CC79A7`, darkened |
-| `source.ordinary.background` | `#00000000` | no role fill, as in Okabe–Ito |
-| `source.comment.background`, `source.bang.background` | `#00000000` | no role fill |
-| `source.number.background` | `#006D9B1A` | Number's own colour at 10% opacity |
-| `source.note.background` | `#7069001A` | Note's own colour at 10% opacity |
-| `source.function.background` | `#0075551A` | Function's own colour at 10% opacity |
-| `diagnostic.foreground` | `#652800` | Okabe–Ito vermillion `#D55E00`, darkened past the contrast floor |
-| `diagnostic.background`, `diagnostic.border` | `#00000000` | shared with Okabe–Ito |
-| `output_portal.foreground` | `#6F4A00` | Okabe–Ito orange `#E69F00`, darkened past the contrast floor |
-| `output_portal.background` | `#6F4A001A` | Output Portal's own colour at 10% opacity |
-| `output_portal.border` | `#00000000` | shared with Okabe–Ito |
-| `input_portal.foreground` | `#6407AF` | Okabe–Ito's Input Portal violet hue, darkened |
-| `input_portal.background` | `#6407AF1A` | Input Portal's own colour at 10% opacity |
-| `input_portal.border` | `#00000000` | shared with Okabe–Ito |
-| `locked.foreground` | `#00000000` | shared with Okabe–Ito |
-| `locked.background` | `#FAFCFBCC` | `grid.background` at 80%, as in Okabe–Ito |
-| `locked.border` | `#303F3B80` | `source.ordinary` at 50%, as in Okabe–Ito |
-| `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border` | `#00000000` | shared with Okabe–Ito |
-| `grid.border` | `#345B5040` (`rgba(52, 91, 80, 0.25)`) | proposal `grid_line` |
-| `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
-| `cursor.border` | `#303F3B` | the Theme's ink, as Okabe–Ito's frame is its off-white |
-| `region.border` | `#303F3B` | the same, as in Okabe–Ito |
-| `cursor.background` | none | shared with Okabe–Ito |
-| `cursor.foreground` | none | shared with Okabe–Ito |
-| `region.cursor.background` | none | shared with Okabe–Ito |
-| `region.cursor.foreground` | none | shared with Okabe–Ito |
-| `region.background` | `#303F3B2B` | the ink at 17%, mirroring Okabe–Ito's white at 17% |
-| `panel.border` | `#C0CEC9` | `grid.border` composited over the page |
-| `widget.inactive.border` | `#C0CEC9` | the same (width 0 keeps idle widgets' border absent) |
-| `selection.background` | `#CCEBE2` | proposal `selection_fill` |
-| `selection.border` | `#076247` | proposal `selection_stroke` |
-| `selection.border.rest` | `#187E60` | proposal `selection_stroke_rest` |
-| `text` | `#303F3B` | `source.ordinary`, as in Okabe–Ito |
-| `text.active` | `#076247` | `selection.border`, as in Okabe–Ito |
-| `text.muted` | `#303F3BBF` | the ink at 75% — see below |
-| `input.background` | `#FAFCFB` | borrowed from `grid.background`, as in Okabe–Ito |
-| `link` | `#0B62B8` | decided here — see below |
-| `code.background` | `#E6E6E6` | egui's own default light code-span background |
-| `input.cursor` | `#00537D` | egui's own default light text cursor and IME underline |
-| `error`, `warning` | `#90426F` | borrowed from Bang, as in Okabe–Ito |
-| `overview.source_view` | `#000000` | black, mirroring Okabe–Ito's white: the darkest the Theme can draw, and not the Cursor's ink |
-
-#### What moved, and what held
-
-Each glyph hue is the dark built-in's, at a new lightness. Hue and lightness are
-stated in OKLCh, the space the re-pick was performed in, because it is the one
-where "the same hue, darker" is a single coordinate:
-
-| Role | Okabe–Ito | h | L | Orcvs Light | h | L | What set the lightness |
-|---|---|---:|---:|---|---:|---:|---|
-| Number | `#56B4E9` | 236.18° | 0.735 | `#006D9B` | 236.47° | 0.506 | the contrast floor, on its own 10% tint |
-| Note | `#F0E442` | 105.04° | 0.902 | `#706900` | 105.03° | 0.511 | the contrast floor, on its own 10% tint |
-| Function | `#009E73` | 165.46° | 0.620 | `#007555` | 165.97° | 0.499 | the contrast floor, on its own 10% tint |
-| Bang | `#CC79A7` | 346.32° | 0.679 | `#90426F` | 346.62° | 0.494 | the contrast floor, on the Region wash |
-| Diagnostic | `#D55E00` | 47.51° | 0.621 | `#652800` | 46.92° | 0.360 | the colour-vision floor, against Output Portal |
-| Output Portal | `#E69F00` | 76.77° | 0.753 | `#6F4A00` | 76.07° | 0.440 | the colour-vision floor, against Note and Diagnostic |
-| Input Portal | `#AC77FA` | 300.08° | 0.680 | `#6407AF` | 300.18° | 0.420 | not an Okabe–Ito hue; see **Input Portal** below |
-
-`source.ordinary` `#303F3B` and `source.comment` `#4E5A56` are unchanged and are
-not Okabe–Ito hues: the dark built-in's Ordinary is the Cursor frame's off-white
-and its Comment is the palette's neutral gray, and neither transfers to a
-near-white page. They are the near-white page's ink, which the chrome proposal
-set, and a muted form of it decided here, since the proposal has no Comment.
-
-Four of the six — Number, Note, Function and Bang — moved only as far as the
-contrast floor on this ground forced them. Diagnostic
-and Output Portal moved further, as far as the colour-vision floor required, and the reason is
-structural rather than aesthetic: on a near-white ground the contrast floor is a
-*ceiling* on lightness, and it compresses every glyph into a band about 0.02
-wide in OKLCh L. Okabe–Ito separates its yellow, its orange and its vermillion
-by a lightness spread of 0.28, which is what keeps them apart once a red–green
-dichromacy has merged their hues. Compressed into one band they measure 1.5 and
-0.5 apart under deuteranopia — worse than the definition this one replaced.
-Darkening Diagnostic and Output Portal restores the dark built-in's own
-lightness *ordering* (Note lightest, then Output Portal, then Diagnostic) inside
-the band a light ground allows, and that ordering is what the numbers below
-come from. Hue alone cannot carry the distinction; lightness is the one
-dimension every dichromacy leaves intact.
-
-Every border width is Okabe–Ito's, recorded rather than inherited:
-`grid.border.width` 0.5, `sector.seam.width` 0.75,
-`cell.selection.border.width` 0.5, `cursor.border.width` and
-`region.border.width` 1, `diagnostic.border.width`,
-`output_portal.border.width`, `input_portal.border.width`,
-`locked.border.width` and each `source.<role>.border.width` 0.5, `panel.border.width`,
-`selection.border.width` and `widget.border.width` 1,
-`widget.inactive.border.width` 0, `input.cursor.width` 2,
-`overview.source_view.width` 1.
-
-Two rules are restated for light rather than inherited, because each is a rule
-about the dark Theme and does not transfer:
-
-- **`restyle-egui-console/02`'s near-black Cell rule becomes a near-white one.**
-  The light Theme is a pale page over a near-white Source; Cell backgrounds stay
-  near-white, and the only background changes are the meaningful states, each
-  a low-opacity wash over near-white. Nothing decorative is added on top: no gradients, no
-  rounded tiles, no shadows, no animation. The Region fill, the role tints and the Output Portal tint are all
-  low-opacity washes for the same reason. `style::tests::the_four_prohibitions_
-  hold_for_every_theme` holds the four prohibitions over both built-ins.
-- **`text.muted` is a recorded value, not egui's own attenuation.** Okabe–Ito's
-  `#E9EBE499` happens to equal egui's 0.6 gamma multiply of `text`; Orcvs
-  Light's `#303F3BBF` deliberately does not. Attenuating dark ink toward a
-  near-white page loses contrast far faster than attenuating near-white ink
-  toward a near-black one: the ink at egui's 0.6 measures 3.34:1 on this page,
-  below the floor, where 75% measures 4.91:1.
-
-`link` likewise departs from the toolkit default rather than copying it.
-Okabe–Ito's `#5AAAFF` is egui's own dark hyperlink colour and measures 7.9:1 on
-its page; egui's light hyperlink, `#009BFF`, measures 2.65:1 on this one, so
-`#0B62B8` is used instead. `code.background` and `input.cursor` are egui's own
-light defaults, which need no such adjustment.
-
-`grid.background` is a near-white `#FAFCFB` rather than pure white, and
-`panel.background` a slightly cooler `#EFF4F2`, so the Source surface reads as
-a lit panel on the page in the same way Okabe–Ito's black Source sits on its
-charcoal page.
-
-#### Orcvs Light's contrast report
-
-`console/src/contrast.rs::validate` measures all 175 reachable painted text
-states — 160 Source Grid states and 15 console-chrome states. **Every one
-clears the 4.5:1 floor. There are no deliberate exceptions**
-— `contrast::accepted_failures("orcvs-light")` is empty, and
-`contrast::tests::orcvs_light_has_nothing_to_except` pins that the emptiness is
-because nothing fails, not because a failure was accepted. The lowest measured
-state is 4.78:1, Bang inside a Region.
-
-Four of the six glyph hues — Number, Note, Function and Bang — were darkened
-exactly until this held and no further, and the **What moved** table above names
-which state bound each one. The other two, Diagnostic and Output Portal, were darkened past
-the floor for the colour-vision reason recorded below.
-No floor was lowered and no state was special-cased.
-
-Representative measurements, `plain` placement unless stated:
-
-| State | Foreground | Background | Ratio |
-|---|---|---|---:|
-| Ordinary | `#303F3B` | `#FAFCFB` | 10.73:1 |
-| Ordinary, Region | `#303F3B` | `#D8DDDB` | 8.05:1 |
-| Comment | `#4E5A56` | `#FAFCFB` | 6.98:1 |
-| Comment, Region | `#4E5A56` | `#D8DDDB` | 5.23:1 |
-| Function | `#007555` | `#E1EEEA` | 4.79:1 |
-| Bang | `#90426F` | `#FAFCFB` | 6.38:1 |
-| Bang, Region | `#90426F` | `#D8DDDB` | 4.78:1 |
-| Number, Valid | `#006D9B` | `#E1EDF1` | 4.80:1 |
-| Note, Valid | `#706900` | `#ECEDE1` | 4.79:1 |
-| Number, Invalid | `#652800` | `#E1EDF1` | 9.47:1 |
-| Note, Invalid | `#652800` | `#ECEDE1` | 9.57:1 |
-| Ordinary, Output Portal | `#6F4A00` | `#ECEAE1` | 6.56:1 |
-| Ordinary, Input Portal | `#6407AF` | `#EBE3F3` | 7.67:1 |
-| Number, Input Portal | `#6407AF` | `#D4D7EB` | 6.72:1 |
-| Note, Input Portal | `#6407AF` | `#DED7DD` | 6.79:1 |
-| `text` vs `panel.background` | `#303F3B` | `#EFF4F2` | 9.94:1 |
-| `text` vs `input.background` | `#303F3B` | `#FAFCFB` | 10.73:1 |
-| `text.muted` vs `panel.background` | `#303F3BBF` | `#EFF4F2` | 4.91:1 |
-| `text.muted` vs `input.background` | `#303F3BBF` | `#FAFCFB` | 5.13:1 |
-| `text` vs the inactive and open widget fills | `#303F3B` | `#EFF4F2` | 9.94:1 |
-| `text.active` vs the hovered and active widget fills | `#076247` | `#CCEBE2` | 5.81:1 |
-| `text.active`, hovered or active, frameless | `#076247` | `#EFF4F2` | 6.64:1 |
-| `selection.border` vs `selection.background` (over panel or input) | `#076247` | `#CCEBE2` | 5.81:1 |
-| `error` and `warning` vs `panel.background` | `#90426F` | `#EFF4F2` | 5.91:1 |
-| `link` vs `panel.background` | `#0B62B8` | `#EFF4F2` | 5.47:1 |
-
-The scope is the validator's own: text contrast against the actually-composited
-background, never pairwise Token-colour distinguishability or border or focus
-visibility. Pairwise
-distinguishability of the Source glyph channels under a simulated dichromacy
-is a separate, test-only measurement over the built-ins, below.
-
-#### Orcvs Light's colour-vision evidence
-
-`distinguish` in `console/src/contrast/colour_vision.rs`, a test-only check on
-the built-in Themes, simulates dichromatic vision over the
-same composited colours `validate` measures — the glyph as it is displayed on
-its own role tint, on the Region wash, and on the doubled Portal-over-role tint
-— and reports how far apart every pair of Source glyph channels stays. The
-transform is Viénot, Brettel & Mollon (1999); the distance is CIEDE2000, checked
-against Sharma, Wu & Dalal's published test data. The floor is
-`contrast::colour_vision::CONFUSION_FLOOR`, 5.0.
-
-**Both shipped built-ins clear it for protanopia and deuteranopia, with no
-accepted exception.** The closest pair each way:
-
-| Simulation | Okabe–Ito (dark) | ΔE00 | Orcvs Light | ΔE00 |
-|---|---|---:|---|---:|
-| Protanopia | Function vs Comment | 14.16 | Ordinary vs Comment | 9.20 |
-| Deuteranopia | Bang vs Comment | **6.65** | Function vs Comment | **7.19** |
-| Tritanopia (not gated) | Bang vs Diagnostic | 0.60 | Bang vs Note | 1.54 |
-
-The floor is 5.0 because that is where two colours are ordinarily taken to be
-clearly distinct rather than merely measurably different, and because the
-published Okabe–Ito assignment — this repository's colour authority, unretuned
-— already clears it with margin at 6.65. It is not a line fitted to the light
-Theme: the light Theme is the thing measured against it.
-
-**Tritanopia is measured and not gated**, and that is an exception this page
-names rather than hides. The Okabe–Ito assignment is published as safe for
-red–green deficiency and makes no tritan claim, and it does not hold under one:
-the shipped dark built-in's Bang (reddish purple) and Diagnostic (vermillion)
-measure **0.60** apart under simulated tritanopia, because the axis separating
-them is the one tritanopia removes. A tritan gate would therefore fail the dark
-Theme this console ships today, and inside the lightness ceiling a near-white
-ground imposes no arrangement of these seven hues rescues the light one either —
-the best reachable was 5.6, and only by darkening Note to `#312D00`, which is no
-longer a yellow. Orcvs Light's 1.54 is better than the dark built-in's 0.60 and
-better than the rejected definition's 0.39, and it is not good.
-`contrast::colour_vision::tests::shipped_theme_colour_vision_gate` pins both
-figures, so this stays a checked boundary rather than an unexamined gap.
-
-The rejected definition, for the comparison:
-
-| Simulation | Closest pair | ΔE00 |
-|---|---|---:|
-| Protanopia | Output Portal `#7A5200` vs Diagnostic `#A34A00` | 0.70 |
-| Deuteranopia | Number `#3564A0` vs Note `#7553A2` | 2.16 |
-| Tritanopia | Bang `#AD2A3B` vs Diagnostic `#A34A00` | 0.39 |
-
-Its Function `#077055` and Bang `#AD2A3B` — this page's own darkenings of the
-pair the review named, and still one tone — measure 1.09:1 in relative
-luminance and **14.60** apart under deuteranopia. The raw proposal's `#087A5A`
-and `#C33445` measure 1.01:1 and 14.39. The review's observation is exact in
-both cases and its conclusion does not follow from it: every dichromacy keeps
-lightness *and* one chromatic axis, so equal luminance is a fact about two
-colours rather than a verdict on them.
-`contrast::colour_vision::tests::equal_luminance_alone_does_not_decide_a_colour_vision_
-confusion` records that, because it is the reason this measurement simulates
-vision rather than comparing luminances. The corollary is what set Diagnostic's
-and Output Portal's lightness above: lightness is the dimension that survives,
-so lightness is what separates colours a dichromacy would otherwise merge.
-
-Two things this measurement does not cover, stated rather than implied:
-
-- **Background tints against each other.** A Pending operand Cell draws no
-  glyph, so its declared Token shows only as a 10% wash. Both built-ins keep the
-  10% figure decided on this page; a custom Theme can set
-  `source.number.background` and `source.note.background` independently, and
-  raising the built-ins' figure is a separate decision.
-- **Anomalous trichromacy** (protanomaly, deuteranomaly, tritanomaly), a
-  continuum whose severe end is the dichromacy simulated here.
-
-Visual captures for review are in `.scratch/theming/evidence/`, including one
-simulated copy of the wide capture per dichromacy.
-
-#### Input Portal
+### Input Portal
 
 Input Portal marks a Cell a Function reads. It is a Theme role with the same
 channels as Output Portal (`input_portal.foreground`, `.background`, `.border`
@@ -487,30 +113,7 @@ their own paint; the Cursor and Region keep their precedence over it. Where a Ce
 Portal's channels paint it and Input Portal's do not, so a Cell a Function both
 reads and writes shows the write.
 
-Okabe–Ito assigns no hue to a ninth glyph channel: its one unassigned hue,
-blue `#0072B2`, measures 4.04:1 on black, and every lightness of that hue that
-clears the contrast floor on the dark Source either lands nearer Number or Bang
-under simulated protanopia than the dark built-in's present closest pair, 14.16,
-or is a pale blue-white beside Ordinary's off-white. Both built-ins therefore draw
-Input Portal in a violet, OKLCh hue 300°, which no other glyph role is near:
-`#AC77FA` (L 0.680) in Okabe–Ito and `#6407AF` (L 0.420) in Orcvs Light, each
-with its own colour at 10% opacity as its background.
-`theme::tests::both_built_ins_draw_input_portal_in_one_hue` holds the shared
-hue.
-
-Its closest pair under each simulated dichromacy, from `distinguish`, none of
-which moves either built-in's closest pair in the table above:
-
-| Simulation | Okabe–Ito (dark) | ΔE00 | Orcvs Light | ΔE00 |
-|---|---|---:|---|---:|
-| Protanopia | Input Portal vs Number | 15.56 | Input Portal vs Bang | 19.91 |
-| Deuteranopia | Input Portal vs Number | 8.12 | Input Portal vs Number | 12.84 |
-| Tritanopia (not gated) | Input Portal vs Comment | 3.77 | Input Portal vs Diagnostic | 17.68 |
-
-Its lowest contrast is 5.10:1 in Okabe–Ito, over a Note's tint, and 6.72:1 in
-Orcvs Light, over a Number's; neither built-in's lowest state moves.
-
-#### Locked
+### Locked
 
 Locked marks the two Cells of the Function of an Expression root a Halt's lock
 withheld in the last Tick, as Orca draws the Cells an operator locks in a style
@@ -523,16 +126,6 @@ A lock marks nothing but a Function's own spelling, so unlike the Portals
 Locked paints a bound Function and a Bang too; the contrast validator measures
 it only over those two facts, the only ones it can land on.
 
-Both built-ins keep the glyph colour (`locked.foreground` transparent) and
-subdue the Cell instead: `locked.background` is the Source background at 80%,
-which washes a Function's own 10% tint nearly out, and `locked.border` is the
-Ordinary ink at 50%, which frames each locked Cell, a locked `**` included,
-whose own background is already transparent. Neither darkens a light Cell nor
-lightens a dark one, so no glyph moves toward the contrast floor: a lock never
-lowers a built-in's lowest state. A glyph dimmed as Orca dims a locked Cell
-would fall below the floor in Orcvs Light, whose Function, Number and Note are
-already at it on their own tints.
-
 ### The grayscale built-in Themes
 
 `grayscale-dark` and `grayscale-light` are each appearance's default and
@@ -544,14 +137,14 @@ Diagnostic in red. Both fill the Region with an opaque grey.
 
 Two glyph roles share a grey in Grayscale Dark, each told apart by what the
 Cell carries around the glyph
-(`theme::tests::the_grayscale_roles_that_share_a_grey_differ_in_fill_or_border`):
+(`theme::tests::roles_that_share_a_grey_differ_in_fill_or_border`):
 
 | Shared glyph grey | Told apart by |
 |---|---|
 | Output Portal, Input Portal | Input Portal's border |
 
 Grayscale Light draws Output Portal and Input Portal alike, in one glyph, fill
-and border; the test accepts that pair.
+and border; the test accepts the two Portals alike in any built-in.
 
 Both draw Comment faint, below the 4.5:1 floor, which Comment is not held to
 (`contrast::Role::held_to_floor`): Grayscale Dark's `#555555` measures 2.82:1
@@ -564,7 +157,7 @@ Grayscale Light are `#E4E4E4`, which measures 4.52:1 on their `#666666` fill.
 `grayscale-dark` sets light grey text and Cells on black, never pure white.
 Both Portals fill their Cells light grey under a dark glyph. The Cursor draws
 every glyph in `#E6E6E6`.
-`theme::tests::grayscale_dark_defines_every_key_at_this_table` reads the
+`theme::tests::every_built_in_defines_every_key_at_its_table` reads the
 table below and fails when it and the code disagree, or when it leaves a
 property out.
 
@@ -605,7 +198,7 @@ property out.
 `grayscale-light` sets dark grey text and Cells on white. Both Portals draw a
 light glyph on a `#666666` fill, and a Diagnostic draws its red glyph and
 border on a white fill.
-`theme::tests::grayscale_light_defines_every_key_at_this_table` reads the
+`theme::tests::every_built_in_defines_every_key_at_its_table` reads the
 table below and fails when it and the code disagree, or when it leaves a
 property out.
 
@@ -641,101 +234,12 @@ property out.
 | `overview.source_view` | `#000000` |
 | `overview.source_view.width` | 1 |
 
-### The My Grayscale Dark built-in Theme
-
-`my-grayscale-dark` is [Grayscale Dark](#the-grayscale-dark-built-in-theme)
-with a lighter Comment, a translucent Region fill, a brighter Region border
-and a thinner Cell selection border. The Cursor draws every glyph in `#E6E6E6`: its Cell drops the Portal's
-light fill, and no grey clears 4.5:1 against both that fill and the black
-beneath it. `theme::tests::my_grayscale_dark_defines_every_key_at_this_table` reads
-the table below and fails when it and the code disagree, or when it leaves a
-property out.
-
-| Property | My Grayscale Dark |
-|---|---|
-| `cursor.background`, `region.cursor.foreground` | none |
-| `region.cursor.background`, `output_portal.foreground`, `input_portal.foreground`, `selection.background` | `#333333` |
-| `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background` | `#000000` |
-| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
-| `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
-| `source.comment` | `#AFAFAF` |
-| `source.number` | `#898989` |
-| `source.note`, `output_portal.background`, `input_portal.background`, `locked.border` | `#CCCCCC` |
-| `source.function`, `cursor.foreground`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` |
-| `source.bang`, `source.bang.border` | `#00FF00` |
-| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
-| `source.function.background`, `source.function.border` | `#444444` |
-| `source.bang.background` | `#111111` |
-| `diagnostic.foreground` | `#FF3B3B` |
-| `output_portal.border`, `input_portal.border` | `#FFFFFF66` |
-| `grid.border` | `#FFFFFF1A` |
-| `sector.seam` | `#FFFFFF33` |
-| `region.background` | `#CCCCCC54` |
-| `panel.border`, `widget.inactive.border`, `code.background` | `#2A2A2A` |
-| `selection.border.rest` | `#A8A8A8` |
-| `text.muted` | `#C8C8C899` |
-| `grid.border.width`, `cell.selection.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
-| `sector.seam.width` | 0.75 |
-| `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
-| `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
-| `input.cursor.width` | 2 |
-| `overview.source_view` | `#FFFFFF` |
-| `overview.source_view.width` | 1 |
-
-### The My Grayscale Light built-in Theme
-
-`my-grayscale-light` is
-[My Grayscale Dark](#the-my-grayscale-dark-built-in-theme) inverted onto white:
-each grey is mirrored, then darkened only as far as the 4.5:1 floor needs.
-It carries two magentas. Both Portals fill their Cells `#FF00FF` under a
-`#191919` glyph, since white measures 3.1:1 there, and the Bang and both
-Portals draw their borders in it. A Bang's glyph sits on a white fill, where
-`#FF00FF` measures 3.1:1 too, so it draws in `#D100D1`, the brightest magenta
-that clears 4.5:1 against white.
-`theme::tests::my_grayscale_light_defines_every_key_at_this_table` reads the
-table below and fails when it and the code disagree, or when it leaves a
-property out.
-
-| Property | My Grayscale Light |
-|---|---|
-| `cursor.background`, `region.cursor.foreground` | none |
-| `cursor.foreground`, `source.function`, `output_portal.foreground`, `input_portal.foreground`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#191919` |
-| `region.cursor.background`, `selection.background` | `#CCCCCC` |
-| `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `locked.background`, `input.background` | `#FFFFFF` |
-| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
-| `source.ordinary`, `diagnostic.border`, `text` | `#373737` |
-| `source.comment` | `#4C4C4C` |
-| `source.number` | `#616161` |
-| `source.note`, `locked.border` | `#333333` |
-| `source.bang` | `#D100D1` |
-| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
-| `source.function.background`, `source.function.border` | `#BBBBBB` |
-| `source.bang.border`, `output_portal.background`, `output_portal.border`, `input_portal.background`, `input_portal.border` | `#FF00FF` |
-| `diagnostic.foreground` | `#C70000` |
-| `grid.border` | `#0000001A` |
-| `sector.seam` | `#00000033` |
-| `region.background` | `#E1E1E1` |
-| `panel.border`, `widget.inactive.border`, `code.background` | `#D5D5D5` |
-| `selection.border.rest` | `#575757` |
-| `text.muted` | `#373737AF` |
-| `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
-| `sector.seam.width` | 0.75 |
-| `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
-| `diagnostic.border.width`, `widget.inactive.border.width` | 0 |
-| `input.cursor.width` | 2 |
-| `overview.source_view` | `#000000` |
-| `overview.source_view.width` | 1 |
-
 ### Shipped Themes
 
 | Identity | Appearance | Status |
 |---|---|---|
 | `grayscale-dark` | dark | Built in and the dark default; sets every named property at the values above. |
 | `grayscale-light` | light | Built in and the light default; sets every named property at the values above. |
-| `my-grayscale-dark` | dark | Built in; sets every named property at the values above. |
-| `my-grayscale-light` | light | Built in; sets every named property at the values above. |
-| `okabe-ito` | dark | Built in; sets every named property at the values above. |
-| `orcvs-light` | light | Built in; sets every named property at the values above. |
 
 ### Selecting a Theme
 
@@ -746,8 +250,8 @@ names them, read once at startup; the web runs on the built-ins.
 
 ```toml
 [theme]
-dark = "okabe-ito"      # default: grayscale-dark
-light = "orcvs-light"   # default: grayscale-light
+dark = "grayscale-dark"    # the default
+light = "grayscale-light"  # the default
 
 [cell]
 width = 12              # points, 8–64
@@ -797,22 +301,16 @@ Theme: `source.ordinary` (also Char), `source.comment`,
 theme defaults" are gone, and the old `source_paint` storage key is left
 unread.
 
-The former Fill tint — each Token colour mixed 16% toward the Source
-background — no longer sets the Okabe–Ito role backgrounds in the table
-above: a 2026-09-22 retune replaced the extracted-opaque values with a
-uniform 10% opacity instead, each role's own foreground colour stored
-straight with alpha `0x1A` (`source.function.background`'s `#009E731A`, for
-one) rather than a precomputed opaque mix over black. There is no
+Each role background is its own stored colour, alpha included. There is no
 `fill_tint` property: changing a role's foreground does not recalculate its
-background, and the 10% figure is baked into each stored value rather than a
-shared scalar applied at paint time. Every recognized Function Cell — nested
+background. Every recognized Function Cell — nested
 Functions included — and
 every Operand Cell (its declared Token: Number or Note, whether the operand is still Pending, Valid, or Invalid) paints its role
-background. Comment, Bang, an empty unclaimed Cell, and a Leftover Char have a
-transparent one. A refused Function spelling takes none either (see
+background, and a Bang paints `source.bang.background`. Comment, an empty
+unclaimed Cell, and a Leftover Char have a transparent one. A refused Function spelling takes none either (see
 Diagnostic, below) — only a Function entry the Parser recognized does. Role
 backgrounds composite over the uniform `cell.background`, which is transparent
-in Okabe–Ito. On the Cursor's own Cell, the Cursor's fill wins outright.
+in both built-ins. On the Cursor's own Cell, the Cursor's fill wins outright.
 Adjacent Cells that share one background paint as one run, the same
 coalescing `Paint::background_runs` already gives the Cursor's and
 Selection's fills.
@@ -872,25 +370,6 @@ and background instead of its own declared role, because the root's answer
 is what a viewer reads there. The Cursor's own fill still wins outright over
 everything above, on its own Cell.
 
-The defaults, and the Okabe–Ito Theme's values for the same named properties,
-are the Okabe–Ito colour-blind-safe assignment, as published in R
-`grDevices`' `palette.colors("Okabe-Ito")` (Masataka Okabe & Kei Ito), chosen
-in the Source Paint prototype
-(`console/prototypes/syntax-highlighting/source-paint-prototype.html`,
-`?variant=A&palette=okabe`). Output Portal — named Result before
-`syntax-highlighting/06` renamed it to match `05`'s decided vocabulary — was
-exposed as a setting before it had a painter; it has one now.
-
-- Source background: `#000000` (`rgb(0, 0, 0)`) — Okabe–Ito black
-- Ordinary and Char: `#EAEBE5` (`rgb(234, 235, 229)`) — not a named Okabe–Ito swatch but the Cursor frame's off-white, so plain Source text and the frame drawn over it read as one white; a fixed default that copies that colour rather than following the Cursor setting (`syntax-highlighting/07`, which moved it from the prototype's `#FFFFFF`)
-- Comment: `#999999` (`rgb(153, 153, 153)`) — Okabe–Ito gray
-- Function: `#009E73` (`rgb(0, 158, 115)`) — Okabe–Ito bluish green
-- Bang: `#CC79A7` (`rgb(204, 121, 167)`) — Okabe–Ito reddish purple
-- Number: `#56B4E9` (`rgb(86, 180, 233)`) — Okabe–Ito sky blue
-- Note: `#F0E442` (`rgb(240, 228, 66)`) — Okabe–Ito yellow
-- Diagnostic: `#D55E00` (`rgb(213, 94, 0)`) — Okabe–Ito vermillion, an unbound entry's glyph colour since `syntax-highlighting/04`
-- Output Portal: `#E69F00` (`rgb(230, 159, 0)`) — Okabe–Ito orange, a Function's written value since `syntax-highlighting/06`
-
 `console/src/contrast.rs::validate` (`.scratch/theming/issues/08`) measures
 every reachable painted text state's *effective*, actually-composited
 foreground against its actually-composited background — asking
@@ -910,40 +389,24 @@ distinguishability or border/focus visibility.
 Colour vision is a second, test-only measurement over the built-in Themes,
 `contrast::colour_vision::distinguish` (`.scratch/theming/issues/04`), added
 because a definition can clear every one of those states and still paint two
-Source glyph channels a dichromat reads as one colour — the rejected light
-definition did exactly that. It simulates protanopia, deuteranopia and
+Source glyph channels a dichromat reads as one colour. It simulates protanopia, deuteranopia and
 tritanopia (Viénot, Brettel & Mollon 1999) over the same composited colours,
 measures CIEDE2000 between every pair of glyph channels, and reports the closest
 placement for each pair. `contrast::colour_vision::CONFUSION_FLOOR`, 5.0, gates
 the two red–green dichromacies; tritanopia is reported and not gated, for the
-reason `ColourVision`'s own documentation and **Orcvs Light's colour-vision
-evidence** above both state.
+reason `ColourVision`'s own documentation states.
 `contrast::colour_vision::tests::shipped_theme_colour_vision_gate` runs it over
-both built-ins; no shipped path runs it, so a loaded Theme document is not
+every built-in; no shipped path runs it, so a loaded Theme document is not
 measured for colour vision. It measures glyphs only: never background tints
 against each other, and never anomalous trichromacy.
 
 A Pending operand Cell draws no glyph, so `validate` has no Pending role to
 measure — `Role` (Number, Note) carries Valid and Invalid only.
 
-Okabe–Ito's `plain`-placement measurements, after the user's 2026-09-22 retune
-of every tinted role background to a uniform 10% opacity: Ordinary 17.51:1,
-Bang 6.86:1 and Comment 7.37:1 (each against the bare `#000000` Source
-background, since their own role backgrounds are transparent); Function
-5.69:1, Number 8.19:1 and Note 13.64:1 (Valid), each against its own 10%
-tint; `output_portal.foreground` 8.40:1 against an Unclaimed Cell's Output
-Portal state, where the tint is `output_portal.background` alone (an
-Unclaimed Cell's own background is transparent); `text` 15.88:1 against
-`panel.background` and 17.51:1 against `input.background`; `text.muted`
-(translucent, round-tripping to premultiplied bytes `[140, 141, 137, 153]`)
-6.19:1 against `panel.background` and 6.29:1 against `input.background` —
-none of these five changed, since the retune touched only the tinted role
-backgrounds. Every invalid-operand Diagnostic state now clears the floor
-too: Number 4.89:1 and Note 4.66:1, each `diagnostic.foreground`
-(`#D55E00`) against that Token's own 10% tint. `contrast::tests::shipped_theme_gate`
-runs as a real, non-`#[ignore]`d test: every reachable state clears 4.5:1,
-so `accepted_failures` for `okabe-ito` is empty — there is nothing left to
-except.
+`contrast::tests::shipped_theme_gate` runs over every built-in the registry
+holds: every reachable state but a Comment clears 4.5:1, and
+`contrast::tests::no_built_in_has_an_accepted_exception` holds
+`accepted_failures` empty for each of them.
 
 The console chrome's states (`.scratch/theming/issues/11`) are read from
 `style::style` — the `Style` `style::install` registers — through the egui
@@ -951,13 +414,7 @@ accessors the widgets paint from (`egui::Style::button_style` for a button's
 fill and text, `widget_style` for a frameless label, `Visuals::selection` for
 selected text), and composited over the surface each is painted on down to
 the window backdrop, so the report and the chrome's painting read one
-mapping. Okabe–Ito's chrome figures: `text` 15.88:1 on the inactive and open
-widget fills (both `panel.background`); `text.active` (`#65E6BE`) 9.96:1 on
-the hovered and active fills (`selection.background`, `#0A2A22`) and 12.34:1
-frameless on the panel; selected text, `selection.border` (`#65E6BE`) on
-`selection.background`, 9.96:1 over both panel and input; `error` and
-`warning` (`#CC79A7`) 6.22:1 and `link` (`#5AAAFF`) 7.82:1 on the panel.
-Every one clears the floor, so no chrome exception is recorded either. Left
+mapping. Left
 out, as `contrast::validate`'s own scope states: disabled widgets (egui fades
 them, and WCAG 2.1 SC 1.4.3 exempts inactive components), `code.background`
 (nothing paints a code span), a widget state's strong fill (egui paints no
@@ -975,37 +432,6 @@ Cell, by contrast, only falls back to the Region fill when the role's own
 background left nothing painted at all (alpha exactly `0`) — a role
 background with any nonzero alpha, translucent or opaque, keeps winning
 there.
-
-Okabe–Ito exercises both rules. Its `cursor.background` and
-`region.cursor.background` are none, so the Cursor's own Cell, alone or inside
-a Region, takes no fill: a tinted role there loses its 10% tint and is measured
-against the bare `#000000` Source background, and a transparent role repeats
-its `plain` figure. Its `region.background` is set, `#FFFFFF2B` (white at 17%),
-so a Region Cell whose role background is transparent (Ordinary, Comment and
-Bang) is measured against `#2B2B2B`. A tinted role keeps its own tint inside a
-Region and repeats its `plain` figure, and so does an Output Portal Cell, whose
-Portal tint is not transparent. Okabe–Ito's Region, Cursor and
-Portal-over-role figures, read from `contrast::validate`:
-
-| State | Foreground | Background | Ratio |
-|---|---|---|---:|
-| Ordinary, Region | `#EAEBE5` | `#2B2B2B` | 11.81:1 |
-| Comment, Region | `#999999` | `#2B2B2B` | 4.97:1 |
-| Bang, Region | `#CC79A7` | `#2B2B2B` | 4.63:1 |
-| Function, Cursor or Region's Cursor Cell | `#009E73` | `#000000` | 6.14:1 |
-| Number, Valid, Cursor or Region's Cursor Cell | `#56B4E9` | `#000000` | 9.10:1 |
-| Note, Valid, Cursor or Region's Cursor Cell | `#F0E442` | `#000000` | 15.88:1 |
-| Any Invalid operand, Cursor or Region's Cursor Cell | `#D55E00` | `#000000` | 5.43:1 |
-| Output Portal over Number, Valid or Invalid | `#E69F00` | `#1F2016` | 7.30:1 |
-| Output Portal over Note, Valid or Invalid | `#E69F00` | `#2D2506` | 6.76:1 |
-| Output Portal, Cursor or Region's Cursor Cell | `#E69F00` | `#000000` | 9.32:1 |
-| Input Portal over Ordinary or Comment | `#AC77FA` | `#120C19` | 6.20:1 |
-| Input Portal over Number, Valid or Invalid | `#AC77FA` | `#1A1C2F` | 5.41:1 |
-| Input Portal over Note, Valid or Invalid | `#AC77FA` | `#28211F` | 5.10:1 |
-| Input Portal, Cursor or Region's Cursor Cell | `#AC77FA` | `#000000` | 6.77:1 |
-
-Every one clears the floor. Bang, 4.63:1, is the lowest figure the Region wash
-sets.
 
 Sector boundaries are solid lines drawn over Cell edges, along the whole of
 every sector edge, in the Theme's `sector.seam` at `sector.seam.width`: styled

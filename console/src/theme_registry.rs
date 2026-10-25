@@ -24,10 +24,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::theme::{
-    Appearance, Theme, ThemeIdentity, grayscale_dark, grayscale_light, my_grayscale_dark,
-    my_grayscale_light, okabe_ito, orcvs_light,
-};
+use crate::theme::{Appearance, Theme, ThemeIdentity, grayscale_dark, grayscale_light};
 
 ///
 /// Why a selected identity could not be resolved to a Theme.
@@ -60,7 +57,7 @@ impl std::fmt::Display for Unavailable {
 /// is shown about them.
 ///
 pub(crate) struct ThemeRegistry {
-    built_ins: [Theme; 6],
+    built_ins: [Theme; 2],
     /// Resolved custom Themes by identity (filename stem).
     custom: BTreeMap<ThemeIdentity, Theme>,
     /// Identities a document claimed but that could not be loaded, with the
@@ -78,14 +75,7 @@ impl ThemeRegistry {
     ///
     pub(crate) fn built_in() -> Self {
         Self {
-            built_ins: [
-                grayscale_dark(),
-                grayscale_light(),
-                my_grayscale_dark(),
-                my_grayscale_light(),
-                okabe_ito(),
-                orcvs_light(),
-            ],
+            built_ins: [grayscale_dark(), grayscale_light()],
             custom: BTreeMap::new(),
             refused: BTreeMap::new(),
             notices: Vec::new(),
@@ -838,6 +828,37 @@ mod discovery_tests {
             "{:?}",
             themes.notice_list()
         );
+    }
+
+    ///
+    /// A Theme file inheriting a retired built-in's identity names no parent
+    /// the registry holds, so it is refused with a notice naming the file and
+    /// the parent it names.
+    ///
+    #[test]
+    fn a_theme_file_inheriting_a_retired_built_in_is_refused() {
+        let dir = TempDir::new();
+        dir.write(
+            "old.toml",
+            "format = \"orcvs-theme\"\nversion = 1\nname = \"Old\"\ninherits = \"okabe-ito\"\n",
+        );
+
+        let registry = ThemeRegistry::discover(dir.path());
+        assert!(registry.custom.is_empty());
+        assert!(
+            registry
+                .notice_list()
+                .iter()
+                .any(|notice| notice.contains("old.toml")
+                    && notice.contains("parent")
+                    && notice.contains("\"okabe-ito\"")),
+            "{:?}",
+            registry.notice_list()
+        );
+        assert!(matches!(
+            registry.select(Appearance::Dark, &id("old")),
+            Err(super::Unavailable::Refused(_))
+        ));
     }
 
     #[test]

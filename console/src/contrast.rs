@@ -57,7 +57,7 @@ use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::style::{CellColours, CursorPlacement, style};
-use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity};
+use crate::theme::{Theme, ThemeIdentity};
 
 ///
 /// The WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)") ratio every
@@ -624,8 +624,8 @@ impl AcceptedFailure {
 ///
 /// The accepted exceptions for a shipped Theme, keyed by identity.
 ///
-/// Okabe–Ito's list is empty: it has no reachable painted failure
-/// (`tests::okabe_ito_has_nothing_to_except` pins that).
+/// Every built-in's list is empty: none has a reachable painted failure
+/// (`tests::no_built_in_has_an_accepted_exception` pins that).
 ///
 /// Called from [`measure`], which every [`validate`] result passes through —
 /// not test-only: `theme_registry` validates every Theme file it loads.
@@ -635,15 +635,8 @@ impl AcceptedFailure {
 /// somewhere. `tests::unaccepted`, the shipped-Theme *gate*'s comparison, has
 /// no such production reason and is test code.
 ///
-fn accepted_failures(identity: &ThemeIdentity) -> &'static [AcceptedFailure] {
-    match identity {
-        id if *id == OKABE_ITO_IDENTITY => &[],
-        // Orcvs Light's list is empty too: every reachable state clears the
-        // floor, so it has no exception to record.
-        // `console/src/theme.md` states the measured figures.
-        id if *id == ORCVS_LIGHT_IDENTITY => &[],
-        _ => &[],
-    }
+fn accepted_failures(_identity: &ThemeIdentity) -> &'static [AcceptedFailure] {
+    &[]
 }
 
 #[cfg(test)]

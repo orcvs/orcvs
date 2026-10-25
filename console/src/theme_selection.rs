@@ -271,4 +271,31 @@ mod tests {
             &format!("{} is shown in its place", light.name)
         ));
     }
+
+    ///
+    /// A saved selection naming a retired built-in follows the missing-identity
+    /// path: each appearance presents its default, the selection is kept as
+    /// written, and the notice names the setting.
+    ///
+    #[test]
+    fn a_selection_of_a_retired_built_in_falls_back_to_the_default_and_is_kept() {
+        let selection = ThemeSelection::new(id("okabe-ito"), id("orcvs-light"));
+        let themes = SelectedThemes::new(ThemeRegistry::built_in(), selection.clone());
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            assert_eq!(
+                *themes.presented(appearance),
+                default_theme(appearance),
+                "{appearance:?}"
+            );
+        }
+        assert_eq!(*themes.selection(), selection);
+        assert!(mentions(
+            &themes,
+            "dark Theme \"okabe-ito\" that `theme.dark` names"
+        ));
+        assert!(mentions(
+            &themes,
+            "light Theme \"orcvs-light\" that `theme.light` names"
+        ));
+    }
 }

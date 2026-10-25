@@ -33,9 +33,8 @@ use egui::Color32;
 use serde::Deserialize;
 
 use crate::theme::{
-    Appearance, ChromeWidth, GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY, GridWidth,
-    MY_GRAYSCALE_DARK_IDENTITY, MY_GRAYSCALE_LIGHT_IDENTITY, OKABE_ITO_IDENTITY,
-    ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity, style_catalogue,
+    Appearance, ChromeWidth, GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY, GridWidth, Theme,
+    ThemeIdentity, style_catalogue,
 };
 
 /// `schema.md`'s per-document byte limit, checked before any decoding.
@@ -205,15 +204,7 @@ pub(crate) enum OptionalColor {
 impl ThemeIdentity {
     /// Whether this is a built-in's reserved identity.
     pub(crate) fn is_reserved(&self) -> bool {
-        [
-            GRAYSCALE_DARK_IDENTITY,
-            GRAYSCALE_LIGHT_IDENTITY,
-            MY_GRAYSCALE_DARK_IDENTITY,
-            MY_GRAYSCALE_LIGHT_IDENTITY,
-            OKABE_ITO_IDENTITY,
-            ORCVS_LIGHT_IDENTITY,
-        ]
-        .contains(self)
+        [GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY].contains(self)
     }
 }
 
@@ -303,7 +294,7 @@ impl std::fmt::Display for ThemeError {
 ///
 /// No file I/O: `built_ins` is whatever built-in set the caller already
 /// holds — the crate-private `theme_registry` module reads native documents
-/// and calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
+/// and calls this; tests pass a slice of their own. `identity` is supplied
 /// by the caller rather than read from `document`, because a custom
 /// document's identity is its filename stem, which this module
 /// never reads a file to learn.
@@ -858,8 +849,6 @@ mod tests {
     }
 
     const MY_DARK_TOML: &str = include_str!("../../.scratch/theming/examples/my-dark.toml");
-    const OKABE_ITO_COPY_TOML: &str =
-        include_str!("../../.scratch/theming/examples/okabe-ito-copy.toml");
 
     ///
     /// Every property name `style_catalogue` spells: the four optional colours,
@@ -898,27 +887,6 @@ mod tests {
     }
 
     const CATALOGUE_COUNTS: CatalogueCounts = crate::theme::style_catalogue!(catalogue_counts);
-
-    /// The `"name" = value` lines of an example document, as name and value.
-    fn example_entries(toml: &str) -> Vec<(&str, &str)> {
-        toml.lines()
-            .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
-            .collect()
-    }
-
-    ///
-    /// Asserts `entries` names every catalogue property once and nothing
-    /// else, in any order. A document inherits what it omits from its parent,
-    /// so an example that resolves to its parent proves nothing about the
-    /// properties it leaves out.
-    ///
-    fn assert_spells_the_catalogue(entries: &[(&str, &str)]) {
-        let mut names = entries.iter().map(|&(name, _)| name).collect::<Vec<_>>();
-        names.sort_unstable();
-        let mut catalogue = CATALOGUE_NAMES.to_vec();
-        catalogue.sort_unstable();
-        assert_eq!(names, catalogue);
-    }
 
     fn my_dark() -> ThemeDocument {
         ThemeDocument {
@@ -1019,45 +987,26 @@ mod tests {
     }
 
     ///
-    /// `okabe-ito-copy.toml` spells out every catalogue property at the
-    /// built-in's value, so resolving it must give back the built-in under
-    /// the copy's identity and display label.
-    ///
-    #[test]
-    fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
-        assert_spells_the_catalogue(&example_entries(OKABE_ITO_COPY_TOML));
-        let document = decodes(OKABE_ITO_COPY_TOML);
-        assert_eq!(document.cursor_background, Some(OptionalColor::None));
-        assert_eq!(document.cursor_foreground, Some(OptionalColor::None));
-        assert_eq!(document.region_cursor_background, Some(OptionalColor::None));
-        assert_eq!(document.region_cursor_foreground, Some(OptionalColor::None));
-        assert_eq!(document.appearance, Some(Appearance::Dark));
-
-        let resolved = resolve(
-            &[crate::theme::okabe_ito()],
-            &identity("okabe-ito-copy"),
-            &document,
-        )
-        .expect("resolves");
-
-        let mut expected = crate::theme::okabe_ito();
-        expected.identity = identity("okabe-ito-copy");
-        expected.name = "Okabe-Ito copy".to_owned();
-        assert_eq!(resolved, expected);
-    }
-
-    ///
-    /// Each catalogue property name, alone in a document at the example's
-    /// value, sets exactly one property, whose key spells that name — and no
+    /// Each catalogue property name, alone in a document at a value of its
+    /// kind, sets exactly one property, whose key spells that name — and no
     /// two reach the same property, so every catalogue entry is reachable by
     /// its own spelling and by no other.
     ///
     #[test]
     fn every_catalogue_property_name_selects_its_own_property() {
-        let entries = example_entries(OKABE_ITO_COPY_TOML);
-        assert_spells_the_catalogue(&entries);
+        // `CATALOGUE_NAMES` lists the optional colours, then the colours,
+        // the Grid widths and the chrome widths, in the catalogue's order.
+        let colours = CATALOGUE_COUNTS.fills + CATALOGUE_COUNTS.colors;
+        let grid_widths = colours + CATALOGUE_COUNTS.grid_widths;
         let mut reached = Vec::new();
-        for (name, value) in entries {
+        for (index, &name) in CATALOGUE_NAMES.iter().enumerate() {
+            let value = if index < colours {
+                "\"#FFFFFF\""
+            } else if index < grid_widths {
+                "0.5"
+            } else {
+                "1"
+            };
             let document = decodes(&style(&[(name, value)]));
             let mut set = document
                 .colors
@@ -2170,8 +2119,8 @@ mod tests {
     /// Every [`ColorKey`] variant, applied as a distinct override and read
     /// back through [`Theme::color`], with every *other* key left at the
     /// parent's value. This is the exhaustive companion to
-    /// `okabe_ito_defines_every_key_at_the_schema_values`: that test proves
-    /// the built-in sets every key, this one proves every key can be
+    /// `theme::tests::every_built_in_defines_every_key_at_its_table`: that
+    /// test proves each built-in sets every key, this one proves every key can be
     /// independently addressed by `resolve`'s `color_mut` match without a
     /// key silently writing, or being read from, the wrong field.
     ///
