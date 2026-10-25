@@ -7,8 +7,8 @@ evidence each fit claim cites.
 
 ## Recommendation
 
-**Defer. Do not add plughost to the workspace now, and do not start the guide's Phase 1 spike until
-Orcvs has decided it makes sound.** The library is well engineered for what it claims, and its
+**Defer. Do not add plughost to the workspace now, and do not start the headless spike described
+at the end of this note until Orcvs has decided it makes sound.** The library is well engineered for what it claims, and its
 realtime path holds up in the source (section 3). The obstacles are on the Orcvs side and in the
 library's age:
 
@@ -21,16 +21,23 @@ library's age:
    as `cpal`, an Audio Engine that owns the callback, and a control thread that supervises helpers.
    That is a change of product scope from "Orcvs sends MIDI" to "Orcvs makes sound", which is a
    language and product decision before it is a dependency decision.
-2. **It does not compile on two of the three platforms Orcvs builds.** plughost builds only for
-   `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` (section 2). The VST3 module stops a Linux or
-   wasm32 build with `compile_error!` (`plughost-formats-0.2.0/src/vst3/module.rs:236`). Orcvs's
-   pull-request tier runs clippy and nextest on Linux and compiles the WASM target
-   (`.github/workflows/test.yml`), and only the merge tier runs macOS. Every use would sit behind a
-   target `cfg`, and no pull-request gate would compile the code that uses it.
+2. **It builds on only two of the five targets Orcvs builds or ships.** Orcvs is built for Linux
+   and wasm32 in the pull-request tier, macOS in the merge tier (`.github/workflows/test.yml`), and
+   Windows x86_64 through `rust-toolchain.toml` with no CI job, and macOS covers both Apple Silicon
+   and Intel. plughost builds only for `aarch64-apple-darwin` and `x86_64-pc-windows-msvc`
+   (section 2), so Linux, wasm32 and Intel macOS are out. The blocker on the application side is
+   `plughost-core`, which the `plughost` crate depends on: its doorbell, clock and shared-memory
+   backends exist only under `cfg(target_os = "macos")` and `cfg(windows)`
+   (`plughost-core-0.2.0/src/ipc/shared/doorbell.rs:39-60`), so any other target fails to compile.
+   Gating the helper alone is not enough; every use of `plughost` would sit behind a target `cfg`.
+   Of the two supported targets, only Apple Silicon macOS would have an Orcvs gate, and that one
+   runs in the merge tier. No pull-request gate would compile the code that uses it, and no gate at
+   all would compile the Windows path.
 3. **The library is 25 days old and has one author and no outside users.** Thirteen releases since
    2026-09-30, a breaking 0.2.0 that changed the state format and IPC protocol, exact `=0.2.0` pins
-   between host and helper, and about 650 downloads (section 11). Building on it now means tracking
-   a moving API by hand, and plug-in state saved by one release may not load in the next.
+   between host and helper, and 886 all-time downloads across the four crates (section 11).
+   Building on it now means tracking a moving API by hand. From 0.2.0 on, upstream promises that
+   later releases read saved plug-in state (section 1) [documented], a promise one release old.
 
 None of these says plughost is the wrong host. They say the question to settle first is whether
 Orcvs should make sound at all. Until that is decided, Orcvs's MIDI can reach any plug-in already:
@@ -38,8 +45,8 @@ route the output port to a DAW or plug-in host through the macOS IAC Driver or l
 
 ## How it would fit, if Orcvs decides to make sound
 
-This section records where plughost would sit, so a later decision starts from the seams rather
-than from the guide's generic sketch.
+This section records where plughost would sit, so a later decision starts from Orcvs's seams
+rather than from a generic integration sketch.
 
 **An output adapter in the console, native only.** The plug-in path is one more `OutputAdapter`
 beside `MidiOutputAdapter`. The toolkit-free `orcvs` crate already keeps platform MIDI out and
@@ -48,9 +55,16 @@ core crate free of the UI toolkit. A plug-in adapter belongs in `console` behind
 `cfg(any(all(target_os = "macos", target_arch = "aarch64"), all(windows, target_arch = "x86_64")))`,
 with the same silent fallback the MIDI backend uses elsewhere.
 
-**The Output Command set maps onto plughost's events without loss.** Note On and Note Off become
-plughost's `NoteOn` and `NoteOff`, and Control Change and Pitch Bend travel as three-byte `Midi`
-events (section 5). The safety action Orcvs sends on stop, rewind, disconnect and destination
+**The Output Command set looks to map onto plughost's events without loss** [unverified: no
+adapter was written]. Note On and Note Off would become plughost's `NoteOn` and `NoteOff`, whose
+`Note` carries a channel `0..=15` and addresses notes by port, channel and key when it has no note
+ID (`plughost-core-0.2.0/src/event.rs:89-100`), so Orcvs's sixteen channels carry over on one event
+port. Control Change and Pitch Bend would travel as three-byte `Midi` events (section 5). Which
+port a chain exposes, and whether a plug-in that takes MIDI only on one port honours all sixteen
+channels, depends on the plug-in and is a spike question. Note Offs need no new scheduling: the
+Playback Engine already resolves every lifetime into a Note Off at the start of Tick `T + length`,
+so it reaches the adapter in a Tick's batch like any other command and takes that batch's sample
+offset. The safety action Orcvs sends on stop, rewind, disconnect and destination
 change (All Notes Off, Reset All Controllers, centred Pitch Bend on every channel, `CONTEXT.md`
 Playback Engine entry) is 48 messages, far inside the 4096-event block limit. Orcvs's tempo could
 fill plughost's `Transport` for tempo-synced plug-ins, which the MIDI path cannot carry today.
@@ -60,9 +74,13 @@ of deadlines, and the engine carries each Tick's deadline (`orcvs/src/playback.r
 `OutputAdapter::submit` takes only the commands (`orcvs/src/playback.rs:90`), and it is called
 inline on the engine's task once the Tick executes (`orcvs/src/playback.rs:915`). An adapter that
 forwards commands to an audio callback can only place them at the start of the next quantum, so
-each Tick sounds late by its task wake-up jitter plus up to one quantum, plus the chain's fixed
-`latency × quantum` (section 4). At 128 frames and 48 kHz that is under 6 ms in all, which is close
-to what the `midir` path already costs, because `midir` also sends on arrival with no timestamp.
+each Tick sounds late by its task wake-up jitter, plus up to one quantum of waiting for the next
+callback, plus the chain's fixed `latency × quantum` (section 4), plus the plug-in's own latency
+and the audio device's output buffering. At 128 frames and 48 kHz the two quantum terms alone come
+to 5.3 ms at the default `latency` of 1; the rest was not measured. The `midir` path also sends on
+arrival with no timestamp, so it shares the wake-up jitter but not the quantum terms; how the two
+compare end to end is [unverified] and needs a measurement before anyone treats either as a
+latency budget.
 Holding the grid sample-accurately would need the deadline to cross the seam and a mapping from the
 Tick clock onto the audio device's sample clock. That is a change to the Playback Engine's
 interface, so it wants its own ADR.
@@ -76,8 +94,8 @@ health and decides to recover; today nothing in the console supervises a child p
 
 **Editors are the easy part.** Every format's editor opens as a separate window owned by the
 helper process (section 9). Nothing embeds into egui, so the console needs only a menu entry that
-asks the helper to open or close a slot's editor, and the parenting and lifetime problems the guide
-warns about do not arise.
+asks the helper to open or close a slot's editor, and the problems of parenting a native view into
+an egui window, and of that view outliving it, do not arise.
 
 **Packaging is new work.** On macOS the helper must ship as an `LSUIElement` `.app` with Hardened
 Runtime and the `disable-library-validation` and `allow-unsigned-executable-memory` entitlements
@@ -97,9 +115,12 @@ downloads binaries or builds LLVM at build time and would stay off.
   outside users and a second maintainer.
 - Linux support upstream, or a decision that the plug-in path is tested only in the merge tier.
 
-If the first happens, the guide's Phase 1 (headless render of a VST3 synth to WAV, state save and
-reload) is the right spike, and it should run in a throwaway crate outside the workspace so no
-Orcvs gate has to compile plughost before the decision is made.
+If the first happens, the first spike is headless: build the helper, discover the installed
+plug-ins, load one VST3 synth and one effect into a chain, render a fixed sequence of MIDI notes
+offline to a WAV file, save and reload plug-in state, and record the reported latency, tail and
+diagnostics, with assertions on the output samples. A real-time spike through an audio device, and
+the editor and packaging work, follow only if that holds. It should run in a throwaway crate
+outside the workspace so no Orcvs gate has to compile plughost before the decision is made.
 
 ## Source audit
 
@@ -570,10 +591,10 @@ in-process traits `HostedPlugin`, `BlockProcessor` and `Sample` are sealed (CHAN
 | Risk | Evidence | Severity | What would retire it |
 |---|---|---|---|
 | Does not compile on wasm32 or Linux; no stub backend | doorbell.rs:39-59, clock.rs:27-55, memory.rs:10-13, scan/bundle.rs:120-123; vst3/module.rs:235-236; release.yml:73-74 | High | Target-gated dependency plus `cfg` on every use, proven by a wasm32 and Linux `cargo check` |
-| Project is about four weeks old, single owner, 0 stars, about 650 total downloads, no external reverse deps | crates.io API; GitHub page (83 commits) | High | Months of releases without breaking changes, more maintainers, outside users |
+| Project is about four weeks old, single owner, 0 stars, 886 total downloads across the four crates, no external reverse deps | crates.io API; GitHub page (83 commits) | High | Months of releases without breaking changes, more maintainers, outside users |
 | API churn: 13 releases in 25 days, 0.2.0 broke state format, protocol and many signatures | CHANGELOG.md:8-60 | High | A 0.2.x line with only additive changes, or vendoring a pinned copy |
 | Exact version lock between app, helper and protocol 34; mismatch fails at handshake | ipc.rs:21; helper.rs:164-175; README.md:34 | Medium | Build helper and app from one lockfile in one workspace, checked in CI |
-| Callback makes one wake syscall per quantum, contrary to the "no syscalls" reading of the audit comment | realtime.rs:418; doorbell.rs:26-29, 78-81, 113-116 | Medium | Own measurement of the wake cost at p99.9, or upstream confirmation that RTSan intercepts it |
+| Callback makes one non-blocking wake syscall per quantum; the README promises only that it "never waits, locks, or allocates", and whether RTSan intercepts the call is [unverified] | realtime.rs:418; doorbell.rs:26-29, 78-81, 113-116 | Medium | Own measurement of the wake cost at p99.9, or upstream confirmation that RTSan intercepts it |
 | A fault (size mismatch, overflow, failed quantum) mutes the stream until the control thread calls `resync_realtime` | endpoint.rs:288-329; chain/realtime.rs:172-185 | Medium | A supervising control loop that polls `realtime_status` and resyncs, with a test |
 | Callbacks must be exactly `quantum` frames; variable device buffers force resyncs | endpoint.rs:291-295; endpoint.rs:56-60 | Medium | A fixed-size adapter in front of the endpoint at the cost of extra latency |
 | Added latency of 1 to 3 quanta on top of plugin latency, per chain | realtime.rs:39-41; chain/realtime.rs:33-36 | Medium | Accepting it in the latency budget, or in-process hosting via plughost-formats |
