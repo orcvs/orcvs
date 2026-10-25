@@ -4,10 +4,8 @@
 //! row directly south the result one Tick writes there.
 //!
 //! This module and `assets/function_reference.orcvs` are the one checked-in
-//! Source it comes from. The console opens on it whenever no stored Source
-//! is available (no `persistence` feature, no stored revision, or a stored
-//! revision this build refuses), and `Console`'s Help menu opens it,
-//! replacing the running Source.
+//! Source it comes from. `Console`'s Help menu opens it, replacing the
+//! running Source; a console that restores nothing starts empty instead.
 //!
 //! # Column layout
 //!
