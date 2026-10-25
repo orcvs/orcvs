@@ -279,7 +279,6 @@ const LAST_SAFETY_RESET_MESSAGE: [u8; 3] = [0xef, 0x00, 0x40];
 /// stop sent.
 ///
 struct Run {
-    started_at: Instant,
     tick_period: Duration,
     /// Every message the destination accepted, with the instant it was sent.
     sent: Vec<(Instant, Vec<u8>)>,
@@ -296,15 +295,19 @@ impl Run {
     /// The messages the run's Ticks sent, `heard` as the listener decoded
     /// them, grouped by the Tick that sent each.
     ///
-    /// A run's Tick `k` is due `k` periods after its start, and the start
-    /// follows the Space within a period, so the whole periods between the
-    /// Space and a message name the Tick that sent it.
+    /// A run's Tick `k` is due `k` periods after its first Tick, which sends
+    /// the run's first message, so the periods between that message and
+    /// another, to the nearest, name the Tick that sent it. Rounding leaves a
+    /// late Tick half a period before it is counted as the next.
     ///
     fn by_tick(&self, heard: &[Heard], ticks: usize) -> Vec<Vec<Heard>> {
         let mut grouped = vec![Vec::new(); ticks];
+        let Some(&(first, _)) = self.sent.first() else {
+            return grouped;
+        };
         for (index, ((at, _), message)) in self.sent[..self.ticked].iter().zip(heard).enumerate() {
-            let tick = (at.duration_since(self.started_at).as_nanos() / self.tick_period.as_nanos())
-                as usize;
+            let tick = (at.duration_since(first).as_secs_f64() / self.tick_period.as_secs_f64())
+                .round() as usize;
             assert!(
                 tick < ticks,
                 "message {index}, {message:?}, was sent at Tick {tick} of a run of {ticks}"
@@ -347,7 +350,6 @@ async fn play(
         .expect("a running Orcvs");
     let tick_period = orcvs.bpm().tick_period();
 
-    let started_at = Instant::now();
     space(&mut orcvs);
     tokio::time::sleep(tick_period * ticks - tick_period / 2).await;
     let ticked = sent.lock().unwrap().len();
@@ -370,7 +372,6 @@ async fn play(
 
     let sent = std::mem::take(&mut *sent.lock().unwrap());
     Run {
-        started_at,
         tick_period,
         sent,
         ticked,
