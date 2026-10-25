@@ -376,8 +376,14 @@ fn cell_texel(
     cell: &RenderCell,
     placement: CursorPlacement,
 ) -> Color32 {
-    let displayed = colours.displayed(cell.source_paint(), cell.portal_roles(), placement);
-    if cell.content().is_some() {
+    let occupied = cell.content().is_some();
+    let displayed = colours.displayed(
+        cell.source_paint(),
+        cell.portal_roles(),
+        occupied,
+        placement,
+    );
+    if occupied {
         displayed.displayed_foreground()
     } else {
         displayed.background

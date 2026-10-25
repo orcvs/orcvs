@@ -2,9 +2,11 @@
 //! mode control.
 
 use super::Console;
+use super::files::EXAMPLE_CONFIRMATIONS;
 #[cfg(not(target_arch = "wasm32"))]
 use super::files::FUNCTION_REFERENCE_CONFIRMATION;
 use super::input::FileCommand;
+use crate::examples::EXAMPLES;
 use crate::theme_selection::SelectedThemes;
 
 /// The height the top panel takes from the window, leaving the rest to the
@@ -24,6 +26,66 @@ fn file_menu_item(ui: &mut egui::Ui, command: FileCommand) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     let item = item.shortcut_text(ui.ctx().format_shortcut(&command.shortcut()));
     ui.add(item).clicked()
+}
+
+///
+/// A menu item that toggles `checked`, laid out as a button so its label
+/// aligns with the menu's other items, with its check box after the label
+/// and, on native, `shortcut` before the box. Named and announced as a
+/// check box. Answers the item's response.
+///
+fn trailing_checkbox(
+    ui: &mut egui::Ui,
+    checked: &mut bool,
+    label: &str,
+    #[cfg_attr(target_arch = "wasm32", expect(unused_variables))] shortcut: egui::KeyboardShortcut,
+) -> egui::Response {
+    let box_id = egui::Id::new(("orcvs-trailing-checkbox", label));
+    let box_size = egui::Vec2::splat(ui.spacing().icon_width);
+    let item = egui::Button::new(label);
+    #[cfg(not(target_arch = "wasm32"))]
+    let item = item.shortcut_text(ui.ctx().format_shortcut(&shortcut));
+    let shown = item
+        .right_text(egui::Atom::custom(box_id, box_size))
+        .atom_ui(ui);
+    let box_rect = shown.rect(box_id);
+    let mut response = shown.response;
+    if response.clicked() {
+        *checked = !*checked;
+        response.mark_changed();
+    }
+    let enabled = ui.is_enabled();
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, *checked, label)
+    });
+    if let Some(rect) = box_rect {
+        // Painted as `egui::Checkbox` paints its box and mark, which lays its
+        // box out before its label and so cannot trail one
+        // (`tests::the_trailing_box_paints_as_egui_paints_a_checkbox`).
+        let style = ui
+            .style()
+            .checkbox_style(&Default::default(), response.widget_state());
+        let big = egui::Rect::from_center_size(rect.center(), box_size);
+        let small = egui::Rect::from_center_size(big.center(), egui::Vec2::splat(style.check_size));
+        ui.painter().add(egui::epaint::RectShape::new(
+            big.expand(style.checkbox_frame.inner_margin.left.into()),
+            style.checkbox_frame.corner_radius,
+            style.checkbox_frame.fill,
+            style.checkbox_frame.stroke,
+            egui::StrokeKind::Inside,
+        ));
+        if *checked {
+            ui.painter().add(egui::Shape::line(
+                vec![
+                    egui::pos2(small.left(), small.center().y),
+                    egui::pos2(small.center().x, small.bottom()),
+                    egui::pos2(small.right(), small.top()),
+                ],
+                style.check_stroke,
+            ));
+        }
+    }
+    response
 }
 
 ///
@@ -154,8 +216,8 @@ pub(super) struct MenuBarChoice {
 
 impl Console {
     ///
-    /// Shows the top bar: File, View and Help, then at its right edge the
-    /// mode control and the Notices menu.
+    /// Shows the top bar: File, View and Help with its Examples, then at its
+    /// right edge the mode control and the Notices menu.
     ///
     /// View's zoom items on native are egui's own, which step the whole UI's
     /// zoom as its chords do; the web's View menu has none. Help's Function
@@ -204,7 +266,12 @@ impl Console {
                         egui::gui_zoom::zoom_menu_buttons(ui);
                         ui.separator();
                     }
-                    ui.checkbox(&mut self.diagnostics_open, "Diagnostics");
+                    trailing_checkbox(
+                        ui,
+                        &mut self.diagnostics_open,
+                        "Diagnostics",
+                        super::input::DIAGNOSTICS_SHORTCUT,
+                    );
                     ui.checkbox(&mut self.overview_open, "Overview");
                 });
                 ui.add_space(MENU_BAR_GAP);
@@ -219,6 +286,14 @@ impl Console {
                         #[cfg(target_arch = "wasm32")]
                         self.load_function_reference();
                     }
+                    // Each example asks before discarding, as New does.
+                    ui.menu_button("Examples", |ui| {
+                        for (example, confirmation) in EXAMPLES.iter().zip(EXAMPLE_CONFIRMATIONS) {
+                            if ui.button(example.name).clicked() {
+                                self.discard_asking_first(confirmation);
+                            }
+                        }
+                    });
                 });
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.
@@ -238,5 +313,75 @@ impl Console {
             });
         });
         choice
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trailing_checkbox;
+
+    ///
+    /// The box and mark `add` paints, the mark placed relative to the box's
+    /// centre, so two boxes at different places compare equal.
+    ///
+    fn box_shapes(ctx: &egui::Context, add: impl FnMut(&mut egui::Ui)) -> Vec<String> {
+        let mut output = ctx.run_ui(egui::RawInput::default(), add);
+        // The font atlas upload has no renderer here.
+        output.textures_delta.clear();
+        let style = ctx
+            .global_style()
+            .checkbox_style(&Default::default(), Default::default());
+        let frame = style.checkbox_frame;
+        let mut shapes = Vec::new();
+        let mut centre = None;
+        for clipped in output.shapes {
+            match clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill == frame.fill && rect.stroke == frame.stroke =>
+                {
+                    // A button's frame shares the box's colours and paints
+                    // first, so the last such rect is the box.
+                    shapes.clear();
+                    centre = Some(rect.rect.center());
+                    shapes.push(format!(
+                        "box {:?} {:?}",
+                        rect.rect.size(),
+                        rect.corner_radius
+                    ));
+                }
+                egui::Shape::Path(path) if path.stroke.width == style.check_stroke.width => {
+                    let centre = centre.expect("the box paints before its mark");
+                    let points: Vec<_> = path.points.iter().map(|point| *point - centre).collect();
+                    shapes.push(format!("mark {points:?} {:?}", path.stroke));
+                }
+                _ => {}
+            }
+        }
+        shapes
+    }
+
+    ///
+    /// The trailing box paints exactly the box and mark `egui::Checkbox`
+    /// paints, so an egui upgrade that changes a checkbox's look fails here
+    /// rather than leaving View → Diagnostics unlike every other checkbox.
+    ///
+    #[test]
+    fn the_trailing_box_paints_as_egui_paints_a_checkbox() {
+        let ctx = egui::Context::default();
+        for checked in [false, true] {
+            let egui_box = box_shapes(&ctx, |ui| {
+                ui.add(egui::Checkbox::without_text(&mut checked.clone()));
+            });
+            let trailing = box_shapes(&ctx, |ui| {
+                trailing_checkbox(
+                    ui,
+                    &mut checked.clone(),
+                    "Diagnostics",
+                    super::super::input::DIAGNOSTICS_SHORTCUT,
+                );
+            });
+            assert!(!egui_box.is_empty(), "egui painted no box");
+            assert_eq!(trailing, egui_box, "checked: {checked}");
+        }
     }
 }

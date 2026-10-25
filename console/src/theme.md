@@ -4,10 +4,12 @@ This is the decided console palette. `restyle-egui-console/03`
 checks a capture against these tokens. A later palette change is a documented
 change, not drift.
 
-Under ADR 0053 the page records both built-in Themes: Okabe–Ito, the dark
-Theme and the console's default, and Orcvs Light, the light one. A value belongs
-to Okabe–Ito unless it sits under **The Orcvs Light built-in Theme** or names
-Orcvs Light; the values above the Themes section are Okabe–Ito's. Each one maps
+Under ADR 0053 the page records the four built-in Themes: Grayscale Dark and
+Grayscale Light, the console's defaults; Okabe–Ito, the hue-separated dark
+Theme; and Orcvs Light, its light counterpart. A value belongs to Okabe–Ito
+unless it sits under **The Orcvs Light built-in Theme** or **The grayscale
+built-in Themes**, or names one of those Themes; the values above the Themes
+section are Okabe–Ito's. Each one maps
 to a named property, recorded in the Themes section below. Since `.scratch/theming/issues/06`, the
 Source Grid, its borders and the Cursor's and Region's colours paint from the
 resolved Theme (`console/src/theme.rs`). Since `03`, the rest of the chrome —
@@ -39,8 +41,9 @@ the Source ground when that is unset too. Inside the lasso the Cursor's Cell is
 ruled as every other Cell of the Region, sector seams included.
 
 The Cursor's and Region's colours are Theme properties (`cursor.border`,
-`cursor.background`, `region.background`, `region.cursor.background`,
-`region.border`) with no control of their own, and no "Reset" remains.
+`cursor.background`, `cursor.foreground`, `region.background`,
+`region.cursor.background`, `region.cursor.foreground`, `region.border`) with
+no control of their own, and no "Reset" remains.
 
 ## Themes
 
@@ -70,7 +73,7 @@ The window backdrop and Grid background have separate Theme colours. The window 
 
 `cell.background` is a single Theme-wide base fill for all Cells, transparent by default. It composites over the Grid background and beneath Token tints, Diagnostic/Output Portal channels and Cursor/Region fills. It does not count as a fact fill when evaluating Region fallback, so setting it cannot suppress Region highlighting. Existing precedence among those highlighting channels remains unchanged. Individual Cells do not store styling.
 
-Optional Cursor fills distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional fill and uses the existing fallback: for the Cursor inside a Region, it falls back to the ordinary Cursor fill; for the ordinary Cursor, it supplies no Cursor fill. An explicit transparent colour remains a supplied value and does not trigger that fallback. These optional states apply only to `cursor.background` and `region.cursor.background`, not to every colour key.
+Optional Cursor colours distinguish omission, none and explicit transparent colour. Omission inherits the parent value. None removes the optional colour and uses its fallback: for the Cursor inside a Region, the fill falls back to the ordinary Cursor fill and the glyph colour to the ordinary Cursor glyph colour; for the ordinary Cursor, it supplies no Cursor fill; and a glyph with no Cursor glyph colour keeps its role colour. An explicit transparent colour remains a supplied value and does not trigger that fallback: a transparent `cursor.foreground` hides the glyph. These optional states apply only to `cursor.background`, `cursor.foreground`, `region.cursor.background` and `region.cursor.foreground`, not to every colour key.
 
 Role backgrounds are explicit colour properties, such as `source.function.background`, `source.number.background`, `diagnostic.background` and `output_portal.background`. They composite over the uniform `cell.background` under the confirmed fixed precedence. Changing a role foreground does not recalculate its background. There is no `fill_tint` property or shared tint-strength setting in the Orcvs Theme format. Extract and verify the built-in role background colours from current rendering so its appearance is preserved; illustrative colours in the interview are not accepted defaults.
 
@@ -124,12 +127,15 @@ reproduces the values on this page:
 | `locked.foreground` | `#00000000` | decided here: Locked keeps the glyph, see **Locked** below |
 | `locked.background` | `#000000CC` | `grid.background` at 80%, washing out the role tint |
 | `locked.border` | `#EAEBE580` | `source.ordinary` at 50%, framing each locked Cell |
+| `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border` | `#00000000` | no role borders; the Grid line shows |
 | `grid.border` | `rgba(29, 55, 49, 0.28)` | fixed: Cell grid line |
 | `sector.seam` | `rgba(55, 101, 86, 0.43)` | fixed: 8 × 8 sector seam |
 | `cursor.border` | `#EAEBE5` | fixed: Cursor outline |
 | `cursor.background` | none | fixed: Cursor cell fill |
+| `cursor.foreground` | none | the glyph under the Cursor keeps its role colour |
 | `region.background` | white at 17% | fixed: Region fill |
 | `region.cursor.background` | none | fixed: Cursor cell fill in a Region |
+| `region.cursor.foreground` | none | the glyph on the Region's Cursor Cell falls back to `cursor.foreground` |
 | `window.background` | `#0B1112` | fixed: Page (the opaque window backdrop; `03`'s resolver refuses any other alpha) |
 | `panel.background` | `#0B1112` | fixed: Page |
 | `panel.border` | `#1C3932` (actual opaque conversion) | fixed: chrome stroke |
@@ -162,7 +168,8 @@ The border widths are Theme properties too, in display points: `grid.border.widt
 0.5, `sector.seam.width` 0.75, `cell.selection.border.width` 0.5,
 `cursor.border.width` and `region.border.width` 1,
 `diagnostic.border.width`, `output_portal.border.width`,
-`input_portal.border.width` and `locked.border.width` 0.5,
+`input_portal.border.width`, `locked.border.width` and each
+`source.<role>.border.width` 0.5,
 `panel.border.width`, `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0 (which is why that border stays absent at
 its default), `input.cursor.width` 2 and `overview.source_view.width` 1, a
@@ -170,6 +177,8 @@ chrome width. `schema.md`
 lists them with the chrome widths. `cell.selection.border.width` is accepted
 and read by nothing: the Cursor's outline is its Cell's edges, at
 `cursor.border.width`.
+
+A visible role border frames every Cell its role claims, whether the Cell holds content or not, so a Comment's blank Cells and a Pending operand slot take their role's border. An unclaimed Cell draws as Ordinary, and takes the Ordinary border only while it holds content, so an empty Cell keeps the Grid line at `grid.border.width`.
 
 ### The Orcvs Light built-in Theme
 
@@ -242,12 +251,15 @@ or decided here.
 | `locked.foreground` | `#00000000` | shared with Okabe–Ito |
 | `locked.background` | `#FAFCFBCC` | `grid.background` at 80%, as in Okabe–Ito |
 | `locked.border` | `#303F3B80` | `source.ordinary` at 50%, as in Okabe–Ito |
+| `source.ordinary.border`, `source.comment.border`, `source.number.border`, `source.note.border`, `source.function.border`, `source.bang.border` | `#00000000` | shared with Okabe–Ito |
 | `grid.border` | `#345B5040` (`rgba(52, 91, 80, 0.25)`) | proposal `grid_line` |
 | `sector.seam` | `#26685470` (`rgba(38, 104, 84, 0.44)`) | proposal `sector_line` |
 | `cursor.border` | `#303F3B` | the Theme's ink, as Okabe–Ito's frame is its off-white |
 | `region.border` | `#303F3B` | the same, as in Okabe–Ito |
 | `cursor.background` | none | shared with Okabe–Ito |
+| `cursor.foreground` | none | shared with Okabe–Ito |
 | `region.cursor.background` | none | shared with Okabe–Ito |
+| `region.cursor.foreground` | none | shared with Okabe–Ito |
 | `region.background` | `#303F3B2B` | the ink at 17%, mirroring Okabe–Ito's white at 17% |
 | `panel.border` | `#C0CEC9` | `grid.border` composited over the page |
 | `widget.inactive.border` | `#C0CEC9` | the same (width 0 keeps idle widgets' border absent) |
@@ -305,8 +317,8 @@ Every border width is Okabe–Ito's, recorded rather than inherited:
 `grid.border.width` 0.5, `sector.seam.width` 0.75,
 `cell.selection.border.width` 0.5, `cursor.border.width` and
 `region.border.width` 1, `diagnostic.border.width`,
-`output_portal.border.width`, `input_portal.border.width` and
-`locked.border.width` 0.5, `panel.border.width`,
+`output_portal.border.width`, `input_portal.border.width`,
+`locked.border.width` and each `source.<role>.border.width` 0.5, `panel.border.width`,
 `selection.border.width` and `widget.border.width` 1,
 `widget.inactive.border.width` 0, `input.cursor.width` 2,
 `overview.source_view.width` 1.
@@ -521,10 +533,207 @@ lowers a built-in's lowest state. A glyph dimmed as Orca dims a locked Cell
 would fall below the floor in Orcvs Light, whose Function, Number and Note are
 already at it on their own tints.
 
+### The grayscale built-in Themes
+
+`grayscale-dark` and `grayscale-light` are each appearance's default and
+fallback. Both tell Source roles apart by grey level and by filled and
+bordered Number, Note, Function and Bang Cells, and keep hue for the two roles
+that must stand out: Grayscale Dark draws Bang in green and the Diagnostic
+glyph in red, and Grayscale Light draws Bang in magenta and frames a
+Diagnostic in red. Both fill the Region with an opaque grey.
+
+Two glyph roles share a grey in Grayscale Dark, each told apart by what the
+Cell carries around the glyph
+(`theme::tests::the_grayscale_roles_that_share_a_grey_differ_in_fill_or_border`):
+
+| Shared glyph grey | Told apart by |
+|---|---|
+| Output Portal, Input Portal | Input Portal's border |
+
+Grayscale Light draws Output Portal and Input Portal alike, in one glyph, fill
+and border; the test accepts that pair.
+
+Both draw Comment faint, below the 4.5:1 floor, which Comment is not held to
+(`contrast::Role::held_to_floor`): Grayscale Dark's `#555555` measures 2.82:1
+on black and 1.57:1 on the Region fill, and Grayscale Light's `#ADADAD`
+measures 2.24:1 on white and 1.72:1 on the Region fill. Both Portal glyphs in
+Grayscale Light are `#E4E4E4`, which measures 4.52:1 on their `#666666` fill.
+
+### The Grayscale Dark built-in Theme
+
+`grayscale-dark` sets light grey text and Cells on black, never pure white.
+Both Portals fill their Cells light grey under a dark glyph. The Cursor draws
+every glyph in `#E6E6E6`.
+`theme::tests::grayscale_dark_defines_every_key_at_this_table` reads the
+table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | Grayscale Dark |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `cursor.foreground`, `source.function`, `cursor.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` |
+| `region.cursor.background`, `output_portal.foreground`, `input_portal.foreground`, `selection.background` | `#333333` |
+| `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background` | `#000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
+| `source.comment` | `#555555` |
+| `source.number` | `#898989` |
+| `source.note`, `output_portal.background`, `input_portal.background`, `locked.border` | `#CCCCCC` |
+| `source.bang`, `source.bang.border` | `#00FF00` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
+| `source.function.background`, `source.function.border` | `#444444` |
+| `source.bang.background` | `#111111` |
+| `diagnostic.foreground` | `#FF3B3B` |
+| `output_portal.border`, `input_portal.border` | `#FFFFFF66` |
+| `grid.border` | `#FFFFFF1A` |
+| `sector.seam` | `#FFFFFF33` |
+| `region.border` | `#DDDDDD` |
+| `region.background` | `#383838` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#2A2A2A` |
+| `selection.border.rest` | `#A8A8A8` |
+| `text.muted` | `#C8C8C899` |
+| `grid.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
+| `overview.source_view` | `#FFFFFF` |
+| `overview.source_view.width` | 1 |
+
+### The Grayscale Light built-in Theme
+
+`grayscale-light` sets dark grey text and Cells on white. Both Portals draw a
+light glyph on a `#666666` fill, and a Diagnostic draws its red glyph and
+border on a white fill.
+`theme::tests::grayscale_light_defines_every_key_at_this_table` reads the
+table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | Grayscale Light |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `cursor.foreground`, `source.function`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#191919` |
+| `region.cursor.background`, `selection.background` | `#CCCCCC` |
+| `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `diagnostic.background`, `locked.background`, `input.background` | `#FFFFFF` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `text` | `#373737` |
+| `source.comment` | `#ADADAD` |
+| `source.number` | `#616161` |
+| `source.note`, `locked.border` | `#333333` |
+| `source.bang` | `#D100D1` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
+| `source.function.background`, `source.function.border` | `#BBBBBB` |
+| `source.bang.border` | `#FF00FF` |
+| `diagnostic.foreground`, `diagnostic.border` | `#C70000` |
+| `output_portal.foreground`, `input_portal.foreground` | `#E4E4E4` |
+| `output_portal.background`, `output_portal.border`, `input_portal.background`, `input_portal.border` | `#666666` |
+| `grid.border` | `#0000001A` |
+| `sector.seam` | `#00000033` |
+| `region.background` | `#E1E1E1` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#D5D5D5` |
+| `selection.border.rest` | `#575757` |
+| `text.muted` | `#373737AF` |
+| `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
+| `overview.source_view` | `#000000` |
+| `overview.source_view.width` | 1 |
+
+### The My Grayscale Dark built-in Theme
+
+`my-grayscale-dark` is [Grayscale Dark](#the-grayscale-dark-built-in-theme)
+with a lighter Comment, a translucent Region fill, a brighter Region border
+and a thinner Cell selection border. The Cursor draws every glyph in `#E6E6E6`: its Cell drops the Portal's
+light fill, and no grey clears 4.5:1 against both that fill and the black
+beneath it. `theme::tests::my_grayscale_dark_defines_every_key_at_this_table` reads
+the table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | My Grayscale Dark |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `region.cursor.background`, `output_portal.foreground`, `input_portal.foreground`, `selection.background` | `#333333` |
+| `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background` | `#000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
+| `source.comment` | `#AFAFAF` |
+| `source.number` | `#898989` |
+| `source.note`, `output_portal.background`, `input_portal.background`, `locked.border` | `#CCCCCC` |
+| `source.function`, `cursor.foreground`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` |
+| `source.bang`, `source.bang.border` | `#00FF00` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
+| `source.function.background`, `source.function.border` | `#444444` |
+| `source.bang.background` | `#111111` |
+| `diagnostic.foreground` | `#FF3B3B` |
+| `output_portal.border`, `input_portal.border` | `#FFFFFF66` |
+| `grid.border` | `#FFFFFF1A` |
+| `sector.seam` | `#FFFFFF33` |
+| `region.background` | `#CCCCCC54` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#2A2A2A` |
+| `selection.border.rest` | `#A8A8A8` |
+| `text.muted` | `#C8C8C899` |
+| `grid.border.width`, `cell.selection.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
+| `overview.source_view` | `#FFFFFF` |
+| `overview.source_view.width` | 1 |
+
+### The My Grayscale Light built-in Theme
+
+`my-grayscale-light` is
+[My Grayscale Dark](#the-my-grayscale-dark-built-in-theme) inverted onto white:
+each grey is mirrored, then darkened only as far as the 4.5:1 floor needs.
+It carries two magentas. Both Portals fill their Cells `#FF00FF` under a
+`#191919` glyph, since white measures 3.1:1 there, and the Bang and both
+Portals draw their borders in it. A Bang's glyph sits on a white fill, where
+`#FF00FF` measures 3.1:1 too, so it draws in `#D100D1`, the brightest magenta
+that clears 4.5:1 against white.
+`theme::tests::my_grayscale_light_defines_every_key_at_this_table` reads the
+table below and fails when it and the code disagree, or when it leaves a
+property out.
+
+| Property | My Grayscale Light |
+|---|---|
+| `cursor.background`, `region.cursor.foreground` | none |
+| `cursor.foreground`, `source.function`, `output_portal.foreground`, `input_portal.foreground`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#191919` |
+| `region.cursor.background`, `selection.background` | `#CCCCCC` |
+| `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `locked.background`, `input.background` | `#FFFFFF` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
+| `source.ordinary`, `diagnostic.border`, `text` | `#373737` |
+| `source.comment` | `#4C4C4C` |
+| `source.number` | `#616161` |
+| `source.note`, `locked.border` | `#333333` |
+| `source.bang` | `#D100D1` |
+| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
+| `source.function.background`, `source.function.border` | `#BBBBBB` |
+| `source.bang.border`, `output_portal.background`, `output_portal.border`, `input_portal.background`, `input_portal.border` | `#FF00FF` |
+| `diagnostic.foreground` | `#C70000` |
+| `grid.border` | `#0000001A` |
+| `sector.seam` | `#00000033` |
+| `region.background` | `#E1E1E1` |
+| `panel.border`, `widget.inactive.border`, `code.background` | `#D5D5D5` |
+| `selection.border.rest` | `#575757` |
+| `text.muted` | `#373737AF` |
+| `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
+| `sector.seam.width` | 0.75 |
+| `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `diagnostic.border.width`, `widget.inactive.border.width` | 0 |
+| `input.cursor.width` | 2 |
+| `overview.source_view` | `#000000` |
+| `overview.source_view.width` | 1 |
+
 ### Shipped Themes
 
 | Identity | Appearance | Status |
 |---|---|---|
+| `grayscale-dark` | dark | Built in and the dark default; sets every named property at the values above. |
+| `grayscale-light` | light | Built in and the light default; sets every named property at the values above. |
+| `my-grayscale-dark` | dark | Built in; sets every named property at the values above. |
+| `my-grayscale-light` | light | Built in; sets every named property at the values above. |
 | `okabe-ito` | dark | Built in; sets every named property at the values above. |
 | `orcvs-light` | light | Built in; sets every named property at the values above. |
 
@@ -537,8 +746,8 @@ names them, read once at startup; the web runs on the built-ins.
 
 ```toml
 [theme]
-dark = "okabe-ito"
-light = "orcvs-light"
+dark = "okabe-ito"      # default: grayscale-dark
+light = "orcvs-light"   # default: grayscale-light
 
 [cell]
 width = 12              # points, 8–64
@@ -574,8 +783,9 @@ display label. When a selection is missing, malformed, conflicted or of the
 wrong appearance, a Theme notice in the top bar names the Theme, the setting
 and the file problem, and the appearance's built-in is shown in its place; the
 settings file is never rewritten, so repairing the Theme file presents it on
-the next launch. The notices also name any loaded Theme with a text state below
-the contrast floor; such a Theme still loads and can be selected.
+the next launch. The notices also name any loaded Theme with a text state that
+fails the contrast floor, which a Comment does not; such a Theme still loads
+and can be selected.
 
 ## Source colours
 
@@ -690,7 +900,8 @@ Each result reports its role, its state (a `CursorPlacement` of `plain`,
 `Cursor`, `Region` or `Region, Cursor's Cell`, crossed with the Portal roles
 the Cell plays: none, Input Portal, Output Portal, or both), the effective foreground and
 background, the measured ratio against the 4.5:1 floor, and whether it is an
-accepted exception. The floor is stated once, at `contrast::CONTRAST_FLOOR`,
+accepted exception. Every role but Comment is held to the floor: a Comment
+state below it is reported and does not fail (`ContrastResult::fails`). The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"), and the returned
 `ContrastReport` carries it too; the scope is stated once, in the module's
 `# Scope` section. `validate` measures text contrast only: never Token-colour
@@ -796,10 +1007,8 @@ Portal-over-role figures, read from `contrast::validate`:
 Every one clears the floor. Bang, 4.63:1, is the lowest figure the Region wash
 sets.
 
-Sector boundaries are partial 0.75-pixel phosphor registration marks drawn over
-Cell edges. Each sector corner forms a `+`: four equally strong arms fade toward
-the midpoint between neighbouring corners with relative strengths `100, 72, 34,
-13, 13, 34, 72, 100`. The faint middle also has sparse gaps derived from each
-absolute Grid Position, so the marks feel imperfect without flicker. They
-replace the historical `+` Marker Glyphs, leaving every empty Cell visually
+Sector boundaries are solid lines drawn over Cell edges, along the whole of
+every sector edge, in the Theme's `sector.seam` at `sector.seam.width`: styled
+the way a Cell grid line is styled by `grid.border` and `grid.border.width`.
+They replace the historical `+` Marker Glyphs, leaving every empty Cell visually
 empty while preserving the configured Sector Seam spacing as geometry.
