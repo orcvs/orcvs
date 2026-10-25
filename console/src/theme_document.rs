@@ -255,7 +255,10 @@ impl std::fmt::Display for ThemeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownParent { parent } => {
-                write!(f, "unknown parent Theme identity {parent:?}")
+                write!(
+                    f,
+                    "`inherits` names {parent:?}, which is not a built-in Theme"
+                )
             }
             Self::ReservedIdentity { identity } => {
                 write!(f, "\"{identity}\" is a reserved built-in Theme identity")

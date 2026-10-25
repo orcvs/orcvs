@@ -778,6 +778,7 @@ mod tests {
     use egui::Color32;
 
     use super::{Appearance, ChromeWidth, GridWidth, ThemeIdentity};
+    use crate::contrast::colour_vision::seen_apart;
     use crate::theme_registry::ThemeRegistry;
     use crate::theme_registry::tests_support::built_ins;
 
@@ -807,14 +808,15 @@ mod tests {
     }
 
     ///
-    /// Where two Source roles draw their glyph in one grey, the Cell around
-    /// it must still differ, in fill or in a border that draws, or the two
+    /// Where two Source roles draw glyphs a viewer cannot tell apart, closer
+    /// than the colour-vision floor on the Grid background, the Cell around
+    /// them must still differ, in fill or in a border that draws, or the two
     /// meanings read as one. A border draws only while it is visible and
     /// wider than zero. The two Portals may draw alike: both mark a Cell the
     /// Tick reached, and `theme.md` records which built-ins draw them alike.
     ///
     #[test]
-    fn roles_that_share_a_grey_differ_in_fill_or_border() {
+    fn roles_whose_glyphs_read_alike_differ_in_fill_or_border() {
         let registry = ThemeRegistry::built_in();
         for theme in built_ins(&registry) {
             let roles = [
@@ -895,10 +897,11 @@ mod tests {
             for (index, (first, glyph, fill, border)) in roles.iter().enumerate() {
                 for (second, other_glyph, other_fill, other_border) in &roles[index + 1..] {
                     let portals = (*first, *second) == ("Output Portal", "Input Portal");
-                    if glyph == other_glyph && !portals {
+                    let ground = theme.grid_background;
+                    if !seen_apart(ground.blend(*glyph), ground.blend(*other_glyph)) && !portals {
                         assert!(
                             (fill, border) != (other_fill, other_border),
-                            "{}: {first} and {second} share a grey, a fill and a border",
+                            "{}: {first} and {second} read alike in glyph, fill and border",
                             theme.identity
                         );
                     }

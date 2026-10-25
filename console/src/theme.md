@@ -41,9 +41,9 @@ Theme values. A Theme uses one versioned Orcvs format: `format: orcvs-theme`, `v
 values; custom files inherit omitted values. Base16 import is deferred.
 Planned Theme controls are colours, opacity, Grid and Cell
 colours, borders and border widths. Grid background and Cell fills expose colour and opacity. Cell grid lines and Sector Seams each expose independent colour, opacity and width. Cursor, Region and Diagnostic borders expose colour, opacity and width. Widths are bounded; transparent colours can hide lines. Grid line and border widths are measured in display points and retain the same thickness in points at every egui zoom factor; they do not scale with Cell size. A Theme sets no Cell size or spacing.
-Exact key spellings and defaults are in
-[the Theme specification](../../.scratch/theming/schema.md). The table below
-records their relation to the current console. Preserve Grid structure,
+Exact key spellings and ranges are in
+[the Theme specification](../../.scratch/theming/schema.md), and each
+built-in's table below records its values. Preserve Grid structure,
 existing fonts and layout, and input behaviour.
 Font choice, font sizes, spacing, corner radii, shadows and gradients are not
 planned. Leave room for future extensions without speculative machinery.
@@ -135,16 +135,17 @@ that must stand out: Grayscale Dark draws Bang in green and the Diagnostic
 glyph in red, and Grayscale Light draws Bang in magenta and frames a
 Diagnostic in red. Both fill the Region with an opaque grey.
 
-Two glyph roles share a grey in Grayscale Dark, each told apart by what the
-Cell carries around the glyph
-(`theme::tests::roles_that_share_a_grey_differ_in_fill_or_border`):
+Where two glyph roles read alike, closer than the colour-vision floor on the
+Grid background, the Cell around the glyph tells them apart
+(`theme::tests::roles_whose_glyphs_read_alike_differ_in_fill_or_border`):
 
-| Shared glyph grey | Told apart by |
-|---|---|
-| Output Portal, Input Portal | Input Portal's border |
+| Glyphs that read alike | Grayscale Dark tells them apart by | Grayscale Light tells them apart by |
+|---|---|---|
+| Ordinary, Note | Note's fill and border | Note's fill and border |
+| Output Portal, Input Portal | Input Portal's border | nothing: both Portals draw alike |
 
-Grayscale Light draws Output Portal and Input Portal alike, in one glyph, fill
-and border; the test accepts the two Portals alike in any built-in.
+The test accepts the two Portals alike in any built-in, since both mark a Cell
+the Tick reached.
 
 Both draw Comment faint, below the 4.5:1 floor, which Comment is not held to
 (`contrast::Role::held_to_floor`): Grayscale Dark's `#555555` measures 2.82:1
@@ -378,8 +379,7 @@ two cannot independently drift.
 Each result reports its role, its state (a `CursorPlacement` of `plain`,
 `Cursor`, `Region` or `Region, Cursor's Cell`, crossed with the Portal roles
 the Cell plays: none, Input Portal, Output Portal, or both), the effective foreground and
-background, the measured ratio against the 4.5:1 floor, and whether it is an
-accepted exception. Every role but Comment is held to the floor: a Comment
+background, and the measured ratio against the 4.5:1 floor. Every role but Comment is held to the floor: a Comment
 state below it is reported and does not fail (`ContrastResult::fails`). The floor is stated once, at `contrast::CONTRAST_FLOOR`,
 from WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)"), and the returned
 `ContrastReport` carries it too; the scope is stated once, in the module's
@@ -404,9 +404,9 @@ A Pending operand Cell draws no glyph, so `validate` has no Pending role to
 measure — `Role` (Number, Note) carries Valid and Invalid only.
 
 `contrast::tests::shipped_theme_gate` runs over every built-in the registry
-holds: every reachable state but a Comment clears 4.5:1, and
-`contrast::tests::no_built_in_has_an_accepted_exception` holds
-`accepted_failures` empty for each of them.
+holds: every state of a role held to the floor clears 4.5:1, and a Comment
+below it is reported and does not fail. There are no accepted exceptions: a
+state below the floor of a role held to it fails the gate.
 
 The console chrome's states (`.scratch/theming/issues/11`) are read from
 `style::style` — the `Style` `style::install` registers — through the egui

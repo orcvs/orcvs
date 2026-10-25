@@ -57,7 +57,7 @@ use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
 use crate::style::{CellColours, CursorPlacement, style};
-use crate::theme::{Theme, ThemeIdentity};
+use crate::theme::Theme;
 
 ///
 /// The WCAG 2.1 Success Criterion 1.4.3 ("Contrast (Minimum)") ratio every
@@ -447,21 +447,12 @@ pub(crate) struct ContrastResult {
     pub(crate) state: State,
     /// The Theme's own effective foreground before compositing, which may be
     /// translucent. [`Self::ratio`] measures it composited over
-    /// [`Self::background`]. Do not store the composited colour here:
-    /// accepted exceptions match on this exact colour, and a composited one
-    /// no longer matches them.
+    /// [`Self::background`].
     pub(crate) foreground: Color32,
     /// The opaque surface the text is painted on, resolved down to the
     /// window backdrop.
     pub(crate) background: Color32,
     pub(crate) ratio: f32,
-    /// Whether this exact `(role, state, foreground, background)` is recorded
-    /// as an explicitly accepted exception. Never turns [`Self::passes`] into
-    /// `true`: acceptance annotates a failure, it does not hide or pass it.
-    /// Keyed on the measured colour pair as well as role/state, so a retune
-    /// that changes `foreground`/`background` while keeping the same
-    /// role/state label does not stay silently accepted.
-    pub(crate) accepted: bool,
 }
 
 impl ContrastResult {
@@ -471,11 +462,11 @@ impl ContrastResult {
     }
 
     ///
-    /// Whether this state counts against the Theme: below the floor, of a
-    /// role [held to it](Role::held_to_floor), and not an accepted exception.
+    /// Whether this state counts against the Theme: below the floor, and of
+    /// a role [held to it](Role::held_to_floor).
     ///
     pub(crate) fn fails(&self) -> bool {
-        !self.passes() && self.role.held_to_floor() && !self.accepted
+        !self.passes() && self.role.held_to_floor()
     }
 }
 
@@ -491,7 +482,7 @@ pub(crate) struct ContrastReport {
 ///
 /// Measures every reachable painted text state against `theme` and reports
 /// each one's role, state, effective foreground and background, measured
-/// WCAG ratio, and whether it is an explicitly accepted exception.
+/// WCAG ratio.
 ///
 /// Never refuses `theme`: a scheme that fails a state is measured and
 /// reported exactly like one that passes, because the floor is a fact about
@@ -523,25 +514,13 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
                 if foreground.a() == 0 {
                     continue;
                 }
-                results.push(measure(
-                    role,
-                    state,
-                    foreground,
-                    background,
-                    &theme.identity,
-                ));
+                results.push(measure(role, state, foreground, background));
             }
         }
     }
 
     for (role, state, foreground, background) in chrome(theme) {
-        results.push(measure(
-            role,
-            state,
-            foreground,
-            background,
-            &theme.identity,
-        ));
+        results.push(measure(role, state, foreground, background));
     }
 
     ContrastReport {
@@ -551,29 +530,18 @@ pub(crate) fn validate(theme: &Theme) -> ContrastReport {
 }
 
 ///
-/// Composites `foreground` over the already-opaque `background`, measures
-/// [`contrast`] between the two, and looks `identity`'s accepted exceptions
-/// up for a matching entry.
+/// Composites `foreground` over the already-opaque `background` and measures
+/// [`contrast`] between the two.
 ///
-fn measure(
-    role: Role,
-    state: State,
-    foreground: Color32,
-    background: Color32,
-    identity: &ThemeIdentity,
-) -> ContrastResult {
+fn measure(role: Role, state: State, foreground: Color32, background: Color32) -> ContrastResult {
     let displayed = background.blend(foreground);
     let ratio = contrast(displayed, background);
-    let accepted = accepted_failures(identity)
-        .iter()
-        .any(|entry| entry.matches(role, state, foreground, background));
     ContrastResult {
         role,
         state,
         foreground,
         background,
         ratio,
-        accepted,
     }
 }
 
@@ -600,47 +568,8 @@ fn contrast(foreground: Color32, background: Color32) -> f32 {
     (first.max(second) + 0.05) / (first.min(second) + 0.05)
 }
 
-///
-/// One below-floor `(role, state)` result recorded as explicitly accepted
-/// for a shipped Theme, at the exact colour pair it was accepted at.
-///
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct AcceptedFailure {
-    role: Role,
-    state: State,
-    foreground: Color32,
-    background: Color32,
-}
-
-impl AcceptedFailure {
-    fn matches(&self, role: Role, state: State, foreground: Color32, background: Color32) -> bool {
-        self.role == role
-            && self.state == state
-            && self.foreground == foreground
-            && self.background == background
-    }
-}
-
-///
-/// The accepted exceptions for a shipped Theme, keyed by identity.
-///
-/// Every built-in's list is empty: none has a reachable painted failure
-/// (`tests::no_built_in_has_an_accepted_exception` pins that).
-///
-/// Called from [`measure`], which every [`validate`] result passes through —
-/// not test-only: `theme_registry` validates every Theme file it loads.
-/// `ContrastResult::accepted` has to come from
-/// somewhere for the report to carry its acceptance annotation in the
-/// returned data rather than only in test code, and this table is that
-/// somewhere. `tests::unaccepted`, the shipped-Theme *gate*'s comparison, has
-/// no such production reason and is test code.
-///
-fn accepted_failures(_identity: &ThemeIdentity) -> &'static [AcceptedFailure] {
-    &[]
-}
-
 #[cfg(test)]
-mod colour_vision;
+pub(crate) mod colour_vision;
 
 #[cfg(test)]
 mod tests {
@@ -649,8 +578,7 @@ mod tests {
     use orcvs::source::SourcePaint;
 
     use super::{
-        AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast,
-        painted, validate,
+        ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast, painted, validate,
     };
     use crate::theme::{Appearance, Theme};
     use crate::theme_registry::ThemeRegistry;
@@ -673,7 +601,7 @@ mod tests {
 
     /// The results of `report` that [fail](ContrastResult::fails) — the
     /// shipped-Theme gate's comparison.
-    pub(super) fn unaccepted(report: &ContrastReport) -> Vec<&ContrastResult> {
+    pub(super) fn failures(report: &ContrastReport) -> Vec<&ContrastResult> {
         report
             .results
             .iter()
@@ -1509,66 +1437,6 @@ mod tests {
         assert_eq!(cursor.background, Color32::from_rgb(1, 2, 3));
     }
 
-    // === Acceptance is keyed on the measured colour pair, not only the label ===
-
-    ///
-    /// [`AcceptedFailure::matches`] requires the same foreground/background
-    /// as well as the same role/state: a retune that keeps a role's and
-    /// state's label the same but changes the colour it measures must not
-    /// stay silently accepted.
-    ///
-    #[test]
-    fn accepted_failure_match_requires_the_same_colour_pair_not_only_role_and_state() {
-        let state = State::SourceGrid {
-            cursor: CursorPlacement::Plain,
-            portals: PortalRoles::NONE,
-        };
-        let entry = AcceptedFailure {
-            role: Role::NoteInvalid,
-            state,
-            foreground: Color32::from_rgb(1, 2, 3),
-            background: Color32::from_rgb(4, 5, 6),
-        };
-
-        assert!(entry.matches(Role::NoteInvalid, state, entry.foreground, entry.background));
-        assert!(
-            !entry.matches(
-                Role::NoteInvalid,
-                state,
-                Color32::from_rgb(9, 9, 9),
-                entry.background
-            ),
-            "a retuned foreground must not match a stale accepted entry"
-        );
-        assert!(
-            !entry.matches(
-                Role::NoteInvalid,
-                state,
-                entry.foreground,
-                Color32::from_rgb(9, 9, 9)
-            ),
-            "a retuned background must not match a stale accepted entry"
-        );
-    }
-
-    ///
-    /// Every built-in's accepted-exception list is empty. This pins that
-    /// premise separately from `shipped_theme_gate`, which would also pass on
-    /// a list full of exceptions: a built-in clears the floor unaided, a
-    /// Comment below it excepted, which is not held to the floor.
-    ///
-    #[test]
-    fn no_built_in_has_an_accepted_exception() {
-        let registry = ThemeRegistry::built_in();
-        for theme in built_ins(&registry) {
-            assert!(
-                super::accepted_failures(&theme.identity).is_empty(),
-                "{} ships with an accepted contrast exception",
-                theme.identity
-            );
-        }
-    }
-
     ///
     /// A Comment drawn in its own background's colour measures 1:1 and is
     /// reported, yet does not fail; the same glyph colour on an Ordinary Cell
@@ -1598,9 +1466,8 @@ mod tests {
 
     ///
     /// No shipped Theme has a state that [fails](ContrastResult::fails), or
-    /// this test fails and lists them. A Comment below the floor does not
-    /// fail, and with every accepted-exception list empty, any other state
-    /// below it does. `shipped` is the Theme registry's own built-ins, so a
+    /// this test fails and lists them: every state of a role held to the
+    /// floor clears it, and a Comment below it is reported and does not fail. `shipped` is the Theme registry's own built-ins, so a
     /// built-in added there is gated here without a second list to keep.
     ///
     #[test]
@@ -1610,10 +1477,10 @@ mod tests {
 
         for theme in shipped {
             let report = validate(theme);
-            let failures = unaccepted(&report);
+            let failures = failures(&report);
             assert!(
                 failures.is_empty(),
-                "{}'s unrecorded contrast failures: {failures:?}",
+                "{}'s contrast failures: {failures:?}",
                 theme.identity
             );
         }

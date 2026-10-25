@@ -61,7 +61,9 @@ pub(crate) struct ThemeRegistry {
     /// Resolved custom Themes by identity (filename stem).
     custom: BTreeMap<ThemeIdentity, Theme>,
     /// Identities a document claimed but that could not be loaded, with the
-    /// reason — what a selection of one of them reports.
+    /// reason — what a selection of one of them reports. A built-in's
+    /// identity may be here too: [`Self::select`] answers the built-in
+    /// first, so a refused file never shadows it.
     refused: BTreeMap<ThemeIdentity, String>,
     /// Load and contrast messages, in the order they arose, until the
     /// viewer dismisses them.
@@ -158,17 +160,6 @@ impl ThemeRegistry {
                     Unavailable::Refused(reason.clone())
                 })),
         }
-    }
-
-    ///
-    /// Whether `identity` is a built-in's, which no Theme file can replace.
-    /// Only native discovery reads Theme files.
-    ///
-    #[cfg(not(target_arch = "wasm32"))]
-    fn is_built_in(&self, identity: &ThemeIdentity) -> bool {
-        self.built_ins
-            .iter()
-            .any(|built_in| &built_in.identity == identity)
     }
 
     ///
@@ -440,9 +431,7 @@ mod native {
                 // An entry that cannot be loaded was reported when it was
                 // found; it refuses its identity without a second notice.
                 if let Some(reason) = candidate.unloadable {
-                    if !registry.is_built_in(&identity) {
-                        registry.refused.insert(identity, reason);
-                    }
+                    registry.refused.insert(identity, reason);
                     continue;
                 }
                 let loaded = read_bounded(&candidate.path)
@@ -455,11 +444,7 @@ mod native {
                             "Refused the Theme file {}: {reason}",
                             candidate.path.display()
                         ));
-                        // A reserved identity is still the built-in's: the
-                        // refused file never shadows it.
-                        if !registry.is_built_in(&identity) {
-                            registry.refused.insert(identity, reason);
-                        }
+                        registry.refused.insert(identity, reason);
                     }
                 }
             }
@@ -843,8 +828,8 @@ mod discovery_tests {
 
     ///
     /// A Theme file inheriting a retired built-in's identity names no parent
-    /// the registry holds, so it is refused with a notice naming the file and
-    /// the parent it names.
+    /// the registry holds, so it is refused with a notice naming the file,
+    /// the `inherits` setting and the parent it names.
     ///
     #[test]
     fn a_theme_file_inheriting_a_retired_built_in_is_refused() {
@@ -861,7 +846,7 @@ mod discovery_tests {
                 .notice_list()
                 .iter()
                 .any(|notice| notice.contains("old.toml")
-                    && notice.contains("parent")
+                    && notice.contains("`inherits`")
                     && notice.contains("\"okabe-ito\"")),
             "{:?}",
             registry.notice_list()
@@ -1007,6 +992,27 @@ mod discovery_tests {
                 if reason.contains(&upper) && reason.contains(&lower)
         ));
         assert!(registry.custom.is_empty());
+    }
+
+    ///
+    /// A conflict over a built-in's identity is reported and never shadows
+    /// the built-in: a selection of it still answers the built-in.
+    ///
+    #[test]
+    fn a_conflict_over_a_built_in_identity_keeps_the_built_in() {
+        let dark_default = ThemeIdentity::default_for(Appearance::Dark);
+        let (_, conflicts) = group(vec![
+            candidate(&format!("{dark_default}.toml")),
+            candidate(&format!("{dark_default}.TOML")),
+        ]);
+
+        let mut registry = ThemeRegistry::built_in();
+        registry.refuse_conflicts(conflicts);
+        assert_eq!(registry.notice_list().len(), 1);
+        assert_eq!(
+            registry.select(Appearance::Dark, &dark_default),
+            Ok(ThemeRegistry::built_in().fallback(Appearance::Dark))
+        );
     }
 
     ///

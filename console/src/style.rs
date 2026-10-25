@@ -858,8 +858,8 @@ fn operand_paint(
 /// not a themed property.
 ///
 /// `visuals.widgets.hovered`/`.active.fg_stroke` read `text.active`, not
-/// `selection.border`: the default Themes' values for the two coincide,
-/// which is why reading the wrong key would still look right under them —
+/// `selection.border`: a Theme may set the two alike, and reading the
+/// wrong key would then still look right —
 /// `hovered_and_active_foreground_reads_text_active_
 /// not_selection_border` retunes them apart to prove the wiring.
 ///
@@ -946,8 +946,8 @@ pub fn style(theme: &Theme) -> Style {
     visuals.widgets.hovered.bg_stroke =
         bounded_stroke(theme.widget_border_width, theme.selection_border_rest);
     // "Hovered/active widget foreground" — `text.active`, not `selection.border`:
-    // the default Themes' values for the two coincide, which is why reading
-    // the wrong key would still look right until a custom Theme set them apart.
+    // a Theme may set the two alike, and reading the wrong key would then
+    // still look right until a custom Theme set them apart.
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, theme.text_active);
     visuals.widgets.active.bg_fill = theme.selection_background;
     visuals.widgets.active.weak_bg_fill = theme.selection_background;

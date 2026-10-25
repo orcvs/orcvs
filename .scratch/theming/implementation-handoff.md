@@ -65,8 +65,9 @@ restoration and OS appearance changes.
 The named-property catalogue, exact dark values, weak/IME mappings, explicit
 role backgrounds, direct TOML decoding and its strictness cases, format/version handling, optional-fill encoding,
 resource limits and native/web error behaviour are specified in `schema.md`.
-`examples/okabe-ito-copy.toml` supplies every property; `examples/my-dark.toml`
-is a small inherited custom Theme. The legacy schema-draft link redirects there.
+`examples/my-dark.toml` is a small inherited custom Theme. (`examples/okabe-ito-copy.toml`,
+which supplied every property, went with the Okabe–Ito Theme in
+`.scratch/theme-independence/issues/07`.) The legacy schema-draft link redirects there.
 
 The implementation must still verify actual paint/composite results, native/web
 loading, feature combinations and error recovery. No runtime tests were run for

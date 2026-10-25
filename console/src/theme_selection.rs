@@ -59,8 +59,7 @@ pub(crate) struct ThemeSelection(ByAppearance<ThemeIdentity>);
 
 impl Default for ThemeSelection {
     ///
-    /// Each appearance's default built-in: `grayscale-dark` for dark, and
-    /// `grayscale-light` for light.
+    /// Each appearance's default built-in, [`ThemeIdentity::default_for`].
     ///
     fn default() -> Self {
         Self(ByAppearance::from_fn(ThemeIdentity::default_for))

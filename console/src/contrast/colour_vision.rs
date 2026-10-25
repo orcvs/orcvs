@@ -41,8 +41,8 @@ const CONFUSION_FLOOR: f32 = 5.0;
 ///
 /// Tritanopia is measured and reported, and deliberately **not** gated. A
 /// palette published as safe for red–green deficiency makes no tritan claim:
-/// two hues apart only on the blue–yellow axis, such as a reddish-purple
-/// Bang and a vermillion Diagnostic, measure under 1 apart under tritanopia,
+/// two hues apart only on the blue–yellow axis measure under 1 apart under
+/// tritanopia,
 /// because that axis is exactly the one tritanopia removes, and no lightness
 /// arrangement inside the contrast ceiling a near-white ground imposes
 /// rescues every such pair. It is reported so the number is a measured
@@ -326,6 +326,15 @@ fn lab(colour: Color32) -> [f32; 3] {
 }
 
 ///
+/// Whether a viewer with ordinary colour vision tells two opaque colours
+/// apart: their CIEDE2000 distance, unsimulated, reaches
+/// [`CONFUSION_FLOOR`].
+///
+pub(crate) fn seen_apart(first: Color32, second: Color32) -> bool {
+    difference(lab(first), lab(second)) >= CONFUSION_FLOOR
+}
+
+///
 /// CIEDE2000 (CIE 142-2001) between two [`lab`] colours, at the default
 /// parametric weights `kL = kC = kH = 1`.
 ///
@@ -476,7 +485,7 @@ mod tests {
         CONFUSION_FLOOR, ColourVision, ConfusionReport, ConfusionResult, GlyphChannel, difference,
         distinguish, lab, simulate,
     };
-    use crate::contrast::tests::unaccepted;
+    use crate::contrast::tests::failures;
     use crate::contrast::{contrast, validate};
     use crate::theme::{Appearance, Theme};
     use crate::theme_registry::ThemeRegistry;
@@ -501,9 +510,10 @@ mod tests {
     /// The pairs `report` loses to a gated dichromacy: below
     /// [`CONFUSION_FLOOR`], with at least one colour that is not a neutral
     /// grey. Two neutral greys are exempt: no dichromacy moves a neutral, so
-    /// a dichromat sees such a pair exactly as anyone else does, and a Theme
-    /// that tells two channels apart by grey level alone is not confusing
-    /// them by colour.
+    /// a dichromat sees such a pair exactly as anyone else does. Whether
+    /// anyone can tell two such glyphs apart is
+    /// `theme::tests::roles_whose_glyphs_read_alike_differ_in_fill_or_border`'s
+    /// question, asked of every viewer.
     ///
     fn lost(report: &ConfusionReport) -> Vec<&ConfusionResult> {
         let neutral = |colour: Color32| colour.r() == colour.g() && colour.g() == colour.b();
@@ -757,7 +767,7 @@ mod tests {
 
         let contrast_report = validate(&rejected);
         assert!(
-            unaccepted(&contrast_report).is_empty(),
+            failures(&contrast_report).is_empty(),
             "the rejected definition cleared the contrast floor; if it no longer does, this \
              fixture is no longer the thing that motivated a second measurement"
         );

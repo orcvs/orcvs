@@ -962,21 +962,28 @@ async fn no_menu_offers_a_setting() {
         "the Settings menu is still on the top bar"
     );
 
+    let registry = ThemeRegistry::built_in();
+    let built_in_names = crate::theme_registry::tests_support::built_ins(&registry)
+        .iter()
+        .map(|theme| theme.name.as_str());
+    let settings: Vec<&str> = [
+        "Glitch amount",
+        "Glitch frequency",
+        "Appearance",
+        "Dark Theme",
+        "Light Theme",
+        "My Dark",
+        "My Light",
+    ]
+    .into_iter()
+    .chain(built_in_names)
+    .collect();
+
     for menu in ["File", "View", "Help"] {
         harness.get_by_label(menu).click();
         harness.step();
         harness.run_steps(1);
-        for setting in [
-            "Glitch amount",
-            "Glitch frequency",
-            "Appearance",
-            "Dark Theme",
-            "Light Theme",
-            "Grayscale Dark",
-            "Grayscale Light",
-            "My Dark",
-            "My Light",
-        ] {
+        for &setting in &settings {
             assert_eq!(
                 harness.query_all_by_label(setting).count(),
                 0,

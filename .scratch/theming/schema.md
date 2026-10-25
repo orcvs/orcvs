@@ -11,7 +11,7 @@ contract; it does not claim runtime implementation or approve the light palette.
 format = "orcvs-theme"
 version = 1
 name = "My Dark"
-inherits = "okabe-ito"
+inherits = "grayscale-dark"
 
 [style]
 text = "#E0E0E0"
@@ -24,10 +24,9 @@ text = "#E0E0E0"
 Required root fields are `format`, `version`, `name` and `inherits`. `style` is
 optional; omitting it or leaving it empty inherits the complete parent unchanged.
 Optional `appearance` is `dark` or `light` and must match the parent. The filename
-stem is the identity; `name` is a nonempty display label. `grayscale-dark` and
-`okabe-ito` are the reserved dark built-in identities, `grayscale-light` and
-`orcvs-light` the reserved light ones; the grayscale pair are the defaults. `orcvs-light`'s
-palette must pass the separate review gate before switching is exposed.
+stem is the identity; `name` is a nonempty display label. The built-ins'
+identities, `grayscale-dark` and `grayscale-light`, are reserved, and each is
+its appearance's default.
 
 This is one versioned Orcvs Theme data model, represented in TOML and nothing
 else: a Theme document is a `.toml` file. JSON and YAML representations were
@@ -48,6 +47,10 @@ is not a null value.
 `source.ordinary` supplies Ordinary and Char foregrounds. Char has no
 independent paint fact and uses the ordinary background; no unused Char-only
 property or production test seam is introduced.
+
+The value columns below are the Okabe–Ito definition this catalogue was
+written against. `.scratch/theme-independence/issues/07` retired that Theme;
+`console/src/theme.md` records the values of the built-ins that ship.
 
 | Colour property | Okabe–Ito value |
 |---|---|

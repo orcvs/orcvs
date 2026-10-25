@@ -81,7 +81,7 @@ is not an exhaustive claim: newly discovered failures still require review.
 
 ## Amendment, 2026-10-01: no shipped Theme carries a contrast exception
 
-*Narrowed on 2026-10-23 by the amendment below: Comment is not held to the floor. The Themes and tests it names are retired by the 2026-10-25 amendment; its rule holds for the built-ins that remain.*
+*Narrowed on 2026-10-23 by the amendment below: Comment is not held to the floor. The Themes and tests it names, and the accepted-exception list it describes, are retired by the 2026-10-25 amendment; its floor holds for the built-ins that remain.*
 
 The Sequence accepted exception and the "Known dark failures awaiting acceptance"
 table above are superseded. Every shipped Theme clears the 4.5:1 floor in every
@@ -258,13 +258,18 @@ retirement that small.
   document whose `inherits` names one is refused with a notice, as for any
   identity the registry does not hold.
 - **The gates cover every built-in.** The contrast gate, the colour-vision gate
-  and the record check run over the registry's built-ins, and
-  `contrast::accepted_failures` is empty for every one.
+  and the record check run over the registry's built-ins.
 - **Two neutral greys are not a colour-vision confusion.** The defaults tell
   Source roles apart by grey level, and no dichromacy moves a neutral grey, so
   a dichromat sees a pair of greys as anyone else does. The colour-vision gate
   fails a pair below `CONFUSION_FLOOR` only when at least one of its colours is
-  not a neutral grey.
+  not a neutral grey. Whether any viewer tells two glyphs apart is asked of
+  every pair instead: two glyph roles closer than `CONFUSION_FLOOR` on the Grid
+  background must differ in fill or in a drawn border.
+- **No accepted exceptions.** `contrast::accepted_failures` and the exception
+  annotation on a contrast result are deleted: a state below the floor of a
+  role held to it fails the gate, and a Theme that needs one changes the rule
+  in review rather than an entry in a list.
 
 ## Rejected alternatives
 

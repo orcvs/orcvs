@@ -844,7 +844,7 @@ mod tests {
     /// `CursorPlacement::Plain`, reading its claim, its own Portal roles and
     /// its occupancy straight from `cell` — the same three per-Cell inputs
     /// `Paint::derive_with_theme` reads, so a test comparing against this
-    /// needs no `default_theme(Appearance::Dark)`-only shim.
+    /// needs no Theme-specific shim.
     ///
     fn expected_visuals(
         cell: &orcvs::render_frame::RenderCell,
