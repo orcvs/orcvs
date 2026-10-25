@@ -231,9 +231,10 @@ fn click_at(harness: &mut Harness<'_, Console>, point: Pos2) {
 /// An ordinary control, found by the name a viewer reads rather than by a
 /// position a test computed.
 ///
-/// View → Diagnostics expands the fixed Panel without covering the Source.
-/// Its readouts sit below the playback controls, and closing it restores the
-/// space the Source had before it opened.
+/// A fresh console opens with Diagnostics hidden. View → Diagnostics expands
+/// the fixed Panel without covering the Source. Its readouts sit below the
+/// playback controls, and closing it restores the space the Source had before
+/// it opened.
 ///
 #[tokio::test]
 async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_space() {
@@ -245,24 +246,15 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
             .outer_rect
     };
     assert!(
-        harness.state().diagnostics_open,
-        "a fresh console did not open with Diagnostics showing"
+        !harness.state().diagnostics_open,
+        "a fresh console opened with Diagnostics showing"
     );
     assert!(
-        harness.query_by_label("Visible Source region").is_some(),
-        "Diagnostics are missing from the fresh console"
+        harness.query_by_label("FPS").is_none(),
+        "Diagnostics are presented in the fresh console"
     );
-    let initial_expanded = panel_rect(&harness);
-
-    harness.get_by_label("View").click();
-    harness.step();
-    harness.get_by_label("Diagnostics").click();
-    harness.run_steps(3);
-    assert!(!harness.state().diagnostics_open);
-    assert!(harness.query_by_label("FPS").is_none());
     let compact = panel_rect(&harness);
     let compact_source = source_rect(&harness);
-    assert!(compact.height() < initial_expanded.height());
 
     harness.get_by_label("View").click();
     harness.step();
@@ -281,7 +273,6 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
         "the console holds diagnostics_open but presented no Diagnostics"
     );
     let expanded = panel_rect(&harness);
-    assert_eq!(expanded, initial_expanded);
     assert!(expanded.height() > compact.height());
     assert_eq!(expanded.bottom(), compact.bottom());
     assert_eq!(source_rect(&harness).bottom(), expanded.top());
@@ -737,7 +728,7 @@ async fn the_overview_shows_a_grab_hand_and_a_grabbing_hand_while_held() {
 async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    assert!(harness.state().diagnostics_open);
+    assert!(!harness.state().diagnostics_open);
 
     harness.get_by_label("View").click();
     harness.step();
@@ -745,7 +736,7 @@ async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it()
     let item = harness.get_by_label("Diagnostics");
     let node = item.accesskit_node();
     assert_eq!(node.role(), egui::accesskit::Role::CheckBox);
-    assert_eq!(node.toggled(), Some(egui::accesskit::Toggled::True));
+    assert_eq!(node.toggled(), Some(egui::accesskit::Toggled::False));
     let zoom_in = menu_item(&harness, "Zoom In").rect();
     let diagnostics = item.rect();
     assert_eq!(
@@ -759,30 +750,31 @@ async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it()
     harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
     harness.run_steps(2);
     assert!(
+        harness.state().diagnostics_open,
+        "command D did not show Diagnostics"
+    );
+    assert!(harness.query_by_label("FPS").is_some());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
+    harness.run_steps(2);
+    assert!(
         !harness.state().diagnostics_open,
         "command D did not hide Diagnostics"
     );
     assert!(harness.query_by_label("FPS").is_none());
-    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
-    harness.run_steps(2);
-    assert!(
-        harness.state().diagnostics_open,
-        "command D did not show Diagnostics"
-    );
 }
 
 ///
-/// A fresh console shrunk to the smallest window it allows still shows the
-/// Source: the docked Diagnostics it opens with leave the Grid room for a
-/// whole row of Cells.
+/// A console shrunk to the smallest window it allows still shows the Source
+/// with Diagnostics docked: they leave the Grid room for a whole row of Cells.
 ///
 #[tokio::test]
-async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
+async fn the_smallest_window_keeps_a_row_of_cells_beside_docked_diagnostics() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE_MIN));
+    harness.state_mut().diagnostics_open = true;
     harness.run_steps(2);
     assert!(
-        harness.state().diagnostics_open,
-        "a fresh console did not open with Diagnostics showing"
+        harness.query_by_label("FPS").is_some(),
+        "Diagnostics are not docked in the smallest window"
     );
 
     let source = source_rect(&harness);
@@ -857,6 +849,7 @@ async fn docked_diagnostics_labels_are_not_truncated() {
 #[tokio::test]
 async fn docked_diagnostics_report_the_current_source_region_after_view_changes() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.state_mut().diagnostics_open = true;
     harness.run_steps(2);
     let assert_region = |harness: &Harness<'_, Console>| {
         let region = harness.state().source_view.shown().shown();

@@ -1293,9 +1293,10 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         "the Panel is not at the bottom: {:?}",
         panel.outer_rect
     );
-    assert!(
-        panel.outer_rect.height() > BOTTOM_PANEL_HEIGHT,
-        "the default Panel has no room for Diagnostics: {:?}",
+    assert_eq!(
+        panel.outer_rect.height(),
+        BOTTOM_PANEL_HEIGHT,
+        "the default Panel makes room for hidden Diagnostics: {:?}",
         panel.outer_rect
     );
 }
@@ -6418,9 +6419,9 @@ async fn a_press_on_the_overview_answers_a_centre_and_leaves_the_source_view_to_
 async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_changes() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    console.overview_open = true;
-    let (shapes, textures) =
-        console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    let mut textures = open_overview(&ctx, screen, &mut console, &mut host);
+    let (shapes, drawn) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
+    textures.extend(drawn);
     let (texture, _) = overview_image(&shapes).expect("the Overview drew no image");
     let uploads = |textures: &[TextureUpload]| {
         textures
@@ -6532,6 +6533,20 @@ fn assert_near(actual: Rect, expected: Rect, situation: &str) {
 }
 
 ///
+/// Opens the Overview and runs the pass that measures it: an egui Area is
+/// drawn from its second pass. The uploads of that pass are returned.
+///
+fn open_overview(
+    ctx: &egui::Context,
+    screen: Rect,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> Vec<TextureUpload> {
+    console.overview_open = true;
+    console_output_at(ctx, screen, Vec::new(), console, host, 1.0).1
+}
+
+///
 /// One pass of an open Overview: the outline it stroked, if any, the picture
 /// and the Source panel's area.
 ///
@@ -6571,7 +6586,7 @@ async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let theme = default_theme(Appearance::Dark);
-    console.overview_open = true;
+    open_overview(&ctx, screen, &mut console, &mut host);
     let cell = snapped_cell(console.source_view.cell, 1.0);
     // The Pan as Paint drew it: the Grid's corner, on whole physical pixels.
     let drawn_pan =
@@ -6626,7 +6641,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let theme = default_theme(Appearance::Dark);
-    console.overview_open = true;
+    open_overview(&ctx, screen, &mut console, &mut host);
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the grid");
     console.orcvs.select(at(9, 7));
@@ -6750,7 +6765,7 @@ fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
     );
     let mut host = eframe::Frame::_new_kittest();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    console.overview_open = true;
+    open_overview(&ctx, screen, &mut console, &mut host);
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the grid");
 
@@ -6825,7 +6840,7 @@ async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_f
 async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, 2.0 * Vec2::from(DEFAULT_VIEW_SIZE));
-    console.overview_open = true;
+    open_overview(&ctx, screen, &mut console, &mut host);
     let (before, _, _) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let before = before.expect("the Overview drew no outline");
 
@@ -6853,7 +6868,7 @@ async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
     // Wide enough for the extent's 256 Columns beside the Overview, and the
     // default height, which shows a few Rows.
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, DEFAULT_VIEW_SIZE[1]));
-    console.overview_open = true;
+    open_overview(&ctx, screen, &mut console, &mut host);
     let cell = snapped_cell(console.source_view.cell, 1.0);
     let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
@@ -6888,7 +6903,7 @@ async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
 async fn the_overview_draws_no_outline_when_neither_axis_can_pan() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, 6000.0));
-    console.overview_open = true;
+    open_overview(&ctx, screen, &mut console, &mut host);
     let cell = snapped_cell(console.source_view.cell, 1.0);
     let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
