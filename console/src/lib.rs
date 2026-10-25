@@ -27,7 +27,7 @@ mod source_file;
 pub mod style;
 // The resolved Theme, the built-ins and the property catalogue.
 // `pub` and `doc(hidden)` because `console/benches/paint.rs` is a separate
-// crate and needs `Theme`/`okabe_ito` to build a Paint's Theme argument.
+// crate and needs `Theme` to name a Paint's Theme argument.
 #[doc(hidden)]
 pub mod theme;
 // Decodes a TOML Theme document's bytes and resolves it over a built-in.
@@ -53,8 +53,8 @@ pub use paint::{
 };
 
 /// Test-only, under `test-source-shapes`: the shapes step, the presented
-/// Grid it places a Paint at, the Positions that Grid draws, the default
-/// window's Source area and the Overview's picture, for
+/// Grid it places a Paint at, the Positions that Grid draws, the dark default
+/// Theme, the default window's Source area and the Overview's picture, for
 /// `console/benches/paint.rs`. Only this crate's own
 /// dev-dependency enables the feature, so no shipped build carries this
 /// module and the console's public surface is unchanged.
@@ -65,6 +65,13 @@ pub mod source_shapes {
     pub use crate::console::shapes::SourceShapes;
     use crate::grid_viewport::GridViewport;
     pub use crate::grid_viewport::presented_grid;
+
+    /// The dark default Theme, as the Theme registry's fallback answers it.
+    pub fn dark_default_theme() -> crate::theme::Theme {
+        crate::theme_registry::ThemeRegistry::built_in()
+            .fallback(crate::theme::Appearance::Dark)
+            .clone()
+    }
 
     /// The default window's Source area in points.
     pub const DEFAULT_SOURCE_AREA: [f32; 2] = crate::console::DEFAULT_SOURCE_AREA;

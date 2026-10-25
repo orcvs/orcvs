@@ -31,13 +31,6 @@ use crate::theme::Theme;
 /// which two colours are ordinarily taken to be clearly distinct rather than
 /// merely measurably different.
 ///
-/// It is a floor this repository's own colour authority already clears with
-/// margin rather than one fitted to the light built-in:
-/// [`crate::theme::okabe_ito`]'s worst red–green pair measures 6.65
-/// (Bang against Comment under deuteranopia), and it is the published
-/// colour-blind-safe Okabe–Ito assignment, unretuned.
-/// `console/src/theme.md` records both built-ins' figures.
-///
 const CONFUSION_FLOOR: f32 = 5.0;
 
 ///
@@ -46,18 +39,15 @@ const CONFUSION_FLOOR: f32 = 5.0;
 /// Protanopia and deuteranopia — the two red–green dichromacies, together
 /// roughly 8% of men — are gated against [`CONFUSION_FLOOR`].
 ///
-/// Tritanopia is measured and reported, and deliberately **not** gated. The
-/// Okabe–Ito assignment this console paints from is published as safe for
-/// red–green deficiency and makes no tritan claim, and it does not hold
-/// under one: the shipped dark built-in's Bang (`#CC79A7`, reddish purple)
-/// and Diagnostic (`#D55E00`, vermillion) measure 0.60 apart under
-/// tritanopia, because the axis that separates them is exactly the one
-/// tritanopia removes. Gating tritanopia would therefore fail the shipped
-/// dark Theme, and no lightness arrangement inside the contrast ceiling a
-/// near-white ground imposes rescues it for the light one either. It is
-/// reported so the number is a measured, checked boundary rather than an
-/// unexamined gap — `shipped_theme_colour_vision_gate` pins both built-ins'
-/// tritan figures — and so a future palette decision can see what it costs.
+/// Tritanopia is measured and reported, and deliberately **not** gated. A
+/// palette published as safe for red–green deficiency makes no tritan claim:
+/// two hues apart only on the blue–yellow axis measure under 1 apart under
+/// tritanopia,
+/// because that axis is exactly the one tritanopia removes, and no lightness
+/// arrangement inside the contrast ceiling a near-white ground imposes
+/// rescues every such pair. It is reported so the number is a measured
+/// boundary rather than an unexamined gap, and so a palette decision can see
+/// what it costs.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ColourVision {
@@ -336,6 +326,15 @@ fn lab(colour: Color32) -> [f32; 3] {
 }
 
 ///
+/// Whether a viewer with ordinary colour vision tells two opaque colours
+/// apart: their CIEDE2000 distance, unsimulated, reaches
+/// [`CONFUSION_FLOOR`].
+///
+pub(crate) fn seen_apart(first: Color32, second: Color32) -> bool {
+    difference(lab(first), lab(second)) >= CONFUSION_FLOOR
+}
+
+///
 /// CIEDE2000 (CIE 142-2001) between two [`lab`] colours, at the default
 /// parametric weights `kL = kC = kH = 1`.
 ///
@@ -486,11 +485,11 @@ mod tests {
         CONFUSION_FLOOR, ColourVision, ConfusionReport, ConfusionResult, GlyphChannel, difference,
         distinguish, lab, simulate,
     };
-    use crate::contrast::tests::unaccepted;
+    use crate::contrast::tests::failures;
     use crate::contrast::{contrast, validate};
-    use crate::theme::{
-        ORCVS_LIGHT_IDENTITY, Theme, grayscale_dark, grayscale_light, okabe_ito, orcvs_light,
-    };
+    use crate::theme::{Appearance, Theme};
+    use crate::theme_registry::ThemeRegistry;
+    use crate::theme_registry::tests_support::{built_ins, default_theme};
 
     /// The closest reported pair for one dichromacy.
     fn closest(report: &ConfusionReport, vision: ColourVision) -> &ConfusionResult {
@@ -505,6 +504,25 @@ mod tests {
                     .expect("CIEDE2000 of finite colours is finite")
             })
             .unwrap_or_else(|| panic!("distinguish reported nothing for {vision}"))
+    }
+
+    ///
+    /// The pairs `report` loses to a gated dichromacy: below
+    /// [`CONFUSION_FLOOR`], with at least one colour that is not a neutral
+    /// grey. Two neutral greys are exempt: no dichromacy moves a neutral, so
+    /// a dichromat sees such a pair exactly as anyone else does. Whether
+    /// anyone can tell two such glyphs apart is
+    /// `theme::tests::roles_whose_glyphs_read_alike_differ_in_fill_or_border`'s
+    /// question, asked of every viewer.
+    ///
+    fn lost(report: &ConfusionReport) -> Vec<&ConfusionResult> {
+        let neutral = |colour: Color32| colour.r() == colour.g() && colour.g() == colour.b();
+        report
+            .results
+            .iter()
+            .filter(|result| result.vision.gated() && !result.passes())
+            .filter(|result| !neutral(result.first_colour) || !neutral(result.second_colour))
+            .collect()
     }
 
     ///
@@ -653,7 +671,7 @@ mod tests {
 
     #[test]
     fn distinguish_reports_the_floor_and_scope_in_the_returned_data() {
-        let report = distinguish(&okabe_ito());
+        let report = distinguish(&default_theme(Appearance::Dark));
         assert_eq!(report.floor, CONFUSION_FLOOR);
         assert!(
             report.scope.contains("not gated"),
@@ -670,7 +688,7 @@ mod tests {
     ///
     #[test]
     fn distinguish_reports_one_result_per_channel_pair_and_dichromacy() {
-        let report = distinguish(&orcvs_light());
+        let report = distinguish(&default_theme(Appearance::Light));
         // 9 channels choose 2 = 36 pairs, times 3 dichromacies. Stated as
         // one literal rather than recomputed from the same lengths the code
         // iterates.
@@ -688,7 +706,7 @@ mod tests {
     ///
     #[test]
     fn distinguish_reports_a_theme_built_to_confuse_rather_than_a_vacuous_pass() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
         let theme = Theme {
             source_bang: base.source_function,
             source_bang_background: base.source_function_background,
@@ -749,7 +767,7 @@ mod tests {
 
         let contrast_report = validate(&rejected);
         assert!(
-            unaccepted(&contrast_report).is_empty(),
+            failures(&contrast_report).is_empty(),
             "the rejected definition cleared the contrast floor; if it no longer does, this \
              fixture is no longer the thing that motivated a second measurement"
         );
@@ -783,9 +801,7 @@ mod tests {
     /// nearly three times [`CONFUSION_FLOOR`].
     ///
     /// The corollary: since lightness survives every dichromacy, lightness
-    /// is what separates two colours a dichromacy would otherwise merge —
-    /// which is why Orcvs Light's Diagnostic and Output Portal are darkened
-    /// past what contrast alone asks for.
+    /// is what separates two colours a dichromacy would otherwise merge.
     ///
     #[test]
     fn equal_luminance_alone_does_not_decide_a_colour_vision_confusion() {
@@ -810,7 +826,7 @@ mod tests {
 
     ///
     /// A light glyph definition that clears contrast and fails colour
-    /// vision. Only the glyph channels differ from the shipped light Theme:
+    /// vision. Only the glyph channels differ from the light default:
     /// holding the chrome keys fixed is what isolates the glyphs.
     ///
     fn rejected_light_glyphs() -> Theme {
@@ -825,7 +841,7 @@ mod tests {
                 [0xA3, 0x4A, 0x00],
                 [0x7A, 0x52, 0x00],
             ],
-            orcvs_light(),
+            default_theme(Appearance::Light),
         );
         let opaque = |[red, green, blue]: [u8; 3]| Color32::from_rgb(red, green, blue);
         Theme {
@@ -846,79 +862,25 @@ mod tests {
     }
 
     ///
-    /// The shipped-Theme colour-vision gate, beside `shipped_theme_gate`.
-    /// Every gated dichromacy's every channel pair clears
-    /// [`CONFUSION_FLOOR`] for both built-ins, with no exception list: the
-    /// dark built-in is the published Okabe–Ito assignment and the light one
-    /// darkens that assignment's hues.
+    /// The shipped-Theme colour-vision gate, beside `shipped_theme_gate`,
+    /// over every built-in the registry holds: no built-in loses a glyph
+    /// channel pair to a gated dichromacy, with no exception list. A pair of
+    /// two neutral greys below the floor is not lost, for [`lost`]'s reason,
+    /// so a built-in that tells roles apart by grey level and fill clears
+    /// this gate on its hued channels alone.
     ///
-    /// Tritanopia is asserted separately and much lower, at the figures both
-    /// built-ins actually reach rather than at the floor, because
-    /// [`ColourVision::gated`] says why no palette on this page clears the
-    /// floor there. Pinning the real numbers is what keeps that a checked
-    /// boundary: if a retune makes tritanopia worse, this fails and
-    /// `console/src/theme.md`'s colour-vision table has to move with it.
-    ///
-    /// The grayscale built-ins are not gated here:
-    /// `the_grayscale_built_ins_lose_no_pair_to_a_dichromacy` says why.
+    /// Tritanopia is measured and not gated, for [`ColourVision::gated`]'s
+    /// reason.
     ///
     #[test]
     fn shipped_theme_colour_vision_gate() {
-        for theme in [okabe_ito(), orcvs_light()] {
-            let report = distinguish(&theme);
-            let failures: Vec<_> = report
-                .results
-                .iter()
-                .filter(|result| result.vision.gated() && !result.passes())
-                .collect();
+        let registry = ThemeRegistry::built_in();
+        for theme in built_ins(&registry) {
+            let report = distinguish(theme);
+            let failures = lost(&report);
             assert!(
                 failures.is_empty(),
                 "{}'s confusable glyph channels: {failures:?}",
-                theme.identity
-            );
-
-            let tritan = closest(&report, ColourVision::Tritanopia);
-            let recorded = if theme.identity == ORCVS_LIGHT_IDENTITY {
-                1.54
-            } else {
-                0.60
-            };
-            assert!(
-                (tritan.distance - recorded).abs() < 0.05,
-                "{}'s closest tritanopia pair is {} against {} at {:.2}, recorded as {recorded:.2}",
-                theme.identity,
-                tritan.first,
-                tritan.second,
-                tritan.distance
-            );
-        }
-    }
-
-    ///
-    /// The grayscale built-ins tell roles apart by lightness and fill, and
-    /// share a grey between some glyph channels by design, so
-    /// [`CONFUSION_FLOOR`] is not theirs to clear: a reader who needs every
-    /// channel kept apart by colour selects `okabe-ito` or `orcvs-light`.
-    /// What they must not do is lose a pair to a dichromacy: every pair below
-    /// the floor under a gated dichromacy is two neutral greys, which no
-    /// dichromacy moves, so a dichromat sees it exactly as anyone else does.
-    /// Only the Bang and Diagnostic carry a hue, and each of their pairs
-    /// clears the floor.
-    ///
-    #[test]
-    fn the_grayscale_built_ins_lose_no_pair_to_a_dichromacy() {
-        let neutral = |colour: Color32| colour.r() == colour.g() && colour.g() == colour.b();
-        for theme in [grayscale_dark(), grayscale_light()] {
-            let report = distinguish(&theme);
-            let lost: Vec<_> = report
-                .results
-                .iter()
-                .filter(|result| result.vision.gated() && !result.passes())
-                .filter(|result| !neutral(result.first_colour) || !neutral(result.second_colour))
-                .collect();
-            assert!(
-                lost.is_empty(),
-                "{}'s hued glyph channels a dichromacy confuses: {lost:?}",
                 theme.identity
             );
         }
@@ -937,7 +899,7 @@ mod tests {
         let theme = Theme {
             diagnostic_foreground: Color32::TRANSPARENT,
             output_portal_foreground: Color32::TRANSPARENT,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let report = distinguish(&theme);
 
@@ -956,44 +918,7 @@ mod tests {
             drawn_in.is_empty(),
             "no glyph is drawn in a transparent channel, yet {drawn_in:?} were measured"
         );
-        let failures: Vec<_> = report
-            .results
-            .iter()
-            .filter(|result| result.vision.gated() && !result.passes())
-            .collect();
+        let failures = lost(&report);
         assert!(failures.is_empty(), "{failures:?}");
-    }
-
-    ///
-    /// The figures `console/src/theme.md` publishes for the two built-ins'
-    /// closest red–green pairs, pinned so the document and the code move in
-    /// one commit. The dark built-in's worst is what
-    /// [`CONFUSION_FLOOR`]'s own documentation cites as the reason 5.0 is
-    /// not a floor fitted to the light Theme.
-    ///
-    #[test]
-    fn the_recorded_red_green_separations_are_what_the_built_ins_measure() {
-        for (theme, protanopia, deuteranopia) in
-            [(okabe_ito(), 14.16, 6.65), (orcvs_light(), 9.20, 7.19)]
-        {
-            let report = distinguish(&theme);
-            for (vision, recorded) in [
-                (ColourVision::Protanopia, protanopia),
-                (ColourVision::Deuteranopia, deuteranopia),
-            ] {
-                let worst = closest(&report, vision);
-                assert!(
-                    (worst.distance - recorded).abs() < 0.05,
-                    "{}'s closest {vision} pair is {} ({:?}) against {} ({:?}) at {:.2}, \
-                     theme.md records {recorded:.2}",
-                    theme.identity,
-                    worst.first,
-                    worst.first_colour,
-                    worst.second,
-                    worst.second_colour,
-                    worst.distance
-                );
-            }
-        }
     }
 }

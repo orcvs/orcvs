@@ -1,6 +1,6 @@
 # One Theme styles the whole console
 
-Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The first 2026-10-10 amendment records the colour-vision gate over the built-ins. The second supersedes the Consequences' Theme pickers: Themes are selected by identity in `~/.orcvs/config.toml`, and the console offers no picker. The 2026-10-20 amendment extends the optional states to the Cursor's two glyph colours. The 2026-10-22 amendment supersedes the Bang exception in the painting precedence: a Bang keeps all its own paint inside a Portal.
+Status: accepted. `.scratch/theming/issues/01` carries it. The web target's Theme import is disabled for v1 (`.scratch/menu-structure/issues/04`): the web reads no settings file, so nothing there could select an imported Theme, and the web console has the built-ins alone. "Web Themes are imported as files" below remains the design for when web import returns. It supersedes [ADR 0051](0051-a-theme-maps-facts-to-channels.md)'s affordance namespace, its storage rule, its palette-slot representation, and its concession of chrome to egui's `Visuals`. ADR 0051's framing stands: a Cell carries facts, the console draws them through channels, and `style.rs` stops choosing between them in control flow. The 2026-10-01 amendment below supersedes the Sequence accepted exception and the "Known dark failures awaiting acceptance" table: no shipped Theme carries a contrast exception. The first 2026-10-10 amendment records the colour-vision gate over the built-ins. The second supersedes the Consequences' Theme pickers: Themes are selected by identity in `~/.orcvs/config.toml`, and the console offers no picker. The 2026-10-20 amendment extends the optional states to the Cursor's two glyph colours. The 2026-10-22 amendment supersedes the Bang exception in the painting precedence: a Bang keeps all its own paint inside a Portal. The 2026-10-25 amendment retires every built-in but the two grayscale defaults; earlier text naming `okabe-ito` or `orcvs-light` as shipped is kept as the decision's record.
 
 **Every part of the console's presentation is themeable, and one Theme styles all of it.** ADR 0051 scoped theming to the Source Grid and left the page, panels, widgets, selection, Cell grid lines and Sector Seams to egui's dark/light `Visuals`: two fixed palettes, compiled in, with nothing a viewer can choose or load. That was never the requirement. The Source Grid and the console around it are never themed separately, so loading an Orcvs Theme restyles the menus as well as the Grid.
 
@@ -81,7 +81,7 @@ is not an exhaustive claim: newly discovered failures still require review.
 
 ## Amendment, 2026-10-01: no shipped Theme carries a contrast exception
 
-*Narrowed on 2026-10-23 by the amendment below: Comment is not held to the floor.*
+*Narrowed on 2026-10-23 by the amendment below: Comment is not held to the floor. The Themes and tests it names, and the accepted-exception list it describes, are retired by the 2026-10-25 amendment; its floor holds for the built-ins that remain.*
 
 The Sequence accepted exception and the "Known dark failures awaiting acceptance"
 table above are superseded. Every shipped Theme clears the 4.5:1 floor in every
@@ -112,6 +112,8 @@ accepted-exception list at the exact colour pair it was accepted at.
 `console/src/theme.md` records every measured figure.
 
 ## Amendment, 2026-10-10: the built-ins are gated for colour vision
+
+*The figures and recorded-figure tests below name Themes the 2026-10-25 amendment retires, and it exempts pairs of neutral greys from the gate; kept as the decision's record.*
 
 Text contrast does not assess whether two Token colours are distinguishable, so
 the built-in Themes carry a second measurement beside the contrast gate.
@@ -163,6 +165,8 @@ contrast, and never anomalous trichromacy. `console/src/theme.md` records every
 figure.
 
 ## Amendment, 2026-10-10: Themes are selected in the config file
+
+*Its absent-key defaults are superseded on 2026-10-25 by the amendment below: an absent key selects `grayscale-dark` or `grayscale-light`.*
 
 The Consequences' Theme pickers are superseded. The console offers no Theme
 picker, and the `Theme → Source colours` and `Theme → Cursor effects` menu
@@ -237,6 +241,35 @@ custom-Theme notice read.
 
 WCAG 2.1 SC 1.4.3 does not exempt de-emphasised text, so Comment text in a
 Theme that uses this latitude does not meet it.
+
+## Amendment, 2026-10-25: only the grayscale defaults ship
+
+The console ships two built-in Themes, `grayscale-dark` and `grayscale-light`,
+each its appearance's default and fallback. `okabe-ito`, `orcvs-light`,
+`my-grayscale-dark` and `my-grayscale-light` are retired: their definitions,
+reserved identities, registry entries and Theme records are deleted.
+[ADR 0082](0082-nothing-depends-on-a-particular-theme.md) is what makes the
+retirement that small.
+
+- **An absent key selects the default.** An absent `dark` or `light` key in
+  `~/.orcvs/config.toml` selects `grayscale-dark` or `grayscale-light`.
+- **A retired identity is a missing one.** A saved selection naming a retired
+  identity falls back to its appearance's default and is kept, and a Theme
+  document whose `inherits` names one is refused with a notice, as for any
+  identity the registry does not hold.
+- **The gates cover every built-in.** The contrast gate, the colour-vision gate
+  and the record check run over the registry's built-ins.
+- **Two neutral greys are not a colour-vision confusion.** The defaults tell
+  Source roles apart by grey level, and no dichromacy moves a neutral grey, so
+  a dichromat sees a pair of greys as anyone else does. The colour-vision gate
+  fails a pair below `CONFUSION_FLOOR` only when at least one of its colours is
+  not a neutral grey. Whether any viewer tells two glyphs apart is asked of
+  every pair instead: two glyph roles closer than `CONFUSION_FLOOR` on the Grid
+  background must differ in fill or in a drawn border.
+- **No accepted exceptions.** `contrast::accepted_failures` and the exception
+  annotation on a contrast result are deleted: a state below the floor of a
+  role held to it fails the gate, and a Theme that needs one changes the rule
+  in review rather than an entry in a list.
 
 ## Rejected alternatives
 

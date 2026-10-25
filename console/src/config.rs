@@ -4,8 +4,8 @@
 //!
 //! ```toml
 //! [theme]
-//! dark = "okabe-ito"      # a dark Theme's identity; default "grayscale-dark"
-//! light = "orcvs-light"   # a light Theme's identity; default "grayscale-light"
+//! dark = "my-dark"        # a dark Theme's identity; absent, the dark default
+//! light = "my-light"      # a light Theme's identity; absent, the light default
 //!
 //! [cell]
 //! width = 12              # points, 8–64
@@ -393,7 +393,7 @@ mod native {
             assert!(mentions(&config, "`cell.height`"), "{:?}", config.notices);
             assert_defaults(&config);
 
-            let config = read("theme = \"okabe-ito\"\n");
+            let config = read("theme = \"my-dark\"\n");
             assert!(
                 mentions(&config, "`theme` must be a table"),
                 "{:?}",

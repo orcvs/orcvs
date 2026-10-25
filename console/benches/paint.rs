@@ -23,8 +23,10 @@
 
 use console::{
     FramePaint, Paint, VisiblePositions,
-    source_shapes::{DEFAULT_SOURCE_AREA, SourceShapes, presented_grid, visible_positions},
-    theme::{Theme, okabe_ito},
+    source_shapes::{
+        DEFAULT_SOURCE_AREA, SourceShapes, dark_default_theme, presented_grid, visible_positions,
+    },
+    theme::Theme,
 };
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use egui::{Pos2, Rect, Vec2};
@@ -184,17 +186,16 @@ fn empty(frame: &RenderFrame) -> VisiblePositions {
 }
 
 ///
-/// The Okabe–Ito built-in, the same Theme every fixture below is walked
-/// against. `Theme`'s fields are `pub(crate)`, and a benchmark is a separate
-/// crate, so this cannot override the Cursor or Region fill the way
-/// `console::tests` do; it does not need to — the per-Cell walk
-/// [`paint`] measures reads every Theme channel but branches on none of the
-/// *values*, only on which fact a Cell carries (its own doc explains why), so
-/// the built-in's own defaults (an unset Cursor fill, the default Region
-/// fill) exercise the same code paths a custom Theme's colours would.
+/// The dark default, the same Theme every fixture below is walked against.
+/// `Theme`'s fields are `pub(crate)`, and a benchmark is a separate crate, so
+/// this cannot override the Cursor or Region fill the way `console::tests`
+/// do. The per-Cell walk [`paint`] measures reads every Theme channel but
+/// branches on none of the *values*, only on which fact a
+/// Cell carries (its own doc explains why), so the default's own values
+/// exercise the same code paths a custom Theme's colours would.
 ///
 fn bench_theme() -> Theme {
-    okabe_ito()
+    dark_default_theme()
 }
 
 ///

@@ -4,9 +4,13 @@
 
 **Blocked by:** 01 — Record the rule and build Paint's test Theme from the default.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The paint and Overview tests name no built-in Theme function or identity outside the registry's fallback.
-- [ ] Expected colours are read from the Theme the test uses.
-- [ ] The Theme-document paint tests use `ThemeIdentity::default_for` for `inherits`.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+- [x] The paint and Overview tests name no built-in Theme function or identity outside the registry's fallback.
+- [x] Expected colours are read from the Theme the test uses.
+- [x] The Theme-document paint tests use `ThemeIdentity::default_for` for `inherits`.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+
+## Comments
+
+Paint's tests moved with 01. Its three Theme-document tests now build their documents with `tests_support::dark`, which inherits `ThemeIdentity::default_for(Appearance::Dark)`. The Overview tests use `default_theme`.

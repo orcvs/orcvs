@@ -1,7 +1,7 @@
 format = "orcvs-theme"
 version = 1
 name = "My Dark"
-inherits = "okabe-ito"
+inherits = "grayscale-dark"
 
 [style]
 "text" = "#E0E0E0"

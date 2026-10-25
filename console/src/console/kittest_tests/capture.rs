@@ -62,8 +62,9 @@ use super::super::tests::start_console;
 use super::{Console, presented_source, source_rect};
 use crate::config::{CONFIG_FILE, Config};
 use crate::persistence::{IsolatedRonDir, RonFileStorage};
-use crate::theme::{Appearance, Theme, okabe_ito, orcvs_light};
+use crate::theme::{Appearance, Theme, ThemeIdentity};
 use crate::theme_registry::ThemeRegistry;
+use crate::theme_registry::tests_support::default_theme;
 use crate::{FramePaint, Paint};
 
 ///
@@ -72,11 +73,16 @@ use crate::{FramePaint, Paint};
 const FIXTURE: &str = include_str!("../../../tests/fixtures/release-capture.orcvs");
 
 ///
-/// The settings file every capture starts from. Both identities are named
-/// rather than left to the defaults, so a change of default cannot change
-/// what a capture shows.
+/// The settings file every capture starts from: each appearance's default
+/// identity, named so the manifest records which Themes a capture shows.
 ///
-const SETTINGS: &str = "[theme]\ndark = \"okabe-ito\"\nlight = \"orcvs-light\"\n";
+fn settings() -> String {
+    format!(
+        "[theme]\ndark = \"{}\"\nlight = \"{}\"\n",
+        ThemeIdentity::default_for(Appearance::Dark),
+        ThemeIdentity::default_for(Appearance::Light)
+    )
+}
 
 ///
 /// The key eframe stores egui memory under
@@ -155,7 +161,7 @@ fn procedure() -> String {
         Region over {cells} empty Cells. Asserted as the console starts: the mode and zoom 1.0 \
         from the stored egui memory. Asserted before rendering: the seeded Source, the mode and \
         Theme presented, egui zoom 1.0 and every checklist state among the drawn Cells.",
-        settings = SETTINGS.trim_end().replace('\n', "; "),
+        settings = settings().trim_end().replace('\n', "; "),
         columns = REGION_ANCHOR.0,
         rows = REGION_ANCHOR.1,
         cells = REGION_COLUMNS.len() * REGION_ROWS.len(),
@@ -180,13 +186,13 @@ const VIEWPORTS: [Viewport; 2] = [
 ];
 
 ///
-/// The two modes a capture pins, each with the built-in Theme the settings
+/// The two modes a capture pins, each with the default Theme the settings
 /// select for it.
 ///
 fn modes() -> [(egui::Theme, Theme); 2] {
     [
-        (egui::Theme::Dark, okabe_ito()),
-        (egui::Theme::Light, orcvs_light()),
+        (egui::Theme::Dark, default_theme(Appearance::Dark)),
+        (egui::Theme::Light, default_theme(Appearance::Light)),
     ]
 }
 
@@ -231,7 +237,7 @@ fn stored_start(dir: &Path, mode: egui::Theme) -> RonFileStorage {
     eframe::set_value(&mut file, EGUI_MEMORY_KEY, &memory);
     eframe::Storage::flush(&mut file);
 
-    std::fs::write(dir.join(CONFIG_FILE), SETTINGS).expect("the capture's settings file");
+    std::fs::write(dir.join(CONFIG_FILE), settings()).expect("the capture's settings file");
 
     RonFileStorage::from_file(dir)
 }
@@ -602,8 +608,8 @@ fn manifest(sha: &str, runner: &str, captures: &[Captured]) -> String {
 }
 
 ///
-/// The four native release captures — {wide, tall} × {Okabe–Ito, Orcvs
-/// Light} — and their manifest.
+/// The four native release captures — {wide, tall} × each appearance's
+/// default Theme — and their manifest.
 ///
 #[tokio::test]
 async fn the_release_captures_show_every_checklist_state() {

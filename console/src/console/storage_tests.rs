@@ -14,9 +14,10 @@ use super::tests::{assert_chrome, start_console};
 use crate::persistence::{InMemoryStorage, SOURCE_KEY, edited_source, save, starting_source};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::persistence::{IsolatedRonDir, RonFileStorage};
+use crate::theme::Appearance;
 use crate::theme::ThemeIdentity;
-use crate::theme::{Appearance, grayscale_dark, grayscale_light};
 use crate::theme_registry::ThemeRegistry;
+use crate::theme_registry::tests_support::default_theme;
 use crate::theme_registry::tests_support::{id, my_dark, with_my_themes};
 use crate::theme_selection::ThemeSelection;
 
@@ -137,16 +138,16 @@ async fn configured_theme_references_are_presented_or_fall_back() {
     let console = start_console(&cc, ThemeRegistry::built_in(), config());
     assert_eq!(
         *console.themes.presented(Appearance::Dark),
-        grayscale_dark()
+        default_theme(Appearance::Dark)
     );
     assert_eq!(
         *console.themes.presented(Appearance::Light),
-        grayscale_light()
+        default_theme(Appearance::Light)
     );
     assert_chrome(
         &ctx,
-        &grayscale_dark(),
-        &grayscale_light(),
+        &default_theme(Appearance::Dark),
+        &default_theme(Appearance::Light),
         "an unavailable dark reference beside the default light one",
     );
     let notices: Vec<&String> = console.themes.notices().collect();
@@ -167,7 +168,7 @@ async fn configured_theme_references_are_presented_or_fall_back() {
     assert_chrome(
         &ctx,
         &my_dark(),
-        &grayscale_light(),
+        &default_theme(Appearance::Light),
         "the next launch, with the configured dark Theme's file loaded",
     );
     // My Dark's own contrast notice is the only one.
@@ -188,9 +189,10 @@ async fn configured_theme_references_are_presented_or_fall_back() {
 #[tokio::test]
 async fn the_retired_settings_keys_are_neither_read_nor_written() {
     let mut storage = InMemoryStorage::default();
+    let dark_default = crate::theme::ThemeIdentity::default_for(Appearance::Dark).to_string();
     for (key, value) in [
         ("dark_theme", "my-dark"),
-        ("light_theme", "okabe-ito"),
+        ("light_theme", dark_default.as_str()),
         ("cursor_effects", "0;0"),
     ] {
         eframe::Storage::set_string(&mut storage, key, value.to_owned());
@@ -202,11 +204,11 @@ async fn the_retired_settings_keys_are_neither_read_nor_written() {
 
     assert_eq!(
         *console.themes.presented(Appearance::Dark),
-        grayscale_dark()
+        default_theme(Appearance::Dark)
     );
     assert_eq!(
         *console.themes.presented(Appearance::Light),
-        grayscale_light()
+        default_theme(Appearance::Light)
     );
     // My Dark's own contrast notice is the only one.
     assert!(

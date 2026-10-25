@@ -32,11 +32,7 @@ use std::fmt;
 use egui::Color32;
 use serde::Deserialize;
 
-use crate::theme::{
-    Appearance, ChromeWidth, GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY, GridWidth,
-    MY_GRAYSCALE_DARK_IDENTITY, MY_GRAYSCALE_LIGHT_IDENTITY, OKABE_ITO_IDENTITY,
-    ORCVS_LIGHT_IDENTITY, Theme, ThemeIdentity, style_catalogue,
-};
+use crate::theme::{Appearance, ChromeWidth, GridWidth, Theme, ThemeIdentity, style_catalogue};
 
 /// `schema.md`'s per-document byte limit, checked before any decoding.
 pub(crate) const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
@@ -200,23 +196,6 @@ pub(crate) enum OptionalColor {
     Color(Color32),
 }
 
-// === Identity ===
-
-impl ThemeIdentity {
-    /// Whether this is a built-in's reserved identity.
-    pub(crate) fn is_reserved(&self) -> bool {
-        [
-            GRAYSCALE_DARK_IDENTITY,
-            GRAYSCALE_LIGHT_IDENTITY,
-            MY_GRAYSCALE_DARK_IDENTITY,
-            MY_GRAYSCALE_LIGHT_IDENTITY,
-            OKABE_ITO_IDENTITY,
-            ORCVS_LIGHT_IDENTITY,
-        ]
-        .contains(self)
-    }
-}
-
 // === Custom document model ===
 
 ///
@@ -276,7 +255,10 @@ impl std::fmt::Display for ThemeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownParent { parent } => {
-                write!(f, "unknown parent Theme identity {parent:?}")
+                write!(
+                    f,
+                    "`inherits` names {parent:?}, which is not a built-in Theme"
+                )
             }
             Self::ReservedIdentity { identity } => {
                 write!(f, "\"{identity}\" is a reserved built-in Theme identity")
@@ -303,7 +285,7 @@ impl std::fmt::Display for ThemeError {
 ///
 /// No file I/O: `built_ins` is whatever built-in set the caller already
 /// holds — the crate-private `theme_registry` module reads native documents
-/// and calls this; tests pass `&[okabe_ito()]` directly. `identity` is supplied
+/// and calls this; tests pass a slice of their own. `identity` is supplied
 /// by the caller rather than read from `document`, because a custom
 /// document's identity is its filename stem, which this module
 /// never reads a file to learn.
@@ -313,7 +295,10 @@ pub(crate) fn resolve(
     identity: &ThemeIdentity,
     document: &ThemeDocument,
 ) -> Result<Theme, ThemeError> {
-    if identity.is_reserved() {
+    if built_ins
+        .iter()
+        .any(|built_in| &built_in.identity == identity)
+    {
         return Err(ThemeError::ReservedIdentity {
             identity: identity.clone(),
         });
@@ -828,10 +813,8 @@ mod tests {
         ChromeWidthKey, ColorKey, DocumentErrorReason, GridWidthKey, MAX_DOCUMENT_BYTES,
         MAX_MESSAGE_BYTES, OptionalColor, ThemeDocument, ThemeError, decode, resolve,
     };
-    use crate::theme::{
-        Appearance, ChromeWidth, GridWidth, Theme, ThemeIdentity, okabe_ito, orcvs_light,
-        straight_rgba,
-    };
+    use crate::theme::{Appearance, ChromeWidth, GridWidth, Theme, ThemeIdentity, straight_rgba};
+    use crate::theme_registry::tests_support::default_theme;
 
     /// A Theme field, read by name.
     type Field<T> = fn(&Theme) -> T;
@@ -841,9 +824,25 @@ mod tests {
         ThemeIdentity::from_stem(stem).expect("a non-empty stem")
     }
 
+    /// The dark default's identity, as a document's `inherits` names it.
+    fn dark_parent() -> String {
+        ThemeIdentity::default_for(Appearance::Dark).to_string()
+    }
+
+    /// The light default's identity, as a document's `inherits` names it.
+    fn light_parent() -> String {
+        ThemeIdentity::default_for(Appearance::Light).to_string()
+    }
+
+    /// The four required root fields, inheriting the dark default.
+    fn root_fields() -> String {
+        format!(
+            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"{}\"\n",
+            dark_parent()
+        )
+    }
+
     const MY_DARK_TOML: &str = include_str!("../../.scratch/theming/examples/my-dark.toml");
-    const OKABE_ITO_COPY_TOML: &str =
-        include_str!("../../.scratch/theming/examples/okabe-ito-copy.toml");
 
     ///
     /// Every property name `style_catalogue` spells: the four optional colours,
@@ -883,30 +882,9 @@ mod tests {
 
     const CATALOGUE_COUNTS: CatalogueCounts = crate::theme::style_catalogue!(catalogue_counts);
 
-    /// The `"name" = value` lines of an example document, as name and value.
-    fn example_entries(toml: &str) -> Vec<(&str, &str)> {
-        toml.lines()
-            .filter_map(|line| line.strip_prefix('"')?.split_once("\" = "))
-            .collect()
-    }
-
-    ///
-    /// Asserts `entries` names every catalogue property once and nothing
-    /// else, in any order. A document inherits what it omits from its parent,
-    /// so an example that resolves to its parent proves nothing about the
-    /// properties it leaves out.
-    ///
-    fn assert_spells_the_catalogue(entries: &[(&str, &str)]) {
-        let mut names = entries.iter().map(|&(name, _)| name).collect::<Vec<_>>();
-        names.sort_unstable();
-        let mut catalogue = CATALOGUE_NAMES.to_vec();
-        catalogue.sort_unstable();
-        assert_eq!(names, catalogue);
-    }
-
     fn my_dark() -> ThemeDocument {
         ThemeDocument {
-            parent: "okabe-ito".to_owned(),
+            parent: dark_parent(),
             name: "My Dark".to_owned(),
             appearance: None,
             colors: vec![
@@ -937,9 +915,7 @@ mod tests {
     /// written as a quoted key, and a value already in TOML syntax.
     ///
     fn document(extra_root: &[(&str, &str)], entries: &[(&str, &str)]) -> String {
-        let mut text = String::from(
-            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n",
-        );
+        let mut text = root_fields();
         for (key, value) in extra_root {
             text.push_str(&format!("{key} = {value}\n"));
         }
@@ -1005,41 +981,26 @@ mod tests {
     }
 
     ///
-    /// `okabe-ito-copy.toml` spells out every catalogue property at the
-    /// built-in's value, so resolving it must give back the built-in under
-    /// the copy's identity and display label.
-    ///
-    #[test]
-    fn the_okabe_ito_copy_example_resolves_to_the_built_in() {
-        assert_spells_the_catalogue(&example_entries(OKABE_ITO_COPY_TOML));
-        let document = decodes(OKABE_ITO_COPY_TOML);
-        assert_eq!(document.cursor_background, Some(OptionalColor::None));
-        assert_eq!(document.cursor_foreground, Some(OptionalColor::None));
-        assert_eq!(document.region_cursor_background, Some(OptionalColor::None));
-        assert_eq!(document.region_cursor_foreground, Some(OptionalColor::None));
-        assert_eq!(document.appearance, Some(Appearance::Dark));
-
-        let resolved =
-            resolve(&[okabe_ito()], &identity("okabe-ito-copy"), &document).expect("resolves");
-
-        let mut expected = okabe_ito();
-        expected.identity = identity("okabe-ito-copy");
-        expected.name = "Okabe-Ito copy".to_owned();
-        assert_eq!(resolved, expected);
-    }
-
-    ///
-    /// Each catalogue property name, alone in a document at the example's
-    /// value, sets exactly one property, whose key spells that name — and no
+    /// Each catalogue property name, alone in a document at a value of its
+    /// kind, sets exactly one property, whose key spells that name — and no
     /// two reach the same property, so every catalogue entry is reachable by
     /// its own spelling and by no other.
     ///
     #[test]
     fn every_catalogue_property_name_selects_its_own_property() {
-        let entries = example_entries(OKABE_ITO_COPY_TOML);
-        assert_spells_the_catalogue(&entries);
+        // `CATALOGUE_NAMES` lists the optional colours, then the colours,
+        // the Grid widths and the chrome widths, in the catalogue's order.
+        let colours = CATALOGUE_COUNTS.fills + CATALOGUE_COUNTS.colors;
+        let grid_widths = colours + CATALOGUE_COUNTS.grid_widths;
         let mut reached = Vec::new();
-        for (name, value) in entries {
+        for (index, &name) in CATALOGUE_NAMES.iter().enumerate() {
+            let value = if index < colours {
+                "\"#FFFFFF\""
+            } else if index < grid_widths {
+                "0.5"
+            } else {
+                "1"
+            };
             let document = decodes(&style(&[(name, value)]));
             let mut set = document
                 .colors
@@ -1071,18 +1032,12 @@ mod tests {
     #[test]
     fn an_omitted_or_empty_style_overrides_nothing() {
         let bare = ThemeDocument {
-            parent: "okabe-ito".to_owned(),
+            parent: dark_parent(),
             name: "T".to_owned(),
             ..ThemeDocument::default()
         };
         assert_eq!(decodes(&style(&[])), bare, "empty style");
-        assert_eq!(
-            decodes(
-                "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n"
-            ),
-            bare,
-            "omitted style"
-        );
+        assert_eq!(decodes(&root_fields()), bare, "omitted style");
     }
 
     ///
@@ -1102,10 +1057,7 @@ mod tests {
         let in_order = format!("[{in_order}]");
         for value in ["\"x\"", "1", "[]", in_order.as_str()] {
             refuses(
-                &format!(
-                    "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\n\
-                     inherits = \"okabe-ito\"\nstyle = {value}\n"
-                ),
+                &format!("{}style = {value}\n", root_fields()),
                 &["line 5, column 9, in `style`: `style` is a table of properties"],
             );
         }
@@ -1313,10 +1265,11 @@ mod tests {
 
     #[test]
     fn a_missing_required_field_is_refused() {
+        let parent = dark_parent();
         let complete = [
             ("format", "orcvs-theme"),
             ("name", "T"),
-            ("inherits", "okabe-ito"),
+            ("inherits", parent.as_str()),
         ];
         for missing in ["format", "version", "name", "inherits"] {
             let toml: String = complete
@@ -1332,7 +1285,7 @@ mod tests {
     #[test]
     fn a_repeated_root_field_is_refused() {
         refuses(
-            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\nname = \"U\"\ninherits = \"okabe-ito\"\n",
+            &root_fields().replace("name = \"T\"\n", "name = \"T\"\nname = \"U\"\n"),
             &["line 4", "duplicate key"],
         );
     }
@@ -1411,8 +1364,7 @@ mod tests {
     ///
     #[test]
     fn a_table_is_refused_for_every_scalar_field() {
-        let root =
-            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n";
+        let root = root_fields();
         for field in ["format", "version", "name", "inherits"] {
             let text = root
                 .lines()
@@ -1444,7 +1396,7 @@ mod tests {
 
     #[test]
     fn name_and_inherits_must_be_nonempty_and_free_of_control_characters() {
-        let (empty, parent, name) = (quoted(""), quoted("okabe-ito"), quoted("T"));
+        let (empty, parent, name) = (quoted(""), quoted(&dark_parent()), quoted("T"));
         refuses(
             &document_with_labels(&empty, &parent),
             &["in `name`", "the label is empty"],
@@ -1458,7 +1410,7 @@ mod tests {
             &["in `name`", "the label contains a control character"],
         );
         refuses(
-            &document_with_labels(&name, "\"okabe\\u0007ito\""),
+            &document_with_labels(&name, "\"a\\u0007b\""),
             &["in `inherits`", "the label contains a control character"],
         );
         refuses(
@@ -1479,7 +1431,7 @@ mod tests {
     fn name_and_inherits_stay_within_256_utf8_bytes() {
         for field in ["name", "inherits"] {
             let with = |value: &str| match field {
-                "name" => document_with_labels(&quoted(value), &quoted("okabe-ito")),
+                "name" => document_with_labels(&quoted(value), &quoted(&dark_parent())),
                 _ => document_with_labels(&quoted("T"), &quoted(value)),
             };
             let at_limit = decodes(&with(&"a".repeat(256)));
@@ -1575,8 +1527,7 @@ mod tests {
     ///
     #[test]
     fn a_style_property_is_never_a_nested_path() {
-        let root =
-            "format = \"orcvs-theme\"\nversion = 1\nname = \"T\"\ninherits = \"okabe-ito\"\n";
+        let root = root_fields();
         refuses(
             &format!("{root}[style]\ngrid.background = \"#FFFFFF\"\n"),
             &["unknown field `grid`"],
@@ -1741,17 +1692,23 @@ mod tests {
     ///
     #[test]
     fn a_document_inheriting_the_light_built_in_resolves_light() {
-        let built_ins = [okabe_ito(), orcvs_light()];
-        let mut document = child("orcvs-light");
+        let built_ins = [
+            default_theme(Appearance::Dark),
+            default_theme(Appearance::Light),
+        ];
+        let mut document = child(&light_parent());
         document.appearance = Some(Appearance::Light);
 
         let resolved = resolve(&built_ins, &identity("mine"), &document)
             .expect("light parent, light document");
 
         assert_eq!(resolved.appearance, Appearance::Light);
-        assert_eq!(resolved.panel_background, orcvs_light().panel_background);
+        assert_eq!(
+            resolved.panel_background,
+            default_theme(Appearance::Light).panel_background
+        );
 
-        let mut mismatched = child("orcvs-light");
+        let mut mismatched = child(&light_parent());
         mismatched.appearance = Some(Appearance::Dark);
         assert_eq!(
             resolve(&built_ins, &identity("mine"), &mismatched),
@@ -1763,23 +1720,30 @@ mod tests {
     }
 
     ///
-    /// Both built-in identities are reserved, not only Okabe–Ito's.
+    /// The light default's identity is reserved as well as the dark one's.
     ///
     #[test]
     fn the_light_built_in_identity_is_reserved() {
-        let built_ins = [okabe_ito(), orcvs_light()];
+        let built_ins = [
+            default_theme(Appearance::Dark),
+            default_theme(Appearance::Light),
+        ];
         assert_eq!(
-            resolve(&built_ins, &identity("orcvs-light"), &child("okabe-ito")),
+            resolve(
+                &built_ins,
+                &ThemeIdentity::default_for(Appearance::Light),
+                &child(&dark_parent())
+            ),
             Err(ThemeError::ReservedIdentity {
-                identity: identity("orcvs-light"),
+                identity: ThemeIdentity::default_for(Appearance::Light),
             })
         );
     }
 
     #[test]
     fn omitted_properties_inherit_from_the_parent() {
-        let built_ins = [okabe_ito()];
-        let document = child("okabe-ito");
+        let built_ins = [default_theme(Appearance::Dark)];
+        let document = child(&dark_parent());
 
         let resolved =
             resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
@@ -1802,11 +1766,11 @@ mod tests {
 
     #[test]
     fn explicit_color_overrides_the_parent() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let overridden = Color32::from_rgb(1, 2, 3);
         let document = ThemeDocument {
             colors: vec![(ColorKey::GridBackground, overridden)],
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -1825,11 +1789,11 @@ mod tests {
     ///
     #[test]
     fn foreground_change_leaves_inherited_background_unchanged() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let retuned = Color32::from_rgb(9, 9, 9);
         let document = ThemeDocument {
             colors: vec![(ColorKey::SourceFunction, retuned)],
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -1844,7 +1808,7 @@ mod tests {
 
     #[test]
     fn explicit_width_overrides_the_parent() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let document = ThemeDocument {
             grid_widths: vec![(
                 GridWidthKey::GridBorder,
@@ -1854,7 +1818,7 @@ mod tests {
                 ChromeWidthKey::PanelBorder,
                 ChromeWidth::from_points(1.5).expect("1.5 is within 0..=2"),
             )],
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -1872,7 +1836,7 @@ mod tests {
 
     #[test]
     fn unknown_parent_is_rejected() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let document = child("not-a-built-in");
 
         let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
@@ -1895,8 +1859,8 @@ mod tests {
     ///
     #[test]
     fn a_custom_theme_cannot_chain_from_another_custom_theme() {
-        let built_ins = [okabe_ito()];
-        let grandparent = child("okabe-ito");
+        let built_ins = [default_theme(Appearance::Dark)];
+        let grandparent = child(&dark_parent());
         let custom =
             resolve(&built_ins, &identity("my-dark"), &grandparent).expect("valid document");
         // `custom` is deliberately not added to `built_ins`.
@@ -1915,25 +1879,30 @@ mod tests {
 
     #[test]
     fn reserved_identity_is_rejected() {
-        let built_ins = [okabe_ito()];
-        let document = child("okabe-ito");
+        let built_ins = [default_theme(Appearance::Dark)];
+        let document = child(&dark_parent());
 
-        let error = resolve(&built_ins, &identity("okabe-ito"), &document).unwrap_err();
+        let error = resolve(
+            &built_ins,
+            &ThemeIdentity::default_for(Appearance::Dark),
+            &document,
+        )
+        .unwrap_err();
 
         assert_eq!(
             error,
             ThemeError::ReservedIdentity {
-                identity: identity("okabe-ito")
+                identity: ThemeIdentity::default_for(Appearance::Dark)
             }
         );
     }
 
     #[test]
     fn appearance_mismatch_is_rejected() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let document = ThemeDocument {
             appearance: Some(Appearance::Light),
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
@@ -1949,10 +1918,10 @@ mod tests {
 
     #[test]
     fn matching_declared_appearance_is_accepted() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let document = ThemeDocument {
             appearance: Some(Appearance::Dark),
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -1975,7 +1944,7 @@ mod tests {
     ///
     #[test]
     fn resolve_rejects_a_nonopaque_window_background() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
 
         for (window_background, alpha) in [
             (Color32::from_rgba_unmultiplied(10, 20, 30, 200), 200),
@@ -1983,7 +1952,7 @@ mod tests {
         ] {
             let document = ThemeDocument {
                 colors: vec![(ColorKey::WindowBackground, window_background)],
-                ..child("okabe-ito")
+                ..child(&dark_parent())
             };
 
             let error = resolve(&built_ins, &identity("my-dark"), &document).unwrap_err();
@@ -1998,11 +1967,11 @@ mod tests {
     ///
     #[test]
     fn resolve_accepts_an_opaque_window_background() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let opaque = Color32::from_rgb(10, 20, 30);
         let document = ThemeDocument {
             colors: vec![(ColorKey::WindowBackground, opaque)],
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -2013,12 +1982,25 @@ mod tests {
 
     #[test]
     fn omitted_optional_colours_inherit_the_parent() {
-        let mut coloured = okabe_ito();
-        coloured.cursor_foreground = Some(Color32::from_rgb(7, 8, 9));
-        coloured.region_cursor_foreground = Some(Color32::from_rgb(9, 8, 7));
-        for parent in [okabe_ito(), coloured] {
+        // One parent leaves every optional colour cleared and the other
+        // sets each, so omission is seen to inherit both states.
+        let cleared = Theme {
+            cursor_background: None,
+            cursor_foreground: None,
+            region_cursor_background: None,
+            region_cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
+        };
+        let coloured = Theme {
+            cursor_background: Some(Color32::from_rgb(1, 2, 3)),
+            cursor_foreground: Some(Color32::from_rgb(7, 8, 9)),
+            region_cursor_background: Some(Color32::from_rgb(4, 5, 6)),
+            region_cursor_foreground: Some(Color32::from_rgb(9, 8, 7)),
+            ..default_theme(Appearance::Dark)
+        };
+        for parent in [cleared, coloured] {
             let built_ins = [parent];
-            let document = child("okabe-ito");
+            let document = child(&dark_parent());
 
             let resolved =
                 resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
@@ -2038,7 +2020,7 @@ mod tests {
 
     #[test]
     fn explicit_none_clears_the_optional_colour_even_over_a_parent_colour() {
-        let mut with_fill = okabe_ito();
+        let mut with_fill = default_theme(Appearance::Dark);
         with_fill.cursor_background = Some(Color32::from_rgb(1, 2, 3));
         with_fill.cursor_foreground = Some(Color32::from_rgb(7, 8, 9));
         with_fill.region_cursor_background = Some(Color32::from_rgb(4, 5, 6));
@@ -2049,7 +2031,7 @@ mod tests {
             cursor_foreground: Some(OptionalColor::None),
             region_cursor_background: Some(OptionalColor::None),
             region_cursor_foreground: Some(OptionalColor::None),
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -2068,13 +2050,13 @@ mod tests {
     ///
     #[test]
     fn explicit_transparent_colour_is_a_supplied_value_not_a_clear() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let document = ThemeDocument {
             cursor_background: Some(OptionalColor::Color(Color32::TRANSPARENT)),
             cursor_foreground: Some(OptionalColor::Color(Color32::TRANSPARENT)),
             region_cursor_background: Some(OptionalColor::Color(Color32::TRANSPARENT)),
             region_cursor_foreground: Some(OptionalColor::Color(Color32::TRANSPARENT)),
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -2095,13 +2077,13 @@ mod tests {
 
     #[test]
     fn explicit_optional_colour_is_stored_including_opaque() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let colour = Color32::from_rgb(10, 20, 30);
         let document = ThemeDocument {
             cursor_background: Some(OptionalColor::Color(colour)),
             cursor_foreground: Some(OptionalColor::Color(colour)),
             region_cursor_foreground: Some(OptionalColor::Color(colour)),
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -2114,11 +2096,11 @@ mod tests {
 
     #[test]
     fn theme_color_reads_the_key_a_document_wrote() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         let overridden = Color32::from_rgb(7, 7, 7);
         let document = ThemeDocument {
             colors: vec![(ColorKey::Text, overridden)],
-            ..child("okabe-ito")
+            ..child(&dark_parent())
         };
 
         let resolved =
@@ -2131,14 +2113,14 @@ mod tests {
     /// Every [`ColorKey`] variant, applied as a distinct override and read
     /// back through [`Theme::color`], with every *other* key left at the
     /// parent's value. This is the exhaustive companion to
-    /// `okabe_ito_defines_every_key_at_the_schema_values`: that test proves
-    /// the built-in sets every key, this one proves every key can be
+    /// `theme::tests::every_built_in_defines_every_key_at_its_table`: that
+    /// test proves each built-in sets every key, this one proves every key can be
     /// independently addressed by `resolve`'s `color_mut` match without a
     /// key silently writing, or being read from, the wrong field.
     ///
     #[test]
     fn every_color_key_can_be_independently_overridden() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         // Each key beside the field a reader addresses by name, written here
         // rather than taken from `style_catalogue!`, so a key routed to the
         // wrong field fails even though the macro's reader and writer agree.
@@ -2249,7 +2231,7 @@ mod tests {
             let colour = Color32::from_rgb(1, 2, 3);
             let document = ThemeDocument {
                 colors: vec![(key, colour)],
-                ..child("okabe-ito")
+                ..child(&dark_parent())
             };
 
             let resolved =
@@ -2281,7 +2263,7 @@ mod tests {
     ///
     #[test]
     fn every_grid_and_chrome_width_key_can_be_independently_overridden() {
-        let built_ins = [okabe_ito()];
+        let built_ins = [default_theme(Appearance::Dark)];
         // Each key beside the field a reader addresses by name, as in
         // `every_color_key_can_be_independently_overridden`.
         let grid_fields: [(GridWidthKey, Field<f32>); 15] = [
@@ -2378,7 +2360,7 @@ mod tests {
                     key,
                     GridWidth::from_points(0.1).expect("0.1 is within 0..=1"),
                 )],
-                ..child("okabe-ito")
+                ..child(&dark_parent())
             };
             let resolved =
                 resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");
@@ -2397,7 +2379,7 @@ mod tests {
                     key,
                     ChromeWidth::from_points(1.9).expect("1.9 is within 0..=2"),
                 )],
-                ..child("okabe-ito")
+                ..child(&dark_parent())
             };
             let resolved =
                 resolve(&built_ins, &identity("my-dark"), &document).expect("valid document");

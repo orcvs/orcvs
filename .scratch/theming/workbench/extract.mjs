@@ -31,7 +31,7 @@ function hex(n) {
 const builtins = [];
 // Every built-in ThemeRegistry::built_in registers, in its order: the dark default first.
 const registry = readFileSync(join(repo, "console/src/theme_registry.rs"), "utf8");
-const registered = registry.match(/built_ins: \[\n([\s\S]*?)\],/)[1].match(/\w+(?=\(\))/g);
+const registered = registry.match(/built_ins: \[\s*(\w+\(\)[\s\S]*?)\],/)[1].match(/\w+(?=\(\))/g);
 for (const fn of registered) {
   const start = src.indexOf(`pub fn ${fn}() -> Theme {`);
   if (start < 0) throw new Error(`no fn ${fn}`);

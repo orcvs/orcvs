@@ -403,7 +403,8 @@ mod tests {
     use crate::console::menu_bar::TOP_PANEL_HEIGHT;
     use crate::console::source_view::extent;
     use crate::console::{DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
-    use crate::theme::{Theme, okabe_ito, orcvs_light};
+    use crate::theme::{Appearance, Theme};
+    use crate::theme_registry::tests_support::default_theme;
 
     /// The margin around the Grid in texels, read from the extent.
     fn margin() -> usize {
@@ -436,7 +437,7 @@ mod tests {
     #[tokio::test]
     async fn an_empty_grid_and_its_margin_are_all_grid_background() {
         let orcvs = running_orcvs(6, 4);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let picture = picture(&orcvs, &theme);
 
         assert_eq!(picture.size, [6 + 2 * margin(), 4 + 2 * margin()]);
@@ -457,7 +458,7 @@ mod tests {
         write_row(&mut orcvs, 2, "||ab");
         write_row(&mut orcvs, 3, ".+XY");
         orcvs.select(orcvs.grid().position(7, 3).expect("inside the grid"));
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let picture = picture(&orcvs, &theme);
 
         for column in 0..2 {
@@ -489,7 +490,7 @@ mod tests {
         // `&v` reads the pair one row south of its operand, (2, 1) and (3, 1).
         let mut orcvs = running_orcvs(4, 4);
         write_row(&mut orcvs, 0, "&v01");
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let before = picture(&orcvs, &theme);
         assert_eq!(texel(&before, 2, 1), theme.grid_background);
 
@@ -508,7 +509,7 @@ mod tests {
     async fn a_translucent_grid_and_token_still_draw_an_opaque_picture() {
         let mut orcvs = running_orcvs(4, 2);
         write_row(&mut orcvs, 0, ".+");
-        let mut theme = okabe_ito();
+        let mut theme = default_theme(Appearance::Dark);
         theme.grid_background = Color32::from_rgba_unmultiplied(40, 60, 80, 128);
         theme.source_function = Color32::from_rgba_unmultiplied(200, 100, 50, 128);
         let picture = picture(&orcvs, &theme);
@@ -533,12 +534,18 @@ mod tests {
     async fn another_theme_draws_another_picture() {
         let mut orcvs = running_orcvs(8, 2);
         write_row(&mut orcvs, 0, ".+0304");
-        let dark = picture(&orcvs, &okabe_ito());
-        let light = picture(&orcvs, &orcvs_light());
+        let dark = picture(&orcvs, &default_theme(Appearance::Dark));
+        let light = picture(&orcvs, &default_theme(Appearance::Light));
 
         assert_ne!(dark, light);
-        assert_eq!(texel(&light, 7, 1), orcvs_light().grid_background);
-        assert_eq!(texel(&light, 0, 0), orcvs_light().source_function);
+        assert_eq!(
+            texel(&light, 7, 1),
+            default_theme(Appearance::Light).grid_background
+        );
+        assert_eq!(
+            texel(&light, 0, 0),
+            default_theme(Appearance::Light).source_function
+        );
     }
 
     /// The bottom panel's separator, which borders the picture's inner edges.

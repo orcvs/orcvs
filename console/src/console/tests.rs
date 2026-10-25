@@ -12,8 +12,9 @@ use crate::grid_viewport::{
     snapped_cell,
 };
 use crate::paint::{EdgeLine, EdgeRank, EdgeRun, Edges, FramePaint, Paint};
-use crate::theme::{Appearance, Theme, grayscale_dark, grayscale_light, okabe_ito, orcvs_light};
+use crate::theme::{Appearance, Theme, ThemeIdentity};
 use crate::theme_registry::ThemeRegistry;
+use crate::theme_registry::tests_support::default_theme;
 use orcvs::grid::{COL_COUNT, Grid, Position, ROW_COUNT};
 
 use super::diagnostics_panel::{
@@ -413,7 +414,7 @@ fn console_pass_at(
     let output = ctx.run_ui(input, |root| {
         egui::CentralPanel::default()
             .frame(source_panel_frame(
-                crate::theme::okabe_ito().grid_background,
+                default_theme(Appearance::Dark).grid_background,
             ))
             .show(root, |ui| {
                 presented = Some(show_source_scene(
@@ -421,7 +422,7 @@ fn console_pass_at(
                     &frame,
                     &egui::FontFamily::Monospace,
                     view,
-                    &crate::theme::okabe_ito(),
+                    &default_theme(Appearance::Dark),
                 ));
             });
     });
@@ -1149,7 +1150,7 @@ async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
 /// `Console::new` runs. `install` must not overwrite whatever this set.
 ///
 /// Each egui slot holds its own appearance's default built-in, so the
-/// restored Light preference presents Orcvs Light rather than egui's own
+/// restored Light preference presents the light default rather than egui's own
 /// default light style. The style comparison is `Visuals`, not
 /// `Style`'s own `PartialEq`: `Style::number_formatter` compares by
 /// `Arc::ptr_eq` (`NumberFormatter`'s `PartialEq`), so two
@@ -1171,8 +1172,8 @@ async fn console_new_keeps_a_theme_preference_already_on_the_context() {
 
     assert_chrome(
         &ctx,
-        &grayscale_dark(),
-        &grayscale_light(),
+        &default_theme(Appearance::Dark),
+        &default_theme(Appearance::Light),
         "Console::new under a restored Light preference",
     );
 }
@@ -2266,7 +2267,11 @@ async fn the_compact_bars_take_their_height_and_the_source_the_rest() {
 fn a_second_tick_digit_does_not_move_run_clock() {
     fn clock_left(tick: &str) -> i32 {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+        crate::style::install(
+            &ctx,
+            &default_theme(Appearance::Dark),
+            &default_theme(Appearance::Light),
+        );
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let clock_x = std::cell::Cell::new(0.0);
         let output = ctx.run_ui(
@@ -2315,7 +2320,11 @@ fn a_second_tick_digit_does_not_move_run_clock() {
 fn an_off_beat_does_not_move_tick() {
     fn tick_left(marker: &str) -> i32 {
         let ctx = egui::Context::default();
-        crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+        crate::style::install(
+            &ctx,
+            &default_theme(Appearance::Dark),
+            &default_theme(Appearance::Light),
+        );
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         let tick_x = std::cell::Cell::new(0.0);
         let output = ctx.run_ui(
@@ -2367,7 +2376,11 @@ fn an_off_beat_does_not_move_tick() {
 #[test]
 fn panel_readouts_use_the_monospace_style_size_not_line_height() {
     let ctx = egui::Context::default();
-    crate::style::install(&ctx, &okabe_ito(), &orcvs_light());
+    crate::style::install(
+        &ctx,
+        &default_theme(Appearance::Dark),
+        &default_theme(Appearance::Light),
+    );
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let sizes = std::cell::Cell::new((0.0, 0.0));
     let output = ctx.run_ui(
@@ -2460,10 +2473,11 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
         "groups are as tight as a label and its value: group {beat_to_t} pair {t_to_v}"
     );
 
-    let expected_left = egui::Frame::side_top_panel(&crate::style::style(&okabe_ito()))
-        .inner_margin
-        .leftf()
-        + f32::from(BOTTOM_PANEL_LEFT_PAD);
+    let expected_left =
+        egui::Frame::side_top_panel(&crate::style::style(&default_theme(Appearance::Dark)))
+            .inner_margin
+            .leftf()
+            + f32::from(BOTTOM_PANEL_LEFT_PAD);
     assert!(
         (b.1 - expected_left).abs() < 1.0,
         "B starts at {} rather than {expected_left} in {spans:?}",
@@ -2489,7 +2503,7 @@ async fn the_bottom_panel_separator_is_the_grid_line() {
     assert!(
         strokes.iter().any(|(color, rect)| {
             *color
-                == crate::style::style(&grayscale_dark())
+                == crate::style::style(&default_theme(Appearance::Dark))
                     .visuals
                     .window_stroke
                     .color
@@ -2514,7 +2528,7 @@ async fn the_bpm_field_uses_the_selection_stroke_while_focused() {
     );
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let theme = grayscale_dark();
+    let theme = default_theme(Appearance::Dark);
     let field = ctx
         .read_response(bpm_field_id(&console))
         .expect("the BPM field was not shown")
@@ -2578,8 +2592,8 @@ fn painted(frame: &RenderFrame, viewport: GridViewport, clip: Rect) -> Paint {
     ))
 }
 
-/// [`painted`], but resolved against `theme` rather than the Okabe–Ito
-/// built-in — for a test that asks about a Cell's own `border` or
+/// [`painted`], but resolved against `theme` rather than Paint's own test
+/// Theme — for a test that asks about a Cell's own `border` or
 /// `border_width`, both of which `Paint::derive_with_theme` bakes in
 /// (`crate::style::ordinary_border`'s fact-priority pick), unlike
 /// `SourceShapes::geometry`'s `sector_seam_width`, which stays a
@@ -2667,8 +2681,16 @@ async fn the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry() {
         &columns,
         &rows,
         1,
-        okabe_ito().grid_border.gamma_multiply(0.5),
-        &ruled_apart(viewport, &frame, &paint, &okabe_ito(), 1.0),
+        default_theme(Appearance::Dark)
+            .grid_border
+            .gamma_multiply(0.5),
+        &ruled_apart(
+            viewport,
+            &frame,
+            &paint,
+            &default_theme(Appearance::Dark),
+            1.0,
+        ),
     );
     for background in &shapes.backgrounds {
         assert!(
@@ -2700,7 +2722,7 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
     let frame = orcvs.render_frame();
     let theme = Theme {
         output_portal_border: Color32::from_rgb(200, 0, 0),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
 
     for (pixels_per_point, width) in [(1.0, 1), (1.5, 2), (2.0, 2)] {
@@ -2786,7 +2808,7 @@ async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_wi
         cursor_border_width: crate::theme::GridWidth::from_points(0.5)
             .expect("0.5 is within 0..=1"),
         cursor_border: Color32::from_rgb(200, 0, 0),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
 
     for pixels_per_point in [1.0, 1.5, 2.0] {
@@ -2878,7 +2900,7 @@ async fn a_region_hides_the_cursors_cell_border() {
     let frame = orcvs.render_frame();
     let theme = Theme {
         region_border: Color32::from_rgb(200, 0, 0),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
     let viewport = presented(screen, 8, 8, 1.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);
@@ -3403,7 +3425,7 @@ async fn an_empty_grid_draws_each_grid_line_once() {
         let theme = Theme {
             grid_border_width: crate::theme::GridWidth::from_points(width_points)
                 .expect("within 0..=1"),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let viewport = presented(screen, 5, 3, pixels_per_point);
         let paint = painted_themed(&frame, viewport, screen, &theme);
@@ -3618,7 +3640,7 @@ fn a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction() {
 
 ///
 /// A line under one physical pixel covers one pixel, faded by its width, as
-/// epaint's own thin strokes fade rather than thin. At 1× Okabe–Ito's
+/// epaint's own thin strokes fade rather than thin. At 1× the dark default's
 /// half-point Grid line is one pixel at half its colour.
 ///
 #[tokio::test]
@@ -3626,7 +3648,7 @@ async fn a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let orcvs = running_orcvs(4, 4);
     let frame = orcvs.render_frame();
-    let theme = okabe_ito();
+    let theme = default_theme(Appearance::Dark);
     assert_eq!(theme.grid_border_width.points(), 0.5);
 
     for pixels_per_point in [1.0, 1.5] {
@@ -3681,10 +3703,16 @@ async fn neighbouring_diagnostic_cells_share_one_line_composited_once() {
     }
     orcvs.select(orcvs.grid().position(7, 0).expect("inside the grid"));
     let frame = orcvs.render_frame();
+    // The Function and Number borders are cleared, so the Diagnostic border
+    // meets only Grid lines.
     let theme = Theme {
         diagnostic_border: Color32::from_rgba_unmultiplied(255, 255, 255, 96),
         diagnostic_border_width: crate::theme::GridWidth::from_points(1.0).expect("within 0..=1"),
-        ..okabe_ito()
+        source_function_border_width: crate::theme::GridWidth::from_points(0.0)
+            .expect("within 0..=1"),
+        source_number_border_width: crate::theme::GridWidth::from_points(0.0)
+            .expect("within 0..=1"),
+        ..default_theme(Appearance::Dark)
     };
     let viewport = presented(screen, 8, 3, 2.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);
@@ -3750,9 +3778,10 @@ async fn a_one_pixel_crossing_is_drawn() {
     let frame = orcvs.render_frame();
     // The Cursor's outline as thin as the Grid line, so its corners are one
     // pixel crossings too.
+    let base = default_theme(Appearance::Dark);
     let theme = Theme {
-        cursor_border_width: okabe_ito().grid_border_width,
-        ..okabe_ito()
+        cursor_border_width: base.grid_border_width,
+        ..base
     };
     let viewport = presented(screen, 2, 2, 2.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);
@@ -3880,7 +3909,7 @@ async fn a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other() {
 ///
 #[test]
 fn the_omitted_background_is_the_colour_the_panel_is_filled_with() {
-    let theme = crate::theme::okabe_ito();
+    let theme = default_theme(Appearance::Dark);
     assert_eq!(
         source_panel_frame(theme.grid_background).fill,
         theme.grid_background,
@@ -4090,7 +4119,7 @@ async fn a_background_run_is_the_rectangle_its_columns_span() {
     };
     let orcvs = running_orcvs(8, 8);
     let frame = orcvs.render_frame();
-    let base = okabe_ito();
+    let base = default_theme(Appearance::Dark);
     let theme = Theme {
         cursor_background: Some(base.selection_background),
         ..base
@@ -4163,7 +4192,7 @@ async fn a_console_pass_strokes_at_its_own_theme_width_and_snaps_runs_to_the_dev
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(400.0));
     let mut orcvs = running_orcvs(20, 20);
     let mut view = SourceView::new(CELL_SIZE);
-    let theme = okabe_ito();
+    let theme = default_theme(Appearance::Dark);
 
     let (viewport, shapes) = console_pass_at(
         &ctx,
@@ -4253,7 +4282,7 @@ async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
     let cursor = orcvs.grid().position(8, 8).expect("inside the grid");
     orcvs.select(cursor);
     let frame = orcvs.render_frame();
-    let theme = okabe_ito();
+    let theme = default_theme(Appearance::Dark);
 
     for pixels_per_point in DEVICE_SCALES {
         let viewport = presented(screen, 16, 16, pixels_per_point);
@@ -4370,7 +4399,7 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
         cursor_border_width: crate::theme::GridWidth::from_points(0.0)
             .expect("0.0 is within 0..=1"),
         sector_seam_width: crate::theme::GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
 
     for pixels_per_point in DEVICE_SCALES {
@@ -4404,7 +4433,7 @@ async fn the_grid_and_cursor_border_widths_vary_independently() {
         grid_border_width: crate::theme::GridWidth::from_points(0.2).expect("0.2 is within 0..=1"),
         cursor_border_width: crate::theme::GridWidth::from_points(0.9)
             .expect("0.9 is within 0..=1"),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
     let paint = painted_themed(&frame, viewport, screen, &theme);
     let shapes = source_geometry(&paint, viewport, 1.0);
@@ -4449,7 +4478,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
     let zero_cursor = Theme {
         cursor_border_width: crate::theme::GridWidth::from_points(0.0)
             .expect("0.0 is within 0..=1"),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
     let paint = painted_themed(&frame, viewport, screen, &zero_cursor);
     let shapes = source_geometry(&paint, viewport, 1.0);
@@ -4465,7 +4494,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
 
     let zero_grid = Theme {
         grid_border_width: crate::theme::GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
     let paint = painted_themed(&frame, viewport, screen, &zero_grid);
     let shapes = source_geometry(&paint, viewport, 1.0);
@@ -4498,7 +4527,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
     let theme = Theme {
         cursor_border_width: crate::theme::GridWidth::from_points(0.0)
             .expect("0.0 is within 0..=1"),
-        ..okabe_ito()
+        ..default_theme(Appearance::Dark)
     };
     let paint = painted_themed(&frame, viewport, screen, &theme);
     let shapes = source_geometry(&paint, viewport, 1.0);
@@ -4523,7 +4552,7 @@ async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales()
     let mut orcvs = running_orcvs(16, 16);
     orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
     let frame = orcvs.render_frame();
-    let theme = okabe_ito();
+    let theme = default_theme(Appearance::Dark);
 
     for pixels_per_point in DEVICE_SCALES {
         let viewport = presented(screen, 16, 16, pixels_per_point);
@@ -4560,8 +4589,8 @@ async fn clear_color_is_the_resolved_themes_opaque_window_background() {
     let (ctx, console, _host) = fresh_console();
 
     for (slot, theme) in [
-        (egui::Theme::Dark, grayscale_dark()),
-        (egui::Theme::Light, grayscale_light()),
+        (egui::Theme::Dark, default_theme(Appearance::Dark)),
+        (egui::Theme::Light, default_theme(Appearance::Light)),
     ] {
         assert_eq!(
             theme.window_background.a(),
@@ -5115,14 +5144,20 @@ async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
         assert_eq!(paint.count(), positions.count());
         let shapes = source_geometry(&paint, viewport, pixels_per_point);
         let (columns, rows) = boundaries(viewport, &paint, pixels_per_point);
-        let (width, colour) = expected_line(&okabe_ito(), pixels_per_point);
+        let (width, colour) = expected_line(&default_theme(Appearance::Dark), pixels_per_point);
         assert_drawn_once_around(
             &line_quads(shapes.edges.as_slice(), pixels_per_point),
             &columns,
             &rows,
             width,
             colour,
-            &ruled_apart(viewport, &frame, &paint, &okabe_ito(), pixels_per_point),
+            &ruled_apart(
+                viewport,
+                &frame,
+                &paint,
+                &default_theme(Appearance::Dark),
+                pixels_per_point,
+            ),
         );
     }
 }
@@ -5273,7 +5308,7 @@ async fn a_panned_console_paints_every_sector_seam_inside_the_clip() {
             .cloned()
             .collect::<Vec<_>>();
         let pixels = edge_pixels(&line_quads(&meshes, pixels_per_point));
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let pixel = |point: f32| (point * pixels_per_point).round() as i32;
 
         assert!(
@@ -5995,7 +6030,7 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
         |root| {
             egui::CentralPanel::default()
                 .frame(source_panel_frame(
-                    crate::theme::okabe_ito().grid_background,
+                    default_theme(Appearance::Dark).grid_background,
                 ))
                 .show(root, |ui| {
                     grid_layer = Some(ui.layer_id());
@@ -6004,7 +6039,7 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
                         &frame,
                         &egui::FontFamily::Monospace,
                         &mut view,
-                        &crate::theme::okabe_ito(),
+                        &default_theme(Appearance::Dark),
                     );
                 });
         },
@@ -6220,7 +6255,7 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
         "the picture left the window's corner"
     );
 
-    let theme = grayscale_dark();
+    let theme = default_theme(Appearance::Dark);
     let width = theme.panel_border_width.points();
     let stroke = egui::Stroke::new(width, theme.panel_border);
     assert_eq!(
@@ -6519,7 +6554,7 @@ fn overview_pass(
 ) -> (Option<egui::epaint::RectShape>, Rect, Rect) {
     let (shapes, _) = console_output_at(ctx, screen, events, console, host, 1.0);
     let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
-    let theme = grayscale_dark();
+    let theme = default_theme(Appearance::Dark);
     let mut outlines = source_view_outlines(&shapes, picture, &theme);
     assert!(outlines.len() <= 1, "more than one outline: {outlines:?}");
     (outlines.pop(), picture, source_area(&shapes, &theme))
@@ -6546,7 +6581,7 @@ async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
 
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let theme = grayscale_dark();
+    let theme = default_theme(Appearance::Dark);
     console.overview_open = true;
     let cell = snapped_cell(console.source_view.cell, 1.0);
     // The Pan as Paint drew it: the Grid's corner, on whole physical pixels,
@@ -6605,7 +6640,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
 
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let theme = grayscale_dark();
+    let theme = default_theme(Appearance::Dark);
     console.overview_open = true;
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the grid");
@@ -6702,16 +6737,16 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
 
 ///
 /// The Overview's Cursor mark fill on the empty Cell at column 12, row 8, in a
-/// Theme inheriting Okabe-Ito with `style` added: first as the far corner of
+/// Theme inheriting the dark default with `style` added: first as the far corner of
 /// a Region from column 9, row 7, then with the Region collapsed to it.
 ///
 fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
-    use crate::theme::{Appearance, ThemeIdentity};
     use crate::theme_registry::tests_support::{id, load};
 
     let source = format!(
         "format = \"orcvs-theme\"\nversion = 1\n\
-         name = \"Fills\"\ninherits = \"okabe-ito\"\n[style]\n{style}"
+         name = \"Fills\"\ninherits = \"{}\"\n[style]\n{style}",
+        ThemeIdentity::default_for(Appearance::Dark)
     );
     let mut themes = ThemeRegistry::built_in();
     load(&mut themes, "fills.toml", source.as_bytes());
@@ -6787,7 +6822,10 @@ async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell
 ///
 #[tokio::test]
 async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_fills_are_cleared() {
-    let (in_region, alone) = cursor_mark_fills("\"cell.background\" = \"#203040\"\n");
+    let (in_region, alone) = cursor_mark_fills(
+        "\"cell.background\" = \"#203040\"\n\"cursor.background\" = \"none\"\n\
+         \"region.cursor.background\" = \"none\"\n",
+    );
     let base = Color32::from_rgb(0x20, 0x30, 0x40);
     assert_eq!(in_region, base, "inside a spanning Region");
     assert_eq!(alone, base, "with a one-Cell Region");
