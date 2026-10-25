@@ -28,9 +28,6 @@ use orcvs::source::{Source, file};
 
 type Ledger = Arc<Mutex<Vec<Vec<u8>>>>;
 
-// TEMPORARY diagnostic: how long each send to the destination took.
-static DIAGNOSTIC_SENDS: Mutex<Vec<Duration>> = Mutex::new(Vec::new());
-
 /// Each message the destination accepted, with the instant it was sent and
 /// the absolute Tick the engine had last executed when it was.
 type SentLedger = Arc<Mutex<Vec<(Instant, u64, Vec<u8>)>>>;
@@ -156,7 +153,12 @@ fn cross_check(sent: &[Vec<u8>], received: &[Vec<u8>]) -> Vec<Heard> {
 /// stream ends with every channel silenced and reset.
 ///
 fn assert_plays_the_program(heard: &[Heard]) {
-    let played = [
+    assert_hears(heard, &program_plays());
+}
+
+/// What the program plays over its run.
+fn program_plays() -> [Heard; 5] {
+    [
         Heard::NoteOn {
             channel: 0,
             note: 60,
@@ -180,10 +182,17 @@ fn assert_plays_the_program(heard: &[Heard]) {
             channel: 3,
             note: 62,
         },
-    ];
+    ]
+}
+
+///
+/// Asserts the decoded stream holds every message in `played` and ends with
+/// every channel silenced and reset.
+///
+fn assert_hears(heard: &[Heard], played: &[Heard]) {
     for message in played {
         assert!(
-            heard.contains(&message),
+            heard.contains(message),
             "the listener never heard {message:?}; it heard {heard:?}"
         );
     }
@@ -251,9 +260,7 @@ struct Recording {
 
 impl MidiConnection for Recording {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
-        let began = std::time::Instant::now();
         self.destination.send(message)?;
-        DIAGNOSTIC_SENDS.lock().unwrap().push(began.elapsed());
         let tick = self.observation.borrow().tick.get();
         self.sent
             .lock()
@@ -632,11 +639,10 @@ mod virtual_port {
 
     use super::super::ConsoleMidiBackend;
     use super::{
-        Heard, Ledger, Run, TRACKER_NOTES, TRACKER_TICKS, assert_plays_the_program, cross_check,
-        play, program, tracker,
+        Heard, Ledger, Run, TRACKER_NOTES, TRACKER_TICKS, cross_check, play, program, tracker,
     };
     #[cfg(target_os = "macos")]
-    use super::{PlaybackDiagnostic, safety_reset, tracker_plays};
+    use super::{PlaybackDiagnostic, assert_hears, program_plays, safety_reset, tracker_plays};
 
     ///
     /// A listener on a virtual input port, which the platform's MIDI service
@@ -744,42 +750,31 @@ mod virtual_port {
     #[tokio::test]
     #[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
     async fn midi_loopback_through_a_virtual_port() {
-        let (_, heard) = play_through_a_virtual_port("program", program(), 3).await;
-        assert_plays_the_program(&heard);
+        let (run, heard) = play_through_a_virtual_port("program", program(), 3).await;
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(run.diagnostics, [], "the engine reported nothing");
+            super::assert_plays_the_program(&heard);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // The Timed Play's Note Off is owed by the Tick after the one that
+            // started it, so a run that executed only its first Tick owes none.
+            let played = program_plays();
+            let owed = if executed_through_overruns(&run, 3) > 1 {
+                &played[..]
+            } else {
+                &played[..played.len() - 1]
+            };
+            assert_hears(&heard, owed);
+        }
     }
 
     #[tokio::test]
     #[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
     async fn the_tracker_loopback_through_a_virtual_port() {
-        // TEMPORARY diagnostic: a timer on its own thread, on the same period,
-        // records how late the host wakes it while the run plays.
-        let probe = std::thread::spawn(|| {
-            let period = Duration::from_millis(125);
-            let start = std::time::Instant::now();
-            (1..24u32)
-                .map(|k| {
-                    let due = start + period * k;
-                    std::thread::sleep(due.saturating_duration_since(std::time::Instant::now()));
-                    (start + period * k - start, std::time::Instant::now() - due)
-                })
-                .collect::<Vec<_>>()
-        });
         let (run, heard) =
             play_through_a_virtual_port("tracker", tracker(&TRACKER_NOTES), TRACKER_TICKS).await;
-        let probe = probe.join().unwrap();
-        let late: Vec<_> = probe
-            .iter()
-            .filter(|(_, late)| *late > Duration::from_millis(20))
-            .collect();
-        let slowest_send = super::DIAGNOSTIC_SENDS
-            .lock()
-            .unwrap()
-            .iter()
-            .max()
-            .copied();
-        eprintln!(
-            "diagnostic: probe wakes over 20ms late (due, lateness) {late:?}; slowest send {slowest_send:?}"
-        );
         #[cfg(not(target_os = "macos"))]
         super::assert_plays_the_tracker(&run, &heard);
         #[cfg(target_os = "macos")]
@@ -787,79 +782,72 @@ mod virtual_port {
     }
 
     ///
-    /// Asserts the tracker run played its pattern exactly on every Tick it
-    /// executed, and lost a deadline only where the engine reported an
-    /// Overrun, then sent the stop's safety reset.
+    /// How many of a run's `ticks` deadlines it executed, having asserted
+    /// that it lost the others only to the Overruns the engine reported.
     ///
-    /// The hosted macOS runner stalls the engine's task for longer than a
-    /// period, and ADR 0037 declines a Tick that late rather than replaying
-    /// it. A declined deadline plays nothing and consumes no absolute Tick,
-    /// so the step it was due to play sounds at the next deadline and the
-    /// Ticks the run executes are a prefix of the pattern. Each message is
-    /// grouped by the Tick that sent it rather than by the period it was sent
-    /// in, so a Tick that ran late keeps its own messages. Every other host
-    /// holds the run to every deadline with `assert_plays_the_tracker`.
+    /// The hosted macOS runner stalls every thread in the process, the
+    /// engine's included, for up to some 150 ms at a time, longer than a
+    /// 125 ms period. ADR 0037 declines a deadline the clock reaches a whole
+    /// period late and reports it as one Overrun, and the deadlines the stall
+    /// slept through pass with it: the clock's next deadline is the first
+    /// one after it woke. So an Overrun observed `lateness` after its
+    /// deadline costs `lateness / period + 1` deadlines. The stop is timed
+    /// from the Space rather than from the engine's grid, so the run's last
+    /// deadline, late by less than a period, can still lose to it. Every
+    /// other host holds the run to every deadline.
     ///
     #[cfg(target_os = "macos")]
-    fn assert_plays_the_tracker_through_overruns(run: &Run, heard: &[Heard]) {
-        let overruns: Vec<_> = run
+    fn executed_through_overruns(run: &Run, ticks: usize) -> usize {
+        let lost: u128 = run
             .diagnostics
             .iter()
-            .filter_map(|diagnostic| match diagnostic {
+            .map(|diagnostic| match diagnostic {
                 PlaybackDiagnostic::Overrun {
                     scheduled_at,
                     observed_at,
-                } => Some((*scheduled_at, *observed_at - *scheduled_at)),
-                _ => None,
+                } => {
+                    (observed_at.saturating_sub(*scheduled_at)).as_nanos()
+                        / run.tick_period.as_nanos()
+                        + 1
+                }
+                other => panic!("the engine reported {other:?}, which no stall explains"),
             })
-            .collect();
-        assert_eq!(
-            overruns.len(),
-            run.diagnostics.len(),
-            "the engine reported only Overruns: {:?}",
+            .sum();
+        let lost = usize::try_from(lost).expect("a short run");
+        let executed = usize::try_from(run.last_tick).expect("a short run") + 1;
+        assert!(
+            executed <= ticks && executed + lost >= ticks - 1,
+            "the run executed {executed} of {ticks} Ticks and its Overruns account for {lost}: {:?}",
             run.diagnostics
         );
-        let executed = usize::try_from(run.last_tick).expect("a short run") + 1;
-        let expected = tracker_plays();
-        assert!(
-            executed == expected.len() || !overruns.is_empty(),
-            "the run executed {executed} of {} Ticks and the engine reported no Overrun",
-            expected.len()
-        );
-        assert!(
-            executed <= expected.len(),
-            "the run executed {executed} Ticks"
-        );
+        executed
+    }
 
+    ///
+    /// Asserts the tracker run played its pattern exactly on every Tick it
+    /// executed, and then the stop's safety reset.
+    ///
+    /// A declined deadline plays nothing and consumes no absolute Tick, so
+    /// the step it was due to play sounds at the next deadline and the Ticks
+    /// the run executes are a prefix of the pattern. Each message is grouped
+    /// by the Tick that sent it rather than by the period it was sent in, so
+    /// a Tick that ran late keeps its own messages.
+    ///
+    #[cfg(target_os = "macos")]
+    fn assert_plays_the_tracker_through_overruns(run: &Run, heard: &[Heard]) {
+        let executed = executed_through_overruns(run, TRACKER_TICKS as usize);
         let ticked = heard.len() - safety_reset().len();
         let mut played = vec![Vec::new(); executed];
         for ((_, tick, _), message) in run.sent[..ticked].iter().zip(heard) {
             played[usize::try_from(*tick).expect("a short run")].push(*message);
         }
-        for (tick, (played, expected)) in played.iter().zip(&expected).enumerate() {
-            assert_eq!(
-                played, expected,
-                "Tick {tick}, with Overruns (deadline, lateness) {overruns:?}"
-            );
+        for (tick, (played, expected)) in played.iter().zip(&tracker_plays()).enumerate() {
+            assert_eq!(played, expected, "Tick {tick}, with {:?}", run.diagnostics);
         }
         assert_eq!(
             &heard[ticked..],
             safety_reset(),
             "the stop sends the safety reset and nothing else"
-        );
-        // TEMPORARY: report what the runner did, on every run.
-        let firsts: Vec<_> = (0..executed as u64)
-            .filter_map(|tick| {
-                run.sent
-                    .iter()
-                    .find(|(_, sent_by, _)| *sent_by == tick)
-                    .map(|(at, _, _)| (tick, at.duration_since(run.started_at)))
-            })
-            .collect();
-        panic!(
-            "diagnostic (probe and sends above): executed {executed} of {} Ticks; period {:?}; Overruns (deadline, lateness) {overruns:?}; first send per Tick since the Space {firsts:?}",
-            expected.len(),
-            run.tick_period
         );
     }
 }
