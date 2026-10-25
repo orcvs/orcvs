@@ -32,10 +32,7 @@ use std::fmt;
 use egui::Color32;
 use serde::Deserialize;
 
-use crate::theme::{
-    Appearance, ChromeWidth, GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY, GridWidth, Theme,
-    ThemeIdentity, style_catalogue,
-};
+use crate::theme::{Appearance, ChromeWidth, GridWidth, Theme, ThemeIdentity, style_catalogue};
 
 /// `schema.md`'s per-document byte limit, checked before any decoding.
 pub(crate) const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
@@ -199,15 +196,6 @@ pub(crate) enum OptionalColor {
     Color(Color32),
 }
 
-// === Identity ===
-
-impl ThemeIdentity {
-    /// Whether this is a built-in's reserved identity.
-    pub(crate) fn is_reserved(&self) -> bool {
-        [GRAYSCALE_DARK_IDENTITY, GRAYSCALE_LIGHT_IDENTITY].contains(self)
-    }
-}
-
 // === Custom document model ===
 
 ///
@@ -304,7 +292,10 @@ pub(crate) fn resolve(
     identity: &ThemeIdentity,
     document: &ThemeDocument,
 ) -> Result<Theme, ThemeError> {
-    if identity.is_reserved() {
+    if built_ins
+        .iter()
+        .any(|built_in| &built_in.identity == identity)
+    {
         return Err(ThemeError::ReservedIdentity {
             identity: identity.clone(),
         });

@@ -161,6 +161,17 @@ impl ThemeRegistry {
     }
 
     ///
+    /// Whether `identity` is a built-in's, which no Theme file can replace.
+    /// Only native discovery reads Theme files.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    fn is_built_in(&self, identity: &ThemeIdentity) -> bool {
+        self.built_ins
+            .iter()
+            .any(|built_in| &built_in.identity == identity)
+    }
+
+    ///
     /// The built-in a `slot` falls back to, [`ThemeIdentity::default_for`].
     ///
     pub(crate) fn fallback(&self, slot: Appearance) -> &Theme {
@@ -429,7 +440,7 @@ mod native {
                 // An entry that cannot be loaded was reported when it was
                 // found; it refuses its identity without a second notice.
                 if let Some(reason) = candidate.unloadable {
-                    if !identity.is_reserved() {
+                    if !registry.is_built_in(&identity) {
                         registry.refused.insert(identity, reason);
                     }
                     continue;
@@ -446,7 +457,7 @@ mod native {
                         ));
                         // A reserved identity is still the built-in's: the
                         // refused file never shadows it.
-                        if !identity.is_reserved() {
+                        if !registry.is_built_in(&identity) {
                             registry.refused.insert(identity, reason);
                         }
                     }

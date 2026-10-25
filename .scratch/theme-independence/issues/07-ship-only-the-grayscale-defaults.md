@@ -7,15 +7,15 @@
 **Status:** resolved
 
 - [x] The registry holds exactly two built-ins, and the Theme menu offers them plus any custom Themes.
-- [x] `git grep -i -E 'okabe|orcvs.light|my.grayscale'` outside `.scratch/` and ADR history finds nothing.
+- [x] `git grep -i -E 'okabe|orcvs.light|my.grayscale'` outside `.scratch/` and ADR history finds nothing, except the deliberate hits the Comments name.
 - [x] A test shows a saved selection of `okabe-ito` falling back to Grayscale Dark, and a document inheriting from `okabe-ito` being refused.
 - [x] The Theme record's Shipped Themes table lists two Themes, and the record tests pass.
 - [x] `cursor-foreground/03` is narrowed to the two remaining built-ins.
-- [x] `cargo fmt --all -- --check`, the console clippy and nextest gates, the `--no-default-features` arm, `mise run check_wasm`, `mise run check_release_capture`, `bash scripts/check-tooling-contract.sh`, `actionlint` and `zizmor --offline .github/workflows` pass.
+- [x] `cargo fmt --all -- --check`, the console clippy and nextest gates, the `--no-default-features` arm, `mise run check_wasm`, `mise run check_release_capture`, `bash scripts/check-tooling-contract.sh`, `actionlint` and `zizmor --offline .github/workflows` pass. (Run here: every one but `actionlint`, `zizmor` and `check_wasm`'s `trunk` builds, which are not installed; the `mise` tasks ran as their commands. See Comments.)
 
 ## Comments
 
-The registry's built-ins are `[grayscale_dark(), grayscale_light()]`, and only their two identities are reserved. The four retired definitions, their identities, the Okabe–Ito copy example and its test, and the per-Theme record tests are deleted; the record check moved into `theme::record::assert_matches_its_table`, which `theme::tests::every_built_in_defines_every_key_at_its_table` and `style::tests::every_built_in_chrome_matches_its_record` run over every built-in. `contrast::accepted_failures` returns an empty list for any identity. `theme.md` keeps the Theme model, the Input Portal and Locked roles and the measurement method, and records the two defaults alone; its Shipped Themes table lists two Themes. ADR 0053 carries a 2026-10-25 amendment and notes at the amendments that named the retired Themes. `cursor-foreground/03` is narrowed.
+The registry's built-ins are `[grayscale_dark(), grayscale_light()]`. A reserved identity is one the registry's built-ins hold: `resolve` reads it from the built-ins it is given and discovery from `ThemeRegistry::is_built_in`, so no second list names them. The four retired definitions, their identities, the Okabe–Ito copy example and its test, and the per-Theme record tests are deleted; the record check moved into `theme::record::assert_matches_its_table`, which `theme::tests::every_built_in_defines_every_key_at_its_table` and `style::tests::every_built_in_chrome_matches_its_record` run over every built-in. `contrast::accepted_failures` returns an empty list for any identity. `theme.md` keeps the Theme model, the Input Portal and Locked roles and the measurement method, and records the two defaults alone; its Shipped Themes table lists two Themes. ADR 0053 carries a 2026-10-25 amendment and notes at the amendments that named the retired Themes. `cursor-foreground/03` is narrowed.
 
 Tests: `theme_selection::tests::a_selection_of_a_retired_built_in_falls_back_to_the_default_and_is_kept` (`okabe-ito` and `orcvs-light`) and `theme_registry::discovery_tests::a_theme_file_inheriting_a_retired_built_in_is_refused` (`inherits = "okabe-ito"`, refused with a notice naming it).
 

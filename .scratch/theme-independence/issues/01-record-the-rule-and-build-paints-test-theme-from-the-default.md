@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-- [x] A new ADR in `docs/adr/` records the rule and links ADR 0053. `docs/adr/README.md` lists it.
+- [x] A new ADR in `docs/adr/` records the rule and links ADR 0053. `docs/adr/README.md` lists it. (Moot: the README lists no ADRs, see Comments.)
 - [x] Paint's `test_theme` is built from `ThemeRegistry::built_in().fallback(Appearance::Dark)` and names no built-in.
 - [x] Every test that uses `test_theme` asserts through the Theme's fields, not hex literals, and passes.
 - [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.

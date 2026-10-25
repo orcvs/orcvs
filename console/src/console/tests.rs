@@ -3778,9 +3778,10 @@ async fn a_one_pixel_crossing_is_drawn() {
     let frame = orcvs.render_frame();
     // The Cursor's outline as thin as the Grid line, so its corners are one
     // pixel crossings too.
+    let base = default_theme(Appearance::Dark);
     let theme = Theme {
-        cursor_border_width: default_theme(Appearance::Dark).grid_border_width,
-        ..default_theme(Appearance::Dark)
+        cursor_border_width: base.grid_border_width,
+        ..base
     };
     let viewport = presented(screen, 2, 2, 2.0);
     let paint = painted_themed(&frame, viewport, screen, &theme);

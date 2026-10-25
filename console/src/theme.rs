@@ -782,28 +782,26 @@ mod tests {
     use crate::theme_registry::tests_support::built_ins;
 
     ///
-    /// Each appearance's default is a reserved built-in of that appearance.
+    /// Each appearance's default is a built-in of that appearance.
     ///
     #[test]
-    fn each_appearances_default_is_a_reserved_built_in_of_that_appearance() {
+    fn each_appearances_default_is_a_built_in_of_that_appearance() {
         let registry = ThemeRegistry::built_in();
         for appearance in [Appearance::Dark, Appearance::Light] {
             let theme = registry.fallback(appearance);
             assert_eq!(theme.appearance, appearance);
             assert_eq!(theme.identity, ThemeIdentity::default_for(appearance));
-            assert!(theme.identity.is_reserved(), "{}", theme.identity);
         }
     }
 
     ///
     /// Every built-in holds the values its table in `console/src/theme.md`
-    /// records, and its identity is reserved.
+    /// records.
     ///
     #[test]
     fn every_built_in_defines_every_key_at_its_table() {
         let registry = ThemeRegistry::built_in();
         for theme in built_ins(&registry) {
-            assert!(theme.identity.is_reserved(), "{}", theme.identity);
             super::record::assert_matches_its_table(theme);
         }
     }

@@ -8,7 +8,7 @@
 
 - [x] The console's tests and the benches name no built-in Theme function or identity outside the registry's fallback.
 - [x] `ticked_console`'s overrides say why each field is set.
-- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_release_capture` passes.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_release_capture` passes. (`mise` is not installed here: its command, `cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings`, passed.)
 
 ## Comments
 

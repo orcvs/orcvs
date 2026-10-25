@@ -189,8 +189,8 @@ fn empty(frame: &RenderFrame) -> VisiblePositions {
 /// The dark default, the same Theme every fixture below is walked against.
 /// `Theme`'s fields are `pub(crate)`, and a benchmark is a separate crate, so
 /// this cannot override the Cursor or Region fill the way `console::tests`
-/// do; it does not need to — the per-Cell walk [`paint`] measures reads every
-/// Theme channel but branches on none of the *values*, only on which fact a
+/// do. The per-Cell walk [`paint`] measures reads every Theme channel but
+/// branches on none of the *values*, only on which fact a
 /// Cell carries (its own doc explains why), so the default's own values
 /// exercise the same code paths a custom Theme's colours would.
 ///

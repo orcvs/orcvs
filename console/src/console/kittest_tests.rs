@@ -3659,8 +3659,8 @@ fn ticked_console(rows: &[&str]) -> Harness<'static, Console> {
     // Grid background, and Locked a translucent one, so a locked Cell's fill
     // differs from the fill its fact takes unlocked.
     let style = "[style]\n\
-                 \"output_portal.background\" = \"#E69F00\"\n\
-                 \"input_portal.background\" = \"#AC77FA\"\n\
+                 \"output_portal.background\" = \"#FF8000\"\n\
+                 \"input_portal.background\" = \"#8000FF\"\n\
                  \"locked.background\" = \"#80808080\"\n";
     load(
         &mut themes,

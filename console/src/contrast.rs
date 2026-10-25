@@ -1474,8 +1474,7 @@ mod tests {
     /// — `style::CellColours::colours`'s own "The Cursor's own
     /// fill wins outright on its Cell" — regardless of whether that role
     /// background was opaque. This fixture sets `source_number_background`
-    /// explicitly opaque to exercise the claim the test's name makes, rather
-    /// than relying on a shipped Theme to happen to have one.
+    /// explicitly opaque to exercise the claim the test's name makes.
     ///
     #[test]
     fn cursors_own_fill_replaces_even_an_opaque_role_background() {

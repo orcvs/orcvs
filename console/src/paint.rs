@@ -464,8 +464,8 @@ impl Paint {
     /// seam: no console path derives a Paint from a test-only Theme, because
     /// `show_source` always holds the console's own resolved one. What this
     /// saves is a test having to build a Theme to ask a question about one
-    /// Cell, and `console/benches/paint.rs` — a separate crate, which never
-    /// sees this — states its own convenience Theme for the same reason.
+    /// Cell. `console/benches/paint.rs`, a separate crate that never sees
+    /// this, walks the dark default through `source_shapes::dark_default_theme`.
     ///
     #[cfg(test)]
     pub(crate) fn derive(input: FramePaint<'_>) -> Self {
