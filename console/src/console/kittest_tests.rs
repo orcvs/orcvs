@@ -368,14 +368,9 @@ async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_me
     );
     // The Overview's layer is the picture and its border and no more, so the
     // Source and the bottom panel beside it still take the pointer.
-    let border = harness
-        .ctx
-        .global_style()
-        .visuals
-        .widgets
-        .noninteractive
-        .bg_stroke
-        .width;
+    let border = default_theme(Appearance::Dark)
+        .panel_separator_width
+        .points();
     let area = harness
         .ctx
         .memory(|memory| memory.area_rect(egui::Id::new("overview")));
@@ -1228,11 +1223,14 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
         super::panel::BOTTOM_PANEL_HEIGHT,
         "the top bar is not the compact bottom Panel's height"
     );
+    let separator = default_theme(Appearance::Dark)
+        .panel_separator_width
+        .points();
     for label in ["File", "View", "Help"] {
         let rect = harness.get_by_label(label).rect();
-        // The bar's separator line takes its last point.
+        // The bar's separator line takes its last points.
         assert!(
-            rect.top() == top.top() && top.bottom() - rect.bottom() <= 1.0,
+            rect.top() == top.top() && top.bottom() - rect.bottom() <= separator,
             "{label} does not span the top bar's height: {rect:?} in {top:?}"
         );
     }

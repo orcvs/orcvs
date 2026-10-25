@@ -2485,32 +2485,48 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
     );
 }
 
+///
+/// Each bar draws the Theme's `panel.separator`, at its width, along the
+/// edge that faces the Source and inside the bar's own height.
+///
 #[tokio::test]
-async fn the_bottom_panel_separator_is_the_grid_line() {
+async fn each_bar_draws_the_panel_separator_along_its_edge_facing_the_source() {
     let (ctx, mut console, mut host) = fresh_console();
+    console.diagnostics_open = false;
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let painted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let sink = painted.clone();
-    ctx.on_end_pass(
-        "capture-panel-separator",
-        std::sync::Arc::new(move |ctx| {
-            *sink.lock().unwrap() = painted_strokes(ctx);
-        }),
-    );
-    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
 
-    let strokes = painted.lock().unwrap().clone();
+    let theme = default_theme(Appearance::Dark);
+    let stroke = crate::style::bar_separator(&theme);
+    assert_eq!(
+        stroke,
+        egui::Stroke::new(theme.panel_separator_width.points(), theme.panel_separator)
+    );
+    let inset = stroke.width / 2.0;
+    let top = TOP_PANEL_HEIGHT - inset;
+    let bottom = screen.max.y - BOTTOM_PANEL_HEIGHT + inset;
+    for (bar, y) in [("top bar", top), ("bottom Panel", bottom)] {
+        let points = [Pos2::new(screen.min.x, y), Pos2::new(screen.max.x, y)];
+        assert!(
+            shapes.iter().any(|shape| matches!(
+                shape,
+                Shape::LineSegment { points: drawn, stroke: drawn_stroke }
+                    if *drawn == points && *drawn_stroke == stroke
+            )),
+            "the {bar} drew no separator {points:?} in {stroke:?}"
+        );
+    }
+    // egui's own separator line, drawn in `panel.border`, is gone from both.
+    let chrome = egui::Stroke::new(theme.panel_border_width.points(), theme.panel_border);
     assert!(
-        strokes.iter().any(|(color, rect)| {
-            *color
-                == crate::style::style(&default_theme(Appearance::Dark))
-                    .visuals
-                    .window_stroke
-                    .color
-                && rect.height() <= 2.0
-                && rect.width() > screen.width() * 0.5
-        }),
-        "the Panel separator was not the grid-line stroke in {strokes:?}"
+        !shapes.iter().any(|shape| matches!(
+            shape,
+            Shape::LineSegment { points, stroke: drawn_stroke }
+                if *drawn_stroke == chrome
+                    && points[0].y == points[1].y
+                    && points[1].x - points[0].x >= screen.width()
+        )),
+        "a bar still draws egui's separator line in {chrome:?}"
     );
 }
 
@@ -6235,10 +6251,9 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
 }
 
 ///
-/// The Overview is bordered as the bottom panel is: the Theme's panel border,
-/// the stroke egui's panel separator reads, along the two edges that face the
-/// rest of the console, just outside the picture, which stays in the window's
-/// corner.
+/// The Overview is bordered as the bottom panel is: the Theme's panel
+/// separator, along the two edges that face the rest of the console, just
+/// outside the picture, which stays in the window's corner.
 ///
 #[tokio::test]
 async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
@@ -6256,13 +6271,8 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
     );
 
     let theme = default_theme(Appearance::Dark);
-    let width = theme.panel_border_width.points();
-    let stroke = egui::Stroke::new(width, theme.panel_border);
-    assert_eq!(
-        ctx.global_style().visuals.widgets.noninteractive.bg_stroke,
-        stroke,
-        "the panel separator is not the Theme's panel border"
-    );
+    let stroke = crate::style::bar_separator(&theme);
+    let width = stroke.width;
     let corner = picture.min - Vec2::splat(width);
     let top = [
         Pos2::new(corner.x, picture.top() - width / 2.0),

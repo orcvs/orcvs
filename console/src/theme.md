@@ -191,13 +191,14 @@ property out.
 | `region.border` | `#DDDDDD` |
 | `region.background` | `#383838` |
 | `panel.border`, `widget.inactive.border`, `code.background` | `#2A2A2A` |
+| `panel.separator` | `#555555` |
 | `selection.border.rest` | `#A8A8A8` |
 | `text.muted` | `#C8C8C899` |
 | `grid.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
 | `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
 | `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
-| `input.cursor.width` | 2 |
+| `input.cursor.width`, `panel.separator.width` | 2 |
 | `overview.source_view` | `#FFFFFF` |
 | `overview.source_view.width` | 1 |
 
@@ -232,13 +233,14 @@ property out.
 | `sector.seam` | `#00000033` |
 | `region.background` | `#E1E1E1` |
 | `panel.border`, `widget.inactive.border`, `code.background` | `#D5D5D5` |
+| `panel.separator` | `#ADADAD` |
 | `selection.border.rest` | `#575757` |
 | `text.muted` | `#373737AF` |
 | `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
 | `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
 | `widget.inactive.border.width` | 0 |
-| `input.cursor.width` | 2 |
+| `input.cursor.width`, `panel.separator.width` | 2 |
 | `overview.source_view` | `#000000` |
 | `overview.source_view.width` | 1 |
 

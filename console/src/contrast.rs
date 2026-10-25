@@ -48,6 +48,8 @@
 //! Pairwise colour-vision separation of the Source glyph channels is a
 //! test-only check on the built-in Themes, in the `colour_vision` child
 //! module. It is not applied to a loaded Theme document.
+//! The bar edge's separation from the Grid's lines is likewise a test-only
+//! check on the built-ins.
 
 use std::fmt;
 
@@ -1483,6 +1485,38 @@ mod tests {
                 "{}'s contrast failures: {failures:?}",
                 theme.identity
             );
+        }
+    }
+
+    ///
+    /// Each built-in's bar edge stands apart from the Grid's lines it runs
+    /// beside, so a bar does not read as one more line of the Grid: the
+    /// separator, over the panel, against the sector seam and the Grid
+    /// border, each over the Grid. A test-only check on the built-ins, as the
+    /// colour-vision check is; a loaded Theme document is not held to it.
+    ///
+    #[test]
+    fn every_built_in_bar_edge_stands_apart_from_the_grid_lines() {
+        /// The least ratio a bar edge keeps to each Grid line.
+        const APART: f32 = 1.3;
+
+        let registry = ThemeRegistry::built_in();
+        for theme in built_ins(&registry) {
+            let over = |surface: Color32, colour: Color32| {
+                theme.window_background.blend(surface).blend(colour)
+            };
+            let edge = over(theme.panel_background, theme.panel_separator);
+            for (line, colour) in [
+                ("sector.seam", theme.sector_seam),
+                ("grid.border", theme.grid_border),
+            ] {
+                let ratio = contrast(edge, over(theme.grid_background, colour));
+                assert!(
+                    ratio >= APART,
+                    "{}'s panel.separator is {ratio}:1 against its {line}, under {APART}:1",
+                    theme.identity
+                );
+            }
         }
     }
 }

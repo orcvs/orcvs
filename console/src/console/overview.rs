@@ -218,8 +218,9 @@ impl Console {
             return None;
         }
         let ctx = root.ctx().clone();
-        // The stroke egui's panel separator draws on the bottom panel.
-        let border = root.visuals().widgets.noninteractive.bg_stroke;
+        let theme = self.themes.presented(appearance);
+        // The line the bottom panel draws along its edge facing the Source.
+        let border = crate::style::bar_separator(theme);
         let rect = place_picture(
             ctx.content_rect(),
             below_menu,
@@ -227,7 +228,6 @@ impl Console {
             frame.grid(),
             ctx.pixels_per_point(),
         )?;
-        let theme = self.themes.presented(appearance);
         let texture = self
             .overview
             .texture(&ctx, revision, frame, theme, appearance);

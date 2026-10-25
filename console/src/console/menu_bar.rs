@@ -6,6 +6,7 @@ use super::files::EXAMPLE_CONFIRMATIONS;
 #[cfg(not(target_arch = "wasm32"))]
 use super::files::FUNCTION_REFERENCE_CONFIRMATION;
 use super::input::FileCommand;
+use super::panel::{BarEdge, show_bar};
 use crate::examples::EXAMPLES;
 use crate::theme_selection::SelectedThemes;
 
@@ -251,10 +252,13 @@ impl Console {
         frame.inner_margin.bottom = 0;
         let top_panel = egui::Panel::top("top_panel")
             .resizable(false)
-            .exact_size(TOP_PANEL_HEIGHT)
-            .frame(frame);
+            .exact_size(TOP_PANEL_HEIGHT);
+        let separator = crate::style::bar_separator(
+            self.themes
+                .presented(crate::theme::Appearance::from(root.ctx().theme())),
+        );
 
-        top_panel.show(root, |ui| {
+        show_bar(root, top_panel, frame, BarEdge::Bottom, separator, |ui| {
             // A menu opens from its button's bottom edge, so each menu button
             // is the bar's full height, its label centred within it, and its
             // menu opens below the bar.

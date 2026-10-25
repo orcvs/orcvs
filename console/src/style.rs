@@ -921,8 +921,10 @@ pub fn style(theme: &Theme) -> Style {
     visuals.menu_corner_radius = CornerRadius::ZERO;
     visuals.window_shadow = Shadow::NONE;
     visuals.popup_shadow = Shadow::NONE;
-    // `Frame::window` and `Panel`'s separator both read these — `panel.border`/
-    // `panel.border.width`, the "Panel/window/noninteractive border" row.
+    // `Frame::window`, `Ui::separator` and a group's frame read these —
+    // `panel.border`/`panel.border.width`, the "Panel/window/noninteractive
+    // border" row. The bars draw `bar_separator` in place of `Panel`'s own
+    // separator line, which reads them too.
     let chrome = bounded_stroke(theme.panel_border_width, theme.panel_border);
     visuals.window_stroke = chrome;
     visuals.widgets.noninteractive.bg_fill = theme.panel_background;
@@ -981,6 +983,16 @@ pub fn style(theme: &Theme) -> Style {
 }
 
 ///
+/// The line along each bar's edge that faces the Source, and along the
+/// Overview's edges that do: `panel.separator` at `panel.separator.width`.
+/// The console draws it in place of egui's own panel separator line, so
+/// `panel.border` keeps windows, menus, popups and `Ui::separator`.
+///
+pub(crate) fn bar_separator(theme: &Theme) -> Stroke {
+    Stroke::new(theme.panel_separator_width.points(), theme.panel_separator)
+}
+
+///
 /// Registers [`style`] of `dark` for [`egui::Theme::Dark`] and of `light`
 /// for [`egui::Theme::Light`] through [`egui::Context::set_style_of`], and
 /// touches nothing else on `ctx` — in particular it never calls
@@ -1009,7 +1021,7 @@ mod tests {
 
     use super::{
         CellColours, CellVisuals, CursorPlacement, EdgeLine, EdgeRank, SOURCE_PAINT_FACTS,
-        cell_visuals, fact_index, install, style,
+        bar_separator, cell_visuals, fact_index, install, style,
     };
     use crate::contrast::PORTAL_ROLE_SETS;
     use crate::theme::{Appearance, Theme};
@@ -1676,6 +1688,31 @@ mod tests {
             style(&zeroed).visuals,
             expected,
             "a zeroed panel.border.width must suppress only that stroke's width"
+        );
+    }
+
+    ///
+    /// `panel.separator` and its width reach only [`bar_separator`]: windows,
+    /// menus, popups and `Ui::separator` keep `panel.border`.
+    ///
+    #[test]
+    fn the_panel_separator_reaches_only_the_bar_separator() {
+        let base = default_theme(Appearance::Dark);
+        let retuned = Theme {
+            panel_separator: Color32::from_rgb(0x12, 0x34, 0x56),
+            panel_separator_width: crate::theme::ChromeWidth::from_points(0.5)
+                .expect("0.5 is within 0..=2"),
+            ..base.clone()
+        };
+        assert_ne!(bar_separator(&retuned), bar_separator(&base));
+        assert_eq!(
+            bar_separator(&retuned),
+            Stroke::new(0.5, Color32::from_rgb(0x12, 0x34, 0x56))
+        );
+        assert_eq!(
+            style(&retuned).visuals,
+            style(&base).visuals,
+            "panel.separator reached egui's Visuals"
         );
     }
 
