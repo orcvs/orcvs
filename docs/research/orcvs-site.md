@@ -9,7 +9,7 @@ marked **UNVERIFIED** could not be confirmed from a primary source. A claim mark
 
 Build the site with **Astro and its Starlight docs theme**, host it on **GitHub Pages**, and embed
 the console the way Learn Orca embeds Orca: as **a same-origin iframe of the unmodified Trunk
-build**, served from the site's own `public/app/` directory.
+build**, served from the site's own `public/play/` directory.
 
 - **Agents work well with it.** Pages are plain Markdown or MDX files. Starlight checks the
   frontmatter against a schema, and the TypeScript config means an agent gets a build error
@@ -92,7 +92,7 @@ Two consequences for an embed:
 
 - **The output is already a static directory.** `trunk build` writes `index.html`, the JS glue and
   the `.wasm` file. Any static site generator can copy it as-is (section 3). Building with
-  `--public-url /<site-base>/app/` makes the `<base>` tag point at the right path (Trunk's
+  `--public-url /<site-base>/play/` makes the `<base>` tag point at the right path (Trunk's
   `build.public_url` [75]).
 - **The service worker would serve stale builds inside the site.** Once a reader has loaded the
   embed, the cached app keeps loading after a deploy. The embed should not register the worker; see
@@ -158,17 +158,17 @@ Risks of the recommendation:
   WASM build would go stale against `main`. The deploy job runs on pushes to `main`:
   1. Install the `mise.toml` tools, so Trunk, Rust and Node are the pinned ones.
   2. In `console/`, run
-     `trunk build --release --locked --public-url /orcvs/app/ --dist ../site/public/app`.
+     `trunk build --release --locked --public-url /orcvs/play/ --dist ../site/public/play`.
      `--release` matters: `check_wasm` builds the debug profile, which is not what readers should
      download. `--public-url` and `--dist` are Trunk's `public_url` and `dist` settings [75][104].
   3. In `site/`, run the Astro build with `site` set to the Pages URL and `base: '/orcvs'` [19]. It
-     copies `public/app/` into its output unchanged [14].
+     copies `public/play/` into its output unchanged [14].
   4. Upload the output with `upload-pages-artifact` and publish it with `deploy-pages` [83][84].
 
   The base path is written twice, and the two must agree: Trunk's public URL is Astro's `base`
-  followed by `/app/`. If they differ, every asset URL in the embed breaks. Both values should come
+  followed by `/play/`. If they differ, every asset URL in the embed breaks. Both values should come
   from one variable in the workflow, and a check after step 3 should fail the job if
-  `public/app/index.html` does not name `/orcvs/app/` as its base. Adding the workflow also brings
+  `public/play/index.html` does not name `/orcvs/play/` as its base. Adding the workflow also brings
   in the tooling-contract gates in `CLAUDE.md` (`check-tooling-contract.sh`, `actionlint`,
   `zizmor`).
 - **Move to Cloudflare or Netlify only if headers become necessary.** Both read a `_headers` file
