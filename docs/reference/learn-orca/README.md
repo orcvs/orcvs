@@ -35,8 +35,11 @@ of sourcehut. The section headings of the published page matched this copy on 20
 
 ## Changes in conversion
 
-The tutorial's prose, tables, code blocks and links are unchanged, including links that point at
-the former GitHub repository. Three things differ because the page builds them with JavaScript:
+The tutorial's prose, tables and code blocks are unchanged. Its links are unchanged, including
+those that point at the former GitHub repository, except three that were broken upstream: `#bang`
+now points at the `bangs` heading, and `[Devine](devine)` and `[Enfer](enfer)` are now the
+reference links `[Devine][devine]` and `[Enfer][enfer]`. Three more things differ because the page
+builds them with JavaScript:
 
 - Each operator diagram, an empty `<div data-operator>` that `js/main.js` fills with a grid of
   cells and hover tooltips, is a fenced grid followed by a list of each cell's tooltip. Empty

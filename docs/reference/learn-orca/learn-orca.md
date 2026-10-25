@@ -103,7 +103,7 @@ others stay put. You can see a guide referencing the operators by
 pressing `CmdOrCtrl+G`
 
 Operators come in two main flavors: lower-case and upper-case. Lower-case
-letters will operate on every [bang](#bang), and upper-case letters
+letters will operate on every [bang](#bangs), and upper-case letters
 will operate on every [frame](#frames).
 
 Most operators take some number of inputs and produce some number of outputs.
@@ -379,7 +379,7 @@ One other simple operator that is really useful for adding some nuance is the F 
 
 ## percussion
 
-[Devine](devine) has conveniently added drum samples to the first octaves of the voices in [Enfer](enfer) which is where our synthesizers and sounds are actually coming from. Let's add a kick, snare, hi-hat and lead to our previous bass line.
+[Devine][devine] has conveniently added drum samples to the first octaves of the voices in [Enfer][enfer] which is where our synthesizers and sounds are actually coming from. Let's add a kick, snare, hi-hat and lead to our previous bass line.
 
 ```orca
 ..........................
