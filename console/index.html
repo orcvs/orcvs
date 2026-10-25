@@ -10,7 +10,7 @@
     <title>Orcvs</title>
 
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
-    <link data-trunk rel="rust" data-wasm-opt="2" />
+    <link data-trunk rel="rust" data-wasm-opt="0" /><!-- PROTOTYPE (splash-screen): wasm-opt off for the static preview build. -->
     <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
     <base data-trunk-public-url />
 
@@ -23,6 +23,9 @@
     <link data-trunk rel="copy-file" href="assets/icon-256.png" />
     <link data-trunk rel="copy-file" href="assets/icon_ios_touch_192.png" />
     <link data-trunk rel="copy-file" href="assets/maskable_icon_x512.png" />
+    <!-- PROTOTYPE (splash-screen): the splash logo and the Grid font for the prototype's variants. -->
+    <link data-trunk rel="copy-file" href="assets/logo-splash.png" />
+    <link data-trunk rel="copy-file" href="assets/MonaspaceNeon-Regular.otf" />
 
 
     <link rel="manifest" href="manifest.json">
@@ -115,6 +118,161 @@
             }
         }
 
+
+        /* ============================================================ */
+        /* PROTOTYPE (splash-screen): three splash variants, switchable  */
+        /* with ?variant=A|B|C. Throwaway; lives on prototype/splash-screen. */
+        /* Colours are Grayscale Dark / Grayscale Light (console/src/theme.rs). */
+        @font-face {
+            font-family: "Monaspace Neon";
+            src: url("MonaspaceNeon-Regular.otf") format("opentype");
+        }
+
+        :root {
+            --splash-bg: #000000;
+            --splash-text: #c8c8c8;
+            --splash-muted: rgba(200, 200, 200, 0.6);
+            --splash-grid: rgba(255, 255, 255, 0.10);
+            --splash-cursor: #e6e6e6;
+            --splash-invert: 0;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root:not([data-appearance="dark"]) {
+                --splash-bg: #ffffff;
+                --splash-text: #373737;
+                --splash-muted: rgba(55, 55, 55, 0.69);
+                --splash-grid: rgba(0, 0, 0, 0.10);
+                --splash-cursor: #373737;
+                --splash-invert: 1;
+            }
+        }
+
+        :root[data-appearance="light"] {
+            --splash-bg: #ffffff;
+            --splash-text: #373737;
+            --splash-muted: rgba(55, 55, 55, 0.69);
+            --splash-grid: rgba(0, 0, 0, 0.10);
+            --splash-cursor: #373737;
+            --splash-invert: 1;
+        }
+
+        .splash {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            background: var(--splash-bg);
+            color: var(--splash-text);
+            font-family: "Monaspace Neon", ui-monospace, monospace;
+            transition: opacity 200ms ease-out;
+            z-index: 1;
+        }
+
+        .splash.leaving {
+            opacity: 0;
+        }
+
+        .splash img {
+            display: block;
+            filter: invert(var(--splash-invert));
+        }
+
+        /* A: the logo alone, following the OS appearance. */
+        .variant-A img {
+            width: min(256px, 50vmin);
+            height: auto;
+        }
+
+        /* B: a smaller logo, the name, and a Cursor stepping along a row of Grid Cells. */
+        .variant-B img {
+            width: min(160px, 36vmin);
+            height: auto;
+        }
+
+        .variant-B .name {
+            font-size: 18px;
+            letter-spacing: 0.4em;
+            margin-right: -0.4em;
+        }
+
+        .variant-B .cells {
+            display: grid;
+            grid-template-columns: repeat(8, 16px);
+            grid-auto-rows: 24px;
+            border-left: 0.5px solid var(--splash-grid);
+            border-top: 0.5px solid var(--splash-grid);
+        }
+
+        .variant-B .cells span {
+            border-right: 0.5px solid var(--splash-grid);
+            border-bottom: 0.5px solid var(--splash-grid);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            color: var(--splash-muted);
+        }
+
+        .variant-B .cells span.cursor {
+            outline: 1px solid var(--splash-cursor);
+            outline-offset: -1px;
+            color: var(--splash-cursor);
+        }
+
+        /* C: always dark whatever the OS appearance; a large logo that fades in. */
+        .variant-C {
+            background: #000000;
+        }
+
+        .variant-C img {
+            filter: none;
+            width: min(640px, 72vmin);
+            height: auto;
+            animation: splash-fade-in 900ms ease-out both;
+        }
+
+        @keyframes splash-fade-in {
+            from { opacity: 0; transform: scale(0.97); }
+            to { opacity: 1; transform: none; }
+        }
+
+        .prototype-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 16px;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #ffd400;
+            color: #111;
+            font: 13px/1.2 system-ui, sans-serif;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+            white-space: nowrap;
+        }
+
+        .prototype-bar button {
+            font: inherit;
+            border: 1px solid #111;
+            background: #fff;
+            color: #111;
+            border-radius: 999px;
+            padding: 2px 10px;
+            cursor: pointer;
+        }
+
+        .prototype-bar .label {
+            min-width: 15em;
+            text-align: center;
+            font-weight: 600;
+        }
     </style>
 </head>
 
@@ -123,11 +281,116 @@
     <!-- the id is hardcoded in main.rs . so, make sure both match. -->
     <canvas id="the_canvas_id"></canvas>
 
+    <!-- PROTOTYPE (splash-screen): the splash variants and the switcher bar. With ?hold=1 (the
+         default) the splash does not carry the loading_text id, so the console's start leaves it in
+         place over the running console until "Show console" is pressed. With ?hold=0 it is the
+         real loading_text element and the console removes it the moment it starts. -->
+    <div id="prototype_splash"></div>
+    <div class="prototype-bar" id="prototype_bar">
+        <button data-step="-1" title="Previous variant (←)">←</button>
+        <span class="label" id="prototype_label"></span>
+        <button data-step="1" title="Next variant (→)">→</button>
+        <button id="prototype_appearance" title="Appearance the splash presents"></button>
+        <button id="prototype_hold"></button>
+        <button id="prototype_release">Show console</button>
+    </div>
+    <script>
+        (function () {
+            const variants = {
+                A: 'Logo alone',
+                B: 'Logo, name and Cursor',
+                C: 'Always dark, large logo',
+            };
+            const keys = Object.keys(variants);
+            const appearances = ['os', 'dark', 'light'];
+            const params = new URLSearchParams(window.location.search);
+            let variant = keys.includes(params.get('variant')) ? params.get('variant') : 'A';
+            let appearance = appearances.includes(params.get('appearance')) ? params.get('appearance') : 'os';
+            const hold = params.get('hold') !== '0';
+
+            function markup(v) {
+                if (v === 'B') {
+                    const cells = Array.from({ length: 8 }, () => '<span></span>').join('');
+                    return '<img src="logo-splash.png" alt="Orcvs"><div class="name">ORCVS</div>' +
+                        '<div class="cells" id="prototype_cells">' + cells + '</div>';
+                }
+                return '<img src="logo-splash.png" alt="Orcvs">';
+            }
+
+            let stepper;
+            function render() {
+                const root = document.getElementById('prototype_splash');
+                if (!root) return;
+                root.className = 'splash variant-' + variant;
+                if (!hold) root.id = 'loading_text';
+                root.innerHTML = markup(variant);
+                if (appearance === 'os') document.documentElement.removeAttribute('data-appearance');
+                else document.documentElement.setAttribute('data-appearance', appearance);
+                document.getElementById('prototype_label').textContent = variant + ' (' + variants[variant] + ')';
+                document.getElementById('prototype_appearance').textContent = 'Appearance: ' + appearance;
+                document.getElementById('prototype_hold').textContent = hold ? 'Hold: on' : 'Hold: off';
+                clearInterval(stepper);
+                if (variant === 'B') {
+                    let at = 0;
+                    stepper = setInterval(function () {
+                        const cells = document.querySelectorAll('#prototype_cells span');
+                        if (!cells.length) return clearInterval(stepper);
+                        cells.forEach(function (c, i) { c.classList.toggle('cursor', i === at); });
+                        at = (at + 1) % cells.length;
+                    }, 120);
+                }
+            }
+
+            function navigate(next) {
+                const url = new URL(window.location.href);
+                Object.entries(next).forEach(function ([k, v]) { url.searchParams.set(k, v); });
+                window.history.replaceState(null, '', url);
+            }
+
+            document.querySelectorAll('.prototype-bar [data-step]').forEach(function (b) {
+                b.addEventListener('click', function () { cycle(Number(b.dataset.step)); });
+            });
+            function cycle(step) {
+                variant = keys[(keys.indexOf(variant) + step + keys.length) % keys.length];
+                navigate({ variant: variant });
+                if (!document.getElementById('prototype_splash')) {
+                    const div = document.createElement('div');
+                    div.id = 'prototype_splash';
+                    document.body.insertBefore(div, document.getElementById('prototype_bar'));
+                }
+                render();
+            }
+            document.getElementById('prototype_appearance').addEventListener('click', function () {
+                appearance = appearances[(appearances.indexOf(appearance) + 1) % appearances.length];
+                navigate({ appearance: appearance });
+                render();
+            });
+            document.getElementById('prototype_hold').addEventListener('click', function () {
+                navigate({ hold: hold ? '0' : '1' });
+                window.location.reload();
+            });
+            document.getElementById('prototype_release').addEventListener('click', function () {
+                const splash = document.getElementById('prototype_splash');
+                if (!splash) return;
+                splash.classList.add('leaving');
+                setTimeout(function () { splash.remove(); }, 200);
+            });
+            window.addEventListener('keydown', function (e) {
+                const t = e.target;
+                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+                if (e.key === 'ArrowLeft' && e.altKey) cycle(-1);
+                if (e.key === 'ArrowRight' && e.altKey) cycle(1);
+            });
+            render();
+        })();
+    </script>
+
     <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
     <script>
         // We disable caching during development so that we always view the latest version.
-        if ('serviceWorker' in navigator && window.location.hash !== "#dev") {
+        // PROTOTYPE (splash-screen): no service worker, so every variant loads fresh.
+        if (false && 'serviceWorker' in navigator && window.location.hash !== "#dev") {
             window.addEventListener('load', function () {
                 navigator.serviceWorker.register('sw.js');
             });
