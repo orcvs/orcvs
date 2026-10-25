@@ -444,7 +444,8 @@ const TRACKER_NOTES: [(u8, usize, &str); 11] = [
 const TRACKER_TICKS: u32 = 17;
 
 ///
-/// What the tracker's pattern plays, Tick by Tick.
+/// Asserts the tracker run sent, Tick by Tick, exactly what its pattern
+/// plays, and then the stop's safety reset.
 ///
 /// Within a Tick, the Note Offs of the Notes whose one-Tick length ends there
 /// come first, in the order those Notes started; the Tick's Note Ons follow
@@ -452,7 +453,7 @@ const TRACKER_TICKS: u32 = 17;
 /// which puts channels 3 and 7 first and 0 and 4 last. All on velocity
 /// `0x77`, as each voice's `!~cc77` writes it.
 ///
-fn tracker_ticks() -> [Vec<Heard>; TRACKER_TICKS as usize] {
+fn assert_plays_the_tracker(run: &Run, heard: &[Heard]) {
     let on = |channel, note| Heard::NoteOn {
         channel,
         note,
@@ -460,7 +461,7 @@ fn tracker_ticks() -> [Vec<Heard>; TRACKER_TICKS as usize] {
     };
     let off = |channel, note| Heard::NoteOff { channel, note };
     let step_0 = [on(2, 64), on(5, 67), on(0, 60)];
-    [
+    let expected: [Vec<Heard>; TRACKER_TICKS as usize] = [
         step_0.to_vec(),
         vec![off(2, 64), off(5, 67), off(0, 60), on(3, 62)],
         vec![off(3, 62), on(3, 65), on(6, 71)],
@@ -478,37 +479,11 @@ fn tracker_ticks() -> [Vec<Heard>; TRACKER_TICKS as usize] {
         vec![],
         vec![on(6, 72)],
         [vec![off(6, 72)], step_0.to_vec()].concat(),
-    ]
-}
-
-///
-/// Asserts the tracker run sent, Tick by Tick, exactly what its pattern
-/// plays, and then the stop's safety reset. Only a run on the paused clock
-/// can name the Tick each message was sent at.
-///
-fn assert_plays_the_tracker(run: &Run, heard: &[Heard]) {
+    ];
     let played = run.by_tick(heard, TRACKER_TICKS as usize);
-    for (tick, (played, expected)) in played.iter().zip(&tracker_ticks()).enumerate() {
+    for (tick, (played, expected)) in played.iter().zip(&expected).enumerate() {
         assert_eq!(played, expected, "Tick {tick}");
     }
-    assert_stops_with_the_safety_reset(run, heard);
-}
-
-///
-/// Asserts the tracker run sent exactly what its pattern plays, in order, and
-/// then the stop's safety reset. A run on the platform's clock is not grouped
-/// by Tick: the runner's scheduling moves a send across a Tick's boundary.
-///
-fn assert_plays_the_tracker_in_order(run: &Run, heard: &[Heard]) {
-    assert_eq!(
-        &heard[..run.ticked],
-        tracker_ticks().concat(),
-        "the run's Ticks"
-    );
-    assert_stops_with_the_safety_reset(run, heard);
-}
-
-fn assert_stops_with_the_safety_reset(run: &Run, heard: &[Heard]) {
     assert_eq!(
         &heard[run.ticked..],
         safety_reset(),
@@ -620,7 +595,7 @@ mod virtual_port {
     use super::super::ConsoleMidiBackend;
     use super::{
         Heard, Ledger, Run, TRACKER_NOTES, TRACKER_TICKS, assert_plays_the_program,
-        assert_plays_the_tracker_in_order, cross_check, play, program, tracker,
+        assert_plays_the_tracker, cross_check, play, program, tracker,
     };
 
     ///
@@ -738,6 +713,6 @@ mod virtual_port {
     async fn the_tracker_loopback_through_a_virtual_port() {
         let (run, heard) =
             play_through_a_virtual_port("tracker", tracker(&TRACKER_NOTES), TRACKER_TICKS).await;
-        assert_plays_the_tracker_in_order(&run, &heard);
+        assert_plays_the_tracker(&run, &heard);
     }
 }
