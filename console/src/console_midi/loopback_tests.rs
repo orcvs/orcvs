@@ -23,12 +23,14 @@ use tokio::time::Instant;
 use orcvs::app::{InputEvent, InputKey, Orcvs};
 use orcvs::grid::Grid;
 use orcvs::midi::{MidiConnection, MidiDestinationId, MidiError, MidiOutputAdapter};
+use orcvs::playback::{PlaybackDiagnostic, PlaybackObservationWatch};
 use orcvs::source::{Source, file};
 
 type Ledger = Arc<Mutex<Vec<Vec<u8>>>>;
 
-/// Each message the destination accepted, with the instant it was sent.
-type SentLedger = Arc<Mutex<Vec<(Instant, Vec<u8>)>>>;
+/// Each message the destination accepted, with the instant it was sent and
+/// the absolute Tick the engine had last executed when it was.
+type SentLedger = Arc<Mutex<Vec<(Instant, u64, Vec<u8>)>>>;
 
 ///
 /// The program the `midi_loopback` tests play. Each `.=0101` bangs the Cell
@@ -235,18 +237,23 @@ fn program() -> Source {
 ///
 /// Forwards each message to the destination and records the ones it accepted.
 ///
+/// The engine publishes a Tick before it delivers that Tick's messages, so the
+/// observation read at each send names the Tick that sent it.
+///
 struct Recording {
     destination: Box<dyn MidiConnection>,
+    observation: PlaybackObservationWatch,
     sent: SentLedger,
 }
 
 impl MidiConnection for Recording {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
         self.destination.send(message)?;
+        let tick = self.observation.borrow().tick.get();
         self.sent
             .lock()
             .unwrap()
-            .push((Instant::now(), message.to_vec()));
+            .push((Instant::now(), tick, message.to_vec()));
         Ok(())
     }
 }
@@ -281,15 +288,23 @@ const LAST_SAFETY_RESET_MESSAGE: [u8; 3] = [0xef, 0x00, 0x40];
 struct Run {
     started_at: Instant,
     tick_period: Duration,
-    /// Every message the destination accepted, with the instant it was sent.
-    sent: Vec<(Instant, Vec<u8>)>,
+    /// Every message the destination accepted, with the instant it was sent
+    /// and the Tick that sent it.
+    sent: Vec<(Instant, u64, Vec<u8>)>,
     /// How many of `sent` the run's Ticks sent; the rest are the stop's.
     ticked: usize,
+    /// The last Tick the run executed.
+    last_tick: u64,
+    /// What the engine reported over the run.
+    diagnostics: Vec<PlaybackDiagnostic>,
 }
 
 impl Run {
     fn bytes(&self) -> Vec<Vec<u8>> {
-        self.sent.iter().map(|(_, bytes)| bytes.clone()).collect()
+        self.sent
+            .iter()
+            .map(|(_, _, bytes)| bytes.clone())
+            .collect()
     }
 
     ///
@@ -302,7 +317,8 @@ impl Run {
     ///
     fn by_tick(&self, heard: &[Heard], ticks: usize) -> Vec<Vec<Heard>> {
         let mut grouped = vec![Vec::new(); ticks];
-        for (index, ((at, _), message)) in self.sent[..self.ticked].iter().zip(heard).enumerate() {
+        for (index, ((at, _, _), message)) in self.sent[..self.ticked].iter().zip(heard).enumerate()
+        {
             let tick = (at.duration_since(self.started_at).as_nanos() / self.tick_period.as_nanos())
                 as usize;
             assert!(
@@ -341,6 +357,7 @@ async fn play(
             destination,
             Box::new(Recording {
                 destination: connection,
+                observation: orcvs.playback_observation_watch(),
                 sent: sent.clone(),
             }),
         )
@@ -357,7 +374,7 @@ async fn play(
         .lock()
         .unwrap()
         .last()
-        .map(|(_, bytes)| bytes.as_slice())
+        .map(|(_, _, bytes)| bytes.as_slice())
         != Some(&LAST_SAFETY_RESET_MESSAGE[..])
     {
         assert!(
@@ -366,6 +383,8 @@ async fn play(
         );
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
+    let last_tick = orcvs.playback_observation().tick.get();
+    let diagnostics = orcvs.drain_playback_diagnostics();
     drop(orcvs);
 
     let sent = std::mem::take(&mut *sent.lock().unwrap());
@@ -374,6 +393,8 @@ async fn play(
         tick_period,
         sent,
         ticked,
+        last_tick,
+        diagnostics,
     }
 }
 
@@ -444,8 +465,7 @@ const TRACKER_NOTES: [(u8, usize, &str); 11] = [
 const TRACKER_TICKS: u32 = 17;
 
 ///
-/// Asserts the tracker run sent, Tick by Tick, exactly what its pattern
-/// plays, and then the stop's safety reset.
+/// What each Tick of the tracker run plays.
 ///
 /// Within a Tick, the Note Offs of the Notes whose one-Tick length ends there
 /// come first, in the order those Notes started; the Tick's Note Ons follow
@@ -453,7 +473,7 @@ const TRACKER_TICKS: u32 = 17;
 /// which puts channels 3 and 7 first and 0 and 4 last. All on velocity
 /// `0x77`, as each voice's `!~cc77` writes it.
 ///
-fn assert_plays_the_tracker(run: &Run, heard: &[Heard]) {
+fn tracker_plays() -> [Vec<Heard>; TRACKER_TICKS as usize] {
     let on = |channel, note| Heard::NoteOn {
         channel,
         note,
@@ -461,7 +481,7 @@ fn assert_plays_the_tracker(run: &Run, heard: &[Heard]) {
     };
     let off = |channel, note| Heard::NoteOff { channel, note };
     let step_0 = [on(2, 64), on(5, 67), on(0, 60)];
-    let expected: [Vec<Heard>; TRACKER_TICKS as usize] = [
+    [
         step_0.to_vec(),
         vec![off(2, 64), off(5, 67), off(0, 60), on(3, 62)],
         vec![off(3, 62), on(3, 65), on(6, 71)],
@@ -479,9 +499,22 @@ fn assert_plays_the_tracker(run: &Run, heard: &[Heard]) {
         vec![],
         vec![on(6, 72)],
         [vec![off(6, 72)], step_0.to_vec()].concat(),
-    ];
+    ]
+}
+
+///
+/// Asserts the tracker run executed every deadline and sent, Tick by Tick,
+/// exactly what its pattern plays, and then the stop's safety reset.
+///
+fn assert_plays_the_tracker(run: &Run, heard: &[Heard]) {
+    assert_eq!(run.diagnostics, [], "the engine reported nothing");
+    assert_eq!(
+        run.last_tick,
+        u64::from(TRACKER_TICKS) - 1,
+        "the run executed every Tick"
+    );
     let played = run.by_tick(heard, TRACKER_TICKS as usize);
-    for (tick, (played, expected)) in played.iter().zip(&expected).enumerate() {
+    for (tick, (played, expected)) in played.iter().zip(&tracker_plays()).enumerate() {
         assert_eq!(played, expected, "Tick {tick}");
     }
     assert_eq!(
@@ -594,9 +627,11 @@ mod virtual_port {
 
     use super::super::ConsoleMidiBackend;
     use super::{
-        Heard, Ledger, Run, TRACKER_NOTES, TRACKER_TICKS, assert_plays_the_program,
-        assert_plays_the_tracker, cross_check, play, program, tracker,
+        Heard, Ledger, Run, TRACKER_NOTES, TRACKER_TICKS, assert_plays_the_program, cross_check,
+        play, program, tracker,
     };
+    #[cfg(target_os = "macos")]
+    use super::{PlaybackDiagnostic, safety_reset, tracker_plays};
 
     ///
     /// A listener on a virtual input port, which the platform's MIDI service
@@ -713,6 +748,78 @@ mod virtual_port {
     async fn the_tracker_loopback_through_a_virtual_port() {
         let (run, heard) =
             play_through_a_virtual_port("tracker", tracker(&TRACKER_NOTES), TRACKER_TICKS).await;
-        assert_plays_the_tracker(&run, &heard);
+        #[cfg(not(target_os = "macos"))]
+        super::assert_plays_the_tracker(&run, &heard);
+        #[cfg(target_os = "macos")]
+        assert_plays_the_tracker_through_overruns(&run, &heard);
+    }
+
+    ///
+    /// Asserts the tracker run played its pattern exactly on every Tick it
+    /// executed, and lost a deadline only where the engine reported an
+    /// Overrun, then sent the stop's safety reset.
+    ///
+    /// The hosted macOS runner stalls the engine's task for longer than a
+    /// period, and ADR 0037 declines a Tick that late rather than replaying
+    /// it. A declined deadline plays nothing and consumes no absolute Tick,
+    /// so the step it was due to play sounds at the next deadline and the
+    /// Ticks the run executes are a prefix of the pattern. Each message is
+    /// grouped by the Tick that sent it rather than by the period it was sent
+    /// in, so a Tick that ran late keeps its own messages. Every other host
+    /// holds the run to every deadline with `assert_plays_the_tracker`.
+    ///
+    #[cfg(target_os = "macos")]
+    fn assert_plays_the_tracker_through_overruns(run: &Run, heard: &[Heard]) {
+        let overruns: Vec<_> = run
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| match diagnostic {
+                PlaybackDiagnostic::Overrun {
+                    scheduled_at,
+                    observed_at,
+                } => Some((*scheduled_at, *observed_at - *scheduled_at)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            overruns.len(),
+            run.diagnostics.len(),
+            "the engine reported only Overruns: {:?}",
+            run.diagnostics
+        );
+        let executed = usize::try_from(run.last_tick).expect("a short run") + 1;
+        let expected = tracker_plays();
+        assert!(
+            executed == expected.len() || !overruns.is_empty(),
+            "the run executed {executed} of {} Ticks and the engine reported no Overrun",
+            expected.len()
+        );
+        assert!(
+            executed <= expected.len(),
+            "the run executed {executed} Ticks"
+        );
+
+        let ticked = heard.len() - safety_reset().len();
+        let mut played = vec![Vec::new(); executed];
+        for ((_, tick, _), message) in run.sent[..ticked].iter().zip(heard) {
+            played[usize::try_from(*tick).expect("a short run")].push(*message);
+        }
+        for (tick, (played, expected)) in played.iter().zip(&expected).enumerate() {
+            assert_eq!(
+                played, expected,
+                "Tick {tick}, with Overruns (deadline, lateness) {overruns:?}"
+            );
+        }
+        assert_eq!(
+            &heard[ticked..],
+            safety_reset(),
+            "the stop sends the safety reset and nothing else"
+        );
+        // TEMPORARY: report what the runner did, on every run.
+        panic!(
+            "diagnostic: executed {executed} of {} Ticks; period {:?}; Overruns (deadline, lateness) {overruns:?}",
+            expected.len(),
+            run.tick_period
+        );
     }
 }
