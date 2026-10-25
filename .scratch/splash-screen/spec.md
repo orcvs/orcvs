@@ -28,8 +28,12 @@ and is rarely the real usage. The web loading screen comes second and borrows th
   is added.
 - The Playback Engine and the Source start as they do today. The splash hides nothing that is
   loading: native startup is quick, so the hold is for presentation, and input ends it early.
-- eframe restores the stored window geometry when persistence is on. The splash must not overwrite
-  it, and the console must open at the restored size and position afterwards.
+- eframe applies the stored window geometry to the initial viewport when persistence is on, before
+  the window exists, so a second launch would open the splash at the console's saved size. The
+  splash has to open at its own size every launch, end at the stored geometry, and never store its
+  own.
+- The console runs beneath the splash, so the key press or click that dismisses it must not reach
+  the console.
 - The web build cannot run egui until the WASM has loaded, so its loading screen is HTML in the
   page. The entry point already removes a `loading_text` element on start and writes the crash
   message into it on failure; the page lacks the element.
@@ -37,6 +41,8 @@ and is rarely the real usage. The web loading screen comes second and borrows th
 ## The logo asset
 
 `logo-splash.png` is derived from Toby's `orcvs.png` (1254 px, RGB, about 2 MB, untracked). The
-artwork is greyscale, so its brightness becomes alpha over a white fill: drawn untinted on black it
-is the original, and tinted or inverted it serves a light appearance. At 512 px, posterized to 32
-levels, it is 76 KB. The source artwork is not committed.
+artwork is greyscale, so its grey level becomes the alpha of a white image: composited on black it
+is the original, and tinted black it serves a light appearance. The grey is posterized to 32
+levels before it becomes alpha, which takes the file from 107 KB to 76 KB. Against the original
+resized to 512 px, the composite on black differs by a mean of 2.1 and at most 19 of 255. The
+source artwork is not committed, so the command in ticket 02 is the recipe of record.

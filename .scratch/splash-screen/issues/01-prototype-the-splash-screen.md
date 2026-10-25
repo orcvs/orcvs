@@ -1,6 +1,7 @@
 # 01 — Prototype the splash screen
 
 Status: resolved
+Type: prototype
 Blocked by: None — can start immediately
 
 **What to build:** Throwaway prototypes of a splash screen showing the Orcvs logo, natively around
@@ -23,9 +24,9 @@ The variants were:
   the console. **Chosen.**
 - C. Welcome card: the Grid at once under a scrim, with the logo card held until the first input.
 
-The prototype commits are on the `prototype/splash-screen` branch: `ORCVS_SPLASH=A|B|C|off` and
-`ORCVS_SPLASH_MS` select and time the native variant; `?variant=A|B|C` and `?hold=0|1` drive the
-web page. Captures are in the project files under `splash-screen/`.
+The prototype is two commits on the `prototype/splash-screen` branch, off `5182d65`: `8e1cae1`
+(web) and `6120338` (native). `ORCVS_SPLASH=A|B|C|off` and `ORCVS_SPLASH_MS` select and time the
+native variant; `?variant=A|B|C` and `?hold=0|1` drive the web page.
 
 The native prototype's B, trimmed to the decision (from the prototype):
 
