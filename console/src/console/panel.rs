@@ -5,13 +5,11 @@
 use std::time::Duration;
 
 use egui::{Color32, FontId, Key, Vec2};
-use orcvs::grid::Grid;
 use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
 use super::diagnostics_panel::summary_height;
-use super::source_view::one_row_between_margins;
 use crate::console_midi;
 use crate::grid_viewport::snapped_cell;
 use crate::midi::destination_presentation;
@@ -22,10 +20,10 @@ pub(super) const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
 
 ///
 /// The height Diagnostics leave the Source: one Row of `cell`s, at the
-/// snapped height the Source draws them, between its margins above and below.
+/// snapped height the Source draws them.
 ///
-fn source_reserve(ui: &egui::Ui, grid: Grid, cell: Vec2) -> f32 {
-    one_row_between_margins(grid, snapped_cell(cell, ui.ctx().pixels_per_point()).y)
+fn source_reserve(ui: &egui::Ui, cell: Vec2) -> f32 {
+    snapped_cell(cell, ui.ctx().pixels_per_point()).y
 }
 
 /// Extra left inset on top of `Frame::side_top_panel`'s inner margin.
@@ -325,7 +323,7 @@ impl Console {
         let diagnostics_room = root.available_height()
             - BOTTOM_PANEL_HEIGHT
             - separation
-            - source_reserve(root, self.orcvs.grid(), self.source_view.cell);
+            - source_reserve(root, self.source_view.cell);
         let diagnostics_height = self
             .diagnostics_open
             .then(|| summary_height(root).min(diagnostics_room.max(0.0)));

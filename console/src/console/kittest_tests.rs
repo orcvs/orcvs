@@ -83,7 +83,6 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
-use super::source_view::one_row_between_margins;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, PictureMap, SourceCellPoint, snapped_cell};
@@ -643,9 +642,9 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
     harness.step();
     harness.step();
     // Worked by hand from the texel count rather than through the Overview's
-    // map: the picture is 260 texels across and down, one for each of the 256
-    // Columns and Rows and the two margin Cells past either side.
-    let scale = Vec2::splat(260.0) / overview_picture(&harness).size();
+    // map: the picture is 256 texels across and down, one for each Column and
+    // Row.
+    let scale = Vec2::splat(256.0) / overview_picture(&harness).size();
     assert_near(
         &harness,
         source_view_centre(&harness),
@@ -668,12 +667,11 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
 }
 
 ///
-/// A drag past the Grid's far corner stops the Source View at the margin
-/// past it, as every Pan does: the console's far corner rests on the
-/// extent's.
+/// A drag past the Grid's far corner stops the Source View there, as every
+/// Pan does: the console's far corner rests on the extent's.
 ///
 #[tokio::test]
-async fn a_drag_from_the_overview_past_the_grid_stops_at_the_margin() {
+async fn a_drag_from_the_overview_past_the_grid_stops_at_its_far_corner() {
     let mut harness = console_with_overview_and_region();
     let picture = overview_picture(&harness);
     let press = picture.center();
@@ -690,7 +688,7 @@ async fn a_drag_from_the_overview_past_the_grid_stops_at_the_margin() {
         &harness,
         shown.shown().max(),
         shown.extent().max(),
-        "the Source View did not stop at the margin past the Grid's far corner",
+        "the Source View did not stop at the Grid's far corner",
     );
     primary(&mut harness, beyond, false);
     harness.step();
@@ -776,7 +774,7 @@ async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it()
 ///
 /// A fresh console shrunk to the smallest window it allows still shows the
 /// Source: the docked Diagnostics it opens with leave the Grid room for a
-/// whole row of Cells inside its margins.
+/// whole row of Cells.
 ///
 #[tokio::test]
 async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
@@ -788,11 +786,10 @@ async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
     );
 
     let source = source_rect(&harness);
-    let usable = one_row_between_margins(harness.state().orcvs.grid(), CELL_SIZE.y);
+    let usable = CELL_SIZE.y;
     assert!(
         source.height() >= usable,
-        "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
-         and its margins take"
+        "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells takes"
     );
 }
 
@@ -1834,7 +1831,7 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 /// (`Console::ui` reads the Render Frame after `Orcvs::event_handler` runs).
 ///
 /// This zooms egui to 2.0 first, which halves the window's width in points,
-/// so Column 40 lies past its far edge. The console's width is read back from
+/// so Column 45 lies past its far edge. The console's width is read back from
 /// egui rather than written down, since each zoom step rescales it.
 ///
 #[tokio::test]
@@ -1858,7 +1855,7 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
         "zooming in on an unmoved Cursor already in view Panned regardless"
     );
 
-    for _ in 0..40 {
+    for _ in 0..45 {
         harness.key_press(egui::Key::ArrowRight);
     }
     harness.step();
@@ -1866,26 +1863,24 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
 
     assert_eq!(
         cursor(harness.state()),
-        (40, 0),
-        "forty ArrowRight presses did not reach the Source"
+        (45, 0),
+        "forty-five ArrowRight presses did not reach the Source"
     );
 
-    // The follow shows Column 40's far edge, which sits the Source View's
-    // margin of two Cells further along than the Column itself. A Cell is
-    // `CELL_SIZE.x` points wide at every zoom.
+    // The follow brings Column 45's far edge, 46 Cells along, flush with the
+    // console's. A Cell is `CELL_SIZE.x` points wide at every zoom.
     let console_width = harness.ctx.content_rect().width();
     let pan = harness.state().source_view.pan;
-    let margin = -harness.state().source_view.shown().extent().min().x();
-    let expected = console_width - (41.0 + margin) * CELL_SIZE.x;
+    let expected = console_width - 46.0 * CELL_SIZE.x;
     assert!(
         (pan.x - expected).abs() < 1e-3 && pan.y == 0.0,
-        "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}, not {expected}"
+        "the Cursor move did not Pan the least distance that shows Column 45: {pan:?}, not {expected}"
     );
 
-    let column_40 = presented_source(&harness).cell_rect(40, 0);
+    let column_45 = presented_source(&harness).cell_rect(45, 0);
     assert!(
-        column_40.min.x >= 0.0 && column_40.max.x <= console_width + 1e-3,
-        "Column 40 is still out of view at {column_40:?} in a console {console_width} points wide"
+        column_45.min.x >= 0.0 && column_45.max.x <= console_width + 1e-3,
+        "Column 45 is still out of view at {column_45:?} in a console {console_width} points wide"
     );
 }
 
@@ -2955,8 +2950,7 @@ async fn the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_
 ///
 /// The grab hand offers a Pan, so it does not show where Alt starts none: partway
 /// through a primary drag that is selecting a Region, which stays a Region drag,
-/// or over a Grid that with its margins fits the console on both axes and has
-/// nowhere to Pan.
+/// or over a Grid that fits the console on both axes and has nowhere to Pan.
 ///
 #[tokio::test]
 async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
@@ -2993,8 +2987,8 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
     harness.step();
 
     // A Grid with nowhere to Pan: zoomed out to half, the default window is
-    // twice as many points across, and this Grid and its margins are
-    // smaller than its console on both axes.
+    // twice as many points across, and this Grid is smaller than its
+    // console on both axes.
     harness.state_mut().orcvs = orcvs::app::Orcvs::with_shape(64, 40).expect("the test runtime");
     harness.state_mut().source_view =
         super::source_view::SourceView::new(crate::grid_viewport::CELL_SIZE);
@@ -3069,9 +3063,9 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// Console's own repaint scheduling asks for nothing at all.
 ///
 /// The console is resized to a width that is not a multiple of the Cell's,
-/// so Column 14 (192..204 at egui's zoom factor of 1.0, after the two-Cell
-/// margin) is cut off at the console's right edge (200) and a click on it
-/// needs the follow to bring it fully into view.
+/// so Column 16 (192..204 at egui's zoom factor of 1.0) is cut off at the
+/// console's right edge (200) and a click on it needs the follow to bring it
+/// fully into view.
 ///
 #[tokio::test]
 async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
@@ -3087,7 +3081,7 @@ async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
         "the resize alone Panned before anything moved the Cursor"
     );
 
-    let target = presented_source(&harness).cell_rect(14, 0).min + Vec2::new(3.0, 3.0);
+    let target = presented_source(&harness).cell_rect(16, 0).min + Vec2::new(3.0, 3.0);
     harness.event(Event::PointerMoved(target));
     harness.event(Event::PointerButton {
         pos: target,
@@ -3105,15 +3099,15 @@ async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
 
     assert_eq!(
         cursor(harness.state()),
-        (14, 0),
-        "the click did not select Column 14"
+        (16, 0),
+        "the click did not select Column 16"
     );
 
-    let column_14 = presented_source(&harness).cell_rect(14, 0);
+    let column_16 = presented_source(&harness).cell_rect(16, 0);
     assert!(
-        column_14.max.x <= 200.0,
-        "the click's Cursor move did not Pan to bring Column 14 fully into a 200 point \
-         console: {column_14:?}"
+        column_16.max.x <= 200.0,
+        "the click's Cursor move did not Pan to bring Column 16 fully into a 200 point \
+         console: {column_16:?}"
     );
 }
 

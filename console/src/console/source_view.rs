@@ -24,14 +24,6 @@ use crate::theme::{Appearance, Theme};
 const EDGE_SCROLL_REACH: f32 = 4.0;
 
 ///
-/// The margin, in Cells, between the Grid and the console at rest and the
-/// distance a Pan can reach past each Grid edge. It is counted in Cells and
-/// measured in the snapped Cell's width across and its height down, so it is
-/// always a whole number of physical pixels.
-///
-const SOURCE_MARGIN_CELLS: f32 = 2.0;
-
-///
 /// The Source View: a Pan, presented as the [`ShownSourceView`] the Cells are
 /// drawn under.
 ///
@@ -51,8 +43,7 @@ const SOURCE_MARGIN_CELLS: f32 = 2.0;
 /// `previous_console` are what tell those changes apart from a frame that
 /// merely redrew the Cursor.
 ///
-/// `shown` is derived each frame from the Pan, the margin and the console's
-/// top-left, so Paint, the Overview and Diagnostics read one presentation.
+/// `shown` is derived each frame from the Pan and the console's top-left, so Paint, the Overview and Diagnostics read one presentation.
 ///
 pub(super) struct SourceView {
     pub(super) pan: Vec2,
@@ -185,11 +176,9 @@ impl SourceView {
             .is_some_and(|previous| previous != cursor);
         self.previous_cursor = Some(cursor);
 
-        // `pan` places the extent — the Grid with a margin on every side — so
-        // a Pan of zero rests the Grid one margin in from the console's
-        // top-left, and the clamp lets a Pan reach one margin past each far
-        // edge.
-        let cursor_at = at_rest(cell).rect_to_screen(followed_cells(cursor, grid));
+        // `pan` places the Grid, so a Pan of zero rests its top-left on the
+        // console's, and the clamp stops a Pan at each far edge.
+        let cursor_at = cursor_cell(cursor, cell);
 
         // A Region drag follows the Cursor at the pointer's pace rather than in
         // one jump, so the Source View scrolls after a pointer held past the
@@ -216,7 +205,7 @@ impl SourceView {
         self.pan = clamp_pan(self.pan, console_size, extent);
 
         // The pointer offers a Pan only where there is one: not on a Grid that
-        // with its margins fits the console on both axes, and not for Alt
+        // fits the console on both axes, and not for Alt
         // pressed partway through a Region drag, which stays one. Alt is the
         // one Pan gesture the pointer can announce before it starts: a
         // middle-drag has no hover state to show, and a wheel Pan is not a
@@ -281,32 +270,21 @@ pub(super) struct Settled {
 }
 
 ///
-/// The region of Source Cells the Source View can show: `grid` with a margin
-/// of [`SOURCE_MARGIN_CELLS`] past each edge.
+/// The region of Source Cells the Source View can show: the whole of `grid`.
 ///
 pub(super) fn extent(grid: Grid) -> SourceCellRect {
-    let margin = SOURCE_MARGIN_CELLS;
     SourceCellRect::from_min_max(
-        SourceCellPoint::new(-margin, -margin),
-        SourceCellPoint::new(grid.columns() as f32 + margin, grid.rows() as f32 + margin),
+        SourceCellPoint::new(0.0, 0.0),
+        SourceCellPoint::new(grid.columns() as f32, grid.rows() as f32),
     )
 }
 
 ///
-/// The height in points of one Row of `cell`-high Cells between the margins
-/// the extent of `grid` has above and below it: the least a console shows of
-/// the Source.
-///
-pub(super) fn one_row_between_margins(grid: Grid, cell: f32) -> f32 {
-    (extent(grid).size().y - grid.rows() as f32 + 1.0) * cell
-}
-
-///
 /// The Source View at a Pan of zero, in points from the console's top-left:
-/// the extent's corner on the console's.
+/// the Grid's corner on the console's.
 ///
 fn at_rest(cell: Vec2) -> ScreenMap {
-    ScreenMap::new(Pos2::ZERO + SOURCE_MARGIN_CELLS * cell, cell)
+    ScreenMap::new(Pos2::ZERO, cell)
 }
 
 ///
@@ -343,36 +321,6 @@ pub(super) fn clamp_pan(pan: Vec2, console: Vec2, extent: Vec2) -> Vec2 {
     Vec2::new(
         axis(pan.x, console.x, extent.x),
         axis(pan.y, console.y, extent.y),
-    )
-}
-
-///
-/// The region a Cursor follow brings into view: the Cursor's own Cell,
-/// reaching to the extent's edge on each side where the Cursor is on the
-/// Grid's first or last Column or Row, so a follow to an edge shows the Grid's
-/// edge as an edge rather than flush against the console's.
-///
-fn followed_cells(cursor: Position, grid: Grid) -> SourceCellRect {
-    let extent = extent(grid);
-    let reach = |at: usize, count: usize, start: f32, end: f32| {
-        let near = if at == 0 { start } else { at as f32 };
-        let far = if at + 1 == count {
-            end
-        } else {
-            at as f32 + 1.0
-        };
-        (near, far)
-    };
-    let (left, right) = reach(
-        cursor.x(),
-        grid.columns(),
-        extent.min().x(),
-        extent.max().x(),
-    );
-    let (top, bottom) = reach(cursor.y(), grid.rows(), extent.min().y(), extent.max().y());
-    SourceCellRect::from_min_max(
-        SourceCellPoint::new(left, top),
-        SourceCellPoint::new(right, bottom),
     )
 }
 
@@ -503,9 +451,8 @@ impl PointerSelection {
 /// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
-/// held with a primary drag, bounded by the Grid's edges plus a margin of
-/// [`SOURCE_MARGIN_CELLS`]. Where the Grid and its margins leave
-/// somewhere to Pan, the pointer shows a grab hand while Alt is held over the
+/// held with a primary drag, bounded by the Grid's edges. Where the Grid
+/// leaves somewhere to Pan, the pointer shows a grab hand while Alt is held over the
 /// console outside a Region drag, and a grabbing hand during a drag Pan. A primary
 /// click selects a Cell — [`show_source`]'s own click-sensing rect answers it,
 /// with Shift extending the Region rather than collapsing it — and a primary
@@ -568,11 +515,7 @@ pub(super) fn show_source_scene(
         ui.ctx().request_repaint();
     }
 
-    let origin = console.min
-        + settled.pan
-        + at_rest(cell)
-            .to_screen(SourceCellPoint::new(0.0, 0.0))
-            .to_vec2();
+    let origin = console.min + settled.pan;
     let origin = if is_presentable(origin) {
         origin
     } else {
@@ -821,38 +764,37 @@ mod tests {
         view.settle(still(CONSOLE, grid, (0, 0)));
         assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
 
-        // Column and row 30 end 33 Cells along once the two Cells of margin are
-        // counted, entirely past a 200 point console on both axes.
+        // Column and row 30 end 31 Cells along, entirely past a 200 point
+        // console on both axes.
         view.settle(still(CONSOLE, grid, (30, 30)));
 
         assert_eq!(
             view.pan,
-            Vec2::splat(200.0) - 33.0 * CELL_SIZE,
+            Vec2::splat(200.0) - 31.0 * CELL_SIZE,
             "the Cursor move did not Pan the least distance that shows it: {:?}",
             view.pan
         );
     }
 
     ///
-    /// A Cursor move onto the Grid's last or first Column and Row brings the
-    /// margin past that edge into view with it, so the Grid's edge shows as
-    /// an edge rather than flush against the console's.
+    /// A Cursor move onto the Grid's last or first Column and Row brings that
+    /// Cell flush with the console's edge, and no further.
     ///
     #[test]
-    fn a_cursor_follow_to_an_edge_cell_shows_the_margin_past_it() {
+    fn a_cursor_follow_to_an_edge_cell_brings_it_flush_with_the_console_edge() {
         let grid = Grid::with_shape(32, 32);
         let mut view = SourceView::new(CELL_SIZE);
 
         view.settle(still(CONSOLE, grid, (0, 0)));
         assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
 
-        // 32 Cells and a margin of two either side is 36 Cells, so the far
-        // margin's edge meets a 200 point console 36 Cells less 200 points in.
+        // The Grid is 32 Cells, so its far edge meets a 200 point console 32
+        // Cells less 200 points in.
         view.settle(still(CONSOLE, grid, (31, 31)));
         assert_eq!(
             view.pan,
-            Vec2::splat(200.0) - 36.0 * CELL_SIZE,
-            "the follow to the last Column and Row left the far margin off screen: {:?}",
+            Vec2::splat(200.0) - 32.0 * CELL_SIZE,
+            "the follow to the last Column and Row did not end flush at the far edge: {:?}",
             view.pan
         );
 
@@ -860,7 +802,7 @@ mod tests {
         assert_eq!(
             view.pan,
             Vec2::ZERO,
-            "the follow back to the first Column and Row left the near margin off screen: {:?}",
+            "the follow back to the first Column and Row did not end flush at the near edge: {:?}",
             view.pan
         );
     }
@@ -880,9 +822,9 @@ mod tests {
 
         // A wheel Pan all the way to the far edge, with the Cursor still
         // unmoved at (30, 30) and no zoom. Left to the follow this would land
-        // 33 Cells less 200 points in instead — see
+        // 31 Cells less 200 points in instead — see
         // `a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it`
-        // — so landing on the margin's far edge, 36 Cells less 200 points in,
+        // — so landing on the Grid's far edge, 32 Cells less 200 points in,
         // is what proves a Pan alone is not chasing the Cursor.
         view.settle(PanInput {
             contains_pointer: true,
@@ -892,7 +834,7 @@ mod tests {
 
         assert_eq!(
             view.pan,
-            Vec2::splat(200.0) - 36.0 * CELL_SIZE,
+            Vec2::splat(200.0) - 32.0 * CELL_SIZE,
             "a Pan alone was pulled back toward the Cursor: {:?}",
             view.pan
         );
@@ -913,7 +855,7 @@ mod tests {
         assert_eq!(view.pan, Vec2::ZERO, "the fixture did not open unpanned");
 
         // A Pan past the Grid's near edge, which nothing but `clamp_pan` can
-        // answer: the Cursor's new Cell (5, 0) sits at 84..96 across, already
+        // answer: the Cursor's new Cell (5, 0) sits at 60..72 across, already
         // inside a 200 point console once this Pan is applied, so the follow
         // itself has nothing to add.
         view.pan = Vec2::new(50.0, 50.0);
@@ -939,17 +881,19 @@ mod tests {
         let grid = Grid::with_shape(32, 32);
         let mut view = SourceView::new(CELL_SIZE);
 
-        // 32 Cells and a margin of two either side is 36 Cells, so the far edge
-        // of a console is 36 Cells less its size in.
-        let far_edge = |console: f32| Vec2::splat(console) - 36.0 * CELL_SIZE;
+        // The Grid is 32 Cells, so the far edge of a console is 32 Cells less
+        // its size in.
+        let far_edge = |console: f32| Vec2::splat(console) - 32.0 * CELL_SIZE;
         view.pan = far_edge(200.0);
         view.settle(still(CONSOLE, grid, (0, 0)));
         assert_eq!(view.pan, far_edge(200.0));
 
-        view.settle(still(Vec2::splat(400.0), grid, (0, 0)));
+        // Still smaller than the Grid's 384 points across, so the far edge
+        // stays somewhere to Pan to on both axes.
+        view.settle(still(Vec2::splat(360.0), grid, (0, 0)));
         assert_eq!(
             view.pan,
-            far_edge(400.0),
+            far_edge(360.0),
             "the resize left a gap past the Grid: {:?}",
             view.pan
         );
@@ -963,7 +907,7 @@ mod tests {
     fn a_resize_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
         let grid = Grid::with_shape(32, 32);
         let mut view = SourceView::new(CELL_SIZE);
-        // Column 13 and row 8 end 16 and 11 Cells along, margin counted:
+        // Column 13 and row 8 end 14 and 9 Cells along, 168 and 162 points:
         // inside a 200 point console and past a 160 point one.
         view.settle(still(CONSOLE, grid, (13, 8)));
         assert_eq!(
@@ -976,7 +920,7 @@ mod tests {
         view.settle(still(shrunk, grid, (13, 8)));
         assert_eq!(
             view.pan,
-            Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * CELL_SIZE,
+            Vec2::splat(160.0) - Vec2::new(14.0, 9.0) * CELL_SIZE,
             "the resize did not Pan the least distance that shows the Cursor: {:?}",
             view.pan
         );
@@ -996,12 +940,13 @@ mod tests {
     fn a_resize_after_a_pan_away_from_the_cursor_keeps_the_pan() {
         let grid = Grid::with_shape(32, 32);
         let mut view = SourceView::new(CELL_SIZE);
-        // Column 9 and row 5 start 11 and 7 Cells along, margin counted: 132 and
-        // 126 points, inside the 200 point console before the Pan.
+        // Column 9 and row 5 start 108 and 90 points in, inside the 200 point
+        // console before the Pan.
         view.settle(still(CONSOLE, grid, (9, 5)));
         // A Pan that puts the Cursor off the console's top-left, inside the
-        // Grid's bounds at every size below.
-        let away = Vec2::new(-160.0, -160.0);
+        // Grid's bounds at every size below: the Grid is 384 points across, so
+        // a 240 point console can Pan 144 points.
+        let away = Vec2::new(-130.0, -130.0);
         view.pan = away;
         view.settle(still(CONSOLE, grid, (9, 5)));
         assert_eq!(view.pan, away, "the fixture's Pan did not hold");
@@ -1032,7 +977,7 @@ mod tests {
         view.settle(still(console, grid, (20, 5)));
         view.region_drag = grid.position(20, 5);
         // Far enough out that the Cursor, the Cell nearest the pointer, is
-        // many Cells past the edge: column 63 ends 66 Cells along, 392
+        // many Cells past the edge: column 63 ends 64 Cells along, 368
         // points past a 400 point console.
         let far = Pos2::new(console.x + 400.0, 100.0);
 
@@ -1065,9 +1010,9 @@ mod tests {
         view.centre_on(SourceCellPoint::new(16.0, 16.0));
         view.settle(still(CONSOLE, grid, (30, 30)));
 
-        // Cell 16 is 18 Cells along, margin counted, and the console's centre
-        // is 100 points in.
-        assert_eq!(view.pan, Vec2::splat(100.0) - 18.0 * CELL_SIZE);
+        // Cell 16 is 16 Cells along, and the console's centre is 100 points
+        // in.
+        assert_eq!(view.pan, Vec2::splat(100.0) - 16.0 * CELL_SIZE);
     }
 
     ///
@@ -1082,7 +1027,7 @@ mod tests {
         view.centre_on(SourceCellPoint::new(40.0, -10.0));
         view.settle(still(CONSOLE, grid, (0, 0)));
 
-        assert_eq!(view.pan, Vec2::new(200.0 - 36.0 * CELL_SIZE.x, 0.0));
+        assert_eq!(view.pan, Vec2::new(200.0 - 32.0 * CELL_SIZE.x, 0.0));
     }
 
     ///
@@ -1097,7 +1042,7 @@ mod tests {
         view.settle(still(CONSOLE, grid, (0, 0)));
         view.region_drag = grid.position(0, 0);
 
-        // Column 16 ends 19 Cells along, 28 points past the console; the
+        // Column 16 ends 17 Cells along, 4 points past the console; the
         // pointer is 8 points past it, so the frame scrolls 2.
         let settled = view.settle(PanInput {
             primary_drag: Some(Vec2::new(-40.0, 0.0)),
@@ -1118,8 +1063,8 @@ mod tests {
     #[test]
     fn a_resize_follows_a_cursor_shown_in_full_and_leaves_one_panned_partly_out_of_view() {
         let grid = Grid::with_shape(32, 32);
-        // Column 13 and row 8 span 180..192 across and 180..198 down at rest.
-        for (pan, followed) in [(Vec2::ZERO, true), (Vec2::new(-185.0, 0.0), false)] {
+        // Column 13 and row 8 span 156..168 across and 144..162 down at rest.
+        for (pan, followed) in [(Vec2::ZERO, true), (Vec2::new(-160.0, 0.0), false)] {
             let mut view = SourceView::new(CELL_SIZE);
             view.settle(still(CONSOLE, grid, (13, 8)));
             view.pan = pan;
@@ -1127,7 +1072,7 @@ mod tests {
 
             view.settle(still(Vec2::splat(160.0), grid, (13, 8)));
 
-            let follow = Vec2::splat(160.0) - Vec2::new(16.0, 11.0) * CELL_SIZE;
+            let follow = Vec2::splat(160.0) - Vec2::new(14.0, 9.0) * CELL_SIZE;
             let expected = if followed { follow } else { pan };
             assert_eq!(view.pan, expected, "from a Pan of {pan:?}");
         }
@@ -1190,8 +1135,8 @@ mod tests {
     ///
     #[test]
     fn the_grab_hand_shows_only_where_the_extent_overflows_the_console() {
-        // Eight Cells and their margins are 144 by 216 points, inside a 400
-        // point console; 32 are 432 by 648.
+        // Eight Cells are 96 by 144 points, inside a 400 point console; 32 are
+        // 384 by 576.
         let console = Vec2::splat(400.0);
         for (grid, hand) in [
             (Grid::with_shape(8, 8), None),

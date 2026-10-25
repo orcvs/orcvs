@@ -371,8 +371,8 @@ pub fn presented_grid(origin: Pos2, grid: Grid, cell: Vec2, pixels_per_point: f3
 ///
 /// A place in Source Cells: columns across and rows down from the Grid's
 /// top-left. Every Position lies on whole Source Cells; a fraction is a place
-/// between them, and a negative one or one past the Grid's far edge is in the
-/// margin.
+/// between them, and a negative one or one past the Grid's far edge lies
+/// outside the Grid.
 ///
 /// It meets egui's points only through a [`ScreenMap`], so a screen point
 /// cannot stand where Source Cells are meant.
@@ -384,14 +384,6 @@ impl SourceCellPoint {
     /// The place `x` Cells across and `y` down from the Grid's top-left.
     pub(crate) fn new(x: f32, y: f32) -> Self {
         Self(Pos2::new(x, y))
-    }
-
-    pub(crate) fn x(self) -> f32 {
-        self.0.x
-    }
-
-    pub(crate) fn y(self) -> f32 {
-        self.0.y
     }
 }
 
@@ -1304,8 +1296,8 @@ mod tests {
             };
             let screen = viewport.screen();
             let cells = screen.to_cells(Pos2::new(55.0, 56.0));
-            assert_eq!(cells.x(), 0.0, "a {side} Cell read a point across");
-            assert_close(cells.y(), 2.0, "down");
+            assert_eq!(cells.0.x, 0.0, "a {side} Cell read a point across");
+            assert_close(cells.0.y, 2.0, "down");
             let placed = screen.to_screen(SourceCellPoint::new(7.0, 1.0));
             assert_eq!(placed, Pos2::new(10.0, 38.0), "a {side} Cell placed a Cell");
         }

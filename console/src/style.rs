@@ -152,6 +152,9 @@ impl DisplayedColours {
 ///
 pub(crate) struct CellColours<'a> {
     theme: &'a Theme,
+    /// `grid.background` composited over `window.background`, the console's
+    /// paint order under the Source panel. Opaque, because a Theme's
+    /// `window.background` always is.
     surface: Color32,
     cursor_fill: Option<Color32>,
     region_cursor_fill: Option<Color32>,
@@ -231,7 +234,8 @@ impl<'a> CellColours<'a> {
     ///
     /// The colours of a Cell carrying `paint`, playing `portal_roles`, holding
     /// content when `occupied`, and at `placement`, as the console displays them: its background composited
-    /// over [`Self::surface`], so it is opaque, and its foreground as the
+    /// over the opaque surface every Cell is displayed on — `grid.background`
+    /// composited over `window.background` — so it is opaque, and its foreground as the
     /// Theme gives it, drawn over that background.
     ///
     pub(crate) fn displayed(
@@ -248,16 +252,6 @@ impl<'a> CellColours<'a> {
                 .blend(visuals.background.unwrap_or(Color32::TRANSPARENT)),
             foreground: visuals.foreground,
         }
-    }
-
-    ///
-    /// The opaque surface every Cell is displayed on: `grid.background`
-    /// composited over `window.background`, the console's paint order under
-    /// the Source panel. It is opaque because a Theme's `window.background`
-    /// always is.
-    ///
-    pub(crate) fn surface(&self) -> Color32 {
-        self.surface
     }
 
     #[inline]
