@@ -162,8 +162,9 @@ run = 'cargo nextest run --package lang --no-fail-fast --nocapture {{arg(name="t
 description = "Play a Source into a virtual MIDI port and cross-check what a listener received"
 # Needs the platform's MIDI service, a sequencer on Linux (`/dev/snd/seq`) or
 # CoreMIDI on macOS, which is why the ordinary suite ignores this test and this
-# task is how it runs.
-run = 'cargo test --package console --lib --locked -- --ignored console_midi::loopback_tests::virtual_port::'
+# task is how it runs. Each test plays in real time, so they run one at a time:
+# two engines sharing the runner make a Tick late enough to be skipped.
+run = 'cargo test --package console --lib --locked -- --ignored --test-threads=1 console_midi::loopback_tests::virtual_port::'
 
 [tasks.miri]
 description = "Interpret the Source model tests under Miri"
