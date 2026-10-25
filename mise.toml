@@ -197,8 +197,8 @@ cargo +nightly miri nextest run --package orcvs -E 'test(/^source::model::test::
 
 [tasks.capture_native]
 description = "Render the native release captures and their manifest"
-# The console rendered to images for a release reviewer: {wide, tall} ×
-# {Okabe–Ito, Orcvs Light}, and a manifest naming what each one is of. Deliberate
+# The console rendered to images for a release reviewer: {wide, tall} × each
+# appearance's default Theme, and a manifest naming what each one is of. Deliberate
 # and non-gating like `miri`: it is absent from every tier, and
 # `.github/workflows/release-captures.yml` runs it on manual dispatch only.
 #

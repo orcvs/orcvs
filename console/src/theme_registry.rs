@@ -495,12 +495,9 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::document::stem;
-    use super::tests_support::{dark, id, load};
+    use super::tests_support::{dark, default_theme, id, light, load};
     use super::{ThemeRegistry, Unavailable};
-    use crate::theme::{
-        Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, grayscale_dark, grayscale_light,
-        okabe_ito, orcvs_light,
-    };
+    use crate::theme::{Appearance, ThemeIdentity};
     use crate::theme_selection::{SelectedThemes, ThemeSelection};
 
     #[test]
@@ -541,23 +538,32 @@ mod tests {
     #[test]
     fn built_in_identities_select_their_built_in_and_the_default_is_the_fallback() {
         let registry = ThemeRegistry::built_in();
+        for theme in super::tests_support::built_ins(&registry) {
+            assert_eq!(
+                registry.select(theme.appearance, &theme.identity),
+                Ok(theme),
+                "{}",
+                theme.identity
+            );
+        }
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let fallback = registry.fallback(appearance);
+            assert_eq!(fallback.identity, ThemeIdentity::default_for(appearance));
+            assert_eq!(fallback.appearance, appearance);
+        }
         assert_eq!(
-            registry.select(Appearance::Dark, &OKABE_ITO_IDENTITY),
-            Ok(&okabe_ito())
-        );
-        assert_eq!(
-            registry.select(Appearance::Light, &ORCVS_LIGHT_IDENTITY),
-            Ok(&orcvs_light())
-        );
-        assert_eq!(registry.fallback(Appearance::Dark), &grayscale_dark());
-        assert_eq!(registry.fallback(Appearance::Light), &grayscale_light());
-        assert_eq!(
-            registry.select(Appearance::Light, &OKABE_ITO_IDENTITY),
+            registry.select(
+                Appearance::Light,
+                &ThemeIdentity::default_for(Appearance::Dark)
+            ),
             Err(Unavailable::WrongAppearance(Appearance::Dark)),
             "a built-in is available only to its own appearance"
         );
         assert_eq!(
-            registry.select(Appearance::Dark, &ORCVS_LIGHT_IDENTITY),
+            registry.select(
+                Appearance::Dark,
+                &ThemeIdentity::default_for(Appearance::Light)
+            ),
             Err(Unavailable::WrongAppearance(Appearance::Light))
         );
         assert_eq!(
@@ -585,9 +591,11 @@ mod tests {
             registry.load("mine.toml", text.as_bytes())
         };
 
+        let dark_default = ThemeIdentity::default_for(Appearance::Dark).to_string();
+        let light_default = ThemeIdentity::default_for(Appearance::Light).to_string();
         for (parent, appearance, word) in [
-            ("okabe-ito", Appearance::Dark, "dark"),
-            ("orcvs-light", Appearance::Light, "light"),
+            (dark_default.as_str(), Appearance::Dark, "dark"),
+            (light_default.as_str(), Appearance::Light, "light"),
         ] {
             let omitted = with_appearance(parent, None).expect("an omitted appearance");
             assert_eq!(omitted.appearance, appearance, "{parent}, omitted");
@@ -596,8 +604,8 @@ mod tests {
         }
 
         for (parent, word, declared, inherited) in [
-            ("okabe-ito", "light", "Light", "Dark"),
-            ("orcvs-light", "dark", "Dark", "Light"),
+            (dark_default.as_str(), "light", "Light", "Dark"),
+            (light_default.as_str(), "dark", "Dark", "Light"),
         ] {
             let error = with_appearance(parent, Some(word)).expect_err("a conflicting appearance");
             assert!(
@@ -612,8 +620,10 @@ mod tests {
     #[test]
     fn a_theme_below_the_contrast_floor_is_loaded_and_its_report_shown() {
         let mut registry = ThemeRegistry::built_in();
-        let unreadable = "format = \"orcvs-theme\"\nversion = 1\nname = \"Dim\"\n\
-                          inherits = \"okabe-ito\"\n[style]\n\"source.ordinary\" = \"#050505\"\n";
+        let unreadable = format!(
+            "{}[style]\n\"source.ordinary\" = \"#050505\"\n",
+            dark("Dim")
+        );
         load(&mut registry, "dim.toml", unreadable.as_bytes());
 
         assert!(registry.select(Appearance::Dark, &id("dim")).is_ok());
@@ -643,9 +653,7 @@ mod tests {
     #[test]
     fn a_light_custom_theme_selected_for_the_dark_slot_falls_back() {
         let mut registry = ThemeRegistry::built_in();
-        let light = "format = \"orcvs-theme\"\nversion = 1\nname = \"Paper\"\n\
-                     inherits = \"orcvs-light\"\n";
-        load(&mut registry, "paper.toml", light.as_bytes());
+        load(&mut registry, "paper.toml", light("Paper").as_bytes());
 
         assert_eq!(
             registry.select(Appearance::Dark, &id("paper")),
@@ -654,9 +662,12 @@ mod tests {
         assert!(registry.select(Appearance::Light, &id("paper")).is_ok());
         let themes = SelectedThemes::new(
             registry,
-            ThemeSelection::new(id("paper"), ORCVS_LIGHT_IDENTITY),
+            ThemeSelection::new(id("paper"), ThemeIdentity::default_for(Appearance::Light)),
         );
-        assert_eq!(*themes.presented(Appearance::Dark), grayscale_dark());
+        assert_eq!(
+            *themes.presented(Appearance::Dark),
+            default_theme(Appearance::Dark)
+        );
         assert!(
             themes
                 .notices()
@@ -674,9 +685,7 @@ mod discovery_tests {
     use super::ThemeRegistry;
     use super::native::{Candidate, group};
     use super::tests_support::{TempDir, dark, id};
-    use crate::theme::{
-        Appearance, OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, ThemeIdentity, okabe_ito, orcvs_light,
-    };
+    use crate::theme::{Appearance, ThemeIdentity};
     use crate::theme_document::MAX_DOCUMENT_BYTES;
     use crate::theme_selection::{SelectedThemes, ThemeSelection};
 
@@ -706,8 +715,11 @@ mod discovery_tests {
         );
         assert!(registry.notice_list()[0].contains("Theme directory"));
         assert_eq!(
-            registry.select(Appearance::Dark, &OKABE_ITO_IDENTITY),
-            Ok(&okabe_ito())
+            registry.select(
+                Appearance::Dark,
+                &ThemeIdentity::default_for(Appearance::Dark)
+            ),
+            Ok(registry.fallback(Appearance::Dark))
         );
     }
 
@@ -717,14 +729,17 @@ mod discovery_tests {
         dir.write("lower.toml", &dark("Lower"));
         dir.write("Upper.TOML", &dark("Upper"));
         dir.write("mixed.Toml", &dark("Mixed"));
+        let parent = ThemeIdentity::default_for(Appearance::Dark);
         dir.write(
             "json.json",
-            r#"{"format": "orcvs-theme", "version": 1, "name": "J", "inherits": "okabe-ito"}"#,
+            &format!(
+                r#"{{"format": "orcvs-theme", "version": 1, "name": "J", "inherits": "{parent}"}}"#
+            ),
         );
         for name in ["yaml.yaml", "yml.YML"] {
             dir.write(
                 name,
-                "format: orcvs-theme\nversion: 1\nname: Y\ninherits: okabe-ito\n",
+                &format!("format: orcvs-theme\nversion: 1\nname: Y\ninherits: {parent}\n"),
             );
         }
         dir.write("notes.txt", "not a Theme");
@@ -787,10 +802,11 @@ mod discovery_tests {
     #[test]
     fn a_reserved_identity_is_refused_and_never_replaces_the_built_in() {
         let dir = TempDir::new();
-        let impostor = "format = \"orcvs-theme\"\nversion = 1\nname = \"Impostor\"\n\
-                        inherits = \"okabe-ito\"\n[style]\ntext = \"#FF0000\"\n";
-        dir.write("okabe-ito.toml", impostor);
-        dir.write("orcvs-light.TOML", &dark("Impostor"));
+        let dark_default = ThemeIdentity::default_for(Appearance::Dark);
+        let light_default = ThemeIdentity::default_for(Appearance::Light);
+        let impostor = format!("{}[style]\ntext = \"#FF0000\"\n", dark("Impostor"));
+        dir.write(&format!("{dark_default}.toml"), &impostor);
+        dir.write(&format!("{light_default}.TOML"), &dark("Impostor"));
 
         let mut registry = ThemeRegistry::discover(dir.path());
         assert!(registry.custom.is_empty());
@@ -806,14 +822,15 @@ mod discovery_tests {
                 .iter()
                 .all(|notice| notice.contains("reserved"))
         );
-        assert_eq!(
-            registry.select(Appearance::Dark, &OKABE_ITO_IDENTITY),
-            Ok(&okabe_ito())
-        );
-        assert_eq!(
-            registry.select(Appearance::Light, &ORCVS_LIGHT_IDENTITY),
-            Ok(&orcvs_light())
-        );
+        for (appearance, identity) in [
+            (Appearance::Dark, &dark_default),
+            (Appearance::Light, &light_default),
+        ] {
+            assert_eq!(
+                registry.select(appearance, identity),
+                Ok(registry.fallback(appearance))
+            );
+        }
         registry.dismiss_notices();
         let themes = SelectedThemes::new(registry, ThemeSelection::default());
         assert!(
@@ -1174,13 +1191,13 @@ mod discovery_tests {
         use super::super::tests_support::{TempDir, dark};
         use super::super::{ThemeRegistry, Unavailable};
         use crate::config::{CONFIG_FILE, Config};
-        use crate::theme::{Appearance, grayscale_dark};
+        use crate::theme::{Appearance, ThemeIdentity};
         use crate::theme_selection::SelectedThemes;
 
         ///
         /// One launch: the dark selection's resolution and the notices the
         /// launch raised. The Theme presented for dark is the one the
-        /// selection resolved to, or Grayscale Dark when it resolved to none.
+        /// selection resolved to, or the dark default when it resolved to none.
         ///
         fn launch(
             settings: &TempDir,
@@ -1198,7 +1215,10 @@ mod discovery_tests {
             let presented = themes.presented(Appearance::Dark);
             match &selected {
                 Ok(identity) => assert_eq!(presented.identity.as_str(), identity),
-                Err(_) => assert_eq!(*presented, grayscale_dark()),
+                Err(_) => assert_eq!(
+                    presented,
+                    ThemeRegistry::built_in().fallback(Appearance::Dark)
+                ),
             }
             (selected, themes.notice_list())
         }
@@ -1216,7 +1236,7 @@ mod discovery_tests {
             let dir = TempDir::new();
             dir.write(
                 "my-dark.toml",
-                "format = \"orcvs-theme\"\nversion = 2\nname = \"Mine\"\ninherits = \"okabe-ito\"\n",
+                &dark("Mine").replace("version = 1", "version = 2"),
             );
 
             let (selected, notices) = launch(&settings, &dir);
@@ -1228,7 +1248,7 @@ mod discovery_tests {
                 notices.iter().any(|notice| notice.contains("\"my-dark\"")
                     && notice.contains("theme.dark")
                     && notice.contains("my-dark.toml")
-                    && notice.contains("Grayscale Dark")),
+                    && notice.contains(&ThemeRegistry::built_in().fallback(Appearance::Dark).name)),
                 "{notices:?}"
             );
 
@@ -1261,7 +1281,8 @@ mod discovery_tests {
         ///
         #[test]
         fn a_selection_of_the_wrong_appearance_falls_back_with_a_notice() {
-            let settings = selecting_dark("orcvs-light");
+            let light_default = ThemeIdentity::default_for(Appearance::Light);
+            let settings = selecting_dark(light_default.as_str());
             let dir = TempDir::new();
 
             let (selected, notices) = launch(&settings, &dir);
@@ -1270,9 +1291,9 @@ mod discovery_tests {
                 Err(Unavailable::WrongAppearance(Appearance::Light))
             );
             assert!(
-                notices
-                    .iter()
-                    .any(|n| n.contains("\"orcvs-light\"") && n.contains("theme.dark")),
+                notices.iter().any(
+                    |n| n.contains(&format!("\"{light_default}\"")) && n.contains("theme.dark")
+                ),
                 "{notices:?}"
             );
         }
@@ -1317,6 +1338,17 @@ pub(crate) mod tests_support {
         &registry.built_ins
     }
 
+    ///
+    /// The default Theme for `appearance`, as the registry's fallback answers
+    /// it: the fixture a test that needs a Theme starts from, overriding only
+    /// the fields it depends on.
+    ///
+    pub(crate) fn default_theme(appearance: crate::theme::Appearance) -> crate::theme::Theme {
+        super::ThemeRegistry::built_in()
+            .fallback(appearance)
+            .clone()
+    }
+
     /// A custom Theme's identity, as a file named `stem` supplies it.
     pub(crate) fn id(stem: &str) -> crate::theme::ThemeIdentity {
         crate::theme::ThemeIdentity::from_stem(stem).expect("a non-empty stem")
@@ -1327,16 +1359,24 @@ pub(crate) mod tests_support {
     /// backgrounds differ from every other Theme's here, so a test can tell
     /// which Theme painted a frame.
     ///
-    pub(crate) const MY_DARK: &str = "format = \"orcvs-theme\"\nversion = 1\n\
-        name = \"My Dark\"\ninherits = \"okabe-ito\"\n[style]\n\
-        \"window.background\" = \"#201030\"\n\"panel.background\" = \"#201030\"\n\
-        \"grid.background\" = \"#100020\"\n\"input.background\" = \"#180828\"\n";
+    pub(crate) fn my_dark_document() -> String {
+        format!(
+            "{}[style]\n\
+             \"window.background\" = \"#201030\"\n\"panel.background\" = \"#201030\"\n\
+             \"grid.background\" = \"#100020\"\n\"input.background\" = \"#180828\"\n",
+            dark("My Dark")
+        )
+    }
 
     /// A light document, `my-light.toml`, distinguishable the same way.
-    pub(crate) const MY_LIGHT: &str = "format = \"orcvs-theme\"\nversion = 1\n\
-        name = \"My Light\"\ninherits = \"orcvs-light\"\n[style]\n\
-        \"window.background\" = \"#F4ECDC\"\n\"panel.background\" = \"#F4ECDC\"\n\
-        \"grid.background\" = \"#FEF8EE\"\n\"input.background\" = \"#FAF2E4\"\n";
+    pub(crate) fn my_light_document() -> String {
+        format!(
+            "{}[style]\n\
+             \"window.background\" = \"#F4ECDC\"\n\"panel.background\" = \"#F4ECDC\"\n\
+             \"grid.background\" = \"#FEF8EE\"\n\"input.background\" = \"#FAF2E4\"\n",
+            light("My Light")
+        )
+    }
 
     ///
     /// Loads the valid Theme file `file_name` into `registry`, as native
@@ -1348,16 +1388,21 @@ pub(crate) mod tests_support {
     }
 
     ///
-    /// The built-ins with [`MY_DARK`] and [`MY_LIGHT`] loaded beside them.
+    /// The built-ins with [`my_dark_document`] and [`my_light_document`]
+    /// loaded beside them.
     ///
     pub(crate) fn with_my_themes() -> super::ThemeRegistry {
         let mut registry = super::ThemeRegistry::built_in();
-        load(&mut registry, "my-dark.toml", MY_DARK.as_bytes());
-        load(&mut registry, "my-light.toml", MY_LIGHT.as_bytes());
+        load(&mut registry, "my-dark.toml", my_dark_document().as_bytes());
+        load(
+            &mut registry,
+            "my-light.toml",
+            my_light_document().as_bytes(),
+        );
         registry
     }
 
-    /// The Theme [`MY_DARK`] resolves to.
+    /// The Theme [`my_dark_document`] resolves to.
     pub(crate) fn my_dark() -> crate::theme::Theme {
         with_my_themes()
             .select(crate::theme::Appearance::Dark, &id("my-dark"))
@@ -1365,7 +1410,7 @@ pub(crate) mod tests_support {
             .clone()
     }
 
-    /// The Theme [`MY_LIGHT`] resolves to.
+    /// The Theme [`my_light_document`] resolves to.
     pub(crate) fn my_light() -> crate::theme::Theme {
         with_my_themes()
             .select(crate::theme::Appearance::Light, &id("my-light"))
@@ -1373,10 +1418,22 @@ pub(crate) mod tests_support {
             .clone()
     }
 
-    /// A minimal valid dark document labelled `name`.
+    /// A minimal valid dark document labelled `name`, inheriting the dark
+    /// default.
     pub(crate) fn dark(name: &str) -> String {
+        document(name, crate::theme::Appearance::Dark)
+    }
+
+    /// A minimal valid light document labelled `name`, inheriting the light
+    /// default.
+    pub(crate) fn light(name: &str) -> String {
+        document(name, crate::theme::Appearance::Light)
+    }
+
+    fn document(name: &str, appearance: crate::theme::Appearance) -> String {
         format!(
-            "format = \"orcvs-theme\"\nversion = 1\nname = \"{name}\"\ninherits = \"okabe-ito\"\n"
+            "format = \"orcvs-theme\"\nversion = 1\nname = \"{name}\"\ninherits = \"{}\"\n",
+            crate::theme::ThemeIdentity::default_for(appearance)
         )
     }
 

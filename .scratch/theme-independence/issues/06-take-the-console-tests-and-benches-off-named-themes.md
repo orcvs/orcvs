@@ -4,8 +4,12 @@
 
 **Blocked by:** 01 — Record the rule and build Paint's test Theme from the default.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The console's tests and the benches name no built-in Theme function or identity outside the registry's fallback.
-- [ ] `ticked_console`'s overrides say why each field is set.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_release_capture` passes.
+- [x] The console's tests and the benches name no built-in Theme function or identity outside the registry's fallback.
+- [x] `ticked_console`'s overrides say why each field is set.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass, and `mise run check_release_capture` passes.
+
+## Comments
+
+`ticked_console` loads a document over the dark default. Each Portal gets an opaque fill of its own, and Locked a translucent one, with the reason given at the override. The benches reach the dark default through `source_shapes::dark_default_theme`, a test-only re-export under the `test-source-shapes` feature that clones the registry's fallback. The release capture names `ThemeIdentity::default_for` for each appearance, and the workflow and `mise` comments describe the defaults.

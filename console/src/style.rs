@@ -1016,10 +1016,32 @@ mod tests {
         cell_visuals, fact_index, install, style,
     };
     use crate::contrast::PORTAL_ROLE_SETS;
-    use crate::theme::{Theme, okabe_ito, orcvs_light};
+    use crate::theme::{Appearance, Theme};
+    use crate::theme_registry::tests_support::default_theme;
     use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
     use orcvs::render_frame::{PortalRole, PortalRoles};
     use orcvs::source::{OperandState, SourcePaint, Token};
+
+    ///
+    /// The dark default with every Source role, Diagnostic and Output Portal
+    /// border transparent, the last two at a drawn width, so a test about one
+    /// border fact sees only the border it sets, composited over the Grid
+    /// line.
+    ///
+    fn transparent_borders() -> Theme {
+        let drawn = crate::theme::GridWidth::from_points(0.5).expect("0.5 is within 0..=1");
+        Theme {
+            source_number_border: Color32::TRANSPARENT,
+            source_note_border: Color32::TRANSPARENT,
+            source_function_border: Color32::TRANSPARENT,
+            source_bang_border: Color32::TRANSPARENT,
+            diagnostic_border: Color32::TRANSPARENT,
+            diagnostic_border_width: drawn,
+            output_portal_border: Color32::TRANSPARENT,
+            output_portal_border_width: drawn,
+            ..default_theme(Appearance::Dark)
+        }
+    }
 
     /// The roles of a Cell only an Output Portal covers.
     const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
@@ -1055,8 +1077,8 @@ mod tests {
 
     ///
     /// The once-per-Paint table answers exactly what the per-Cell definition
-    /// answers for every unselected fact and Portal role set, under the
-    /// built-in and under a Theme whose Cell base and fact channels are all
+    /// answers for every unselected fact and Portal role set, under the dark
+    /// default and under a Theme whose Cell base and fact channels are all
     /// partly transparent — the case where every composite in
     /// `source_paint_visuals`, `role_and_portal` and `ordinary_border` shows.
     ///
@@ -1076,10 +1098,10 @@ mod tests {
             locked_foreground: Color32::from_rgba_unmultiplied(0, 0, 0, 100),
             locked_background: Color32::from_rgba_unmultiplied(120, 120, 120, 50),
             locked_border: Color32::from_rgba_unmultiplied(120, 120, 120, 30),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
-        for theme in [okabe_ito(), translucent] {
+        for theme in [default_theme(Appearance::Dark), translucent] {
             let mut table = CellColours::new(&theme);
             for fact in SOURCE_PAINT_FACTS {
                 for (roles, occupied) in PORTAL_ROLE_SETS
@@ -1162,7 +1184,11 @@ mod tests {
             source_ordinary_background: Color32::TRANSPARENT,
             source_function_background: tint,
             source_number_background: translucent,
-            ..okabe_ito()
+            // The Cursor's glyph colours are cleared, so the foreground is
+            // the fact's at every placement.
+            cursor_foreground: None,
+            region_cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
         };
         let ordinary = SourcePaint::Unclaimed;
         let tinted = SourcePaint::Function;
@@ -1205,7 +1231,7 @@ mod tests {
             cursor_background: None,
             cell_background: Color32::TRANSPARENT,
             region_background: Color32::from_rgb(7, 8, 9),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         assert_eq!(
             CellColours::new(&theme)
@@ -1235,143 +1261,168 @@ mod tests {
     }
 
     ///
-    /// `theme.md` is the decided record for the chrome. These literals are
-    /// that record in `Color32` form, read through [`style`] rather than a
-    /// fixed palette constant: a later change to the chrome fails here, and
-    /// the same commit must change the document. The Source background and
-    /// every Token's glyph colour are pinned the same way in `theme::tests`,
-    /// against [`okabe_ito`] directly.
-    ///
-    /// Every field `style` sets is asserted here, field by field rather than
-    /// one `Visuals` equality, so a regression names the one field that
-    /// moved instead of a giant struct diff. `widgets.inactive.bg_stroke` is
-    /// `Stroke::new(0.0, theme.widget_inactive_border)` — a real `Color32`,
-    /// not `TRANSPARENT`, at zero width — and not `Stroke::NONE`. Both paint
-    /// nothing (`chrome_border_widths_come_from_the_theme` pins the zero
-    /// width; the geometry step, not this one, drops a zero-width stroke),
-    /// but the values differ, which is why it is asserted as it is.
+    /// Every chrome field `style` sets reads the Theme key the record maps it
+    /// to, for every built-in the registry holds. Each field is asserted on
+    /// its own rather than as one `Visuals` equality, so a regression names
+    /// the one field that moved instead of a giant struct diff.
+    /// `widgets.inactive.bg_stroke` is a real colour at the Theme's inactive
+    /// border width, not `Stroke::NONE`, even where that width is zero: both
+    /// paint nothing, but the values differ.
     ///
     #[test]
-    fn okabe_ito_chrome_matches_the_decided_record() {
-        let theme = okabe_ito();
-        let visuals = style(&theme).visuals;
-        let page = Color32::from_rgb(11, 17, 18); // #0B1112
-        let panel_border = Color32::from_rgba_unmultiplied_const(29, 55, 49, 72).to_opaque();
-        let ordinary = Color32::from_rgb(234, 235, 229); // #EAEBE5
-        let selection_fill = Color32::from_rgb(10, 42, 34); // #0A2A22
-        let selection_stroke_rest = Color32::from_rgb(82, 195, 163); // #52C3A3
-        let selection_stroke = Color32::from_rgb(101, 230, 190); // #65E6BE
-        let bang = Color32::from_rgb(204, 121, 167); // #CC79A7
-        let hyperlink = Color32::from_rgb(90, 170, 255); // #5AAAFF
-        let code_background = Color32::from_rgb(64, 64, 64); // #404040
-        let input_cursor = Color32::from_rgb(192, 222, 255); // #C0DEFF
-        let widget_inactive_border = Color32::from_rgb(28, 57, 50); // #1C3932
+    fn every_built_in_chrome_reads_its_theme_keys() {
+        let registry = crate::theme_registry::ThemeRegistry::built_in();
+        for theme in crate::theme_registry::tests_support::built_ins(&registry) {
+            assert_chrome_reads_its_keys(theme);
+        }
+    }
 
-        assert!(visuals.dark_mode, "Okabe–Ito is a dark Theme");
+    fn assert_chrome_reads_its_keys(theme: &Theme) {
+        let name = &theme.name;
+        let visuals = style(theme).visuals;
+        let page = theme.panel_background;
+        let selection_fill = theme.selection_background;
+        let widget = theme.widget_border_width.points();
+
+        assert_eq!(
+            visuals.dark_mode,
+            theme.appearance == Appearance::Dark,
+            "{name}"
+        );
 
         // panel.background: page fill, everywhere it applies.
-        assert_eq!(visuals.panel_fill, page);
-        assert_eq!(visuals.window_fill, page);
-        assert_eq!(visuals.widgets.noninteractive.bg_fill, page);
-        assert_eq!(visuals.widgets.noninteractive.weak_bg_fill, page);
-        assert_eq!(visuals.widgets.inactive.bg_fill, page);
-        assert_eq!(visuals.widgets.inactive.weak_bg_fill, page);
-        assert_eq!(visuals.widgets.open.weak_bg_fill, page);
+        for (field, fill) in [
+            ("panel_fill", visuals.panel_fill),
+            ("window_fill", visuals.window_fill),
+            (
+                "noninteractive.bg_fill",
+                visuals.widgets.noninteractive.bg_fill,
+            ),
+            (
+                "noninteractive.weak_bg_fill",
+                visuals.widgets.noninteractive.weak_bg_fill,
+            ),
+            ("inactive.bg_fill", visuals.widgets.inactive.bg_fill),
+            (
+                "inactive.weak_bg_fill",
+                visuals.widgets.inactive.weak_bg_fill,
+            ),
+            ("open.weak_bg_fill", visuals.widgets.open.weak_bg_fill),
+        ] {
+            assert_eq!(fill, page, "{name}'s {field}");
+        }
 
-        // panel.border/.width: the chrome stroke, at its 1-point default.
-        assert_eq!(visuals.window_stroke, Stroke::new(1.0, panel_border));
+        // panel.border/.width: the chrome stroke.
+        let panel_border = Stroke::new(theme.panel_border_width.points(), theme.panel_border);
+        assert_eq!(visuals.window_stroke, panel_border, "{name}");
         assert_eq!(
-            visuals.widgets.noninteractive.bg_stroke,
-            Stroke::new(1.0, panel_border)
+            visuals.widgets.noninteractive.bg_stroke, panel_border,
+            "{name}"
         );
 
-        // widget.inactive.border/.width: a real colour at width 0 — see this
-        // test's own doc for why that is not `Stroke::NONE` and still paints
-        // nothing.
-        assert_eq!(visuals.widgets.inactive.bg_stroke.width, 0.0);
+        // widget.inactive.border/.width.
         assert_eq!(
-            visuals.widgets.inactive.bg_stroke.color,
-            widget_inactive_border
+            visuals.widgets.inactive.bg_stroke,
+            Stroke::new(
+                theme.widget_inactive_border_width.points(),
+                theme.widget_inactive_border
+            ),
+            "{name}"
         );
 
-        // text: noninteractive/inactive/open foreground.
-        assert_eq!(visuals.widgets.noninteractive.fg_stroke.color, ordinary);
-        assert_eq!(visuals.widgets.inactive.fg_stroke.color, ordinary);
-        assert_eq!(visuals.widgets.open.fg_stroke.color, ordinary);
-
-        // text.active: hovered/active foreground — Okabe–Ito's own value
-        // coincides with selection.border, which is exactly why this is
-        // asserted against the literal rather than `theme.selection_border`.
-        assert_eq!(visuals.widgets.hovered.fg_stroke.color, selection_stroke);
-        assert_eq!(visuals.widgets.active.fg_stroke.color, selection_stroke);
-
-        // text.muted: egui's own weak-text formula (`text_color() *
-        // weak_text_alpha`, `weak_text_alpha` defaulting to 0.6) restated as
-        // an explicit value.
+        // text: noninteractive/inactive/open foreground; text.active:
+        // hovered/active foreground; text.muted: weak text.
         assert_eq!(
-            visuals.weak_text_color,
-            Some(ordinary.gamma_multiply(0.6)),
-            "weak_text_color must equal text at egui's own 0.6 gamma multiply"
+            visuals.widgets.noninteractive.fg_stroke.color, theme.text,
+            "{name}"
         );
+        assert_eq!(
+            visuals.widgets.inactive.fg_stroke.color, theme.text,
+            "{name}"
+        );
+        assert_eq!(visuals.widgets.open.fg_stroke.color, theme.text, "{name}");
+        assert_eq!(
+            visuals.widgets.hovered.fg_stroke.color, theme.text_active,
+            "{name}"
+        );
+        assert_eq!(
+            visuals.widgets.active.fg_stroke.color, theme.text_active,
+            "{name}"
+        );
+        assert_eq!(visuals.weak_text_color, Some(theme.text_muted), "{name}");
 
         // input.background: extreme/faint backgrounds.
-        assert_eq!(visuals.extreme_bg_color, Color32::BLACK);
-        assert_eq!(visuals.faint_bg_color, Color32::BLACK);
+        assert_eq!(visuals.extreme_bg_color, theme.input_background, "{name}");
+        assert_eq!(visuals.faint_bg_color, theme.input_background, "{name}");
 
-        // selection.background/.border/.border.width: the selection highlight.
-        assert_eq!(visuals.selection.bg_fill, selection_fill);
-        assert_eq!(visuals.selection.stroke, Stroke::new(1.0, selection_stroke));
+        // selection.background/.border/.border.width: the selection
+        // highlight, and the hovered/active/open strong fill.
+        assert_eq!(visuals.selection.bg_fill, selection_fill, "{name}");
+        assert_eq!(
+            visuals.selection.stroke,
+            Stroke::new(
+                theme.selection_border_width.points(),
+                theme.selection_border
+            ),
+            "{name}"
+        );
+        for (field, fill) in [
+            ("hovered.bg_fill", visuals.widgets.hovered.bg_fill),
+            ("hovered.weak_bg_fill", visuals.widgets.hovered.weak_bg_fill),
+            ("active.bg_fill", visuals.widgets.active.bg_fill),
+            ("active.weak_bg_fill", visuals.widgets.active.weak_bg_fill),
+            ("open.bg_fill", visuals.widgets.open.bg_fill),
+        ] {
+            assert_eq!(fill, selection_fill, "{name}'s {field}");
+        }
 
-        // selection.background: hovered/active/open strong fill.
-        assert_eq!(visuals.widgets.hovered.bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.hovered.weak_bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.active.bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.active.weak_bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.open.bg_fill, selection_fill);
-
-        // selection.border/selection.border.rest + widget.border.width:
+        // selection.border/selection.border.rest at widget.border.width:
         // hovered/active/open border.
         assert_eq!(
             visuals.widgets.hovered.bg_stroke,
-            Stroke::new(1.0, selection_stroke_rest)
+            Stroke::new(widget, theme.selection_border_rest),
+            "{name}"
         );
         assert_eq!(
             visuals.widgets.active.bg_stroke,
-            Stroke::new(1.0, selection_stroke)
+            Stroke::new(widget, theme.selection_border),
+            "{name}"
         );
         assert_eq!(
             visuals.widgets.open.bg_stroke,
-            Stroke::new(1.0, selection_stroke_rest)
+            Stroke::new(widget, theme.selection_border_rest),
+            "{name}"
         );
 
-        // error, warning.
-        assert_eq!(visuals.error_fg_color, bang);
-        assert_eq!(visuals.warn_fg_color, bang);
-
-        // link, code.background.
-        assert_eq!(visuals.hyperlink_color, hyperlink);
-        assert_eq!(visuals.code_bg_color, code_background);
+        // error, warning, link, code.background.
+        assert_eq!(visuals.error_fg_color, theme.error, "{name}");
+        assert_eq!(visuals.warn_fg_color, theme.warning, "{name}");
+        assert_eq!(visuals.hyperlink_color, theme.link, "{name}");
+        assert_eq!(visuals.code_bg_color, theme.code_background, "{name}");
 
         // input.cursor/.width: the text-edit caret and the active IME
-        // underline share one property pair.
-        assert_eq!(visuals.text_cursor.stroke, Stroke::new(2.0, input_cursor));
+        // underline share one property pair; the inactive underline is
+        // egui's own half-linear attenuation of that colour.
+        let input_cursor = Stroke::new(theme.input_cursor_width.points(), theme.input_cursor);
+        assert_eq!(visuals.text_cursor.stroke, input_cursor, "{name}");
         assert_eq!(
-            visuals.ime_composition.active_underline_stroke,
-            Stroke::new(2.0, input_cursor)
+            visuals.ime_composition.active_underline_stroke, input_cursor,
+            "{name}"
         );
-        // The inactive IME underline: egui's own existing half-linear
-        // attenuation of that same colour, not a second hardcoded one.
         assert_eq!(
             visuals.ime_composition.inactive_underline_stroke,
             Stroke {
-                width: 2.0,
-                color: input_cursor.linear_multiply(0.5),
+                width: input_cursor.width,
+                color: theme.input_cursor.linear_multiply(0.5),
             },
-            "the inactive IME underline must be input.cursor's own half-linear attenuation"
+            "{name}"
         );
+        let platform = match theme.appearance {
+            Appearance::Dark => Visuals::dark(),
+            Appearance::Light => Visuals::light(),
+        };
         assert_eq!(
-            visuals.ime_composition.legacy_visuals,
-            Visuals::dark().ime_composition.legacy_visuals,
+            visuals.ime_composition.legacy_visuals, platform.ime_composition.legacy_visuals,
             "legacy_visuals is a platform default, not a themed property"
         );
     }
@@ -1379,13 +1430,13 @@ mod tests {
     ///
     /// Retuning each of the ten named chrome keys `style` reads changes the
     /// matching `Visuals` field on the next call — proof it reads `theme`
-    /// live rather than merely reproducing Okabe–Ito's own values by
+    /// live rather than merely reproducing one Theme's own values by
     /// construction, the chrome counterpart of
     /// `glyph_colours_are_distinct_and_read_from_the_theme`'s retuned check.
     ///
     #[test]
     fn each_named_chrome_key_changes_style_when_retuned() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
         let retuned = Color32::from_rgb(9, 9, 9);
 
         let panel_background = Theme {
@@ -1471,17 +1522,17 @@ mod tests {
     ///
     /// `.scratch/theming/schema.md`'s Chrome mapping table: "Hovered/active
     /// widget foreground | `text.active`" — a dedicated key, not a reuse of
-    /// `selection.border`. Okabe–Ito's own `text_active` and
-    /// `selection_border` happen to share one value (`#65E6BE`), which is
-    /// why reading the wrong key would still have passed
-    /// `okabe_ito_chrome_matches_the_decided_record`; retuning `text_active`
+    /// `selection.border`. A Theme may give `text_active` and
+    /// `selection_border` one value, as the dark default does, and reading
+    /// the wrong key would then still pass
+    /// `every_built_in_chrome_reads_its_theme_keys`; retuning `text_active`
     /// alone, away from `selection_border`, is what proves the wiring.
     ///
     #[test]
     fn hovered_and_active_foreground_reads_text_active_not_selection_border() {
         let theme = Theme {
             text_active: Color32::from_rgb(9, 9, 9),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let visuals = style(&theme).visuals;
 
@@ -1492,17 +1543,17 @@ mod tests {
 
     ///
     /// `.scratch/theming/schema.md`'s Chrome mapping table: "Links; code
-    /// spans | `link`; `code.background`". egui's own defaults for
-    /// `hyperlink_color` and `code_bg_color` equal Okabe–Ito's
-    /// `link`/`code.background` values, which is exactly the "second fixed
-    /// palette hidden in `Visuals` defaults" the audit line exists to catch.
+    /// spans | `link`; `code.background`". Retuning both away from any
+    /// Theme's values proves `style` reads them rather than leaving egui's
+    /// own defaults, the "second fixed palette hidden in `Visuals` defaults"
+    /// the audit line exists to catch.
     ///
     #[test]
     fn hyperlinks_and_code_spans_read_the_theme() {
         let theme = Theme {
             link: Color32::from_rgb(9, 9, 9),
             code_background: Color32::from_rgb(8, 8, 8),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let visuals = style(&theme).visuals;
 
@@ -1523,7 +1574,7 @@ mod tests {
     fn text_cursor_and_ime_underlines_read_input_cursor() {
         let theme = Theme {
             input_cursor: Color32::from_rgb(9, 8, 7),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let visuals = style(&theme).visuals;
         let width = theme.input_cursor_width.points();
@@ -1563,7 +1614,7 @@ mod tests {
     ///
     #[test]
     fn chrome_border_widths_come_from_the_theme() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
 
         let panel_border_width = Theme {
             panel_border_width: crate::theme::ChromeWidth::from_points(1.75)
@@ -1630,125 +1681,6 @@ mod tests {
     }
 
     ///
-    /// `theme.md` is the decided record for Orcvs Light's chrome as well,
-    /// pinned the same way `okabe_ito_chrome_matches_the_decided_record`
-    /// pins the dark one, written so a third Theme extends this suite again
-    /// rather than rewriting it. Every chrome key is asserted at a literal, so a
-    /// retune of the light definition fails here and the same commit must
-    /// move `console/src/theme.md`.
-    ///
-    #[test]
-    fn orcvs_light_chrome_matches_the_decided_record() {
-        let theme = orcvs_light();
-        let visuals = style(&theme).visuals;
-        let page = Color32::from_rgb(239, 244, 242); // #EFF4F2
-        let source = Color32::from_rgb(250, 252, 251); // #FAFCFB
-        let panel_border = Color32::from_rgb(192, 206, 201); // #C0CEC9
-        let ordinary = Color32::from_rgb(48, 63, 59); // #303F3B
-        let selection_fill = Color32::from_rgb(204, 235, 226); // #CCEBE2
-        let selection_stroke_rest = Color32::from_rgb(24, 126, 96); // #187E60
-        let selection_stroke = Color32::from_rgb(7, 98, 71); // #076247
-        let bang = Color32::from_rgb(144, 66, 111); // #90426F
-        let hyperlink = Color32::from_rgb(11, 98, 184); // #0B62B8
-        let code_background = Color32::from_rgb(230, 230, 230); // #E6E6E6
-        let input_cursor = Color32::from_rgb(0, 83, 125); // #00537D
-
-        assert!(!visuals.dark_mode, "Orcvs Light is a light Theme");
-
-        // panel.background: page fill, everywhere it applies.
-        assert_eq!(visuals.panel_fill, page);
-        assert_eq!(visuals.window_fill, page);
-        assert_eq!(visuals.widgets.noninteractive.bg_fill, page);
-        assert_eq!(visuals.widgets.noninteractive.weak_bg_fill, page);
-        assert_eq!(visuals.widgets.inactive.bg_fill, page);
-        assert_eq!(visuals.widgets.inactive.weak_bg_fill, page);
-        assert_eq!(visuals.widgets.open.weak_bg_fill, page);
-
-        // panel.border/.width and widget.inactive.border/.width — one
-        // colour, as in Okabe–Ito, the inactive one at width 0.
-        assert_eq!(visuals.window_stroke, Stroke::new(1.0, panel_border));
-        assert_eq!(
-            visuals.widgets.noninteractive.bg_stroke,
-            Stroke::new(1.0, panel_border)
-        );
-        assert_eq!(visuals.widgets.inactive.bg_stroke.width, 0.0);
-        assert_eq!(visuals.widgets.inactive.bg_stroke.color, panel_border);
-
-        // text, text.active.
-        assert_eq!(visuals.widgets.noninteractive.fg_stroke.color, ordinary);
-        assert_eq!(visuals.widgets.inactive.fg_stroke.color, ordinary);
-        assert_eq!(visuals.widgets.open.fg_stroke.color, ordinary);
-        assert_eq!(visuals.widgets.hovered.fg_stroke.color, selection_stroke);
-        assert_eq!(visuals.widgets.active.fg_stroke.color, selection_stroke);
-
-        // text.muted: the ink at 75%, not egui's own light-mode weak text.
-        // Okabe–Ito's value happens to equal egui's 0.6 gamma multiply of
-        // `text`; this one deliberately does not, because attenuating dark
-        // ink toward a near-white page loses contrast far faster than
-        // attenuating near-white toward a near-black one.
-        assert_eq!(
-            visuals.weak_text_color,
-            Some(Color32::from_rgba_unmultiplied(48, 63, 59, 191))
-        );
-        assert_ne!(
-            visuals.weak_text_color,
-            Some(ordinary.gamma_multiply(0.6)),
-            "the light Theme's muted text is a recorded value, not egui's own attenuation"
-        );
-
-        // input.background: extreme/faint backgrounds, borrowed from the
-        // Source ground exactly as the dark Theme borrows its own.
-        assert_eq!(visuals.extreme_bg_color, source);
-        assert_eq!(visuals.faint_bg_color, source);
-
-        // selection.background/.border/.border.width.
-        assert_eq!(visuals.selection.bg_fill, selection_fill);
-        assert_eq!(visuals.selection.stroke, Stroke::new(1.0, selection_stroke));
-        assert_eq!(visuals.widgets.hovered.bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.hovered.weak_bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.active.bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.active.weak_bg_fill, selection_fill);
-        assert_eq!(visuals.widgets.open.bg_fill, selection_fill);
-        assert_eq!(
-            visuals.widgets.hovered.bg_stroke,
-            Stroke::new(1.0, selection_stroke_rest)
-        );
-        assert_eq!(
-            visuals.widgets.active.bg_stroke,
-            Stroke::new(1.0, selection_stroke)
-        );
-        assert_eq!(
-            visuals.widgets.open.bg_stroke,
-            Stroke::new(1.0, selection_stroke_rest)
-        );
-
-        // error, warning: borrowed from Bang, as in Okabe–Ito.
-        assert_eq!(visuals.error_fg_color, bang);
-        assert_eq!(visuals.warn_fg_color, bang);
-
-        // link, code.background, input.cursor/.width.
-        assert_eq!(visuals.hyperlink_color, hyperlink);
-        assert_eq!(visuals.code_bg_color, code_background);
-        assert_eq!(visuals.text_cursor.stroke, Stroke::new(2.0, input_cursor));
-        assert_eq!(
-            visuals.ime_composition.active_underline_stroke,
-            Stroke::new(2.0, input_cursor)
-        );
-        assert_eq!(
-            visuals.ime_composition.inactive_underline_stroke,
-            Stroke {
-                width: 2.0,
-                color: input_cursor.linear_multiply(0.5),
-            }
-        );
-        assert_eq!(
-            visuals.ime_composition.legacy_visuals,
-            Visuals::light().ime_composition.legacy_visuals,
-            "legacy_visuals is a platform default, not a themed property"
-        );
-    }
-
-    ///
     /// `docs/research/egui-theming.md`'s reading of the upstream docs:
     /// "Merely changing `Visuals::dark_mode` does not convert a palette."
     /// `style` follows
@@ -1758,20 +1690,27 @@ mod tests {
     ///
     #[test]
     fn dark_mode_follows_the_themes_declared_appearance() {
-        assert!(style(&okabe_ito()).visuals.dark_mode, "Dark appearance");
-        assert!(!style(&orcvs_light()).visuals.dark_mode, "Light appearance");
+        assert!(
+            style(&default_theme(Appearance::Dark)).visuals.dark_mode,
+            "Dark appearance"
+        );
+        assert!(
+            !style(&default_theme(Appearance::Light)).visuals.dark_mode,
+            "Light appearance"
+        );
     }
 
     ///
     /// The four prohibitions — no gradients, no
     /// rounded tiles, no shadows, no animation — hold for every Theme
-    /// `style` produces, not only Okabe–Ito's: none of the four is
+    /// `style` produces, every built-in among them: none of the four is
     /// themeable, so `style` never reads `theme` to decide them.
     ///
     #[test]
     fn the_four_prohibitions_hold_for_every_theme() {
-        for theme in [okabe_ito(), orcvs_light()] {
-            let built = style(&theme);
+        let registry = crate::theme_registry::ThemeRegistry::built_in();
+        for theme in crate::theme_registry::tests_support::built_ins(&registry) {
+            let built = style(theme);
             let visuals = &built.visuals;
             assert_eq!(visuals.window_corner_radius, CornerRadius::ZERO);
             assert_eq!(visuals.menu_corner_radius, CornerRadius::ZERO);
@@ -1802,8 +1741,8 @@ mod tests {
     ///
     #[test]
     fn chrome_colours_change_with_the_resolved_theme() {
-        let dark = style(&okabe_ito()).visuals;
-        let light = style(&orcvs_light()).visuals;
+        let dark = style(&default_theme(Appearance::Dark)).visuals;
+        let light = style(&default_theme(Appearance::Light)).visuals;
 
         assert_ne!(dark.dark_mode, light.dark_mode);
         assert_ne!(dark.panel_fill, light.panel_fill);
@@ -1822,7 +1761,7 @@ mod tests {
     ///
     #[test]
     fn glyph_colours_are_distinct_and_read_from_the_theme() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let function = painted(SourcePaint::Function, false, &theme);
         let number = painted(operand(Token::Number, OperandState::Valid), false, &theme);
         let note = painted(operand(Token::Note, OperandState::Valid), false, &theme);
@@ -1847,7 +1786,7 @@ mod tests {
         // paint immediately.
         let retuned = Theme {
             source_function: Color32::from_rgb(1, 2, 3),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         assert_eq!(
             painted(SourcePaint::Function, false, &retuned).foreground,
@@ -1857,7 +1796,7 @@ mod tests {
 
     #[test]
     fn cursor_and_selection_override_the_ambient_field() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let cursor_colour = Some(theme.selection_background);
         let ordinary = cell_visuals(SourcePaint::Unclaimed, PortalRoles::NONE, true, &theme);
         let selected = coloured(
@@ -1879,8 +1818,8 @@ mod tests {
     }
 
     ///
-    /// A Cell's border reads `theme.grid_border` (under a Diagnostic border,
-    /// transparent in Okabe–Ito) — the resolved Theme, never a fixed
+    /// A Cell's border reads `theme.grid_border` (under a transparent
+    /// Diagnostic border) — the resolved Theme, never a fixed
     /// constant. Retuning it changes `CellVisuals::border` on the next call,
     /// the way `glyph_colours_are_distinct_and_read_from_the_theme` already
     /// proves for glyph colours.
@@ -1889,7 +1828,7 @@ mod tests {
     fn each_border_channel_reads_its_own_theme_colour_not_a_fixed_default() {
         let retuned_grid = Theme {
             grid_border: Color32::from_rgb(11, 22, 33),
-            ..okabe_ito()
+            ..transparent_borders()
         };
         let invalid = painted(
             operand(Token::Number, OperandState::Invalid),
@@ -1913,7 +1852,7 @@ mod tests {
     #[test]
     fn cursor_fill_is_optional_and_defaults_to_the_uniform_cell_background() {
         let colour = Color32::from_rgb(1, 2, 3);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         assert_eq!(
             coloured(
                 SourcePaint::Unclaimed,
@@ -1955,7 +1894,7 @@ mod tests {
 
     #[test]
     fn panel_separator_uses_the_grid_line() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let style = super::style(&theme);
         let chrome = Stroke::new(1.0, theme.panel_border);
         assert_eq!(style.visuals.window_stroke, chrome);
@@ -1966,13 +1905,13 @@ mod tests {
     }
 
     ///
-    /// Okabe–Ito's `widget.inactive.border.width` is 0, so the idle border
-    /// paints nothing (`okabe_ito_chrome_matches_the_decided_record`'s own
-    /// doc has the full width-vs-colour distinction).
+    /// The dark default's `widget.inactive.border.width` is 0, so the idle
+    /// border paints nothing (`every_built_in_chrome_reads_its_theme_keys`'s
+    /// own doc has the full width-vs-colour distinction).
     ///
     #[test]
     fn idle_widgets_have_no_rest_outline() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let style = super::style(&theme);
         assert_eq!(style.visuals.widgets.inactive.bg_stroke.width, 0.0);
         assert_eq!(
@@ -1980,19 +1919,6 @@ mod tests {
             theme.selection_border
         );
         assert_eq!(style.visuals.selection.stroke.color, theme.selection_border);
-    }
-
-    #[test]
-    fn caret_border_change_is_visible_but_restrained() {
-        let theme = okabe_ito();
-        let resting = theme.selection_border_rest;
-        let visible = theme.selection_border;
-        let channel_delta = resting.r().abs_diff(visible.r()) as u16
-            + resting.g().abs_diff(visible.g()) as u16
-            + resting.b().abs_diff(visible.b()) as u16;
-
-        assert!(channel_delta >= 80, "border delta was only {channel_delta}");
-        assert!(channel_delta <= 120, "border delta was {channel_delta}");
     }
 
     ///
@@ -2010,18 +1936,10 @@ mod tests {
     ///
     #[test]
     fn a_function_cell_is_tinted_with_the_function_colour() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let function = painted(SourcePaint::Function, false, &theme);
 
         assert_eq!(function.background, Some(theme.source_function_background));
-        // The literal `.scratch/theming/schema.md` records, independent of
-        // both the Theme field above and the composition that surfaces it:
-        // Function's own foreground colour at 10% alpha, the uniform tint
-        // opacity every tinted role has.
-        assert_eq!(
-            function.background,
-            Some(Color32::from_rgba_unmultiplied(0x00, 0x9E, 0x73, 0x1A))
-        );
     }
 
     ///
@@ -2036,7 +1954,7 @@ mod tests {
     ///
     #[test]
     fn an_operand_cell_of_each_declared_token_is_tinted_with_its_own_colour() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         for (paint, background) in [
             (
@@ -2077,7 +1995,7 @@ mod tests {
             source_function_background: Color32::TRANSPARENT,
             source_number_background: Color32::TRANSPARENT,
             source_note_background: Color32::TRANSPARENT,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         for paint in [
@@ -2094,17 +2012,21 @@ mod tests {
     }
 
     ///
-    /// Comment, Bang and an empty unclaimed Cell are not tinted at the
-    /// Okabe–Ito built-in's own (nonzero-alpha-elsewhere) values — their
-    /// three role backgrounds are transparent by definition
-    /// (`.scratch/theming/schema.md`: "ordinary/Char/comment/Bang default to
-    /// transparent"). A Leftover Char is not a fourth case here: it is
+    /// Comment, Bang and an empty unclaimed Cell are not tinted while their
+    /// three role backgrounds are transparent, which the dark default's Bang
+    /// is not, so the test clears all three. A Leftover Char is not a fourth
+    /// case here: it is
     /// Unclaimed, so it is exactly the [`SourcePaint::Unclaimed`] case below,
     /// not a fact of its own.
     ///
     #[test]
     fn comment_bang_and_empty_unclaimed_cells_are_not_tinted() {
-        let theme = okabe_ito();
+        let theme = Theme {
+            source_comment_background: Color32::TRANSPARENT,
+            source_bang_background: Color32::TRANSPARENT,
+            source_ordinary_background: Color32::TRANSPARENT,
+            ..default_theme(Appearance::Dark)
+        };
 
         for paint in [
             SourcePaint::Comment,
@@ -2129,7 +2051,7 @@ mod tests {
     ///
     #[test]
     fn the_cursors_own_fill_wins_over_the_tint_on_its_cell() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let cursor_colour = Color32::from_rgb(9, 8, 7);
         let tinted_function = theme.source_function_background;
         let unselected = cell_visuals(SourcePaint::Function, PortalRoles::NONE, true, &theme);
@@ -2166,7 +2088,7 @@ mod tests {
     ///
     #[test]
     fn an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         let invalid = painted(operand(Token::Number, OperandState::Invalid), false, &theme);
         let valid = painted(operand(Token::Number, OperandState::Valid), false, &theme);
@@ -2175,17 +2097,16 @@ mod tests {
         assert_eq!(
             invalid.background,
             Some(theme.source_number_background),
-            "an Invalid Number Cell still tints as Number: Okabe–Ito's \
-             diagnostic.background is transparent, so it reveals the Number \
-             role background unchanged"
+            "an Invalid Number Cell still tints as Number: a transparent \
+             diagnostic.background reveals the Number role background unchanged"
         );
         assert_eq!(valid.foreground, theme.source_number);
         assert_eq!(valid.background, invalid.background);
     }
 
     ///
-    /// A transparent `diagnostic.foreground` — unlike Okabe–Ito's opaque one
-    /// — reveals the declared role's own foreground instead of replacing it:
+    /// A transparent `diagnostic.foreground` — unlike the dark default's
+    /// opaque one — reveals the declared role's own foreground instead of replacing it:
     /// `.scratch/theming/schema.md`: "A transparent fact channel reveals the
     /// underlying Token channel with alpha compositing."
     ///
@@ -2193,7 +2114,7 @@ mod tests {
     fn a_transparent_diagnostic_foreground_reveals_the_declared_role() {
         let theme = Theme {
             diagnostic_foreground: Color32::TRANSPARENT,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let invalid = painted(operand(Token::Number, OperandState::Invalid), false, &theme);
@@ -2204,13 +2125,13 @@ mod tests {
     ///
     /// A partial-alpha `diagnostic.background` blends over the declared
     /// role's own background rather than fully replacing or fully revealing
-    /// it — the middle case between Okabe–Ito's transparent default (reveals
-    /// the role unchanged, pinned above) and an opaque one (would replace it
+    /// it — the middle case between a transparent one (reveals the role
+    /// unchanged, pinned above) and an opaque one (would replace it
     /// outright, the same way `diagnostic.foreground` does when opaque).
     ///
     #[test]
     fn a_partial_alpha_diagnostic_background_blends_over_the_role_background() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let half = Color32::from_rgba_unmultiplied(255, 0, 0, 128);
         let blended = Theme {
             diagnostic_background: half,
@@ -2238,7 +2159,7 @@ mod tests {
     ///
     #[test]
     fn a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         let pending = painted(operand(Token::Number, OperandState::Pending), false, &theme);
 
@@ -2260,7 +2181,7 @@ mod tests {
     ///
     #[test]
     fn output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         // The Output Portal channel composites *over* each fact's own raw
         // role background, not in place of it (`role_and_portal`'s
@@ -2300,16 +2221,16 @@ mod tests {
     /// take precedence over other non-Function facts, including Diagnostic."
     /// The Invalid Number's Diagnostic-blended answer is still `role_and_
     /// portal`'s starting point, so Portal composites over *that*, not over
-    /// the plain Number channel — with `diagnostic.foreground` opaque in
-    /// Okabe–Ito, the Portal colour still wins outright for the foreground,
-    /// exactly as it does for a Valid operand. The background is Number's
-    /// own translucent tint (Diagnostic's own background is transparent, so
-    /// it leaves Number's tint unchanged) composited with the Output
-    /// Portal's translucent tint on top, not the Portal channel alone.
+    /// the plain Number channel — with `diagnostic.foreground` opaque in the
+    /// dark default, the Portal colour still wins outright for the
+    /// foreground, exactly as it does for a Valid operand. The background is
+    /// Number's own tint (Diagnostic's own background is transparent, so it
+    /// leaves Number's tint unchanged) composited with the Output Portal's
+    /// tint on top.
     ///
     #[test]
     fn invalid_operand_under_output_portal_takes_the_portal_colour() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         let invalid = painted(operand(Token::Number, OperandState::Invalid), true, &theme);
 
@@ -2333,7 +2254,7 @@ mod tests {
     ///
     #[test]
     fn a_bound_function_spelling_wins_over_output_portal() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         let ordinary = painted(SourcePaint::Function, false, &theme);
         let overlapped = painted(SourcePaint::Function, true, &theme);
@@ -2362,7 +2283,7 @@ mod tests {
         let visible = Color32::from_rgb(200, 30, 30);
         let theme = Theme {
             diagnostic_border: visible,
-            ..okabe_ito()
+            ..transparent_borders()
         };
 
         let invalid = painted(operand(Token::Number, OperandState::Invalid), false, &theme);
@@ -2392,7 +2313,7 @@ mod tests {
             source_function_border_width: crate::theme::GridWidth::from_points(1.0)
                 .expect("within 0..=1"),
             locked_border,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let locked = painted_in(
@@ -2429,7 +2350,7 @@ mod tests {
             source_function_border: function_border,
             source_number_border: number_border,
             source_ordinary_border: ordinary_border,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let empty = |paint| cell_visuals(paint, PortalRoles::NONE, false, &theme);
 
@@ -2497,7 +2418,7 @@ mod tests {
             source_bang_border: border(60),
             source_bang_border_width: width(0.6),
             diagnostic_border,
-            ..okabe_ito()
+            ..transparent_borders()
         };
         let role = |shade| {
             (
@@ -2553,7 +2474,7 @@ mod tests {
         let theme = Theme {
             diagnostic_border: Color32::from_rgb(200, 30, 30),
             output_portal_border: Color32::from_rgb(30, 30, 200),
-            ..okabe_ito()
+            ..transparent_borders()
         };
 
         let invalid_in_portal =
@@ -2569,17 +2490,15 @@ mod tests {
     }
 
     ///
-    /// Okabe–Ito's transparent `diagnostic.border`/`output_portal.border`
-    /// defaults leave the ordinary Grid border visible unchanged: blending a
-    /// fully transparent colour on top is the identity, so this Theme's
-    /// Invalid/Portal Cells still show only `theme.grid_border` — which is
-    /// what keeps `okabe_ito_reproduces_the_pre_refactor_cell_visuals_
-    /// exactly` passing although every such Cell runs through
+    /// Transparent `diagnostic.border`/`output_portal.border` colours leave
+    /// the ordinary Grid border visible unchanged: blending a fully
+    /// transparent colour on top is the identity, so an Invalid operand in a
+    /// Portal still shows only `theme.grid_border` although it runs through
     /// `ordinary_border`.
     ///
     #[test]
     fn transparent_diagnostic_and_portal_borders_leave_the_grid_border_visible() {
-        let theme = okabe_ito();
+        let theme = transparent_borders();
 
         let invalid_in_portal =
             painted(operand(Token::Number, OperandState::Invalid), true, &theme);
@@ -2608,7 +2527,7 @@ mod tests {
         let no_diagnostic = Theme {
             diagnostic_border: diagnostic,
             diagnostic_border_width: zero,
-            ..okabe_ito()
+            ..transparent_borders()
         };
         assert_eq!(painted(invalid, false, &no_diagnostic).border, None);
 
@@ -2616,7 +2535,7 @@ mod tests {
             diagnostic_border: diagnostic,
             output_portal_border: Color32::from_rgb(30, 30, 200),
             output_portal_border_width: zero,
-            ..okabe_ito()
+            ..transparent_borders()
         };
         assert_eq!(
             painted(invalid, true, &no_portal).border,
@@ -2646,7 +2565,7 @@ mod tests {
             output_portal_border_width: zero,
             input_portal_border_width: zero,
             locked_border_width: zero,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         for roles in [OUTPUT, INPUT, LOCKED] {
             assert_eq!(
@@ -2670,7 +2589,7 @@ mod tests {
                 .expect("0.0 is within 0..=1"),
             grid_border: Color32::from_rgb(0, 200, 0),
             diagnostic_border: diagnostic,
-            ..okabe_ito()
+            ..transparent_borders()
         };
         assert_eq!(
             painted(operand(Token::Number, OperandState::Invalid), false, &theme).border,
@@ -2689,7 +2608,7 @@ mod tests {
     ///
     #[test]
     fn the_cursors_own_fill_wins_over_output_portal_too() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let cursor_colour = Color32::from_rgb(9, 8, 7);
 
         let cursor = coloured(
@@ -2717,9 +2636,13 @@ mod tests {
         let theme = Theme {
             cursor_foreground: Some(glyph),
             region_cursor_foreground: Some(region_glyph),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
-        let cleared = okabe_ito();
+        let cleared = Theme {
+            cursor_foreground: None,
+            region_cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
+        };
         let mut colours = CellColours::new(&theme);
         let mut cleared_colours = CellColours::new(&cleared);
         for paint in SOURCE_PAINT_FACTS {
@@ -2761,7 +2684,10 @@ mod tests {
     ///
     #[test]
     fn input_portal_paints_over_every_non_function_fact_including_diagnostic() {
-        for theme in [okabe_ito(), orcvs_light()] {
+        for theme in [
+            default_theme(Appearance::Dark),
+            default_theme(Appearance::Light),
+        ] {
             for (paint, role_background) in [
                 (SourcePaint::Unclaimed, theme.source_ordinary_background),
                 (SourcePaint::Comment, theme.source_comment_background),
@@ -2811,7 +2737,7 @@ mod tests {
         let theme = Theme {
             output_portal_border: Color32::from_rgb(30, 30, 200),
             input_portal_border: Color32::from_rgb(200, 30, 200),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let ordinary = painted_in(SourcePaint::Bang, PortalRoles::NONE, &theme);
 
@@ -2833,7 +2759,7 @@ mod tests {
         let theme = Theme {
             output_portal_border: Color32::from_rgb(30, 30, 200),
             input_portal_border: Color32::from_rgb(200, 30, 200),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let ordinary = painted_in(SourcePaint::Function, PortalRoles::NONE, &theme);
 
@@ -2858,7 +2784,7 @@ mod tests {
             input_portal_border: Color32::from_rgb(200, 30, 200),
             input_portal_border_width: crate::theme::GridWidth::from_points(0.25)
                 .expect("0.25 is within 0..=1"),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let invalid = painted_in(operand(Token::Number, OperandState::Invalid), INPUT, &theme);
@@ -2889,7 +2815,7 @@ mod tests {
             input_portal_border: Color32::from_rgba_unmultiplied(170, 120, 250, 120),
             input_portal_border_width: crate::theme::GridWidth::from_points(0.25)
                 .expect("0.25 is within 0..=1"),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         for fact in SOURCE_PAINT_FACTS {
@@ -2924,7 +2850,7 @@ mod tests {
             locked_border: Color32::from_rgba_unmultiplied(120, 120, 120, 90),
             locked_border_width: crate::theme::GridWidth::from_points(0.25)
                 .expect("0.25 is within 0..=1"),
-            ..okabe_ito()
+            ..transparent_borders()
         };
 
         for (paint, foreground, background) in [
@@ -2966,13 +2892,17 @@ mod tests {
     }
 
     ///
-    /// Both built-ins draw a locked Function and a locked Bang on the Source
+    /// Every built-in draws a locked Function and a locked Bang on the Source
     /// background, washing out a Function's own tint, frame each Cell, and
     /// keep the glyph colour, so a locked root still reads as what it is.
     ///
     #[test]
     fn the_built_ins_wash_out_and_frame_a_locked_function_and_keep_its_glyph() {
-        for theme in [okabe_ito(), orcvs_light()] {
+        let registry = crate::theme_registry::ThemeRegistry::built_in();
+        for theme in crate::theme_registry::tests_support::built_ins(&registry)
+            .iter()
+            .cloned()
+        {
             for paint in [SourcePaint::Function, SourcePaint::Bang] {
                 let plain = painted_in(paint, PortalRoles::NONE, &theme);
                 let locked = painted_in(paint, LOCKED, &theme);
@@ -3009,7 +2939,7 @@ mod tests {
             locked_foreground: Color32::from_rgba_unmultiplied(0, 0, 0, 100),
             locked_background: Color32::from_rgba_unmultiplied(120, 120, 120, 50),
             locked_border: Color32::from_rgba_unmultiplied(120, 120, 120, 90),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         for fact in SOURCE_PAINT_FACTS {
@@ -3047,7 +2977,7 @@ mod tests {
     fn cursor_and_region_keep_their_precedence_over_input_portal() {
         let theme = Theme {
             region_cursor_background: Some(Color32::from_rgb(4, 5, 6)),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let cursor_colour = Color32::from_rgb(9, 8, 7);
 
@@ -3093,7 +3023,12 @@ mod tests {
     ///
     #[test]
     fn the_cursors_own_fill_wins_over_an_invalid_operands_diagnostic_background() {
-        let theme = okabe_ito();
+        // The Cursor's glyph colour is cleared, so its Cell's glyph is the
+        // one the operand draws.
+        let theme = Theme {
+            cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
+        };
         let cursor_colour = Color32::from_rgb(9, 8, 7);
 
         let unselected = cell_visuals(
@@ -3123,9 +3058,8 @@ mod tests {
     /// `cell.background` rather than replacing it outright —
     /// `.scratch/theming/schema.md`: "Composite uniform `cell.background`
     /// over the Grid inside every Cell" and role backgrounds "composite over
-    /// the uniform `cell.background`." Function's background is opaque in
-    /// Okabe–Ito, so this Theme instead gives Number a partial-alpha
-    /// background to exercise a real blend.
+    /// the uniform `cell.background`." This Theme gives Number a
+    /// partial-alpha background to exercise a real blend.
     ///
     #[test]
     fn explicit_background_alpha_composites_over_the_cell_base() {
@@ -3134,7 +3068,7 @@ mod tests {
         let theme = Theme {
             cell_background: base,
             source_number_background: role,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let valid = painted(operand(Token::Number, OperandState::Valid), false, &theme);
@@ -3158,7 +3092,11 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.set_theme(egui::ThemePreference::Light);
 
-        install(&ctx, &okabe_ito(), &orcvs_light());
+        install(
+            &ctx,
+            &default_theme(Appearance::Dark),
+            &default_theme(Appearance::Light),
+        );
 
         assert_eq!(
             ctx.options(|options| options.theme_preference),
@@ -3183,11 +3121,15 @@ mod tests {
     fn install_registers_each_appearances_own_theme() {
         let ctx = egui::Context::default();
 
-        install(&ctx, &okabe_ito(), &orcvs_light());
+        install(
+            &ctx,
+            &default_theme(Appearance::Dark),
+            &default_theme(Appearance::Light),
+        );
 
         for (slot, theme) in [
-            (egui::Theme::Dark, okabe_ito()),
-            (egui::Theme::Light, orcvs_light()),
+            (egui::Theme::Dark, default_theme(Appearance::Dark)),
+            (egui::Theme::Light, default_theme(Appearance::Light)),
         ] {
             let installed = ctx.style_of(slot);
             let expected = style(&theme);
@@ -3197,216 +3139,6 @@ mod tests {
                 theme.identity
             );
             assert_eq!(installed.animation_time, expected.animation_time);
-        }
-    }
-
-    ///
-    /// Pins a Cell's colours for a representative
-    /// fact set to exact premultiplied byte arrays captured from its output,
-    /// not recomputed from this module or `theme.rs`, so a change to the
-    /// composition that moves a byte fails here rather than agreeing with
-    /// itself.
-    ///
-    /// Every role, every Operand binding state Diagnostic distinguishes,
-    /// Output Portal over Unclaimed/a Valid operand/a Bang and a bound
-    /// Function (both bypassed outright), and the Cursor's own
-    /// fill winning over a role's tint, an Invalid operand's Diagnostic
-    /// glyph, and the Cursor's Cell keeping its fact's border.
-    ///
-    /// One captured case: the fact and placement a Cell's colours
-    /// were asked about, and the exact premultiplied byte arrays it answered.
-    /// A named struct rather than an eight-element tuple, so a field is
-    /// named at every use instead of counted by position.
-    struct BaselineCase {
-        name: &'static str,
-        fact: SourcePaint,
-        output_portal: bool,
-        selected: bool,
-        background: Option<[u8; 4]>,
-        border: [u8; 4],
-        foreground: [u8; 4],
-    }
-
-    #[test]
-    fn okabe_ito_reproduces_the_pre_refactor_cell_visuals_exactly() {
-        let theme = okabe_ito();
-        let cursor_colour = Some(Color32::from_rgb(9, 8, 7));
-
-        // Every byte array copied verbatim from the capture described above.
-        let cases = vec![
-            BaselineCase {
-                name: "unclaimed",
-                fact: SourcePaint::Unclaimed,
-                output_portal: false,
-                selected: false,
-                background: None,
-                border: [8, 16, 14, 72],
-                foreground: [234, 235, 229, 255],
-            },
-            BaselineCase {
-                name: "comment",
-                fact: SourcePaint::Comment,
-                output_portal: false,
-                selected: false,
-                background: None,
-                border: [8, 16, 14, 72],
-                foreground: [153, 153, 153, 255],
-            },
-            BaselineCase {
-                name: "bang",
-                fact: SourcePaint::Bang,
-                output_portal: false,
-                selected: false,
-                background: None,
-                border: [8, 16, 14, 72],
-                foreground: [204, 121, 167, 255],
-            },
-            BaselineCase {
-                name: "bang_portal",
-                fact: SourcePaint::Bang,
-                output_portal: true,
-                selected: false,
-                background: None,
-                border: [8, 16, 14, 72],
-                foreground: [204, 121, 167, 255],
-            },
-            BaselineCase {
-                name: "function",
-                fact: SourcePaint::Function,
-                output_portal: false,
-                selected: false,
-                background: Some([0, 16, 12, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [0, 158, 115, 255],
-            },
-            BaselineCase {
-                name: "function_portal",
-                fact: SourcePaint::Function,
-                output_portal: true,
-                selected: false,
-                background: Some([0, 16, 12, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [0, 158, 115, 255],
-            },
-            BaselineCase {
-                name: "number_pending",
-                fact: operand(Token::Number, OperandState::Pending),
-                output_portal: false,
-                selected: false,
-                background: Some([9, 18, 24, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [86, 180, 233, 255],
-            },
-            BaselineCase {
-                name: "number_valid",
-                fact: operand(Token::Number, OperandState::Valid),
-                output_portal: false,
-                selected: false,
-                background: Some([9, 18, 24, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [86, 180, 233, 255],
-            },
-            BaselineCase {
-                name: "number_invalid",
-                fact: operand(Token::Number, OperandState::Invalid),
-                output_portal: false,
-                selected: false,
-                background: Some([9, 18, 24, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [213, 94, 0, 255],
-            },
-            BaselineCase {
-                name: "number_valid_portal",
-                fact: operand(Token::Number, OperandState::Valid),
-                output_portal: true,
-                selected: false,
-                background: Some([31, 32, 22, 49]),
-                border: [8, 16, 14, 72],
-                foreground: [230, 159, 0, 255],
-            },
-            BaselineCase {
-                name: "note_valid",
-                fact: operand(Token::Note, OperandState::Valid),
-                output_portal: false,
-                selected: false,
-                background: Some([24, 23, 7, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [240, 228, 66, 255],
-            },
-            BaselineCase {
-                name: "unclaimed_portal",
-                fact: SourcePaint::Unclaimed,
-                output_portal: true,
-                selected: false,
-                background: Some([23, 16, 0, 26]),
-                border: [8, 16, 14, 72],
-                foreground: [230, 159, 0, 255],
-            },
-            BaselineCase {
-                name: "unclaimed_selected",
-                fact: SourcePaint::Unclaimed,
-                output_portal: false,
-                selected: true,
-                background: Some([9, 8, 7, 255]),
-                border: [8, 16, 14, 72],
-                foreground: [234, 235, 229, 255],
-            },
-            BaselineCase {
-                name: "function_selected",
-                fact: SourcePaint::Function,
-                output_portal: false,
-                selected: true,
-                background: Some([9, 8, 7, 255]),
-                border: [8, 16, 14, 72],
-                foreground: [0, 158, 115, 255],
-            },
-            BaselineCase {
-                name: "number_invalid_selected",
-                fact: operand(Token::Number, OperandState::Invalid),
-                output_portal: false,
-                selected: true,
-                background: Some([9, 8, 7, 255]),
-                border: [8, 16, 14, 72],
-                foreground: [213, 94, 0, 255],
-            },
-        ];
-
-        for case in cases {
-            let placement = if case.selected {
-                CursorPlacement::Cursor
-            } else {
-                CursorPlacement::Plain
-            };
-            let visuals = coloured(
-                case.fact,
-                output_portal_roles(case.output_portal),
-                placement,
-                cursor_colour,
-                &theme,
-            );
-            assert_eq!(
-                visuals.background.map(|c| c.to_array()),
-                case.background,
-                "{}: background",
-                case.name
-            );
-            // The colour the Cell's edges show: its own border, or the Grid
-            // line where it has none.
-            assert_eq!(
-                visuals
-                    .border
-                    .map_or(theme.grid_border, |border| border.stroke.color)
-                    .to_array(),
-                case.border,
-                "{}: border",
-                case.name
-            );
-            assert_eq!(
-                visuals.foreground.to_array(),
-                case.foreground,
-                "{}: foreground",
-                case.name
-            );
         }
     }
 }

@@ -87,8 +87,9 @@ use super::source_view::one_row_between_margins;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, PictureMap, SourceCellPoint, snapped_cell};
-use crate::theme::{Appearance, grayscale_dark, grayscale_light};
+use crate::theme::Appearance;
 use crate::theme_registry::ThemeRegistry;
+use crate::theme_registry::tests_support::default_theme;
 use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes};
 
 // The release captures: this harness with a renderer added. See the module.
@@ -971,8 +972,8 @@ async fn no_menu_offers_a_setting() {
             "Appearance",
             "Dark Theme",
             "Light Theme",
-            "Okabe–Ito",
-            "Orcvs Light",
+            "Grayscale Dark",
+            "Grayscale Light",
             "My Dark",
             "My Light",
         ] {
@@ -1013,10 +1014,20 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
     let mut harness =
         configured_console_under_os_appearance(egui::Theme::Dark, with_my_themes(), config);
 
-    assert_frame_presents(&harness, &my_dark(), &[grayscale_dark()], "a dark OS");
+    assert_frame_presents(
+        &harness,
+        &my_dark(),
+        &[default_theme(Appearance::Dark)],
+        "a dark OS",
+    );
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(2);
-    assert_frame_presents(&harness, &my_light(), &[grayscale_light()], "a light OS");
+    assert_frame_presents(
+        &harness,
+        &my_light(),
+        &[default_theme(Appearance::Light)],
+        "a light OS",
+    );
 
     assert_eq!(harness.state().source_view.cell, Vec2::new(10.0, 15.0));
 
@@ -1342,7 +1353,7 @@ async fn the_mode_glyphs_are_in_the_console_font() {
 
 ///
 /// The mode control, under an OS in dark appearance: holding Light presents
-/// Orcvs Light whatever the OS says, and Follow the OS returns to the OS's
+/// the light default whatever the OS says, and Follow the OS returns to the OS's
 /// appearance. The frame a choice is made in is still wholly the old Theme;
 /// the next is wholly the new one. The mode is egui's `ThemePreference`,
 /// which eframe persists with egui memory.
@@ -1352,8 +1363,8 @@ async fn the_mode_switches_source_and_chrome_together() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
     assert_frame_presents(
         &harness,
-        &grayscale_dark(),
-        &[grayscale_light()],
+        &default_theme(Appearance::Dark),
+        &[default_theme(Appearance::Light)],
         "following a dark OS",
     );
 
@@ -1365,8 +1376,8 @@ async fn the_mode_switches_source_and_chrome_together() {
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
-        &grayscale_light(),
-        &[grayscale_dark()],
+        &default_theme(Appearance::Light),
+        &[default_theme(Appearance::Dark)],
         "holding Light",
     );
 
@@ -1378,8 +1389,8 @@ async fn the_mode_switches_source_and_chrome_together() {
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
-        &grayscale_dark(),
-        &[grayscale_light()],
+        &default_theme(Appearance::Dark),
+        &[default_theme(Appearance::Light)],
         "following a dark OS again",
     );
 }
@@ -1407,16 +1418,16 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
     );
     assert_frame_paints(
         &harness,
-        &grayscale_dark(),
-        &[grayscale_light()],
+        &default_theme(Appearance::Dark),
+        &[default_theme(Appearance::Light)],
         "the frame Light was chosen in",
     );
 
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
-        &grayscale_light(),
-        &[grayscale_dark()],
+        &default_theme(Appearance::Light),
+        &[default_theme(Appearance::Dark)],
         "the frame after",
     );
 }
@@ -1437,29 +1448,31 @@ async fn the_web_backdrop_is_the_theme_its_frame_was_painted_from() {
     harness.step();
     assert_frame_paints(
         &harness,
-        &grayscale_dark(),
-        &[grayscale_light()],
+        &default_theme(Appearance::Dark),
+        &[default_theme(Appearance::Light)],
         "the frame Light was chosen in",
     );
     assert_eq!(
         harness.state().web_clear_color(),
-        grayscale_dark().window_background.to_normalized_gamma_f32(),
-        "the web backdrop under the frame Light was chosen in is not Okabe–Ito's"
+        default_theme(Appearance::Dark)
+            .window_background
+            .to_normalized_gamma_f32(),
+        "the web backdrop under the frame Light was chosen in is not the dark default's"
     );
 
     harness.run_steps(1);
     assert_frame_paints(
         &harness,
-        &grayscale_light(),
-        &[grayscale_dark()],
+        &default_theme(Appearance::Light),
+        &[default_theme(Appearance::Dark)],
         "the frame after",
     );
     assert_eq!(
         harness.state().web_clear_color(),
-        grayscale_light()
+        default_theme(Appearance::Light)
             .window_background
             .to_normalized_gamma_f32(),
-        "the web backdrop under the frame after is not Orcvs Light's"
+        "the web backdrop under the frame after is not the light default's"
     );
 }
 
@@ -1563,10 +1576,11 @@ async fn a_custom_themes_transparent_or_translucent_grid_composites_over_the_win
             "glass.toml",
             format!(
                 "format = \"orcvs-theme\"\nversion = 1\nname = \"Glass\"\n\
-                 inherits = \"okabe-ito\"\n[style]\n\
+                 inherits = \"{}\"\n[style]\n\
                  \"window.background\" = \"#201030\"\n\
                  \"panel.background\" = \"#707010\"\n\
-                 \"grid.background\" = \"{hex}\"\n"
+                 \"grid.background\" = \"{hex}\"\n",
+                crate::theme::ThemeIdentity::default_for(Appearance::Dark)
             )
             .as_bytes(),
         );
@@ -1613,8 +1627,8 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
     assert_frame_presents(
         &harness,
-        &grayscale_dark(),
-        &[grayscale_light()],
+        &default_theme(Appearance::Dark),
+        &[default_theme(Appearance::Light)],
         "a dark OS",
     );
 
@@ -1622,8 +1636,8 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
-        &grayscale_light(),
-        &[grayscale_dark()],
+        &default_theme(Appearance::Light),
+        &[default_theme(Appearance::Dark)],
         "a light OS",
     );
 
@@ -1631,8 +1645,8 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
-        &grayscale_dark(),
-        &[grayscale_light()],
+        &default_theme(Appearance::Dark),
+        &[default_theme(Appearance::Light)],
         "a dark OS again",
     );
 
@@ -1641,8 +1655,8 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
     harness.run_steps(2);
     assert_frame_presents(
         &harness,
-        &grayscale_dark(),
-        &[grayscale_light()],
+        &default_theme(Appearance::Dark),
+        &[default_theme(Appearance::Light)],
         "holding Dark under a light OS",
     );
 }
@@ -2093,10 +2107,11 @@ async fn hit_testing_holds_across_cell_border_widths_and_zoom_factors() {
             "borders.toml",
             format!(
                 "format = \"orcvs-theme\"\nversion = 1\nname = \"Borders\"\n\
-                 inherits = \"okabe-ito\"\n[style]\n\
+                 inherits = \"{}\"\n[style]\n\
                  \"grid.border.width\" = {width}\n\
                  \"cell.selection.border.width\" = {width}\n\
-                 \"cursor.border.width\" = {width}\n"
+                 \"cursor.border.width\" = {width}\n",
+                crate::theme::ThemeIdentity::default_for(Appearance::Dark)
             )
             .as_bytes(),
         );
@@ -2480,7 +2495,12 @@ async fn an_open_leaves_every_setting_standing() {
         "an Open changed the Cell"
     );
     assert!(console.diagnostics_open, "an Open closed Diagnostics");
-    assert_frame_presents(&harness, &my_dark(), &[grayscale_dark()], "after the Open");
+    assert_frame_presents(
+        &harness,
+        &my_dark(),
+        &[default_theme(Appearance::Dark)],
+        "after the Open",
+    );
 }
 
 ///
@@ -3449,7 +3469,12 @@ async fn file_new_opens_an_empty_source_on_the_256_by_256_grid() {
         "New changed the Theme presented"
     );
     assert_eq!(console.source_view.cell, MOVED_CELL, "New changed the Cell");
-    assert_frame_presents(&harness, &my_dark(), &[grayscale_dark()], "after New");
+    assert_frame_presents(
+        &harness,
+        &my_dark(),
+        &[default_theme(Appearance::Dark)],
+        "after New",
+    );
     // The replaced engine's task owns the only sender of its observation,
     // so the watch closing is that engine having ended.
     assert!(
@@ -3621,26 +3646,35 @@ fn painted_on(
 /// A console whose Source holds `rows` from Grid column 8, row 4, after the
 /// Tick at zero has committed, so its last frame paints that Tick's record.
 ///
-/// It presents Okabe–Ito for dark, whose Portal and Locked fills differ from
-/// each other and from the Grid background, so the fill under a Cell names
-/// the role it paints. A Theme may share those fills.
+/// It presents the dark default with its Portal and Locked fills set apart,
+/// so the fill under a Cell names the role it paints: a Theme may share
+/// those fills, as the dark default fills both Portals alike.
 ///
 fn ticked_console(rows: &[&str]) -> Harness<'static, Console> {
+    use crate::theme_registry::tests_support::{dark, load};
     use orcvs::source::Tick;
 
+    let mut themes = ThemeRegistry::built_in();
+    // Each Portal takes a fill of its own, apart from the other and from the
+    // Grid background, and Locked a translucent one, so a locked Cell's fill
+    // differs from the fill its fact takes unlocked.
+    let style = "[style]\n\
+                 \"output_portal.background\" = \"#E69F00\"\n\
+                 \"input_portal.background\" = \"#AC77FA\"\n\
+                 \"locked.background\" = \"#80808080\"\n";
+    load(
+        &mut themes,
+        "ticked.toml",
+        format!("{}{style}", dark("Ticked")).as_bytes(),
+    );
     let config = crate::config::Config {
         theme_selection: crate::theme_selection::ThemeSelection::new(
-            crate::theme::OKABE_ITO_IDENTITY,
+            id("ticked"),
             crate::theme::ThemeIdentity::default_for(Appearance::Light),
         ),
         ..crate::config::Config::default()
     };
-    let mut harness = console_harness(
-        Vec2::from(DEFAULT_VIEW_SIZE),
-        None,
-        ThemeRegistry::built_in(),
-        config,
-    );
+    let mut harness = console_harness(Vec2::from(DEFAULT_VIEW_SIZE), None, themes, config);
     harness.run_steps(2);
     let source = harness.state().orcvs.source().clone();
     let grid = source.grid();

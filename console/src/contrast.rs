@@ -659,7 +659,9 @@ mod tests {
         AcceptedFailure, ContrastReport, ContrastResult, CursorPlacement, Role, State, contrast,
         painted, validate,
     };
-    use crate::theme::{OKABE_ITO_IDENTITY, ORCVS_LIGHT_IDENTITY, Theme, okabe_ito, orcvs_light};
+    use crate::theme::{Appearance, Theme};
+    use crate::theme_registry::ThemeRegistry;
+    use crate::theme_registry::tests_support::{built_ins, default_theme};
 
     /// The roles of a Cell only an Output Portal covers.
     const OUTPUT: PortalRoles = PortalRoles::NONE.with(PortalRole::Output);
@@ -733,13 +735,13 @@ mod tests {
 
     #[test]
     fn validate_reports_the_floor_in_the_returned_data() {
-        assert_eq!(validate(&okabe_ito()).floor, 4.5);
+        assert_eq!(validate(&default_theme(Appearance::Dark)).floor, 4.5);
     }
 
     #[test]
     fn validate_reports_one_result_per_role_cursor_placement_and_portal_role_set_plus_fifteen_chrome_states()
      {
-        let report = validate(&okabe_ito());
+        let report = validate(&default_theme(Appearance::Dark));
         // 8 Source Grid roles x 4 CursorPlacements x 4 Portal role sets
         // = 128, the Function and Bang roles x 4 CursorPlacements x the 4
         // sets holding Locked = 32, plus 15 chrome states: text on panel, input and the
@@ -763,7 +765,7 @@ mod tests {
     ///
     #[test]
     fn validate_reports_a_theme_built_to_fail_rather_than_a_vacuous_pass() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
         let theme = Theme {
             text: base.panel_background,
             ..base
@@ -786,27 +788,27 @@ mod tests {
         // A state untouched by the failing override still passes, so the
         // failure above is specific to the retuned property rather than
         // `validate` reporting every state as failing once one does.
-        let comment = find(
+        let ordinary = find(
             &report,
-            Role::Comment,
+            Role::Ordinary,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
                 portals: PortalRoles::NONE,
             },
         );
         assert!(
-            comment.passes(),
-            "Comment was not retuned and should still clear the floor: {:.2}:1",
-            comment.ratio
+            ordinary.passes(),
+            "Ordinary was not retuned and should still clear the floor: {:.2}:1",
+            ordinary.ratio
         );
     }
 
     // === Chrome states beyond text/text.muted on panel and input ===
 
     /// Asserts `result` measures `foreground` against itself — 1:1 — and so
-    /// fails, and that every Source Grid state and `text`/`text.muted` on
-    /// panel and input still passes, so the failure is one only the chrome
-    /// state under test can see.
+    /// fails, and that no Source Grid state and neither `text` nor
+    /// `text.muted` on panel and input fails, so the failure is one only the
+    /// chrome state under test can see.
     fn fails_only_in_an_added_state(report: &ContrastReport, result: &ContrastResult) {
         assert!(
             !result.passes() && (result.ratio - 1.0).abs() < 0.01,
@@ -825,7 +827,7 @@ mod tests {
                         (Role::Text | Role::TextMuted, State::Panel | State::Input)
                     )
             })
-            .filter(|result| !result.passes())
+            .filter(|result| result.fails())
             .collect();
         assert!(
             old_report_failures.is_empty(),
@@ -842,7 +844,7 @@ mod tests {
     ///
     #[test]
     fn text_active_matching_the_hovered_and_active_fill_fails_only_there() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
         let theme = Theme {
             text_active: base.selection_background,
             ..base
@@ -875,7 +877,7 @@ mod tests {
     ///
     #[test]
     fn selected_text_matching_selection_background_fails_only_there() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
         let theme = Theme {
             selection_border: base.selection_background,
             ..base
@@ -895,7 +897,7 @@ mod tests {
     ///
     #[test]
     fn error_warning_and_link_matching_the_panel_each_fail_there() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
         for (role, theme) in [
             (
                 Role::Error,
@@ -940,7 +942,7 @@ mod tests {
     ///
     #[test]
     fn the_open_widget_state_composites_its_fill_over_the_panel() {
-        let base = okabe_ito();
+        let base = default_theme(Appearance::Dark);
         let theme = Theme {
             window_background: Color32::WHITE,
             panel_background: Color32::from_rgba_unmultiplied(0, 0, 0, 128),
@@ -961,11 +963,11 @@ mod tests {
     // painted tint or selected background ===
 
     ///
-    /// A role whose own background is transparent (Comment's, in Okabe–Ito)
-    /// reads fine against the bare Grid in its `plain` state, but a custom
-    /// Theme's opaque `region.background` set to the same colour as the
-    /// glyph itself makes the `Region` state of that same role unreadable.
-    /// Region fallback only applies because Comment's own background stays
+    /// A role whose own background is transparent (Ordinary's, in the dark
+    /// default) reads fine against the bare Grid in its `plain` state, but a
+    /// custom Theme's opaque `region.background` set to the same colour as
+    /// the glyph itself makes the `Region` state of that same role unreadable.
+    /// Region fallback only applies because Ordinary's own background stays
     /// fully transparent in this Theme; a role background with any nonzero
     /// alpha keeps winning over the Region fill regardless
     /// (`region_fallback_only_reaches_a_fully_transparent_role_background`
@@ -974,15 +976,15 @@ mod tests {
     #[test]
     fn a_role_passing_plain_fails_against_its_painted_region_tint() {
         let theme = Theme {
-            region_background: okabe_ito().source_comment,
-            ..okabe_ito()
+            region_background: default_theme(Appearance::Dark).source_ordinary,
+            ..default_theme(Appearance::Dark)
         };
 
         let report = validate(&theme);
 
         let plain = find(
             &report,
-            Role::Comment,
+            Role::Ordinary,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
                 portals: PortalRoles::NONE,
@@ -990,13 +992,13 @@ mod tests {
         );
         assert!(
             plain.passes(),
-            "Comment/plain should still read against the bare Grid: {:.2}:1",
+            "Ordinary/plain should still read against the bare Grid: {:.2}:1",
             plain.ratio
         );
 
         let region = find(
             &report,
-            Role::Comment,
+            Role::Ordinary,
             State::SourceGrid {
                 cursor: CursorPlacement::Region,
                 portals: PortalRoles::NONE,
@@ -1004,7 +1006,7 @@ mod tests {
         );
         assert!(
             !region.passes(),
-            "Comment/Region should fail once the Region tint matches the glyph: {:.2}:1",
+            "Ordinary/Region should fail once the Region tint matches the glyph: {:.2}:1",
             region.ratio
         );
         assert!(
@@ -1016,21 +1018,24 @@ mod tests {
 
     ///
     /// The same fixture shape for the single-Cell Cursor: a custom Theme's
-    /// `cursor.background` set to Comment's own colour leaves `plain`
+    /// `cursor.background` set to Ordinary's own colour leaves `plain`
     /// passing while `Cursor` fails.
     ///
     #[test]
     fn a_role_passing_plain_fails_against_its_selected_cursor_background() {
         let theme = Theme {
-            cursor_background: Some(okabe_ito().source_comment),
-            ..okabe_ito()
+            cursor_background: Some(default_theme(Appearance::Dark).source_ordinary),
+            // The Cursor's glyph colour is cleared, so the Cursor's Cell
+            // draws Ordinary's own glyph.
+            cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
         };
 
         let report = validate(&theme);
 
         let plain = find(
             &report,
-            Role::Comment,
+            Role::Ordinary,
             State::SourceGrid {
                 cursor: CursorPlacement::Plain,
                 portals: PortalRoles::NONE,
@@ -1038,13 +1043,13 @@ mod tests {
         );
         assert!(
             plain.passes(),
-            "Comment/plain should still read against the bare Grid: {:.2}:1",
+            "Ordinary/plain should still read against the bare Grid: {:.2}:1",
             plain.ratio
         );
 
         let cursor = find(
             &report,
-            Role::Comment,
+            Role::Ordinary,
             State::SourceGrid {
                 cursor: CursorPlacement::Cursor,
                 portals: PortalRoles::NONE,
@@ -1052,7 +1057,7 @@ mod tests {
         );
         assert!(
             !cursor.passes(),
-            "Comment/Cursor should fail once the Cursor fill matches the glyph: {:.2}:1",
+            "Ordinary/Cursor should fail once the Cursor fill matches the glyph: {:.2}:1",
             cursor.ratio
         );
     }
@@ -1070,7 +1075,7 @@ mod tests {
             validate(&Theme {
                 cursor_background: Some(fill),
                 cursor_foreground: Some(glyph),
-                ..okabe_ito()
+                ..default_theme(Appearance::Dark)
             })
         };
         let (failing, passing) = (report(fill), report(Color32::WHITE));
@@ -1114,7 +1119,7 @@ mod tests {
                 region_cursor_background: Some(fill),
                 cursor_foreground: Some(fill),
                 region_cursor_foreground,
-                ..okabe_ito()
+                ..default_theme(Appearance::Dark)
             })
         };
         let (failing, passing) = (report(None), report(Some(Color32::WHITE)));
@@ -1144,7 +1149,7 @@ mod tests {
     fn a_hidden_cursor_glyph_is_not_measured() {
         let report = validate(&Theme {
             cursor_foreground: Some(Color32::TRANSPARENT),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         });
 
         for role in Role::SOURCE_ROLES {
@@ -1187,7 +1192,7 @@ mod tests {
             window_background: Color32::BLACK,
             panel_background: translucent_panel,
             text: translucent_text,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let report = validate(&theme);
@@ -1222,7 +1227,7 @@ mod tests {
     fn a_transparent_diagnostic_foreground_exposes_the_declared_tokens_own_colour() {
         let theme = Theme {
             diagnostic_foreground: Color32::TRANSPARENT,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let report = validate(&theme);
@@ -1254,7 +1259,7 @@ mod tests {
     ///
     #[test]
     fn function_is_unaffected_by_output_portal_placement() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let plain = painted(
             SourcePaint::Function,
             CursorPlacement::Plain,
@@ -1283,7 +1288,13 @@ mod tests {
     ///
     #[test]
     fn cursor_and_region_placements_still_answer_the_output_portal_channel() {
-        let theme = okabe_ito();
+        // The Cursor's glyph colours are cleared, so each placement draws
+        // the glyph its channels compose.
+        let theme = Theme {
+            cursor_foreground: None,
+            region_cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
+        };
         let report = validate(&theme);
 
         for cursor in [
@@ -1321,7 +1332,13 @@ mod tests {
     ///
     #[test]
     fn cursor_and_region_placements_still_answer_the_input_portal_channel() {
-        let theme = okabe_ito();
+        // The Cursor's glyph colours are cleared, so each placement draws
+        // the glyph its channels compose.
+        let theme = Theme {
+            cursor_foreground: None,
+            region_cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
+        };
         let report = validate(&theme);
 
         for cursor in CursorPlacement::ALL {
@@ -1342,15 +1359,16 @@ mod tests {
 
     ///
     /// Every Source role, at every Cursor placement, under Input Portal alone
-    /// and under both Portal roles, is measured and clears the floor in both
-    /// built-ins. A Cell playing both roles measures exactly what an Output
+    /// and under both Portal roles, is measured and clears the floor in every
+    /// built-in. A Cell playing both roles measures exactly what an Output
     /// Portal Cell does, because Output Portal wins.
     ///
     #[test]
-    fn every_source_role_under_input_portal_clears_the_floor_in_both_built_ins() {
+    fn every_source_role_under_input_portal_clears_the_floor_in_every_built_in() {
         let both_roles = OUTPUT.with(PortalRole::Input);
-        for theme in [okabe_ito(), orcvs_light()] {
-            let report = validate(&theme);
+        let registry = ThemeRegistry::built_in();
+        for theme in built_ins(&registry) {
+            let report = validate(theme);
             for &role in &Role::SOURCE_ROLES {
                 for cursor in CursorPlacement::ALL {
                     let input = find(
@@ -1407,7 +1425,7 @@ mod tests {
     ///
     #[test]
     fn region_fallback_only_reaches_a_fully_transparent_role_background() {
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let report = validate(&theme);
 
         let nonzero_alpha_role_plain = find(
@@ -1462,18 +1480,16 @@ mod tests {
     /// The single-Cell Cursor always replaces the role background outright
     /// — `style::CellColours::colours`'s own "The Cursor's own
     /// fill wins outright on its Cell" — regardless of whether that role
-    /// background was opaque. Every one of Okabe–Ito's own role backgrounds
-    /// is a translucent 10% tint, so this fixture sets
-    /// `source_number_background` explicitly opaque to exercise the claim the
-    /// test's name makes, rather than relying on a shipped Theme to happen to
-    /// have one.
+    /// background was opaque. This fixture sets `source_number_background`
+    /// explicitly opaque to exercise the claim the test's name makes, rather
+    /// than relying on a shipped Theme to happen to have one.
     ///
     #[test]
     fn cursors_own_fill_replaces_even_an_opaque_role_background() {
         let theme = Theme {
             source_number_background: Color32::from_rgb(14, 29, 37),
             cursor_background: Some(Color32::from_rgb(1, 2, 3)),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let report = validate(&theme);
@@ -1544,53 +1560,21 @@ mod tests {
     }
 
     ///
-    /// Okabe–Ito's accepted-exception list is empty for the stronger of the
-    /// two possible reasons: nothing fails. This pins that premise separately
-    /// from `shipped_theme_gate`, which would also pass on a list full of
-    /// exceptions.
+    /// Every built-in's accepted-exception list is empty. This pins that
+    /// premise separately from `shipped_theme_gate`, which would also pass on
+    /// a list full of exceptions: a built-in clears the floor unaided, a
+    /// Comment below it excepted, which is not held to the floor.
     ///
     #[test]
-    fn okabe_ito_has_nothing_to_except() {
-        let report = validate(&okabe_ito());
-
-        assert!(
-            super::accepted_failures(&OKABE_ITO_IDENTITY).is_empty(),
-            "Okabe-Ito ships with no accepted contrast exception"
-        );
-        let below_floor: Vec<_> = report
-            .results
-            .iter()
-            .filter(|result| !result.passes())
-            .collect();
-        assert!(
-            below_floor.is_empty(),
-            "Okabe-Ito must clear the floor unaided: {below_floor:?}"
-        );
-    }
-
-    ///
-    /// Orcvs Light's accepted-exception list is empty for the stronger of
-    /// the two possible reasons: nothing fails. This pins that premise
-    /// separately from `shipped_theme_gate`, which would also pass on a list full of
-    /// exceptions.
-    ///
-    #[test]
-    fn orcvs_light_has_nothing_to_except() {
-        let report = validate(&orcvs_light());
-
-        assert!(
-            super::accepted_failures(&ORCVS_LIGHT_IDENTITY).is_empty(),
-            "Orcvs Light ships with no accepted contrast exception"
-        );
-        let below_floor: Vec<_> = report
-            .results
-            .iter()
-            .filter(|result| !result.passes())
-            .collect();
-        assert!(
-            below_floor.is_empty(),
-            "Orcvs Light must clear the floor unaided: {below_floor:?}"
-        );
+    fn no_built_in_has_an_accepted_exception() {
+        let registry = ThemeRegistry::built_in();
+        for theme in built_ins(&registry) {
+            assert!(
+                super::accepted_failures(&theme.identity).is_empty(),
+                "{} ships with an accepted contrast exception",
+                theme.identity
+            );
+        }
     }
 
     ///
@@ -1600,11 +1584,11 @@ mod tests {
     ///
     #[test]
     fn a_comment_below_the_floor_is_reported_and_does_not_fail() {
-        let background = okabe_ito().grid_background;
+        let background = default_theme(Appearance::Dark).grid_background;
         let theme = Theme {
             source_comment: background,
             source_ordinary: background,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let report = validate(&theme);
         let plain = State::SourceGrid {
@@ -1629,8 +1613,8 @@ mod tests {
     ///
     #[test]
     fn shipped_theme_gate() {
-        let registry = crate::theme_registry::ThemeRegistry::built_in();
-        let shipped = crate::theme_registry::tests_support::built_ins(&registry);
+        let registry = ThemeRegistry::built_in();
+        let shipped = built_ins(&registry);
 
         for theme in shipped {
             let report = validate(theme);

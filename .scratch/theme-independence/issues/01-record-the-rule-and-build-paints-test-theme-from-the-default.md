@@ -4,9 +4,15 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A new ADR in `docs/adr/` records the rule and links ADR 0053. `docs/adr/README.md` lists it.
-- [ ] Paint's `test_theme` is built from `ThemeRegistry::built_in().fallback(Appearance::Dark)` and names no built-in.
-- [ ] Every test that uses `test_theme` asserts through the Theme's fields, not hex literals, and passes.
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+- [x] A new ADR in `docs/adr/` records the rule and links ADR 0053. `docs/adr/README.md` lists it.
+- [x] Paint's `test_theme` is built from `ThemeRegistry::built_in().fallback(Appearance::Dark)` and names no built-in.
+- [x] Every test that uses `test_theme` asserts through the Theme's fields, not hex literals, and passes.
+- [x] `cargo fmt --all -- --check`, `cargo clippy --package console --all-targets --locked -- -D warnings` and `cargo nextest run --package console --locked` pass.
+
+## Comments
+
+The ADR is `docs/adr/0082-nothing-depends-on-a-particular-theme.md`. `docs/adr/README.md` holds the numbering rules and lists no ADRs, so there was nothing to add there.
+
+`theme_registry::tests_support::default_theme(appearance)` clones `ThemeRegistry::built_in().fallback(appearance)`, and every test fixture starts from it. Paint's `test_theme` is that call for dark with `cursor.background` set. The other paint tests moved at the same time, because they compare against `test_theme`'s output.

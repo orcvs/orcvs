@@ -8,7 +8,7 @@
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
-use console::{source_shapes::draw_picture, theme::okabe_ito};
+use console::source_shapes::{dark_default_theme, draw_picture};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
@@ -71,7 +71,7 @@ fn populated_app() -> Orcvs<()> {
 
 fn overview_picture(c: &mut Criterion) {
     let mut group = c.benchmark_group("paint_overview");
-    let theme = okabe_ito();
+    let theme = dark_default_theme();
     let frame = populated_app().render_frame();
     let grid = frame.grid();
     let mut picture = egui::ColorImage::default();

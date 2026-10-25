@@ -4,8 +4,8 @@ name: Release captures
 # against the visual checklist in `.scratch/restyle-egui-console/`. Given a
 # commit, the native job renders the console through the kittest harness the
 # interaction tests use, with Mesa's lavapipe as the GPU, at wide and tall
-# viewports in Okabe–Ito and Orcvs Light, and uploads the four images and their
-# manifest as one artifact.
+# viewports in each appearance's default Theme, and uploads the four images and
+# their manifest as one artifact.
 #
 # `workflow_dispatch` is the whole trigger. The capture builds the wgpu tree and
 # a software GPU into the run, and a `pull_request:`, `push:` or `schedule:`

@@ -453,7 +453,7 @@ impl Paint {
     }
 
     ///
-    /// [`Self::derive_with_theme`] at the Okabe–Ito built-in, with an
+    /// [`Self::derive_with_theme`] at the dark default Theme, with an
     /// otherwise-unset Cursor fill overridden to a visible colour so a test
     /// asking about Cursor precedence need not build its own Theme to see
     /// one — `.scratch/theming/schema.md`'s optional-fill default leaves
@@ -752,14 +752,14 @@ fn coalesce(
 }
 
 ///
-/// [`Paint::derive`]'s own Theme: the Okabe–Ito built-in with its otherwise
-/// unset `cursor.background` given a visible colour, so a test that asks
-/// about Cursor precedence sees one without building a Theme of its own. Not
-/// a shipped seam — see [`Paint::derive`]'s own doc.
+/// [`Paint::derive`]'s own Theme: the dark default with its otherwise unset
+/// `cursor.background` given a visible colour, so a test that asks about
+/// Cursor precedence sees one without building a Theme of its own. Not a
+/// shipped seam — see [`Paint::derive`]'s own doc.
 ///
 #[cfg(test)]
 fn test_theme() -> Theme {
-    let base = crate::theme::okabe_ito();
+    let base = crate::theme_registry::tests_support::default_theme(crate::theme::Appearance::Dark);
     Theme {
         cursor_background: Some(base.selection_background),
         ..base
@@ -775,7 +775,8 @@ mod tests {
     use crate::grid_viewport::VisiblePositions;
     use crate::marks::{sector_left, sector_top};
     use crate::style::{CellColours, CursorPlacement};
-    use crate::theme::{GridWidth, okabe_ito};
+    use crate::theme::{Appearance, GridWidth};
+    use crate::theme_registry::tests_support::{dark, default_theme, id};
     use egui::{Color32, Stroke};
     use orcvs::source::{OperandState, SourcePaint, Token};
     use orcvs::{
@@ -807,7 +808,7 @@ mod tests {
     /// stores a background per role, so what a test asks is which stored value a
     /// Cell answers, not a mix this layer would have to reimplement to
     /// check. Every foreground `CellColours::colours` can answer
-    /// is distinct in the Okabe–Ito built-in.
+    /// is distinct in the dark default.
     fn tinted(theme: &Theme, colour: Color32) -> Color32 {
         for (foreground, background) in [
             (theme.source_function, theme.source_function_background),
@@ -843,7 +844,7 @@ mod tests {
     /// `CursorPlacement::Plain`, reading its claim, its own Portal roles and
     /// its occupancy straight from `cell` — the same three per-Cell inputs
     /// `Paint::derive_with_theme` reads, so a test comparing against this
-    /// needs no `okabe_ito()`-only shim.
+    /// needs no `default_theme(Appearance::Dark)`-only shim.
     ///
     fn expected_visuals(
         cell: &orcvs::render_frame::RenderCell,
@@ -874,8 +875,13 @@ mod tests {
         orcvs.select(orcvs.grid().position(4, 1).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
-        let paint = whole(&frame);
-        let theme = okabe_ito();
+        // The expected answer is each Cell's own visuals, so the Cursor's
+        // glyph colour is cleared: it would recolour the selected Cell.
+        let theme = Theme {
+            cursor_foreground: None,
+            ..default_theme(Appearance::Dark)
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let mut borders = std::collections::BTreeSet::new();
         let mut foregrounds = std::collections::BTreeSet::new();
         for cell in frame.cells() {
@@ -947,7 +953,7 @@ mod tests {
                 cursor_background: cursor,
                 region_background: fill,
                 region_cursor_background: region_cursor,
-                ..okabe_ito()
+                ..default_theme(Appearance::Dark)
             };
             Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
         };
@@ -998,7 +1004,12 @@ mod tests {
         write_row(&mut orcvs, 1, ".+");
         let grid = orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the grid");
-        let theme = okabe_ito();
+        // The Output Portal is given a visible border, so the Cursor's Cell
+        // has a fact of its own to keep.
+        let theme = Theme {
+            output_portal_border_width: GridWidth::from_points(1.0).expect("within 0..=1"),
+            ..default_theme(Appearance::Dark)
+        };
         let painted = |orcvs: &Orcvs| {
             Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
         };
@@ -1065,7 +1076,7 @@ mod tests {
             cursor_background: None,
             cell_background: Color32::TRANSPARENT,
             region_background: Color32::from_rgb(7, 8, 9),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
         let paint = Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme);
@@ -1086,7 +1097,7 @@ mod tests {
         let theme = Theme {
             cursor_border_width: zero,
             region_border_width: zero,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let painted = |orcvs: &Orcvs| {
             Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
@@ -1119,8 +1130,6 @@ mod tests {
     ///
     #[tokio::test]
     async fn an_explicit_transparent_region_cursor_fill_suppresses_the_cursor_fill_fallback() {
-        use crate::theme_registry::tests_support::{dark, id};
-
         let mut orcvs = running_orcvs(6, 4);
         let grid = orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the grid");
@@ -1142,7 +1151,13 @@ mod tests {
             }
             let document = crate::theme_document::decode("custom.toml", text.as_bytes())
                 .expect("a valid document");
-            let theme = crate::theme_document::resolve(&[okabe_ito()], &id("custom"), &document)
+            // The parent leaves the Region's Cursor unfilled, so omitting
+            // the key inherits an absent fill.
+            let parent = Theme {
+                region_cursor_background: None,
+                ..default_theme(Appearance::Dark)
+            };
+            let theme = crate::theme_document::resolve(&[parent], &id("custom"), &document)
                 .expect("resolves");
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
             assert!(outline_spans(&paint));
@@ -1189,7 +1204,12 @@ mod tests {
         orcvs.extend(at(5, 0));
 
         let frame = orcvs.render_frame();
-        let theme = okabe_ito();
+        // The Region's Cursor is left unfilled, so its Cell has no fill of
+        // its own Theme value to answer.
+        let theme = Theme {
+            region_cursor_background: None,
+            ..default_theme(Appearance::Dark)
+        };
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
         assert!(outline_spans(&paint));
@@ -1245,9 +1265,12 @@ mod tests {
         let grid = orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         let base = Color32::from_rgba_unmultiplied(10, 20, 30, 255);
+        // The Region's Cursor is left unfilled, so its Cell shows the base
+        // alone.
         let theme = Theme {
             cell_background: base,
-            ..okabe_ito()
+            region_cursor_background: None,
+            ..default_theme(Appearance::Dark)
         };
         let composed_region_fill = base.blend(theme.region_background);
         assert_ne!(
@@ -1320,7 +1343,7 @@ mod tests {
                 cell_background: base,
                 cursor_background: Some(cursor_fill),
                 source_function_background: role_fill,
-                ..okabe_ito()
+                ..default_theme(Appearance::Dark)
             };
             let frame = orcvs.render_frame();
             let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
@@ -1372,10 +1395,10 @@ mod tests {
         let paint = whole(&frame);
         let spacing = frame.sector_seam_spacing().cells();
         let cursor = frame.cursor();
-        // `whole` derives against `test_theme`, itself the Okabe–Ito built-in
-        // apart from its Cursor fill, so its `sector_seam` is every seam's
-        // colour.
-        let base = okabe_ito().sector_seam;
+        // `whole` derives against `test_theme`, so its `sector_seam` is every
+        // seam's colour.
+        let theme = test_theme();
+        let base = theme.sector_seam;
         let mut seams = 0;
 
         for cell in frame.cells() {
@@ -1408,10 +1431,7 @@ mod tests {
 
         let outline = EdgeLine {
             rank: EdgeRank::Selection,
-            stroke: Stroke::new(
-                okabe_ito().cursor_border_width.points(),
-                okabe_ito().cursor_border,
-            ),
+            stroke: Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
             seamed: false,
         };
         let edges = paint.edges();
@@ -1452,7 +1472,7 @@ mod tests {
 
         let left = sector_left(at(8, 8), spacing);
         let top = sector_top(at(8, 8), spacing);
-        let base = okabe_ito().sector_seam;
+        let base = test_theme().sector_seam;
         assert!(left && top, "the Cursor is off a sector corner");
         assert_eq!(painted.sector_left, left.then_some(base));
         assert_eq!(painted.sector_top, top.then_some(base));
@@ -1521,7 +1541,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         // The Addition's two Number operands, columns 2-5 of row 0.
         for x in 2..6 {
@@ -1593,7 +1613,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let position = orcvs.grid().position(4, 0).expect("inside the grid");
         let cell = frame.at(position);
 
@@ -1693,7 +1713,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         for x in [0, 1, 3, 4, 6] {
             let position = orcvs.grid().position(x, 0).expect("inside the grid");
@@ -1757,7 +1777,7 @@ mod tests {
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
 
         for (row, operands) in [(0, "**01"), (2, "||02")] {
             let mut tints = Vec::new();
@@ -1834,8 +1854,13 @@ mod tests {
         orcvs.select(cursor);
 
         let frame = orcvs.render_frame();
-        let paint = whole(&frame);
-        let theme = okabe_ito();
+        // The Cursor's glyph colour is cleared, so its Cell's glyph is the
+        // one its operand draws.
+        let theme = Theme {
+            cursor_foreground: None,
+            ..test_theme()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let selected = paint.at(cursor);
         let unselected = paint.at(orcvs.grid().position(3, 0).expect("inside the grid"));
 
@@ -1880,9 +1905,13 @@ mod tests {
         }
         let frame = orcvs.render_frame();
         let visible = Color32::from_rgb(200, 30, 30);
+        // The Diagnostic border is given a width, and the Number border
+        // none, so the Valid operand beside it shows no border of its own.
         let theme = Theme {
             diagnostic_border: visible,
-            ..okabe_ito()
+            diagnostic_border_width: GridWidth::from_points(1.0).expect("within 0..=1"),
+            source_number_border_width: GridWidth::from_points(0.0).expect("within 0..=1"),
+            ..default_theme(Appearance::Dark)
         };
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
@@ -1919,7 +1948,10 @@ mod tests {
         let theme = Theme {
             source_function_border: visible,
             source_function_border_width: GridWidth::from_points(0.25).expect("within 0..=1"),
-            ..okabe_ito()
+            // The Number border is cleared, so the operands show the Grid
+            // line alone.
+            source_number_border_width: GridWidth::from_points(0.0).expect("within 0..=1"),
+            ..default_theme(Appearance::Dark)
         };
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let at = |x| paint.at(orcvs.grid().position(x, 0).expect("inside the grid"));
@@ -1954,7 +1986,7 @@ mod tests {
         let frame = orcvs.render_frame();
         let theme = Theme {
             source_function_border: Color32::from_rgb(30, 200, 30),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
@@ -1981,7 +2013,7 @@ mod tests {
             source_bang_border_width: width,
             source_function_border: Color32::from_rgb(68, 68, 68),
             source_function_border_width: width,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let bang = paint
@@ -2017,12 +2049,12 @@ mod tests {
             grid_border_width: width(0.25),
             source_function_border: Color32::TRANSPARENT,
             source_function_border_width: width(1.0),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let hidden = Theme {
             source_function_border: Color32::from_rgb(30, 200, 30),
             source_function_border_width: width(0.0),
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let function = orcvs.grid().position(0, 0).expect("inside the grid");
 
@@ -2049,7 +2081,7 @@ mod tests {
         let visible = Color32::from_rgb(30, 30, 200);
         let theme = Theme {
             source_comment_border: visible,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let position = |x| orcvs.grid().position(x, 0).expect("inside the grid");
@@ -2082,23 +2114,15 @@ mod tests {
     ///
     #[tokio::test]
     async fn a_theme_document_paints_the_function_border_it_sets() {
-        let document = crate::theme_document::decode(
-            "framed.toml",
-            br##"
-format = "orcvs-theme"
-version = 1
-name = "Framed"
-inherits = "grayscale-dark"
-
-[style]
-"source.function.border" = "#80808080"
-"source.function.border.width" = 1
-"##,
-        )
-        .expect("a valid Theme document");
+        let text = format!(
+            "{}[style]\n\"source.function.border\" = \"#80808080\"\n\"source.function.border.width\" = 1\n",
+            dark("Framed")
+        );
+        let document = crate::theme_document::decode("framed.toml", text.as_bytes())
+            .expect("a valid Theme document");
         let theme = crate::theme_document::resolve(
-            &[crate::theme::grayscale_dark()],
-            &crate::theme::ThemeIdentity::from_stem("framed").expect("a valid stem"),
+            &[default_theme(Appearance::Dark)],
+            &id("framed"),
             &document,
         )
         .expect("the document resolves over its parent");
@@ -2190,22 +2214,15 @@ inherits = "grayscale-dark"
     ///
     #[tokio::test]
     async fn a_theme_document_paints_the_cursor_foreground_it_sets() {
-        let document = crate::theme_document::decode(
-            "glyph.toml",
-            br##"
-format = "orcvs-theme"
-version = 1
-name = "Glyph"
-inherits = "grayscale-dark"
-
-[style]
-"cursor.foreground" = "#102030"
-"##,
-        )
-        .expect("a valid Theme document");
+        let text = format!(
+            "{}[style]\n\"cursor.foreground\" = \"#102030\"\n",
+            dark("Glyph")
+        );
+        let document = crate::theme_document::decode("glyph.toml", text.as_bytes())
+            .expect("a valid Theme document");
         let theme = crate::theme_document::resolve(
-            &[crate::theme::grayscale_dark()],
-            &crate::theme::ThemeIdentity::from_stem("glyph").expect("a valid stem"),
+            &[default_theme(Appearance::Dark)],
+            &id("glyph"),
             &document,
         )
         .expect("the document resolves over its parent");
@@ -2288,22 +2305,15 @@ inherits = "grayscale-dark"
     ///
     #[tokio::test]
     async fn a_theme_document_paints_the_region_cursor_foreground_it_sets() {
-        let document = crate::theme_document::decode(
-            "glyph.toml",
-            br##"
-format = "orcvs-theme"
-version = 1
-name = "Glyph"
-inherits = "grayscale-dark"
-
-[style]
-"region.cursor.foreground" = "#102030"
-"##,
-        )
-        .expect("a valid Theme document");
+        let text = format!(
+            "{}[style]\n\"region.cursor.foreground\" = \"#102030\"\n",
+            dark("Glyph")
+        );
+        let document = crate::theme_document::decode("glyph.toml", text.as_bytes())
+            .expect("a valid Theme document");
         let theme = crate::theme_document::resolve(
-            &[crate::theme::grayscale_dark()],
-            &crate::theme::ThemeIdentity::from_stem("glyph").expect("a valid stem"),
+            &[default_theme(Appearance::Dark)],
+            &id("glyph"),
             &document,
         )
         .expect("the document resolves over its parent");
@@ -2368,8 +2378,13 @@ inherits = "grayscale-dark"
     async fn an_operand_cell_of_every_token_a_source_can_claim_is_tinted_with_its_own_colour() {
         let orcvs = operand_token_sampler();
         let frame = orcvs.render_frame();
-        let paint = whole(&frame);
-        let theme = okabe_ito();
+        // The default fills Number and Note alike, so Note is given a fill of
+        // its own for the three tints to be told apart.
+        let theme = Theme {
+            source_note_background: Color32::from_rgb(10, 20, 30),
+            ..test_theme()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let grid = orcvs.grid();
         let mut tints = std::collections::BTreeSet::new();
 
@@ -2511,7 +2526,7 @@ inherits = "grayscale-dark"
     /// Cell of the Grid rather than over the claimed ones, so a role that
     /// acquired a fill of its own would fail here.
     ///
-    /// The same Source under the Okabe–Ito built-in is the control: each of
+    /// The same Source under the dark default is the control: each of
     /// the 14 Cells an Expression claims does carry a background there, so
     /// `None` answering every Cell under the transparent Theme is the Theme
     /// doing it and not the fixture having nothing to tint. `None` rather
@@ -2534,10 +2549,11 @@ inherits = "grayscale-dark"
             source_number_background: Color32::TRANSPARENT,
             source_note_background: Color32::TRANSPARENT,
             output_portal_background: Color32::TRANSPARENT,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
 
-        let default_theme = Paint::derive_with_theme(FramePaint::whole(&frame), &okabe_ito());
+        let control =
+            Paint::derive_with_theme(FramePaint::whole(&frame), &default_theme(Appearance::Dark));
         let claimed: Vec<_> = frame
             .cells()
             .iter()
@@ -2551,8 +2567,8 @@ inherits = "grayscale-dark"
         );
         for position in &claimed {
             assert!(
-                default_theme.at(*position).background.is_some(),
-                "{position:?} had nothing to tint under the Okabe–Ito built-in"
+                control.at(*position).background.is_some(),
+                "{position:?} had nothing to tint under the dark default"
             );
         }
 
@@ -2576,9 +2592,9 @@ inherits = "grayscale-dark"
     /// east of it are claimed by nothing at all. Each keeps its own glyph
     /// colour and answers no background.
     ///
-    /// Read under the Okabe–Ito built-in, whose Comment/Bang/Ordinary role
-    /// backgrounds are transparent by definition, so a missing exclusion
-    /// cannot hide behind an already-transparent Theme. None of the three
+    /// Read under the dark default with its Bang background cleared, so all
+    /// three roles' own backgrounds are transparent and any tint is one
+    /// borrowed from another claim. None of the three
     /// roles is inside a Reservation — a Comment reserves nothing and a
     /// standalone Bang is not a root Function — which the test asserts rather
     /// than assumes, since Output Portal paint would otherwise supply the tint
@@ -2592,8 +2608,11 @@ inherits = "grayscale-dark"
         orcvs.select(orcvs.grid().position(7, 3).expect("inside the grid"));
 
         let frame = orcvs.render_frame();
-        let paint = whole(&frame);
-        let theme = okabe_ito();
+        let theme = Theme {
+            source_bang_background: Color32::TRANSPARENT,
+            ..test_theme()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let grid = orcvs.grid();
 
         for (row, columns, expected, foreground) in [
@@ -2647,7 +2666,7 @@ inherits = "grayscale-dark"
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         let function_tint = tinted(&theme, theme.source_function);
         let selected = paint.at(cursor);
         let unselected = paint.at(orcvs.grid().position(1, 0).expect("inside the grid"));
@@ -2678,7 +2697,9 @@ inherits = "grayscale-dark"
     /// from one a Tick wrote.
     ///
     mod output_portal_paint {
-        use super::{PortalRole, okabe_ito, running_orcvs, tinted, whole, write_row};
+        use super::{
+            Appearance, PortalRole, default_theme, running_orcvs, tinted, whole, write_row,
+        };
 
         ///
         /// A scalar answer south of a Function draws in the Output Portal
@@ -2696,7 +2717,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
@@ -2746,7 +2767,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
@@ -2778,7 +2799,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2792,7 +2813,11 @@ inherits = "grayscale-dark"
                 );
                 let portal_painted = paint.at(portal_position);
                 assert_eq!(portal_painted.foreground, theme.source_bang, "column {x}");
-                assert_eq!(portal_painted.background, None, "column {x}");
+                assert_eq!(
+                    portal_painted.background,
+                    Some(theme.source_bang_background),
+                    "column {x}"
+                );
 
                 let ordinary_position = grid.position(x, 2).expect("inside the grid");
                 assert!(
@@ -2804,7 +2829,11 @@ inherits = "grayscale-dark"
                 );
                 let ordinary_painted = paint.at(ordinary_position);
                 assert_eq!(ordinary_painted.foreground, theme.source_bang, "column {x}");
-                assert_eq!(ordinary_painted.background, None, "column {x}");
+                assert_eq!(
+                    ordinary_painted.background,
+                    Some(theme.source_bang_background),
+                    "column {x}"
+                );
             }
         }
 
@@ -2822,7 +2851,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
@@ -2867,7 +2896,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let grid = orcvs.grid();
 
             for x in 0..8 {
@@ -2898,7 +2927,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let grid = orcvs.grid();
 
             for x in 0..4 {
@@ -2934,7 +2963,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let grid = orcvs.grid();
 
             for x in 2..6 {
@@ -2976,7 +3005,7 @@ inherits = "grayscale-dark"
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
-            let theme = okabe_ito();
+            let theme = default_theme(Appearance::Dark);
             let function_tinted = tinted(&theme, theme.source_function);
             let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
@@ -3060,7 +3089,7 @@ inherits = "grayscale-dark"
                 .map(|&background| CellPaint {
                     background,
                     border: None,
-                    foreground: okabe_ito().source_ordinary,
+                    foreground: default_theme(Appearance::Dark).source_ordinary,
                     sector_left: None,
                     sector_top: None,
                     character: ' ',
@@ -3418,7 +3447,7 @@ inherits = "grayscale-dark"
         }
         let theme = Theme {
             grid_border_width: zero,
-            ..okabe_ito()
+            ..default_theme(Appearance::Dark)
         };
         assert_eq!(EdgeLine::grid(&theme), None);
     }
@@ -3481,7 +3510,7 @@ inherits = "grayscale-dark"
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
-        let theme = okabe_ito();
+        let theme = default_theme(Appearance::Dark);
         // The real bound claims this fixture already carries: `.+`'s own
         // Function claim (columns 0-1) and Multiply's first Number operand
         // (columns 4-5), rather than a claim built by hand — both are bound,
@@ -3527,8 +3556,8 @@ inherits = "grayscale-dark"
 
     #[test]
     fn a_run_ends_where_the_next_cell_wants_a_different_colour() {
-        let first = okabe_ito().selection_background;
-        let second = okabe_ito().grid_background;
+        let first = default_theme(Appearance::Dark).selection_background;
+        let second = default_theme(Appearance::Dark).grid_background;
         let paint = paint_of(&[&[Some(first), Some(first), Some(second), Some(second)]]);
 
         assert_eq!(
@@ -3539,7 +3568,7 @@ inherits = "grayscale-dark"
 
     #[test]
     fn a_run_ends_where_the_next_cell_wants_no_background() {
-        let colour = okabe_ito().selection_background;
+        let colour = default_theme(Appearance::Dark).selection_background;
         let paint = paint_of(&[&[Some(colour), Some(colour), None, Some(colour)]]);
 
         assert_eq!(
@@ -3555,7 +3584,7 @@ inherits = "grayscale-dark"
     ///
     #[test]
     fn a_run_ends_at_the_end_of_its_row() {
-        let colour = okabe_ito().selection_background;
+        let colour = default_theme(Appearance::Dark).selection_background;
         let paint = paint_of(&[&[Some(colour), Some(colour)], &[Some(colour), Some(colour)]]);
 
         assert_eq!(
@@ -3570,7 +3599,7 @@ inherits = "grayscale-dark"
     ///
     #[test]
     fn one_cell_wanting_a_background_alone_is_a_run_of_one() {
-        let colour = okabe_ito().selection_background;
+        let colour = default_theme(Appearance::Dark).selection_background;
         let paint = paint_of(&[&[None, Some(colour), None]]);
 
         assert_eq!(paint.background_runs(), vec![run(colour, 0, 1..2)]);
