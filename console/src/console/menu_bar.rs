@@ -40,7 +40,7 @@ fn trailing_checkbox(
     label: &str,
     #[cfg_attr(target_arch = "wasm32", expect(unused_variables))] shortcut: egui::KeyboardShortcut,
 ) -> egui::Response {
-    let box_id = egui::Id::new("orcvs-trailing-checkbox");
+    let box_id = egui::Id::new(("orcvs-trailing-checkbox", label));
     let box_size = egui::Vec2::splat(ui.spacing().icon_width);
     let item = egui::Button::new(label);
     #[cfg(not(target_arch = "wasm32"))]
@@ -59,7 +59,9 @@ fn trailing_checkbox(
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, *checked, label)
     });
     if let Some(rect) = box_rect {
-        // Painted as `egui::Checkbox` paints its box and mark.
+        // Painted as `egui::Checkbox` paints its box and mark, which lays its
+        // box out before its label and so cannot trail one
+        // (`tests::the_trailing_box_paints_as_egui_paints_a_checkbox`).
         let style = ui
             .style()
             .checkbox_style(&Default::default(), response.widget_state());
@@ -311,5 +313,75 @@ impl Console {
             });
         });
         choice
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trailing_checkbox;
+
+    ///
+    /// The box and mark `add` paints, the mark placed relative to the box's
+    /// centre, so two boxes at different places compare equal.
+    ///
+    fn box_shapes(ctx: &egui::Context, add: impl FnMut(&mut egui::Ui)) -> Vec<String> {
+        let mut output = ctx.run_ui(egui::RawInput::default(), add);
+        // The font atlas upload has no renderer here.
+        output.textures_delta.clear();
+        let style = ctx
+            .global_style()
+            .checkbox_style(&Default::default(), Default::default());
+        let frame = style.checkbox_frame;
+        let mut shapes = Vec::new();
+        let mut centre = None;
+        for clipped in output.shapes {
+            match clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill == frame.fill && rect.stroke == frame.stroke =>
+                {
+                    // A button's frame shares the box's colours and paints
+                    // first, so the last such rect is the box.
+                    shapes.clear();
+                    centre = Some(rect.rect.center());
+                    shapes.push(format!(
+                        "box {:?} {:?}",
+                        rect.rect.size(),
+                        rect.corner_radius
+                    ));
+                }
+                egui::Shape::Path(path) if path.stroke.width == style.check_stroke.width => {
+                    let centre = centre.expect("the box paints before its mark");
+                    let points: Vec<_> = path.points.iter().map(|point| *point - centre).collect();
+                    shapes.push(format!("mark {points:?} {:?}", path.stroke));
+                }
+                _ => {}
+            }
+        }
+        shapes
+    }
+
+    ///
+    /// The trailing box paints exactly the box and mark `egui::Checkbox`
+    /// paints, so an egui upgrade that changes a checkbox's look fails here
+    /// rather than leaving View → Diagnostics unlike every other checkbox.
+    ///
+    #[test]
+    fn the_trailing_box_paints_as_egui_paints_a_checkbox() {
+        let ctx = egui::Context::default();
+        for checked in [false, true] {
+            let egui_box = box_shapes(&ctx, |ui| {
+                ui.add(egui::Checkbox::without_text(&mut checked.clone()));
+            });
+            let trailing = box_shapes(&ctx, |ui| {
+                trailing_checkbox(
+                    ui,
+                    &mut checked.clone(),
+                    "Diagnostics",
+                    super::super::input::DIAGNOSTICS_SHORTCUT,
+                );
+            });
+            assert!(!egui_box.is_empty(), "egui painted no box");
+            assert_eq!(trailing, egui_box, "checked: {checked}");
+        }
     }
 }

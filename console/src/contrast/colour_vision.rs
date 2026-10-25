@@ -193,12 +193,15 @@ fn distinguish(theme: &Theme) -> ConfusionReport {
     // colour). `painted` answers the same effective pair `validate` measures,
     // and `measure`'s own `background.blend(foreground)` is what a viewer
     // sees, so this compares displayed colours rather than raw Theme values.
+    // Only the placements many Cells share are compared: the Cursor sits on
+    // one Cell, so two channels are never both seen at a Cursor placement,
+    // and `cursor.foreground` paints every channel there in one colour.
     let mut displayed: Vec<(GlyphChannel, CursorPlacement, Color32)> = Vec::new();
     for &role in &Role::SOURCE_ROLES {
         let fact = role
             .source_paint_fact()
             .expect("Role::SOURCE_ROLES holds only roles with a Source Paint fact");
-        for placement in CursorPlacement::ALL {
+        for placement in [CursorPlacement::Plain, CursorPlacement::Region] {
             for portals in reachable_portal_sets(fact) {
                 let Some(channel) = role.glyph_channel(portals, theme) else {
                     continue;
@@ -857,7 +860,7 @@ mod tests {
     /// `console/src/theme.md`'s colour-vision table has to move with it.
     ///
     /// The grayscale built-ins are not gated here:
-    /// `the_grayscale_built_ins_look_alike_to_every_reader` says why.
+    /// `the_grayscale_built_ins_lose_no_pair_to_a_dichromacy` says why.
     ///
     #[test]
     fn shipped_theme_colour_vision_gate() {
@@ -892,37 +895,32 @@ mod tests {
     }
 
     ///
-    /// The grayscale built-ins paint every glyph channel in a neutral grey,
-    /// which no dichromacy moves, so a dichromat sees each pair exactly as
-    /// far apart as anyone else does. They tell roles apart by lightness and
-    /// fill rather than hue, and share a grey between some channels by
-    /// design, so [`CONFUSION_FLOOR`] is not theirs to clear: a reader who
-    /// needs every channel kept apart by colour selects `okabe-ito` or
-    /// `orcvs-light`. This pins the premise that exemption rests on.
+    /// The grayscale built-ins tell roles apart by lightness and fill, and
+    /// share a grey between some glyph channels by design, so
+    /// [`CONFUSION_FLOOR`] is not theirs to clear: a reader who needs every
+    /// channel kept apart by colour selects `okabe-ito` or `orcvs-light`.
+    /// What they must not do is lose a pair to a dichromacy: every pair below
+    /// the floor under a gated dichromacy is two neutral greys, which no
+    /// dichromacy moves, so a dichromat sees it exactly as anyone else does.
+    /// Only the Bang and Diagnostic carry a hue, and each of their pairs
+    /// clears the floor.
     ///
     #[test]
-    fn the_grayscale_built_ins_look_alike_to_every_reader() {
+    fn the_grayscale_built_ins_lose_no_pair_to_a_dichromacy() {
+        let neutral = |colour: Color32| colour.r() == colour.g() && colour.g() == colour.b();
         for theme in [grayscale_dark(), grayscale_light()] {
             let report = distinguish(&theme);
-            for result in &report.results {
-                for other in report
-                    .results
-                    .iter()
-                    .filter(|other| other.first == result.first && other.second == result.second)
-                {
-                    assert!(
-                        (result.distance - other.distance).abs() < 0.5,
-                        "{}: {} against {} measures {:.2} under {} but {:.2} under {}",
-                        theme.identity,
-                        result.first,
-                        result.second,
-                        result.distance,
-                        result.vision,
-                        other.distance,
-                        other.vision
-                    );
-                }
-            }
+            let lost: Vec<_> = report
+                .results
+                .iter()
+                .filter(|result| result.vision.gated() && !result.passes())
+                .filter(|result| !neutral(result.first_colour) || !neutral(result.second_colour))
+                .collect();
+            assert!(
+                lost.is_empty(),
+                "{}'s hued glyph channels a dichromacy confuses: {lost:?}",
+                theme.identity
+            );
         }
     }
 

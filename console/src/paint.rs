@@ -388,14 +388,20 @@ impl Paint {
                 );
 
                 // The Cursor's own Cell inside a spanning Region keeps its
-                // fact's border, ranked over every other fact.
-                let border = if placement == CursorPlacement::RegionCursor {
-                    visuals.border.map(|line| EdgeLine {
-                        rank: EdgeRank::RegionCursor,
-                        ..line
-                    })
-                } else {
-                    visuals.border
+                // Diagnostic or Portal border, ranked over every other fact.
+                // A role border keeps its own rank, so it never hides a
+                // neighbour's Diagnostic or Portal frame.
+                let border = match visuals.border {
+                    Some(line)
+                        if placement == CursorPlacement::RegionCursor
+                            && line.rank >= EdgeRank::Diagnostic =>
+                    {
+                        Some(EdgeLine {
+                            rank: EdgeRank::RegionCursor,
+                            ..line
+                        })
+                    }
+                    border => border,
                 };
                 cells.push(CellPaint {
                     background: visuals.background,
@@ -1930,6 +1936,32 @@ mod tests {
             );
         }
         assert_eq!(at(2).border, None, "an operand took the Function border");
+    }
+
+    ///
+    /// The Cursor's own Cell inside a spanning Region keeps a role border at
+    /// its role's rank, so it never outranks a neighbour's Diagnostic or
+    /// Portal frame.
+    ///
+    #[tokio::test]
+    async fn the_region_cursor_keeps_a_role_border_at_its_role_rank() {
+        let mut orcvs = running_orcvs(6, 4);
+        write_row(&mut orcvs, 1, ".+");
+        let grid = orcvs.grid();
+        let at = |x, y| grid.position(x, y).expect("inside the grid");
+        orcvs.select(at(3, 3));
+        orcvs.extend(at(0, 1));
+        let frame = orcvs.render_frame();
+        let theme = Theme {
+            source_function_border: Color32::from_rgb(30, 200, 30),
+            ..okabe_ito()
+        };
+        let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+
+        assert_eq!(
+            paint.at(at(0, 1)).border.map(|line| line.rank),
+            Some(EdgeRank::Role)
+        );
     }
 
     ///
