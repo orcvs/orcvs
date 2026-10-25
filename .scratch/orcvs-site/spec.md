@@ -1,6 +1,6 @@
 # An Orcvs site that teaches by running the console
 
-Status: needs-triage
+Status: ready-for-agent
 
 ## Problem Statement
 
@@ -29,7 +29,12 @@ The console gains one input for this: it reads the URL once at startup and can o
 example by name or a short Source carried in the fragment. When embedded, it skips the service
 worker and never touches the reader's saved Source.
 
-CI builds the console and the site together into one static output and deploys it. Nothing built is
+A built-in synth gives the console sound with no MIDI device: a MIDI destination, offered beside
+any Web MIDI ports, that plays notes through Web Audio. The embed selects it, so a lesson makes
+sound as Learn Orca's does.
+
+CI builds the console and the site together into one static output and deploys it to Cloudflare,
+as a Worker that serves static assets, with a preview for each pull request. Nothing built is
 committed.
 
 The research behind this spec is `docs/research/orcvs-site.md`. A second guide Toby supplied on
@@ -63,24 +68,30 @@ filter, the agent workflow and the acceptance criteria.
     a cramped canvas, so that the site works on small screens.
 13. As a reader whose browser fails to start the console, I want the lesson text to stay and a clear
     message where the console would be, so that a WASM failure never blanks the page.
-14. As a reader, I want search across lessons and reference, so that I can find a Function by name.
-15. As a reader, I want the site to say that the language is pre-release and that spellings may
+14. As a learner with no MIDI device, I want the console to make sound with a built-in synth, so
+    that an example I start is heard, not only seen.
+15. As a performer with MIDI devices, I want the built-in synth listed beside my ports and chosen
+    like any other destination, so that it never takes over my setup.
+16. As a reviewer, I want each pull request that changes the site to get its own preview URL, so
+    that I can try the change before it merges.
+17. As a reader, I want search across lessons and reference, so that I can find a Function by name.
+18. As a reader, I want the site to say that the language is pre-release and that spellings may
     change, so that I am not surprised when they do.
-16. As a reader, I want the site to look like the console, with its Grid, font and Theme colours,
+19. As a reader, I want the site to look like the console, with its Grid, font and Theme colours,
     so that what I read matches what I run.
-17. As a maintainer, I want the Function reference to come from the repo's checked docs, not a
+20. As a maintainer, I want the Function reference to come from the repo's checked docs, not a
     copy, so that the site cannot drift from the language.
-18. As a maintainer, I want every deploy to build the console and site from pinned tools in CI, so
+21. As a maintainer, I want every deploy to build the console and site from pinned tools in CI, so
     that the published console always matches `main`.
-19. As a maintainer, I want a deploy to replace the old console for returning readers, so that no
+22. As a maintainer, I want a deploy to replace the old console for returning readers, so that no
     one is stuck on a cached build.
-20. As a maintainer, I want site-only changes to run site checks without the full Rust compile, and
+23. As a maintainer, I want site-only changes to run site checks without the full Rust compile, and
     console changes to rebuild the embed, so that each change pays only for what it touches.
-21. As a maintainer, I want browser smoke tests of the composed site in CI, so that a broken embed
+24. As a maintainer, I want browser smoke tests of the composed site in CI, so that a broken embed
     fails a pull request.
-22. As an agent maintaining the site, I want a repository skill that names the site's commands,
+25. As an agent maintaining the site, I want a repository skill that names the site's commands,
     structure, embed contract and checks, so that I change the site the way the repo expects.
-23. As an agent maintaining the site, I want to look at the built site in a browser and take
+26. As an agent maintaining the site, I want to look at the built site in a browser and take
     screenshots, so that I check what I built rather than only its source.
 
 ## Implementation Decisions
@@ -124,9 +135,11 @@ filter, the agent workflow and the acceptance criteria.
   3. In `site/`, the Astro build with `base` set to `<base>`. It copies `public/play/` unchanged.
   4. A check that fails if `public/play/index.html` does not name `<base>/play/` as its base.
   5. Serve the output locally and run the smoke tests against it.
-  6. Upload and deploy.
+  6. Deploy with `wrangler deploy` (Hosting, below).
 
-  `<base>` is one workflow variable, so the two base paths cannot disagree. The existing
+  The site is served from the root of its domain, so `<base>` is empty and the console is at
+  `/play/`. `<base>` is still one workflow variable, so the two base paths cannot disagree if that
+  changes. The existing
   feature-on and feature-off WASM builds in `check_wasm` stay as they are.
 - **CI paths.** Today a pull request whose diff is only Markdown skips compiling (`test.yml`,
   `changes` job). Site files get their own path filter and a site job that runs the Astro build and
@@ -144,13 +157,24 @@ filter, the agent workflow and the acceptance criteria.
   which checks a site change owes. Agents check pages in the pre-installed Playwright Chromium.
   Outside skills, such as a design skill, are reviewed and pinned before use, not pulled from an
   upstream branch.
-- **Hosting.** Not decided. GitHub Pages needs no second provider and is enough, because the
-  console needs no special headers. Cloudflare (Workers static assets, which Cloudflare now steers
-  new projects to over Pages) adds preview deploys per pull request and a `_headers` file. Toby
-  decides before the deploy ticket.
-- **Sound.** Not in the first milestone. A built-in synth MIDI destination through `MidiBackend`,
-  like Learn Orca's Enfer bridge, is a later ticket with its own ADR. It can sound only after a
-  reader's gesture, which the stopped-on-load rule already supplies.
+- **Hosting.** Cloudflare, as a Worker with static assets and no script: `site/wrangler.jsonc`
+  names the build output as `assets.directory`, with `not_found_handling` set to `404-page`.
+  Cloudflare recommends Workers static assets over Pages for new projects, and it supports
+  `_headers`, `_redirects` and preview URLs. GitHub Actions builds and deploys, because the build
+  needs the Rust and Trunk pins from `mise.toml`: a push to `main` runs `wrangler deploy`, and a
+  pull request that changes the site uploads a preview and posts its URL. Toby supplies the
+  Cloudflare account, an API token stored as a repository secret, and the domain. A `_headers` file
+  sets cache headers so a deploy replaces `/play/`'s HTML and JS promptly.
+- **Built-in synth.** A MIDI destination named in the ADR, offered by the web console beside the
+  Web MIDI ports, through the existing `MidiBackend` seam (`orcvs/src/midi.rs`,
+  `console/src/web_midi.rs`). Its connection turns the bytes Playback sends into Web Audio voices
+  through `web-sys`, so it needs no MIDI permission and no JavaScript beside the console. Embed mode
+  selects it. Outside embed mode it is chosen like any other destination. A browser lets Web Audio
+  sound only after a user gesture, so the audio context starts or resumes on the reader's action
+  that starts Playback, which the stopped-on-load rule already requires. An ADR, recorded before
+  the code, decides: the destination's name and its `CONTEXT.md` entry, which messages it answers
+  (Note On and Off, and whether channels or Control Change select sounds), how many voices sound at
+  once and what happens past that, the sounds themselves, and whether native gets it too.
 
 ## Testing Decisions
 
@@ -170,11 +194,15 @@ filter, the agent workflow and the acceptance criteria.
   message; and the keyboard conditions above. The egui canvas exposes no DOM to assert on, so the
   console's own behaviour stays tested by the Rust and browser suites. Site tests use screenshots
   and real input only for what the page shows.
-- **Deploy.** A test that a second deploy replaces the cached `/play/` console.
+- **Built-in synth.** Tests through the `MidiBackend` seam that the destination is listed beside
+  Web MIDI ports, that embed mode selects it, and that the messages it receives become the voices
+  the ADR specifies, observed at a test-only sink below the Web Audio calls. The browser suite
+  checks that the audio context is running after the Playback gesture.
+- **Deploy.** A test that a second deploy replaces the cached `/play/` console, and that a pull
+  request gets a preview URL.
 
 ## Out of Scope
 
-- A built-in synth, which is a later ticket with an ADR (Implementation Decisions, Sound).
 - A `postMessage` bridge, unless reload time is measured and found too slow.
 - Native downloads, until there are release builds to link.
 - Rewriting the console or any of the language in JavaScript.
@@ -184,6 +212,6 @@ filter, the agent workflow and the acceptance criteria.
 - Milestone 1 is "Your first result" live on the site with the real console. It is done when a
   clean checkout builds one static output; `/`, `/learn/` and `/play/` load from it; the first lesson
   matches `docs/first-result.md`; a reader can launch its example, start Playback and edit it with no
-  MIDI device; `/play/` works on its own; the saved Source survives the lesson; a deploy replaces the
+  MIDI device and hear it through the built-in synth; `/play/` works on its own; the saved Source survives the lesson; a deploy replaces the
   cached console; and the site checks run in CI beside the existing Rust and WASM gates.
-- Tickets are written from this spec once Toby has triaged it.
+- Toby chose Cloudflare hosting and the built-in synth on 2026-10-25. The tickets are in `issues/`.

@@ -7,6 +7,9 @@ marked **UNVERIFIED** could not be confirmed from a primary source. A claim mark
 
 ## Recommendation
 
+On 2026-10-25 Toby chose Cloudflare hosting over GitHub Pages and brought the built-in synth into
+scope. The plan that follows from this research is `.scratch/orcvs-site/spec.md`.
+
 Build the site with **Astro and its Starlight docs theme**, host it on **GitHub Pages**, and embed
 the console the way Learn Orca embeds Orca: as **a same-origin iframe of the unmodified Trunk
 build**, served from the site's own `public/play/` directory.
