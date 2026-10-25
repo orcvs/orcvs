@@ -28,6 +28,9 @@ use orcvs::source::{Source, file};
 
 type Ledger = Arc<Mutex<Vec<Vec<u8>>>>;
 
+// TEMPORARY diagnostic: how long each send to the destination took.
+static DIAGNOSTIC_SENDS: Mutex<Vec<Duration>> = Mutex::new(Vec::new());
+
 /// Each message the destination accepted, with the instant it was sent and
 /// the absolute Tick the engine had last executed when it was.
 type SentLedger = Arc<Mutex<Vec<(Instant, u64, Vec<u8>)>>>;
@@ -248,7 +251,9 @@ struct Recording {
 
 impl MidiConnection for Recording {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError> {
+        let began = std::time::Instant::now();
         self.destination.send(message)?;
+        DIAGNOSTIC_SENDS.lock().unwrap().push(began.elapsed());
         let tick = self.observation.borrow().tick.get();
         self.sent
             .lock()
@@ -746,8 +751,35 @@ mod virtual_port {
     #[tokio::test]
     #[ignore = "needs the platform's MIDI service; run with `mise run test_midi_loopback`"]
     async fn the_tracker_loopback_through_a_virtual_port() {
+        // TEMPORARY diagnostic: a timer on its own thread, on the same period,
+        // records how late the host wakes it while the run plays.
+        let probe = std::thread::spawn(|| {
+            let period = Duration::from_millis(125);
+            let start = std::time::Instant::now();
+            (1..24u32)
+                .map(|k| {
+                    let due = start + period * k;
+                    std::thread::sleep(due.saturating_duration_since(std::time::Instant::now()));
+                    (start + period * k - start, std::time::Instant::now() - due)
+                })
+                .collect::<Vec<_>>()
+        });
         let (run, heard) =
             play_through_a_virtual_port("tracker", tracker(&TRACKER_NOTES), TRACKER_TICKS).await;
+        let probe = probe.join().unwrap();
+        let late: Vec<_> = probe
+            .iter()
+            .filter(|(_, late)| *late > Duration::from_millis(20))
+            .collect();
+        let slowest_send = super::DIAGNOSTIC_SENDS
+            .lock()
+            .unwrap()
+            .iter()
+            .max()
+            .copied();
+        eprintln!(
+            "diagnostic: probe wakes over 20ms late (due, lateness) {late:?}; slowest send {slowest_send:?}"
+        );
         #[cfg(not(target_os = "macos"))]
         super::assert_plays_the_tracker(&run, &heard);
         #[cfg(target_os = "macos")]
@@ -816,8 +848,16 @@ mod virtual_port {
             "the stop sends the safety reset and nothing else"
         );
         // TEMPORARY: report what the runner did, on every run.
+        let firsts: Vec<_> = (0..executed as u64)
+            .filter_map(|tick| {
+                run.sent
+                    .iter()
+                    .find(|(_, sent_by, _)| *sent_by == tick)
+                    .map(|(at, _, _)| (tick, at.duration_since(run.started_at)))
+            })
+            .collect();
         panic!(
-            "diagnostic: executed {executed} of {} Ticks; period {:?}; Overruns (deadline, lateness) {overruns:?}",
+            "diagnostic (probe and sends above): executed {executed} of {} Ticks; period {:?}; Overruns (deadline, lateness) {overruns:?}; first send per Tick since the Space {firsts:?}",
             expected.len(),
             run.tick_period
         );
