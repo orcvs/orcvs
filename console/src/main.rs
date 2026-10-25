@@ -26,18 +26,35 @@ fn trace() {
     });
 }
 
+// PROTOTYPE (splash-screen): the native splash variants.
+#[cfg(not(target_arch = "wasm32"))]
+mod splash_prototype;
+
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> eframe::Result {
     use console::console::Console;
 
+    use splash_prototype::{SPLASH_WINDOW, Splash, Variant};
+
     trace();
 
+    let variant = Variant::from_env();
+    // B opens as the splash window itself: borderless and splash-sized, then
+    // grows into the console.
+    let (inner_size, min_size) = if variant == Variant::B {
+        (SPLASH_WINDOW, SPLASH_WINDOW)
+    } else {
+        (DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN)
+    };
     let native_options = eframe::NativeOptions {
+        centered: true,
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size(DEFAULT_VIEW_SIZE)
-            .with_min_inner_size(DEFAULT_VIEW_SIZE_MIN)
+            .with_inner_size(inner_size)
+            .with_min_inner_size(min_size)
+            .with_decorations(variant != Variant::B)
+            .with_resizable(variant != Variant::B)
             .with_icon(
                 // NOTE: Adding an icon is optional
                 eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])
@@ -49,7 +66,10 @@ async fn main() -> eframe::Result {
     eframe::run_native(
         "Orcvs",
         native_options,
-        Box::new(|cc| Ok(Box::new(Console::start(cc)?))),
+        Box::new(move |cc| {
+            let console = Console::start(cc)?;
+            Ok(Box::new(Splash::new(cc, console, variant)))
+        }),
     )
 }
 
