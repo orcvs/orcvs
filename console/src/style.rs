@@ -233,10 +233,11 @@ impl<'a> CellColours<'a> {
 
     ///
     /// The colours of a Cell carrying `paint`, playing `portal_roles`, holding
-    /// content when `occupied`, and at `placement`, as the console displays them: its background composited
-    /// over the opaque surface every Cell is displayed on — `grid.background`
-    /// composited over `window.background` — so it is opaque, and its foreground as the
-    /// Theme gives it, drawn over that background.
+    /// content when `occupied`, and at `placement`, as the console displays
+    /// them: its background composited over the opaque surface every Cell is
+    /// displayed on — `grid.background` composited over `window.background` —
+    /// so it is opaque, and its foreground as the Theme gives it, drawn over
+    /// that background.
     ///
     pub(crate) fn displayed(
         &mut self,

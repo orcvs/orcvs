@@ -8,6 +8,7 @@ use super::files::FUNCTION_REFERENCE_CONFIRMATION;
 use super::input::FileCommand;
 use super::panel::{BarEdge, show_bar};
 use crate::examples::EXAMPLES;
+use crate::theme::Appearance;
 use crate::theme_selection::SelectedThemes;
 
 /// The height the top panel takes from the window, leaving the rest to the
@@ -157,52 +158,55 @@ pub(super) const MODE_GLYPHS: [&str; 3] = ["◐", "☾", "☼"];
 ///
 fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
     // Icon-sized and spaced as egui spaces them, not the bar's full height
-    // and menu gap: the mode opens no menu. Shown in its own scope, so the bar
-    // keeps its spacing.
-    let compact = ui.ctx().global_style().spacing.clone();
-    ui.spacing_mut().interact_size.y = compact.interact_size.y;
-    ui.spacing_mut().item_spacing.x = compact.item_spacing.x;
-    let mode = ui.ctx().options(|options| options.theme_preference);
-    let system = ui.input(|input| input.raw.system_theme);
-    let choices = [
-        (
-            egui::ThemePreference::System,
-            "Follow the OS",
-            "Follow the operating system's appearance.",
-        ),
-        (
-            egui::ThemePreference::Dark,
-            "Dark",
-            "Always use the dark appearance.",
-        ),
-        (
-            egui::ThemePreference::Light,
-            "Light",
-            "Always use the light appearance.",
-        ),
-    ];
-    let mut change = None;
-    for ((preference, name, explanation), glyph) in choices.into_iter().zip(MODE_GLYPHS).rev() {
-        let selected = mode == preference;
-        let response = ui.selectable_label(selected, glyph);
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, name)
-        });
-        let response = response.on_hover_ui(|ui| {
-            ui.label(explanation);
-            if preference == egui::ThemePreference::System {
-                ui.label(match system {
-                    Some(egui::Theme::Dark) => "The operating system's appearance is dark.",
-                    Some(egui::Theme::Light) => "The operating system's appearance is light.",
-                    None => "The operating system's appearance is unknown.",
-                });
+    // and menu gap: the mode opens no menu. The spacing is set in a scope of
+    // its own, so what the bar shows after the mode keeps the bar's spacing.
+    ui.scope(|ui| {
+        let global = ui.ctx().global_style();
+        ui.spacing_mut().interact_size.y = global.spacing.interact_size.y;
+        ui.spacing_mut().item_spacing.x = global.spacing.item_spacing.x;
+        let mode = ui.ctx().options(|options| options.theme_preference);
+        let system = ui.input(|input| input.raw.system_theme);
+        let choices = [
+            (
+                egui::ThemePreference::System,
+                "Follow the OS",
+                "Follow the operating system's appearance.",
+            ),
+            (
+                egui::ThemePreference::Dark,
+                "Dark",
+                "Always use the dark appearance.",
+            ),
+            (
+                egui::ThemePreference::Light,
+                "Light",
+                "Always use the light appearance.",
+            ),
+        ];
+        let mut change = None;
+        for ((preference, name, explanation), glyph) in choices.into_iter().zip(MODE_GLYPHS).rev() {
+            let selected = mode == preference;
+            let response = ui.selectable_label(selected, glyph);
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, name)
+            });
+            let response = response.on_hover_ui(|ui| {
+                ui.label(explanation);
+                if preference == egui::ThemePreference::System {
+                    ui.label(match system {
+                        Some(egui::Theme::Dark) => "The operating system's appearance is dark.",
+                        Some(egui::Theme::Light) => "The operating system's appearance is light.",
+                        None => "The operating system's appearance is unknown.",
+                    });
+                }
+            });
+            if response.clicked() {
+                change = Some(AppearanceChange::Mode(preference));
             }
-        });
-        if response.clicked() {
-            change = Some(AppearanceChange::Mode(preference));
         }
-    }
-    change
+        change
+    })
+    .inner
 }
 
 impl Console {
@@ -240,7 +244,11 @@ impl Console {
     /// Reference asks before discarding on native at once; the File command
     /// and the mode are answered for the frame to run.
     ///
-    pub(super) fn show_menu_bar(&mut self, root: &mut egui::Ui) -> MenuBarChoice {
+    pub(super) fn show_menu_bar(
+        &mut self,
+        root: &mut egui::Ui,
+        appearance: Appearance,
+    ) -> MenuBarChoice {
         let mut choice = MenuBarChoice {
             file_command: None,
             appearance_change: None,
@@ -253,10 +261,7 @@ impl Console {
         let top_panel = egui::Panel::top("top_panel")
             .resizable(false)
             .exact_size(TOP_PANEL_HEIGHT);
-        let separator = crate::style::bar_separator(
-            self.themes
-                .presented(crate::theme::Appearance::from(root.ctx().theme())),
-        );
+        let separator = crate::style::bar_separator(self.themes.presented(appearance));
 
         show_bar(root, top_panel, frame, BarEdge::Bottom, separator, |ui| {
             // A menu opens from its button's bottom edge, so each menu button
@@ -328,7 +333,7 @@ impl Console {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Rightmost: the mode, which is a control rather than a
                     // menu, and applied once the frame is done.
-                    choice.appearance_change = ui.scope(mode_control).inner;
+                    choice.appearance_change = mode_control(ui);
                     // Theme, settings and Source File notices sit
                     // in the bar until dismissed; `report` has already sent
                     // each to the developer console.

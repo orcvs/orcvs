@@ -43,7 +43,8 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 /// `previous_console` are what tell those changes apart from a frame that
 /// merely redrew the Cursor.
 ///
-/// `shown` is derived each frame from the Pan and the console's top-left, so Paint, the Overview and Diagnostics read one presentation.
+/// `shown` is derived each frame from the Pan and the console's top-left, so
+/// Paint, the Overview and Diagnostics read one presentation.
 ///
 pub(super) struct SourceView {
     pub(super) pan: Vec2,
@@ -451,17 +452,18 @@ impl PointerSelection {
 /// See `docs/adr/0038-the-console-owns-the-source-grid-transform.md`.
 ///
 /// Pan is by wheel or two-finger scroll, by middle-drag, and by Alt (Option)
-/// held with a primary drag, bounded by the Grid's edges. Where the Grid
-/// leaves somewhere to Pan, the pointer shows a grab hand while Alt is held over the
-/// console outside a Region drag, and a grabbing hand during a drag Pan. A primary
-/// click selects a Cell — [`show_source`]'s own click-sensing rect answers it,
-/// with Shift extending the Region rather than collapsing it — and a primary
-/// drag without Alt selects a Region from the pressed Cell to the Cell nearest
-/// the pointer; neither Pans. A drag past the console's edge scrolls after the
-/// Cursor at the pointer's pace, at most one Cell a frame. Pinch and command-wheel do not
-/// zoom. Zoom is egui's whole-UI zoom, which changes the console's size in
-/// points and never the Source's; a zoom that would open a gap past an edge
-/// settles back inside through the same `clamp_pan` a Pan does.
+/// held with a primary drag, bounded by the Grid's edges. Where the Grid leaves
+/// somewhere to Pan, the pointer shows a grab hand while Alt is held over the
+/// console outside a Region drag, and a grabbing hand during a drag Pan. A
+/// primary click selects a Cell — [`show_source`]'s own click-sensing rect
+/// answers it, with Shift extending the Region rather than collapsing it — and
+/// a primary drag without Alt selects a Region from the pressed Cell to the
+/// Cell nearest the pointer; neither Pans. A drag past the console's edge
+/// scrolls after the Cursor at the pointer's pace, at most one Cell a frame.
+/// Pinch and command-wheel do not zoom. Zoom is egui's whole-UI zoom, which
+/// changes the console's size in points and never the Source's; a zoom that
+/// would open a gap past an edge settles back inside through the same
+/// `clamp_pan` a Pan does.
 ///
 /// A Cursor move that would leave the Cursor's Cell outside the console Pans
 /// just far enough to bring it back, before that same `clamp_pan` settles the

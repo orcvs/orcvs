@@ -377,7 +377,7 @@ impl eframe::App for Console {
         }
         self.keep_tab_for_source(&ctx);
         self.observe_playback_diagnostics();
-        let menu = self.show_menu_bar(root);
+        let menu = self.show_menu_bar(root, appearance);
         // The Overview fits below this. Nothing shown before the Overview
         // may take room from the top, or it would overlap what does.
         let below_menu = root.available_rect_before_wrap().top();
@@ -402,7 +402,7 @@ impl eframe::App for Console {
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
-        let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
+        let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
         if let Some(centre) = self.show_overview(root, below_menu, revision, &frame, appearance) {

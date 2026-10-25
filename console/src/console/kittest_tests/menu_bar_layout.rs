@@ -145,3 +145,77 @@ async fn the_notices_sit_one_readout_group_gap_from_the_mode_control() {
         "the mode buttons take the menu gap: {follow:?} {dark:?}"
     );
 }
+
+///
+/// The separator a bar's edge carries lies just outside the frame's outline,
+/// as egui places its own line: touching the fill, whatever the line's width
+/// and whatever outer margin the frame already has on that edge.
+///
+#[test]
+fn a_bar_separator_touches_the_frame_outline() {
+    use super::super::panel::{BarEdge, show_bar};
+
+    const FILL: egui::Color32 = egui::Color32::from_rgb(200, 0, 0);
+    const LINE: egui::Color32 = egui::Color32::from_rgb(0, 0, 200);
+
+    fn collect(shape: &egui::Shape, fills: &mut Vec<egui::Rect>, lines: &mut Vec<(f32, f32)>) {
+        match shape {
+            egui::Shape::Rect(rect) if rect.fill == FILL => fills.push(rect.rect),
+            egui::Shape::LineSegment { points, stroke } if stroke.color == LINE => {
+                lines.push((points[0].y, stroke.width));
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, fills, lines);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for (width, outer_margin) in [(0.5, 0), (1.0, 4), (0.5, 4)] {
+        for edge in [BarEdge::Top, BarEdge::Bottom] {
+            let ctx = egui::Context::default();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |root| {
+                let frame = egui::Frame::NONE
+                    .fill(FILL)
+                    .outer_margin(egui::Margin::same(outer_margin));
+                let bar = match edge {
+                    BarEdge::Top => egui::Panel::bottom("bar"),
+                    BarEdge::Bottom => egui::Panel::top("bar"),
+                }
+                .resizable(false)
+                .exact_size(24.0);
+                show_bar(
+                    root,
+                    bar,
+                    frame,
+                    edge,
+                    egui::Stroke::new(width, LINE),
+                    |_| {},
+                );
+            });
+            // The font atlas this frame uploaded is no part of the check.
+            output.textures_delta.clear();
+            let (mut fills, mut lines) = (Vec::new(), Vec::new());
+            for clipped in &output.shapes {
+                collect(&clipped.shape, &mut fills, &mut lines);
+            }
+            let [fill] = fills[..] else {
+                panic!("expected one fill, found {fills:?}");
+            };
+            let [(y, stroke_width)] = lines[..] else {
+                panic!("expected one separator, found {lines:?}");
+            };
+            let (outline, line_inner) = match edge {
+                BarEdge::Top => (fill.top(), y + stroke_width / 2.0),
+                BarEdge::Bottom => (fill.bottom(), y - stroke_width / 2.0),
+            };
+            assert!(
+                (line_inner - outline).abs() < 0.01,
+                "width {width}, outer margin {outer_margin}: the separator's inner edge \
+                 {line_inner} is not at the outline {outline}"
+            );
+        }
+    }
+}

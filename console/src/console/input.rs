@@ -175,11 +175,11 @@ pub(super) const DIAGNOSTICS_SHORTCUT: egui::KeyboardShortcut =
 /// Whether a toolkit event is a fresh press of `shortcut`: its key with exactly
 /// its Shift and Alt and the command modifier, and no key repeat.
 ///
-/// `Modifiers::matches_exact` rather than `InputState::consume_shortcut`,
+/// Shift and Alt match exactly: do not use `InputState::consume_shortcut`,
 /// whose logical match lets a held Shift through, so ⌘⇧S would also be Save.
 ///
 #[cfg(not(target_arch = "wasm32"))]
-fn matches(shortcut: egui::KeyboardShortcut, event: &Event) -> bool {
+fn is_fresh_press_of(shortcut: egui::KeyboardShortcut, event: &Event) -> bool {
     matches!(
         event,
         Event::Key {
@@ -193,22 +193,23 @@ fn matches(shortcut: egui::KeyboardShortcut, event: &Event) -> bool {
 }
 
 ///
-/// Whether a toolkit event is [`DIAGNOSTICS_SHORTCUT`], by [`matches`].
+/// Whether a toolkit event is [`DIAGNOSTICS_SHORTCUT`], by
+/// [`is_fresh_press_of`].
 ///
 #[cfg(not(target_arch = "wasm32"))]
 fn toggles_diagnostics(event: &Event) -> bool {
-    matches(DIAGNOSTICS_SHORTCUT, event)
+    is_fresh_press_of(DIAGNOSTICS_SHORTCUT, event)
 }
 
 ///
 /// The File command whose [`FileCommand::shortcut`] a toolkit event is, by
-/// [`matches`], or none: ⌘⇧S is Save As and ⌘⇧N is nothing.
+/// [`is_fresh_press_of`], or none: ⌘⇧S is Save As and ⌘⇧N is nothing.
 ///
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn file_command(event: &Event) -> Option<FileCommand> {
     FileCommand::CHORDED
         .into_iter()
-        .find(|command| matches(command.shortcut(), event))
+        .find(|command| is_fresh_press_of(command.shortcut(), event))
 }
 
 impl Console {

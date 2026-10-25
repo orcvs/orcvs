@@ -13,6 +13,7 @@ use super::diagnostics_panel::summary_height;
 use crate::console_midi;
 use crate::grid_viewport::snapped_cell;
 use crate::midi::destination_presentation;
+use crate::theme::Appearance;
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
@@ -248,8 +249,9 @@ pub(super) enum BarEdge {
 ///
 /// Shows `bar` in `frame` with `separator` along its `edge`, in place of
 /// egui's own separator line. As egui places its line, this one lies just
-/// outside the frame's outline, in room added to the frame's outer margin,
-/// so the bar's contents stay clear of it and the bar keeps its size.
+/// outside the frame's outline, its inner edge touching the outline, in room
+/// added to the frame's outer margin, so the bar's contents stay clear of it
+/// and the bar keeps its size.
 ///
 pub(super) fn show_bar<R>(
     root: &mut egui::Ui,
@@ -270,11 +272,13 @@ pub(super) fn show_bar<R>(
         .show_separator_line(false)
         .frame(frame)
         .show(root, add_contents);
+    // The response covers the outer margin; the outline lies that margin
+    // inside it, and the line's inner edge touches the outline.
     let rect = shown.response.rect;
-    let inset = separator.width / 2.0;
+    let half = separator.width / 2.0;
     let y = match edge {
-        BarEdge::Top => rect.top() + inset,
-        BarEdge::Bottom => rect.bottom() - inset,
+        BarEdge::Top => rect.top() + f32::from(frame.outer_margin.top) - half,
+        BarEdge::Bottom => rect.bottom() - f32::from(frame.outer_margin.bottom) + half,
     };
     root.painter().hline(rect.x_range(), y, separator);
     shown.inner
@@ -317,6 +321,7 @@ impl Console {
         root: &mut egui::Ui,
         observation: &PlaybackObservation,
         run_clock: Duration,
+        appearance: Appearance,
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
@@ -329,10 +334,7 @@ impl Console {
             .then(|| summary_height(root).min(diagnostics_room.max(0.0)));
         let extra_height = diagnostics_height.map_or(0.0, |height| height + separation);
         let height = BOTTOM_PANEL_HEIGHT + extra_height;
-        let separator = crate::style::bar_separator(
-            self.themes
-                .presented(crate::theme::Appearance::from(root.ctx().theme())),
-        );
+        let separator = crate::style::bar_separator(self.themes.presented(appearance));
         let bottom_panel = egui::Panel::bottom("bottom_panel")
             .resizable(false)
             .exact_size(height);
@@ -470,7 +472,7 @@ impl Console {
             ui.ctx().request_repaint();
         }
         if let Some(status) = self.midi.status() {
-            ui.add_space(panel_readout_gaps(ui).1);
+            ui.add_space(readout_group_gap(ui));
             ui.colored_label(ui.visuals().error_fg_color, status);
         }
     }
