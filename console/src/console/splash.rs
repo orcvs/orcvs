@@ -5,7 +5,7 @@
 //! console and the logo fades over the running Grid.
 //!
 
-use egui::{Align2, Color32, FontId, Rect, Vec2, ViewportCommand, pos2, vec2};
+use egui::{Align2, Color32, FontId, Pos2, Rect, Vec2, ViewportCommand, pos2, vec2};
 
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::theme::{Appearance, Theme};
@@ -20,8 +20,8 @@ pub(crate) const HOLD_SECONDS: f64 = 1.5;
 /// How long the logo takes to fade over the console.
 pub(crate) const FADE_SECONDS: f64 = 0.35;
 
-/// The logo's side at most, in points.
-const LOGO_SIDE: f32 = 300.0;
+/// The logo's side, in points, which fits the splash window.
+const LOGO_SIDE: f32 = 270.0;
 
 pub(super) struct Splash {
     logo: egui::TextureHandle,
@@ -32,6 +32,10 @@ pub(super) struct Splash {
     opened_at: Option<f64>,
     /// egui's input time the hold ended at, which the fade runs from.
     ended_at: Option<f64>,
+    /// Where on the screen the logo's centre was when the hold ended, so the
+    /// fade keeps it there while the window gains its title bar and grows.
+    /// `None` where the platform reports no window position.
+    logo_on_screen: Option<Pos2>,
     /// Whether a key that ended the hold is still down, so keyboard input is
     /// withheld from the console.
     withholding_keys: bool,
@@ -52,6 +56,7 @@ impl Splash {
             console_window,
             opened_at: None,
             ended_at: None,
+            logo_on_screen: None,
             withholding_keys: false,
         }
     }
@@ -77,6 +82,9 @@ impl Splash {
     ///
     fn end(&mut self, ctx: &egui::Context, now: f64) {
         self.ended_at = Some(now);
+        self.logo_on_screen = ctx
+            .input(|input| input.viewport().inner_rect)
+            .map(|window| window.min + self.logo_centre(ctx).to_vec2());
         let min_size = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
         ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
         ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
@@ -105,6 +113,18 @@ impl Splash {
     }
 
     ///
+    /// The logo's centre in the window: above the window's centre through the
+    /// hold, then wherever on the screen it was when the hold ended.
+    ///
+    pub(super) fn logo_centre(&self, ctx: &egui::Context) -> Pos2 {
+        let window = ctx.input(|input| input.viewport().inner_rect);
+        match (self.logo_on_screen, window) {
+            (Some(on_screen), Some(window)) => on_screen - window.min.to_vec2(),
+            _ => ctx.content_rect().center() - vec2(0.0, 28.0),
+        }
+    }
+
+    ///
     /// Paints `theme`'s backdrop, the logo, the name and the version over the
     /// window, on a layer above the console, at the opacity `now` gives.
     ///
@@ -117,8 +137,7 @@ impl Splash {
         ));
         painter.rect_filled(rect, 0.0, theme.window_background.gamma_multiply(opacity));
 
-        let side = LOGO_SIDE.min(rect.width() * 0.7).min(rect.height() * 0.6);
-        let logo = Rect::from_center_size(rect.center() - vec2(0.0, 28.0), Vec2::splat(side));
+        let logo = Rect::from_center_size(self.logo_centre(ctx), Vec2::splat(LOGO_SIDE));
         // The logo is white on transparent: untinted it is the artwork on a
         // dark backdrop, and tinted black it reads on a light one.
         let ink = match appearance {
@@ -128,14 +147,14 @@ impl Splash {
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
         painter.image(self.logo.id(), logo, uv, ink.gamma_multiply(opacity));
         painter.text(
-            pos2(rect.center().x, logo.bottom() + 18.0),
+            pos2(logo.center().x, logo.bottom() + 18.0),
             Align2::CENTER_TOP,
             "O R C V S",
             FontId::monospace(18.0),
             theme.text.gamma_multiply(opacity),
         );
         painter.text(
-            pos2(rect.center().x, logo.bottom() + 46.0),
+            pos2(logo.center().x, logo.bottom() + 46.0),
             Align2::CENTER_TOP,
             concat!("v", env!("CARGO_PKG_VERSION")),
             FontId::monospace(12.0),

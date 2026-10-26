@@ -178,6 +178,43 @@ async fn a_key_held_from_the_splash_reaches_nothing_until_it_is_released() {
     );
 }
 
+/// Reports the window's content area at `window`, in screen points.
+fn place_window(harness: &mut Harness<'_, Console>, window: egui::Rect) {
+    harness
+        .input_mut()
+        .viewports
+        .entry(egui::ViewportId::ROOT)
+        .or_default()
+        .inner_rect = Some(window);
+}
+
+/// Where on the screen the splash painted the logo's centre, in the window
+/// at `window`.
+fn logo_on_screen(harness: &Harness<'_, Console>, window: egui::Rect) -> egui::Pos2 {
+    let splash = harness.state().splash.as_ref().expect("the splash");
+    window.min + splash.logo_centre(&harness.ctx).to_vec2()
+}
+
+#[tokio::test]
+async fn the_fading_logo_stays_put_while_the_window_gains_its_title_bar_and_grows() {
+    let mut harness = splash_console(None);
+    let splash_window = egui::Rect::from_min_size(pos2(500.0, 300.0), Vec2::from(SPLASH_WINDOW));
+    place_window(&mut harness, splash_window);
+    harness.step();
+    let held_at = logo_on_screen(&harness, splash_window);
+    press_a_key(&mut harness);
+
+    // The title bar pushes the content down, then the window grows about it.
+    let decorated = splash_window.translate(egui::vec2(0.0, 28.0));
+    place_window(&mut harness, decorated);
+    harness.step();
+    assert_eq!(logo_on_screen(&harness, decorated), held_at);
+    let grown = egui::Rect::from_center_size(decorated.center(), Vec2::from(DEFAULT_VIEW_SIZE));
+    place_window(&mut harness, grown);
+    harness.step();
+    assert_eq!(logo_on_screen(&harness, grown), held_at);
+}
+
 #[tokio::test]
 async fn a_click_ends_the_splash() {
     let mut harness = splash_console(None);
