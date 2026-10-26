@@ -22,6 +22,11 @@ mod panel;
 mod repaint;
 pub(crate) mod shapes;
 mod source_view;
+// The splash the native console opens through.
+#[cfg(not(target_arch = "wasm32"))]
+mod splash;
+#[cfg(not(target_arch = "wasm32"))]
+pub use splash::SPLASH_WINDOW;
 
 use self::diagnostics_panel::{TimingReadouts, show_diagnostics};
 use self::files::DiscardConfirmation;
@@ -127,6 +132,9 @@ pub struct Console {
     /// let through rather than asked about again.
     #[cfg(not(target_arch = "wasm32"))]
     closing: bool,
+    /// The splash the window opened as, until its logo has faded.
+    #[cfg(not(target_arch = "wasm32"))]
+    splash: Option<splash::Splash>,
     /// The context an Open wakes the Panel through when the new Orcvs's
     /// Playback Engine publishes.
     ctx: egui::Context,
@@ -153,24 +161,12 @@ impl Console {
         // `~/.orcvs/config.toml` and the web runs on the defaults.
         let console = Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())?;
         #[cfg(not(target_arch = "wasm32"))]
-        console.open_window(crate::window_geometry::stored(cc.storage));
-        Ok(console)
-    }
-
-    ///
-    /// Returns the window to `stored`, the geometry the console was last
-    /// closed at, when there is one; otherwise it stays at the default size
-    /// `main` opened it at.
-    ///
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn open_window(&self, stored: Option<crate::window_geometry::WindowGeometry>) {
-        let Some(stored) = stored else {
-            return;
+        let console = {
+            let mut console = console;
+            console.open_through_splash(crate::window_geometry::stored(cc.storage));
+            console
         };
-        let monitor_size = self.ctx.input(|input| input.viewport().monitor_size);
-        for command in stored.commands(DEFAULT_VIEW_SIZE_MIN.into(), monitor_size) {
-            self.ctx.send_viewport_cmd(command);
-        }
+        Ok(console)
     }
 
     ///
@@ -261,6 +257,8 @@ impl Console {
             shown_title: None,
             #[cfg(not(target_arch = "wasm32"))]
             closing: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            splash: None,
             ctx: cc.egui_ctx.clone(),
         })
     }
@@ -313,11 +311,17 @@ impl eframe::App for Console {
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         crate::persistence::save(storage, self.orcvs.source());
+        // While the splash shows, the window is the splash's, so the save
+        // stores the geometry it grows to, or nothing when that is the default.
         #[cfg(not(target_arch = "wasm32"))]
-        crate::window_geometry::store(
-            storage,
-            &crate::window_geometry::WindowGeometry::of(&self.ctx),
-        );
+        let window = match &self.splash {
+            Some(splash) => splash.console_window(),
+            None => Some(crate::window_geometry::WindowGeometry::of(&self.ctx)),
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(window) = window {
+            crate::window_geometry::store(storage, &window);
+        }
     }
 
     ///
@@ -371,6 +375,10 @@ impl eframe::App for Console {
         // it until the frame is done — a View menu change is held until
         // then — so the Source reads the Theme the chrome was styled from.
         let appearance = Appearance::from(ctx.theme());
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.hold_splash(&ctx, appearance) {
+            return;
+        }
         self.keep_tab_for_source(&ctx);
         self.observe_playback_diagnostics();
         let menu = self.show_menu_bar(root);
@@ -422,6 +430,10 @@ impl eframe::App for Console {
         self.show_title(&ctx);
 
         self.latch_keyboard_owner(&ctx);
+
+        // Over everything the console showed, while the logo fades.
+        #[cfg(not(target_arch = "wasm32"))]
+        self.fade_splash(&ctx, appearance);
 
         // Last, once every widget of this frame has been styled from the
         // appearance it began in, so no frame mixes two Themes. The next
