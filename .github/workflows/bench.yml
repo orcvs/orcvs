@@ -78,7 +78,7 @@ jobs:
       # with entries nobody reads and evicts the ones on `main` that every run
       # restores from. Restoring is unaffected: a pull request still reads
       # `main`'s cache through the key prefix.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           # Both jobs below build the same tree under the same profile, and only
           # one of them ever runs. Without a shared key each gets a cache of its
@@ -93,7 +93,7 @@ jobs:
       # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}
@@ -313,7 +313,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           # Both jobs below build the same tree under the same profile, and only
           # one of them ever runs. Without a shared key each gets a cache of its
@@ -328,7 +328,7 @@ jobs:
       # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}

@@ -61,7 +61,7 @@ jobs:
       # with entries nobody reads and evicts the ones on `main` that every run
       # restores from. Restoring is unaffected: a dispatch off a branch still
       # reads `main`'s cache through the key prefix.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # `midir`, which links ALSA on Linux, is a `console` dependency and not one of
@@ -69,7 +69,7 @@ jobs:
       # The step stays until a dispatched run without it shows the build passes.
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # The repository's own task, so the dispatched answer and the answer a
