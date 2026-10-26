@@ -13,6 +13,8 @@ hero:
       variant: minimal
 ---
 
+import Console from "../../components/Console.astro";
+
 :::caution[Pre-release]
 The Orcvs language is pre-release. Function spellings and behaviour may change between versions.
 :::
@@ -23,3 +25,5 @@ in a 256 by 256 Grid of Cells, and on every Tick Playback runs that program, wri
 into the Grid, and sends MIDI.
 
 The console on this site is the real one, built for the browser. Every example opens in it.
+
+<Console example="cell-tracker" label="Cell Tracker, one of the console's shipped examples" />

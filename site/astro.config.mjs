@@ -5,8 +5,10 @@ import { satteri } from "@astrojs/markdown-satteri";
 import { functionReference } from "./src/console/function-reference";
 
 // The console is served from `public/play/`, which `mise run site_build` fills from Trunk with the
-// same base path (`/play/`), so the site is built for the root of its domain.
+// same base: `SITE_BASE`, empty because the site is served from the root of its domain. Pages
+// link to the console and to each other from the root.
 export default defineConfig({
+  base: process.env.SITE_BASE || "/",
   integrations: [
     starlight({
       title: "Orcvs",
@@ -19,6 +21,7 @@ export default defineConfig({
         { label: "Learn", items: [{ autogenerate: { directory: "learn" } }] },
         { label: "Reference", items: [{ label: "Functions", link: "/reference/" }] },
         { label: "Open the console", link: "/play/" },
+        { label: "About", link: "/about/" },
       ],
     }),
   ],

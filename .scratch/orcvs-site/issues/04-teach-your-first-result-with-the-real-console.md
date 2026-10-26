@@ -28,8 +28,9 @@ and the component shows a message. See `../spec.md` (The console in the site, Ke
 the lesson; `site/tests/lesson.spec.ts` checks every condition above in Chromium. Pressing
 **Launch example** is the reader's click: the console takes the keyboard as it starts, so after
 that one click arrow keys move the Cursor and the page does not scroll. Before it, and after a
-click outside, keys scroll the page and leave the Cursor where it was. A click outside is the
-tested way to give keys back; Tab is not, because the console may claim Tab for itself. The
+click outside, keys scroll the page and leave the Cursor where it was. Tab does not give keys
+back: the console keeps them. That failure is ticket 11, and its condition is a test in
+`lesson.spec.ts` marked `test.fail()` until the ticket is done. The
 console has no DOM signal for "started" except the `width` attribute eframe sets on the canvas,
 so the component and the tests read that. A test compares the lesson's `text` blocks with
 `docs/first-result.md`'s, so the two cannot drift apart unnoticed.

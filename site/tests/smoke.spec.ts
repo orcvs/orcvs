@@ -13,7 +13,7 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
-for (const path of ["/", "/learn/", "/reference/"]) {
+for (const path of ["/", "/learn/", "/reference/", "/about/"]) {
   test(`${path} loads with no errors`, async ({ page }) => {
     const errors = collectErrors(page);
     const response = await page.goto(path);
@@ -37,10 +37,14 @@ test("/play/ starts the console and registers its service worker", async ({ page
   expect(errors).toEqual([]);
 });
 
-test("a linked console starts and registers no service worker", async ({ page }) => {
-  const errors = collectErrors(page);
-  await page.goto("/play/?example=cell-tracker");
-  await consoleStarts(page);
-  expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
-  expect(errors).toEqual([]);
-});
+// `console/index.html` decides whether to register the worker before the console reads its URL,
+// so each link form `console/src/linked_source.rs` opens is checked here too.
+for (const link of ["/play/?example=cell-tracker", "/play/#source=.%2B0102%0A"]) {
+  test(`${link} starts and registers no service worker`, async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto(link);
+    await consoleStarts(page);
+    expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
+    expect(errors).toEqual([]);
+  });
+}

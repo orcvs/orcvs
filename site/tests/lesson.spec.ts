@@ -96,6 +96,23 @@ test("keys scroll the page until the console is clicked, and return to it after"
   expect(await moves(frame)).toBe(true);
 });
 
+// The console keeps the keyboard when Tab is pressed in it, so this is expected to fail until
+// `.scratch/orcvs-site/issues/11-give-keys-back-to-the-page-on-tab.md` is done; Playwright then
+// reports it as passing unexpectedly, which is the signal to drop `test.fail`.
+test("Tab in the console gives keys back to the page", async ({ page }) => {
+  test.fail();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(LESSON);
+  const frame = await launch(finished(page));
+  await expect.poll(() => holdsStill(frame, page, 250)).toBe(true);
+  const before = await frame.screenshot();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForTimeout(250);
+  expect((await frame.screenshot()).equals(before)).toBe(true);
+});
+
 test("a narrow screen offers the full console instead of an embed", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(LESSON);

@@ -1,6 +1,6 @@
 // Renders the repository's `docs/functions.md` as the site's `/reference/`. The file stays the one
 // source: `orcvs/tests/function_reference_doc.rs` runs its examples against the language, so the
-// site shows what that test checks. This remark plugin touches that file alone.
+// site shows what that test checks. The mdast plugin below touches that file alone.
 
 import { fileURLToPath } from "node:url";
 import { defineMdastPlugin, type PluginFactoryContext } from "satteri";

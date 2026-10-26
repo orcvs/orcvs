@@ -419,16 +419,18 @@ env -u NO_COLOR trunk build --no-default-features --locked
 [tasks.site_build]
 description = "Build the site with the release console at /play/"
 # One output, as it deploys: Trunk writes the console into `site/public/play/`
-# with `/play/` as its base, and Astro copies `public/` into `site/dist/`
-# untouched. The last line fails the build if the two base paths disagree,
-# which would break every asset URL the console loads.
+# with `$SITE_BASE/play/` as its base, Astro builds with `SITE_BASE` as its own
+# and copies `public/` into `site/dist/` untouched. The last line fails the
+# build if the two base paths disagree, which would break every asset URL the
+# console loads. `SITE_BASE` is empty: the site is served from its domain's root.
+env = { SITE_BASE = "" }
 run = '''
 cd console
-env -u NO_COLOR trunk build --release --locked --public-url /play/ --dist ../site/public/play
+env -u NO_COLOR trunk build --release --locked --public-url "$SITE_BASE/play/" --dist ../site/public/play
 cd ../site
 npm ci
 npm run build
-grep -F '<base href="/play/"' dist/play/index.html > /dev/null
+grep -F "<base href=\"$SITE_BASE/play/\"" dist/play/index.html > /dev/null
 '''
 
 [tasks.site_test]
