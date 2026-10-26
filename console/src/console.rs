@@ -436,12 +436,6 @@ impl eframe::App for Console {
         if self.hold_splash(&ctx, appearance) {
             return;
         }
-        // PROTOTYPE: a browser audio context created before the reader's first
-        // gesture starts suspended; resume it on input.
-        #[cfg(target_arch = "wasm32")]
-        if ctx.input(|input| !input.events.is_empty()) {
-            crate::builtin_synth::resume();
-        }
         self.keep_tab_for_source(&ctx);
         #[cfg(any(target_arch = "wasm32", test))]
         self.open_sent_source();
