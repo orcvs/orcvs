@@ -718,7 +718,26 @@ pub(super) fn start_console(
     themes: ThemeRegistry,
     config: crate::config::Config,
 ) -> Console {
-    Console::new(cc, themes, config).expect("the test runtime")
+    Console::new(cc, themes, config, crate::linked_source::Opening::Stored)
+        .expect("the test runtime")
+}
+
+///
+/// A Console started from `cc` at a URL with `search` and `fragment`, the way
+/// the web page starts one, over the built-in Themes and default settings.
+///
+pub(super) fn start_linked_console(
+    cc: &eframe::CreationContext<'_>,
+    search: &str,
+    fragment: &str,
+) -> Console {
+    Console::new(
+        cc,
+        ThemeRegistry::built_in(),
+        crate::config::Config::default(),
+        crate::linked_source::opening(search, fragment),
+    )
+    .expect("the test runtime")
 }
 
 ///
@@ -6914,4 +6933,60 @@ async fn the_overview_draws_no_outline_when_neither_axis_can_pan() {
     );
     assert!(screen.contains_rect(picture));
     assert_eq!(outline, None, "an outline was drawn with nowhere to Pan");
+}
+
+///
+/// A console its URL opens shows the Source the URL names, with Playback
+/// stopped, and frames alone never start it: only the reader's action does.
+///
+#[tokio::test]
+async fn a_linked_source_opens_stopped_and_frames_never_start_it() {
+    let example = &crate::examples::EXAMPLES[0];
+    let ctx = egui::Context::default();
+    let mut console = start_linked_console(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        &format!("?example={}", example.link_name()),
+        "",
+    );
+    let mut host = eframe::Frame::_new_kittest();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    assert_eq!(
+        console.orcvs.source().snapshot(),
+        example.source().snapshot()
+    );
+    for _ in 0..5 {
+        app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        console.orcvs.playback_observation().state,
+        orcvs::playback::PlaybackState::Stopped,
+        "a linked Source started playing by itself"
+    );
+}
+
+///
+/// A link the console cannot open starts the empty Source and says why, in
+/// the notices the top bar shows.
+///
+#[tokio::test]
+async fn a_link_the_console_cannot_open_starts_empty_and_says_why() {
+    let console = start_linked_console(
+        &eframe::CreationContext::_new_kittest(egui::Context::default()),
+        "?example=no-such-example",
+        "",
+    );
+
+    assert_eq!(
+        console.orcvs.source().snapshot(),
+        crate::persistence::default_source().snapshot()
+    );
+    let notices = console.themes.notice_list();
+    assert!(
+        notices
+            .iter()
+            .any(|notice| notice.contains("no-such-example")),
+        "{notices:?}"
+    );
 }

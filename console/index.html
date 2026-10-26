@@ -128,7 +128,11 @@
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
     <script>
         // We disable caching during development so that we always view the latest version.
-        if ('serviceWorker' in navigator && window.location.hash !== "#dev") {
+        // A console a link opens (`?example=` or `#source=`, `console/src/linked_source.rs`)
+        // is an embed, and registers no worker, so it never caches the site's console.
+        const linked = new URLSearchParams(window.location.search).has("example")
+            || window.location.hash.startsWith("#source=");
+        if ('serviceWorker' in navigator && window.location.hash !== "#dev" && !linked) {
             window.addEventListener('load', function () {
                 navigator.serviceWorker.register('sw.js');
             });
