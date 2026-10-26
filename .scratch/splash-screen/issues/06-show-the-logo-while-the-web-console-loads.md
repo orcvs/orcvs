@@ -1,4 +1,4 @@
-# 04 — Show the logo while the web console loads
+# 06 — Show the logo while the web console loads
 
 Status: ready-for-agent
 Blocked by: 02
