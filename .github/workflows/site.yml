@@ -1,7 +1,7 @@
 name: Site
 
 # Tests the site. Cloudflare builds and deploys it, through its GitHub app, by
-# running `site/build.sh`; this workflow runs the same script and the
+# running `npm run build` in `site/`; this workflow runs the same build and the
 # Playwright suite against the result, and deploys nothing. The console comes
 # from the `console-web` workflow's build for the same commit when that commit
 # changed the console, and otherwise from the published `console-web` release,
@@ -52,7 +52,7 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # The console built from this commit when this commit changed it, waiting
-      # for that build to finish. Otherwise `site/build.sh` downloads the
+      # for that build to finish. Otherwise the build's `prebuild` step downloads the
       # published console, as Cloudflare's build does.
       - name: Download this commit's web console
         env:

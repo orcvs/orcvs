@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "prebuild": "bash scripts/console.sh",
     "build": "astro build",
     "preview": "astro preview",
     "test": "playwright test"

@@ -4,7 +4,7 @@ name: Console web
 # it as the `console-web` artifact. Its URLs are relative, so the same build
 # serves from any path: the site's `/play/`, or a download. On `main` the build
 # is also published as `console-web.tar.gz` on the `console-web` release, which
-# is public and never expires: Cloudflare's build of the site (`site/build.sh`)
+# is public and never expires: Cloudflare's build of the site (`npm run build` in `site/`)
 # downloads the console from there and never compiles it. Path-filtered to what
 # the console is compiled from: the console, the crates under it, and the
 # toolchain and tool pins.

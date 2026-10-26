@@ -43,9 +43,10 @@ build as `console-web.tar.gz` on the public `console-web` release, then posts to
 `CLOUDFLARE_DEPLOY_HOOK` secret, when the repository has it, so Cloudflare rebuilds the site.
 
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
-the root directory and `bash build.sh` as the build command. `site/build.sh` downloads the
-published console into `site/public/play/`, or copies the directory `CONSOLE_WEB` names, and
-builds the Astro site around it into `site/dist/`; it never compiles the console. A push to `main`
+the root directory and its default build command, `npm run build`. The build's `prebuild` step,
+`site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
+the directory `CONSOLE_WEB` names, and Astro builds the site around it into `site/dist/`; nothing
+in the site build compiles the console. A push to `main`
 deploys, and a pull request gets Cloudflare's preview URL. `site/.node-version` is the Node pin
 Cloudflare's build reads, and a site test holds it equal to `mise.toml`'s.
 
