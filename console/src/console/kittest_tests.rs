@@ -4284,35 +4284,24 @@ async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
 }
 
 ///
-/// `Help → Learn` and `Help → Reference` ask to open the site's pages in a
-/// new tab, so the open console and its Source stay where they are.
+/// The Help menu offers Learn and Reference, the site's pages, after its
+/// Examples. Clicking one would open the system browser, so this only finds
+/// them; `menu_bar::tests` proves the command a click runs.
 ///
 #[tokio::test]
-async fn the_help_menu_links_to_the_sites_learn_and_reference_pages() {
-    for (label, url) in [
-        ("Learn", "https://orcvs.com/learn/"),
-        ("Reference", "https://orcvs.com/reference/"),
-    ] {
-        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
-        harness.run_steps(2);
-        harness.get_by_label("Help").click();
-        harness.step();
-        harness.run_steps(1);
-        menu_item(&harness, label).click();
-        harness.step();
-
-        let opened: Vec<_> = harness
-            .output()
-            .platform_output
-            .commands
-            .iter()
-            .filter_map(|command| match command {
-                egui::OutputCommand::OpenUrl(open) => Some((open.url.as_str(), open.new_tab)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(opened, [(url, true)], "Help → {label}");
-    }
+async fn the_help_menu_offers_the_sites_learn_and_reference_pages() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    harness.get_by_label("Help").click();
+    harness.step();
+    harness.run_steps(1);
+    let examples = harness.get_by_label("Examples ⏵").rect();
+    let learn = menu_item(&harness, "Learn").rect();
+    let reference = menu_item(&harness, "Reference").rect();
+    assert!(
+        examples.top() < learn.top() && learn.top() < reference.top(),
+        "Help does not list Examples, Learn, then Reference"
+    );
 }
 
 ///

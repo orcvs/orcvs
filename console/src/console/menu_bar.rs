@@ -31,6 +31,45 @@ pub(super) fn menu_bar_gap(ui: &egui::Ui) -> f32 {
 }
 
 ///
+/// Opens `url` without leaving the console: in a new tab on the web, so the
+/// open Source stays, and in the system browser on native.
+///
+fn open_link(ctx: &egui::Context, url: &str) {
+    #[cfg(target_arch = "wasm32")]
+    ctx.open_url(egui::OpenUrl::new_tab(url));
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = ctx;
+        match browser(url).spawn() {
+            // Waited for apart, so the opener leaves no zombie once it exits.
+            Ok(mut opener) => {
+                std::thread::spawn(move || opener.wait());
+            }
+            Err(error) => crate::report::error!("{url} could not be opened: {error}"),
+        }
+    }
+}
+
+///
+/// The command that opens `url` in the system's browser. eframe opens a URL
+/// natively only through its `links` feature, whose `webbrowser` brings `url`
+/// and the ICU tables beneath it to parse two fixed links.
+///
+#[cfg(not(target_arch = "wasm32"))]
+fn browser(url: &str) -> std::process::Command {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    let mut command = std::process::Command::new(opener);
+    command.arg(url);
+    command
+}
+
+///
 /// A File menu item for `command`, carrying its chord as shortcut text on
 /// native, where the chord is bound. Answers whether it was chosen.
 ///
@@ -334,10 +373,9 @@ impl Console {
                         }
                     });
                     ui.separator();
-                    // A new tab, so the open console and its Source stay.
                     for (label, url) in SITE_LINKS {
                         if ui.button(label).clicked() {
-                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                            open_link(ui.ctx(), url);
                         }
                     }
                 });
@@ -365,6 +403,24 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::trailing_checkbox;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_browser_command_opens_the_url_with_the_systems_opener() {
+        let command = super::browser("https://orcvs.com/learn/");
+        let opener = if cfg!(target_os = "macos") {
+            "open"
+        } else if cfg!(target_os = "windows") {
+            "explorer"
+        } else {
+            "xdg-open"
+        };
+        assert_eq!(command.get_program(), opener);
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["https://orcvs.com/learn/"]
+        );
+    }
 
     ///
     /// The box and mark `add` paints, the mark placed relative to the box's
