@@ -48,7 +48,8 @@ For Toby, in the Cloudflare dashboard: Workers & Pages → Create → Import a r
 - Worker name: `orcvs`, the `name` in `site/wrangler.jsonc`.
 - Root directory: `site`. Build command: `npm run build`, Cloudflare's default.
 - Deploy command: `npx wrangler@4.149.0 deploy`. Turn on builds for non-production branches, with
-  `npx wrangler@4.149.0 preview` as the preview command.
+  `npx wrangler@4.149.0 preview` as the preview command. `wrangler preview` needs the empty
+  `previews` block in `site/wrangler.jsonc`.
 - Build watch paths: `site/*`, `docs/first-result.md`, `docs/functions.md` and `mise.toml`, so a
   console-only push does not rebuild the site before its console is published.
 - Under Builds → Deploy Hooks, a hook for `main`; store its URL as the `CLOUDFLARE_DEPLOY_HOOK`
