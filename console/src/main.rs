@@ -100,7 +100,7 @@ fn main() {
             )
             .await;
 
-        // Remove the loading text and spinner:
+        // Remove the splash:
         let loading_text = web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.get_element_by_id("loading_text"));

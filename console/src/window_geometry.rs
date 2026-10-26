@@ -43,6 +43,19 @@ impl WindowGeometry {
     }
 
     ///
+    /// A window of `inner_size` about `centre`, or wherever the platform
+    /// places it when there is no centre to keep.
+    ///
+    pub(crate) fn centred_on(centre: Option<Pos2>, inner_size: Vec2) -> Self {
+        Self {
+            inner_size,
+            outer_position: centre.map(|centre| centre - inner_size * 0.5),
+            maximized: false,
+            fullscreen: false,
+        }
+    }
+
+    ///
     /// The commands that return a window to this geometry. The size is kept
     /// between `min_size` and the size of the monitor the window is on, where
     /// egui reports one, so a geometry stored on a larger monitor still fits.

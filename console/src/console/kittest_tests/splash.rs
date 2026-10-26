@@ -6,52 +6,36 @@
 //! hold and the fade are stepped, never waited for.
 //!
 
-use egui::{Event, Key, Modifiers, PointerButton, ViewportCommand, pos2, vec2};
+use egui::{Event, Key, Modifiers, PointerButton, Vec2, ViewportCommand, pos2};
 use egui_kittest::{Harness, kittest::Queryable as _};
 
-use super::{asking, cells, request_close, sent};
+use super::{cells, sent};
 use crate::console::splash::{FADE_SECONDS, HOLD_SECONDS};
 use crate::console::tests::start_console;
-use crate::console::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
+use crate::console::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN, SPLASH_WINDOW};
 use crate::theme_registry::ThemeRegistry;
-use crate::window_geometry::WindowGeometry;
+use crate::window_geometry::stored;
 
 /// Each harness step advances egui's input time by this many seconds.
 const STEP: f32 = 0.05;
 
-/// A geometry the console was closed at on an earlier run.
-fn closed_at() -> WindowGeometry {
-    WindowGeometry {
-        inner_size: vec2(900.0, 640.0),
-        outer_position: Some(pos2(120.0, 80.0)),
-        maximized: false,
-        fullscreen: false,
-    }
-}
-
 ///
 /// A console opening through the splash as `Console::start` opens it, over
-/// `storage` when a test gives one, returning to `console_window`.
+/// `storage` when a test gives one.
 ///
-fn splash_console<'a>(
-    storage: Option<&'a dyn eframe::Storage>,
-    console_window: Option<WindowGeometry>,
-) -> Harness<'a, Console> {
+fn splash_console(storage: Option<&dyn eframe::Storage>) -> Harness<'_, Console> {
     Harness::builder()
-        .with_size(vec2(420.0, 460.0))
+        .with_size(Vec2::from(SPLASH_WINDOW))
         .with_pixels_per_point(1.0)
         .with_step_dt(STEP)
         .build_eframe(move |cc| {
-            if storage.is_some() {
-                cc.storage = storage;
-            }
-            let mut console = start_console(
+            cc.storage = storage;
+            start_console(
                 cc,
                 ThemeRegistry::built_in(),
                 crate::config::Config::default(),
-            );
-            console.open_through_splash(console_window);
-            console
+            )
+            .through_splash(stored(storage))
         })
 }
 
@@ -77,15 +61,18 @@ fn fading(harness: &Harness<'_, Console>) -> bool {
         .is_some_and(|splash| !splash.holding())
 }
 
-/// Runs one frame with a key pressed in it.
+/// Runs one frame with a key tapped in it: pressed and released.
 fn press_a_key(harness: &mut Harness<'_, Console>) {
-    harness.input_mut().events.push(Event::Key {
-        key: Key::Space,
-        physical_key: None,
-        pressed: true,
-        repeat: false,
-        modifiers: Modifiers::NONE,
-    });
+    harness
+        .input_mut()
+        .events
+        .extend([true, false].map(|pressed| Event::Key {
+            key: Key::Space,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }));
     harness.step();
 }
 
@@ -105,7 +92,7 @@ fn grew(harness: &Harness<'_, Console>) -> bool {
 
 #[tokio::test]
 async fn the_splash_holds_the_logo_in_place_of_the_console() {
-    let mut harness = splash_console(None, None);
+    let mut harness = splash_console(None);
     run_for(&mut harness, HOLD_SECONDS / 2.0);
     assert!(
         !console_showing(&harness),
@@ -116,7 +103,7 @@ async fn the_splash_holds_the_logo_in_place_of_the_console() {
 
 #[tokio::test]
 async fn the_hold_ends_by_itself_and_grows_the_window_to_the_default_console() {
-    let mut harness = splash_console(None, None);
+    let mut harness = splash_console(None);
     let mut grown = false;
     for _ in 0..((HOLD_SECONDS / f64::from(STEP)) as usize + 4) {
         harness.step();
@@ -131,19 +118,8 @@ async fn the_hold_ends_by_itself_and_grows_the_window_to_the_default_console() {
 }
 
 #[tokio::test]
-async fn the_window_grows_to_the_geometry_the_console_was_closed_at() {
-    let mut harness = splash_console(None, Some(closed_at()));
-    harness.step();
-    press_a_key(&mut harness);
-    assert!(grew(&harness));
-    let sent = sent(&harness);
-    assert!(sent.contains(&ViewportCommand::InnerSize(vec2(900.0, 640.0))));
-    assert!(sent.contains(&ViewportCommand::OuterPosition(pos2(120.0, 80.0))));
-}
-
-#[tokio::test]
 async fn a_key_press_ends_the_splash_and_reaches_nothing_else() {
-    let mut harness = splash_console(None, None);
+    let mut harness = splash_console(None);
     harness.step();
     let before = cells(harness.state());
     // A key press reaches egui with its text in the same frame.
@@ -169,8 +145,42 @@ async fn a_key_press_ends_the_splash_and_reaches_nothing_else() {
 }
 
 #[tokio::test]
+async fn a_key_held_from_the_splash_reaches_nothing_until_it_is_released() {
+    let mut harness = splash_console(None);
+    harness.step();
+    let before = cells(harness.state());
+    let x = |pressed, repeat| Event::Key {
+        key: Key::X,
+        physical_key: None,
+        pressed,
+        repeat,
+        modifiers: Modifiers::NONE,
+    };
+    harness.input_mut().events.push(x(true, false));
+    harness.step();
+    for _ in 0..((FADE_SECONDS / f64::from(STEP)) as usize + 4) {
+        harness
+            .input_mut()
+            .events
+            .extend([x(true, true), Event::Text("x".to_owned())]);
+        harness.step();
+    }
+    assert_eq!(
+        cells(harness.state()),
+        before,
+        "the held key's repeats edited the Source"
+    );
+    harness.input_mut().events.push(x(false, false));
+    harness.step();
+    assert!(
+        harness.state().splash.is_none(),
+        "the splash outlived the released key"
+    );
+}
+
+#[tokio::test]
 async fn a_click_ends_the_splash() {
-    let mut harness = splash_console(None, None);
+    let mut harness = splash_console(None);
     harness.step();
     harness.event(Event::PointerButton {
         pos: pos2(200.0, 200.0),
@@ -184,7 +194,7 @@ async fn a_click_ends_the_splash() {
 
 #[tokio::test]
 async fn the_logo_fades_and_then_the_splash_is_gone() {
-    let mut harness = splash_console(None, None);
+    let mut harness = splash_console(None);
     harness.step();
     press_a_key(&mut harness);
     assert!(fading(&harness));
@@ -193,25 +203,81 @@ async fn the_logo_fades_and_then_the_splash_is_gone() {
 }
 
 #[cfg(feature = "persistence")]
-mod saves {
+mod with_storage {
     use eframe::App as _;
 
+    use egui::vec2;
+
+    use super::super::{asking, request_close};
     use super::*;
     use crate::persistence::InMemoryStorage;
-    use crate::window_geometry::stored;
+    use crate::window_geometry::{WindowGeometry, store};
+
+    /// A geometry the console was closed at on an earlier run.
+    fn closed_at() -> WindowGeometry {
+        WindowGeometry {
+            inner_size: vec2(900.0, 640.0),
+            outer_position: Some(pos2(120.0, 80.0)),
+            maximized: false,
+            fullscreen: false,
+        }
+    }
+
+    /// A storage holding only the window geometry `closed_at` gives.
+    fn closed_at_storage() -> InMemoryStorage {
+        let mut storage = InMemoryStorage::default();
+        store(&mut storage, &closed_at());
+        storage
+    }
+
+    #[tokio::test]
+    async fn the_window_grows_to_the_geometry_the_console_was_closed_at() {
+        let storage = closed_at_storage();
+        let mut harness = splash_console(Some(&storage));
+        harness.step();
+        press_a_key(&mut harness);
+        assert!(grew(&harness));
+        let sent = sent(&harness);
+        assert!(sent.contains(&ViewportCommand::InnerSize(vec2(900.0, 640.0))));
+        assert!(sent.contains(&ViewportCommand::OuterPosition(pos2(120.0, 80.0))));
+    }
+
+    #[tokio::test]
+    async fn a_relaunch_grows_the_splash_to_the_window_the_console_last_ran_in() {
+        let mut storage = InMemoryStorage::default();
+        {
+            let mut running = Harness::builder()
+                .with_size(vec2(900.0, 640.0))
+                .with_pixels_per_point(1.0)
+                .build_eframe(|cc| {
+                    start_console(
+                        cc,
+                        ThemeRegistry::built_in(),
+                        crate::config::Config::default(),
+                    )
+                });
+            running.step();
+            running.state_mut().save(&mut storage);
+        }
+        let mut harness = splash_console(Some(&storage));
+        harness.step();
+        press_a_key(&mut harness);
+        assert!(sent(&harness).contains(&ViewportCommand::InnerSize(vec2(900.0, 640.0))));
+    }
 
     #[tokio::test]
     async fn a_save_during_the_hold_stores_the_consoles_geometry() {
-        let mut harness = splash_console(None, Some(closed_at()));
+        let storage = closed_at_storage();
+        let mut harness = splash_console(Some(&storage));
         harness.step();
-        let mut storage = InMemoryStorage::default();
-        harness.state_mut().save(&mut storage);
-        assert_eq!(stored(Some(&storage)), Some(closed_at()));
+        let mut saved = InMemoryStorage::default();
+        harness.state_mut().save(&mut saved);
+        assert_eq!(stored(Some(&saved)), Some(closed_at()));
     }
 
     #[tokio::test]
     async fn a_save_during_the_hold_stores_no_geometry_when_none_was_stored() {
-        let mut harness = splash_console(None, None);
+        let mut harness = splash_console(None);
         harness.step();
         let mut storage = InMemoryStorage::default();
         harness.state_mut().save(&mut storage);
@@ -219,10 +285,25 @@ mod saves {
     }
 
     #[tokio::test]
+    async fn a_quit_during_the_hold_stores_the_consoles_geometry() {
+        let storage = closed_at_storage();
+        let mut harness = splash_console(Some(&storage));
+        harness.step();
+        request_close(&mut harness);
+        assert!(
+            !sent(&harness).contains(&ViewportCommand::CancelClose),
+            "a clean console held the window open"
+        );
+        let mut saved = InMemoryStorage::default();
+        harness.state_mut().save(&mut saved);
+        assert_eq!(stored(Some(&saved)), Some(closed_at()));
+    }
+
+    #[tokio::test]
     async fn a_close_during_the_hold_ends_the_splash_and_asks_about_unsaved_changes() {
         let mut storage = InMemoryStorage::default();
         crate::persistence::save(&mut storage, &crate::persistence::edited_source());
-        let mut harness = splash_console(Some(&storage), None);
+        let mut harness = splash_console(Some(&storage));
         harness.step();
 
         request_close(&mut harness);

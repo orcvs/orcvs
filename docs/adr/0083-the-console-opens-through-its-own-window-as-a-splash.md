@@ -21,3 +21,5 @@ The native console shows a splash with the Orcvs logo as it opens. egui and efra
 - Turning `persist_window` back on breaks the splash from the second launch: eframe opens the first window at the stored console size, and the splash has nothing to grow from.
 - A geometry is restored in egui points through the monitor the window opens on. eframe restored physical pixels and, on Windows only, pulled a window back onto a connected monitor. The console clamps the size to the monitor it opens on and leaves the position to the platform.
 - Eframe's own `window` key goes unwritten. A geometry stored under it before this decision is not read.
+- On macOS egui reports the window's maximised state only when the window opens, so a window zoomed after launch is stored at its zoomed size and position rather than as maximised.
+- The splash's end resizes the window even when it ends for a close, so a clean close during the hold shows the console-sized window for a frame before it goes.

@@ -161,11 +161,7 @@ impl Console {
         // `~/.orcvs/config.toml` and the web runs on the defaults.
         let console = Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())?;
         #[cfg(not(target_arch = "wasm32"))]
-        let console = {
-            let mut console = console;
-            console.open_through_splash(crate::window_geometry::stored(cc.storage));
-            console
-        };
+        let console = console.through_splash(crate::window_geometry::stored(cc.storage));
         Ok(console)
     }
 

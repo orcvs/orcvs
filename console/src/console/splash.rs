@@ -2,13 +2,13 @@
 //! The splash the native console opens through: its own window, borderless
 //! and splash-sized, holding the logo, the name and the version until the hold
 //! ends or the viewer presses a key or clicks. The window then grows into the
-//! console and the logo fades over the running Grid (ADR 0083).
+//! console and the logo fades over the running Grid.
 //!
 
 use egui::{Align2, Color32, FontId, Rect, Vec2, ViewportCommand, pos2, vec2};
 
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
-use crate::theme::Appearance;
+use crate::theme::{Appearance, Theme};
 use crate::window_geometry::WindowGeometry;
 
 /// The splash window's size, which `main` opens the window at.
@@ -32,6 +32,9 @@ pub(super) struct Splash {
     opened_at: Option<f64>,
     /// egui's input time the hold ended at, which the fade runs from.
     ended_at: Option<f64>,
+    /// Whether a key that ended the hold is still down, so keyboard input is
+    /// withheld from the console.
+    withholding_keys: bool,
 }
 
 impl Splash {
@@ -49,6 +52,7 @@ impl Splash {
             console_window,
             opened_at: None,
             ended_at: None,
+            withholding_keys: false,
         }
     }
 
@@ -68,7 +72,8 @@ impl Splash {
 
     ///
     /// Ends the hold at `now`: the window gains its decorations and grows to
-    /// the console's geometry.
+    /// the console's geometry, or to the default size about the splash's
+    /// centre.
     ///
     fn end(&mut self, ctx: &egui::Context, now: f64) {
         self.ended_at = Some(now);
@@ -76,20 +81,17 @@ impl Splash {
         ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
         ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
         ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(min_size));
-        let monitor_size = ctx.input(|input| input.viewport().monitor_size);
-        let commands = match self.console_window {
-            Some(geometry) => geometry.commands(min_size, monitor_size),
-            None => {
-                let size = Vec2::from(DEFAULT_VIEW_SIZE);
-                let mut commands = vec![ViewportCommand::InnerSize(size)];
-                if let Some(monitor_size) = monitor_size {
-                    let corner = ((monitor_size - size) * 0.5).max(Vec2::ZERO);
-                    commands.push(ViewportCommand::OuterPosition(corner.to_pos2()));
-                }
-                commands
-            }
-        };
-        for command in commands {
+        let (monitor_size, centre) = ctx.input(|input| {
+            let viewport = input.viewport();
+            (
+                viewport.monitor_size,
+                viewport.outer_rect.map(|rect| rect.center()),
+            )
+        });
+        let geometry = self
+            .console_window
+            .unwrap_or_else(|| WindowGeometry::centred_on(centre, Vec2::from(DEFAULT_VIEW_SIZE)));
+        for command in geometry.commands(min_size, monitor_size) {
             ctx.send_viewport_cmd(command);
         }
     }
@@ -103,55 +105,55 @@ impl Splash {
     }
 
     ///
-    /// Paints the backdrop at `backdrop`'s opacity and the logo, the name and
-    /// the version over `rect`, on a layer above the console.
+    /// Paints `theme`'s backdrop, the logo, the name and the version over the
+    /// window, on a layer above the console, at the opacity `now` gives.
     ///
-    fn paint(&self, ctx: &egui::Context, rect: Rect, backdrop: Color32, now: f64) {
+    fn show(&self, ctx: &egui::Context, theme: &Theme, appearance: Appearance, now: f64) {
         let opacity = self.opacity(now);
+        let rect = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new("splash"),
         ));
-        painter.rect_filled(rect, 0.0, backdrop.gamma_multiply(opacity));
+        painter.rect_filled(rect, 0.0, theme.window_background.gamma_multiply(opacity));
 
         let side = LOGO_SIDE.min(rect.width() * 0.7).min(rect.height() * 0.6);
         let logo = Rect::from_center_size(rect.center() - vec2(0.0, 28.0), Vec2::splat(side));
         // The logo is white on transparent: untinted it is the artwork on a
         // dark backdrop, and tinted black it reads on a light one.
-        let ink = if ctx.theme() == egui::Theme::Dark {
-            Color32::WHITE
-        } else {
-            Color32::BLACK
+        let ink = match appearance {
+            Appearance::Dark => Color32::WHITE,
+            Appearance::Light => Color32::BLACK,
         };
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
         painter.image(self.logo.id(), logo, uv, ink.gamma_multiply(opacity));
-
-        let visuals = &ctx.style_of(ctx.theme()).visuals;
         painter.text(
             pos2(rect.center().x, logo.bottom() + 18.0),
             Align2::CENTER_TOP,
             "O R C V S",
             FontId::monospace(18.0),
-            visuals.text_color().gamma_multiply(opacity),
+            theme.text.gamma_multiply(opacity),
         );
         painter.text(
             pos2(rect.center().x, logo.bottom() + 46.0),
             Align2::CENTER_TOP,
             concat!("v", env!("CARGO_PKG_VERSION")),
             FontId::monospace(12.0),
-            visuals.weak_text_color().gamma_multiply(opacity),
+            theme.text_muted.gamma_multiply(opacity),
         );
+        ctx.request_repaint();
     }
 }
 
 impl Console {
     ///
-    /// Opens the console through the splash, which grows the window to
+    /// The console opening through the splash, which grows the window to
     /// `console_window` when it ends, or to the default size when that is
     /// `None`.
     ///
-    pub(crate) fn open_through_splash(&mut self, console_window: Option<WindowGeometry>) {
+    pub(crate) fn through_splash(mut self, console_window: Option<WindowGeometry>) -> Self {
         self.splash = Some(Splash::new(&self.ctx, console_window));
+        self
     }
 
     ///
@@ -159,54 +161,70 @@ impl Console {
     /// frame, in which case the console shows nothing.
     ///
     /// The key press or click that ends the hold ends with this frame, so it
-    /// never reaches the console. A close request ends the hold and lets the
-    /// console run this frame, so the console asks about unsaved changes in
-    /// the decorated window.
+    /// never reaches the console, and keyboard input is withheld from the
+    /// console until every key held then is released, so a held key's repeats
+    /// and late text do not reach the Source either. A close request ends the
+    /// hold and lets the console run this frame, so the console asks about
+    /// unsaved changes in the decorated window.
     ///
     pub(super) fn hold_splash(&mut self, ctx: &egui::Context, appearance: Appearance) -> bool {
         let Some(splash) = self.splash.as_mut() else {
             return false;
         };
         if !splash.holding() {
+            if splash.withholding_keys {
+                splash.withholding_keys = ctx.input(|input| !input.keys_down.is_empty());
+                ctx.input_mut(|input| {
+                    input.events.retain(|event| {
+                        !matches!(
+                            event,
+                            egui::Event::Key { .. } | egui::Event::Text(_) | egui::Event::Ime(_)
+                        )
+                    });
+                });
+            }
             return false;
         }
-        let (now, dismissed, closing) = ctx.input(|input| {
-            let dismissed = input.events.iter().any(|event| {
-                matches!(
-                    event,
-                    egui::Event::Key { pressed: true, .. }
-                        | egui::Event::PointerButton { pressed: true, .. }
-                )
-            });
-            (input.time, dismissed, input.viewport().close_requested())
+        let (now, key_pressed, clicked, closing) = ctx.input(|input| {
+            let key_pressed = input
+                .events
+                .iter()
+                .any(|event| matches!(event, egui::Event::Key { pressed: true, .. }));
+            let clicked = input
+                .events
+                .iter()
+                .any(|event| matches!(event, egui::Event::PointerButton { pressed: true, .. }));
+            (
+                input.time,
+                key_pressed,
+                clicked,
+                input.viewport().close_requested(),
+            )
         });
         let opened_at = *splash.opened_at.get_or_insert(now);
-        if closing || dismissed || now - opened_at >= HOLD_SECONDS {
+        if closing || key_pressed || clicked || now - opened_at >= HOLD_SECONDS {
             splash.end(ctx, now);
+            splash.withholding_keys = key_pressed;
             ctx.request_repaint();
-            return dismissed && !closing;
+            return (key_pressed || clicked) && !closing;
         }
-        let backdrop = self.themes.presented(appearance).window_background;
-        splash.paint(ctx, ctx.content_rect(), backdrop, now);
-        ctx.request_repaint();
+        splash.show(ctx, self.themes.presented(appearance), appearance, now);
         true
     }
 
     ///
     /// Fades the logo over the console once the hold has ended, and drops the
-    /// splash when the fade is done.
+    /// splash once the fade is done and no key held from the hold remains.
     ///
     pub(super) fn fade_splash(&mut self, ctx: &egui::Context, appearance: Appearance) {
         let Some(splash) = self.splash.as_ref() else {
             return;
         };
         let now = ctx.input(|input| input.time);
-        if splash.opacity(now) <= 0.0 {
+        if splash.opacity(now) > 0.0 {
+            splash.show(ctx, self.themes.presented(appearance), appearance, now);
+        } else if !splash.withholding_keys {
             self.splash = None;
-            return;
         }
-        let backdrop = self.themes.presented(appearance).window_background;
-        splash.paint(ctx, ctx.content_rect(), backdrop, now);
-        ctx.request_repaint();
     }
 }
