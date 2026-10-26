@@ -5,7 +5,7 @@ Type: task
 Blocked by: 02
 
 **What to build:** An activated `!o` sends its Payload as one OSC message through the network output
-adapter from ticket 02 ([spec](../spec.md), ADR 0085).
+adapter from ticket 02 ([spec](../spec.md), ADR 0086).
 
 - [ ] Evaluation splits the Payload into words and validates the address, the optional `,` type
       string and each argument, emitting one command of typed arguments: int32, float32 or string.

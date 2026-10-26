@@ -5,7 +5,7 @@ Type: task
 Blocked by: None — can start immediately
 
 **What to build:** The Parser recognises `!u` and `!o` as Terminal Output Functions whose claim is
-the spelling, the Payload and its closing `!` ([spec](../spec.md), ADR 0085). Neither sends
+the spelling, the Payload and its closing `!` ([spec](../spec.md), ADR 0086). Neither sends
 anything yet.
 
 - [ ] `!u` and `!o` parse wherever a Terminal Output root can start, with the Payload running to the
