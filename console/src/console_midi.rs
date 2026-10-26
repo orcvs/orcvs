@@ -107,6 +107,7 @@ mod backend {
                 }
             }
             self.restore_enumeration_client(output);
+            destinations.extend(crate::builtin_synth::destinations());
             Ok(destinations)
         }
 
@@ -114,6 +115,9 @@ mod backend {
             &mut self,
             destination_id: &MidiDestinationId,
         ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+            if crate::builtin_synth::is_synth(destination_id.as_str()) {
+                return crate::builtin_synth::connect(destination_id.as_str());
+            }
             let destination_id = destination_id.clone();
             let output = self.enumeration_client()?;
             let port = match output.find_port_by_id(destination_id.as_str()) {
@@ -214,13 +218,18 @@ mod backend {
 
     impl MidiBackend for ConsoleMidiBackend {
         fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-            self.0.destinations()
+            let mut destinations = self.0.destinations().unwrap_or_default();
+            destinations.extend(crate::builtin_synth::destinations());
+            Ok(destinations)
         }
 
         fn connect(
             &mut self,
             destination_id: &MidiDestinationId,
         ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
+            if crate::builtin_synth::is_synth(destination_id.as_str()) {
+                return crate::builtin_synth::connect(destination_id.as_str());
+            }
             self.0.connect(destination_id)
         }
     }

@@ -42,6 +42,14 @@ mod theme_document;
 mod theme_registry;
 // The dark and light Theme selections and the Theme each presents.
 mod theme_selection;
+// PROTOTYPE: the built-in synth timing spike.
+#[cfg(any(
+    target_arch = "wasm32",
+    target_os = "macos",
+    target_os = "windows",
+    target_os = "linux"
+))]
+mod builtin_synth;
 // The browser's MIDI backend over the Web MIDI API. Its logic is compiled
 // for tests on every target, driven by a fake of the Web MIDI access it reads.
 #[cfg(any(target_arch = "wasm32", test))]
