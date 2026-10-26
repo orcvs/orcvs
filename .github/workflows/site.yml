@@ -1,8 +1,9 @@
 name: Site
 
-# Tests the site. Cloudflare builds and deploys it, through its GitHub app, by
-# running `site/build.sh`; this workflow runs the same script and the
-# Playwright suite against the result, and deploys nothing. The console comes
+# Tests the site. Cloudflare builds and deploys it through its GitHub app: it
+# installs the dependencies and runs `npm run build` in `site/`. This workflow
+# does the same through `mise run site_build`, which is exactly those two
+# commands, runs the Playwright suite against the result, and deploys nothing. The console comes
 # from the `console-web` workflow's build for the same commit when that commit
 # changed the console, and otherwise from the published `console-web` release,
 # as Cloudflare's build takes it. Path-filtered to what the site itself is
@@ -52,8 +53,8 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # The console built from this commit when this commit changed it, waiting
-      # for that build to finish. Otherwise `site/build.sh` downloads the
-      # published console, as Cloudflare's build does.
+      # for that build to finish. Otherwise the build's `prebuild` step downloads
+      # the published console, as Cloudflare's build does.
       - name: Download this commit's web console
         env:
           GH_TOKEN: ${{ github.token }}
@@ -69,7 +70,7 @@ jobs:
           fi
           gh run watch "$run" --exit-status > /dev/null
           gh run download "$run" --name console-web --dir target/console-web
-          echo "CONSOLE_WEB=target/console-web" >> "$GITHUB_ENV"
+          echo "CONSOLE_WEB=$GITHUB_WORKSPACE/target/console-web" >> "$GITHUB_ENV"
           echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
       - run: mise run site_build
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
