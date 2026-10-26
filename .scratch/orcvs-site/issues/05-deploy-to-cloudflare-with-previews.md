@@ -11,13 +11,38 @@ versioned worker. See `../spec.md` (Hosting, Service worker).
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 Toby provides the Cloudflare account, an API token stored as a repository secret, and the domain.
 The workflow is written so it does nothing until those exist.
 
-- [ ] A test or recorded check shows a second deploy replaces the console a returning reader had
+- [x] A test or recorded check shows a second deploy replaces the console a returning reader had
       cached.
 - [ ] A pull request that changes the site gets a preview URL.
-- [ ] The workflow passes `bash scripts/check-tooling-contract.sh`, `actionlint` and
+- [x] The workflow passes `bash scripts/check-tooling-contract.sh`, `actionlint` and
       `zizmor --offline .github/workflows`, and its token has the least scope the deploy needs.
+
+## Comments
+
+### Built, 2026-10-26; waiting on the Cloudflare account
+
+`site/wrangler.jsonc` and `site/public/_headers` configure the Worker, and the deploy steps sit at
+the end of the `site` job in `.github/workflows/site.yml`, so they use the build the tests just
+passed. They skip until the repository has the `CLOUDFLARE_API_TOKEN` secret and the
+`CLOUDFLARE_ACCOUNT_ID` variable. `wrangler deploy --dry-run` reads the 53 built files with no
+bindings.
+
+The console keeps fixed file names and its existing worker: navigations, `console.js` and
+`console_bg.wasm` are network-first, and `_headers` makes every `/play/` file revalidate. So a
+deploy needs neither hashing nor a new cache name. `site/tests/deploy.spec.ts` proves it by
+changing the served files under a reader whose worker controls the page, and fails if the worker
+answers navigations from its cache.
+
+Wrangler 4.149.0 runs through `npx` in the workflow rather than from `site/package.json`: as a
+dependency it adds about 180 MB to every site install, and its local-dev runtime carries an
+undici advisory that the deploy never runs.
+
+For Toby: create an account API token with only Account → Workers Scripts → Edit, store it as the
+`CLOUDFLARE_API_TOKEN` repository secret, set the `CLOUDFLARE_ACCOUNT_ID` repository variable, and
+name the domain so it can go in `routes`. The first pull request after that shows its preview URL
+in the job summary, which closes the remaining box.

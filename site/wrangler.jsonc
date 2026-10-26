@@ -1,0 +1,14 @@
+// The site as a Worker that serves static assets and runs no script. `mise run site_build` writes
+// `dist/`, which holds the Astro pages and the console at `/play/`. Toby's domain goes in `routes`
+// once it is chosen; until then the Worker answers on workers.dev.
+{
+  "$schema": "https://unpkg.com/wrangler@4.149.0/config-schema.json",
+  "name": "orcvs-site",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  },
+  "workers_dev": true,
+  "preview_urls": true
+}

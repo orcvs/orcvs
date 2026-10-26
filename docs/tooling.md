@@ -39,8 +39,13 @@ The site in `site/` has its own workflow, `.github/workflows/site.yml`, path-fil
 is built from: the site, the console and the crates under it, the toolchain and tool pins, and the
 docs it renders. `mise run site_build` builds the release console into `site/public/play/` with
 `/play/` as its base, builds the Astro site around it into `site/dist/`, and fails if the two base
-paths disagree. `mise run site_test` serves `site/dist/` and runs the Playwright smoke tests in
+paths disagree. `mise run site_test` serves `site/dist/` and runs the Playwright tests in
 Chromium. Neither is part of `check_pull_request`, and the workflow is not a required check.
+The same job then deploys `site/dist/` to Cloudflare as a Worker with static assets
+(`site/wrangler.jsonc`): a push to `main` runs `wrangler deploy`, and a pull request uploads a
+preview whose URL the job summary shows. Both skip until the repository has the
+`CLOUDFLARE_API_TOKEN` secret, scoped to Workers Scripts Edit, and the `CLOUDFLARE_ACCOUNT_ID`
+variable.
 
 `mise run check` runs both tiers locally. The merge queue verifies the combined candidate with the
 merge tier, the browser suite and the macOS native tier before it reaches `main`. Development happens on macOS, so its
