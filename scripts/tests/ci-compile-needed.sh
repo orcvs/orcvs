@@ -55,6 +55,21 @@ commit
 check pull_request true 'a Rust source'
 
 repo
+mkdir -p "$work/repo/site/src"
+echo 'export default {}' > "$work/repo/site/astro.config.mjs"
+echo more >> "$work/repo/docs/notes.md"
+commit
+check pull_request false 'the site and Markdown'
+check push true 'the site'
+
+repo
+mkdir -p "$work/repo/site"
+echo '{}' > "$work/repo/site/package.json"
+echo more >> "$work/repo/src/main.rs"
+commit
+check pull_request true 'the site and a Rust source'
+
+repo
 echo text > "$work/repo/docs/notes.markdown"
 commit
 check pull_request true 'a .markdown file'

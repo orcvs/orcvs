@@ -18,9 +18,9 @@ Verification has two trigger tiers:
   tier at proptest's full case count, and a compile of the release captures. CI distributes these gates across the existing Linux and WASM
   jobs on `merge_group`, after a push to `main`, or on manual dispatch.
 
-A pull request whose diff is Markdown alone does not compile. The `changes` job asks
+A pull request whose diff is Markdown and `site/` alone does not compile. The `changes` job asks
 `scripts/ci-compile-needed.sh`, which answers `false` only for a pull request whose every changed
-path ends in `.md`, counting both sides of a rename; the Linux job then runs `mise run check_docs` —
+path ends in `.md` or lies under `site/`, counting both sides of a rename; the Linux job then runs `mise run check_docs` —
 the tooling contract and the roadmap planner, the only gates that read Markdown — and the WASM job
 is skipped. `check_pull_request` runs `check_docs` as its first step, so a Markdown-reading gate is
 added in one place and both tiers run it.
@@ -34,6 +34,13 @@ The Linux pull-request tier and `check_wasm` therefore ran on the pull request's
 `main` as it stood then, not on the queued candidate. A conflict between two queued pull requests
 that only those gates would catch — a wasm-only build break, a feature-off build, a rustdoc or
 workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
+
+The site in `site/` has its own workflow, `.github/workflows/site.yml`, path-filtered to what it
+is built from: the site, the console and the crates under it, the toolchain and tool pins, and the
+docs it renders. `mise run site_build` builds the release console into `site/public/play/` with
+`/play/` as its base, builds the Astro site around it into `site/dist/`, and fails if the two base
+paths disagree. `mise run site_test` serves `site/dist/` and runs the Playwright smoke tests in
+Chromium. Neither is part of `check_pull_request`, and the workflow is not a required check.
 
 `mise run check` runs both tiers locally. The merge queue verifies the combined candidate with the
 merge tier, the browser suite and the macOS native tier before it reaches `main`. Development happens on macOS, so its

@@ -11,14 +11,29 @@ gates, and for console changes too. See `../spec.md` (Framework, Routes, Build, 
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Nothing built is committed; `site/public/play/` is ignored.
-- [ ] Smoke tests show `/`, `/learn/`, `/reference/` and `/play/` load with no console errors, and
+- [x] Nothing built is committed; `site/public/play/` is ignored.
+- [x] Smoke tests show `/`, `/learn/`, `/reference/` and `/play/` load with no console errors, and
       that `/play/`'s console starts.
-- [ ] The site uses the console's font and the built-in Themes' colours.
-- [ ] A site-only pull request runs the site job and skips the Rust compile; a `console/` change runs
+- [x] The site uses the console's font and the built-in Themes' colours.
+- [x] A site-only pull request runs the site job and skips the Rust compile; a `console/` change runs
       both.
-- [ ] `node --test scripts/tests/roadmap.test.ts` passes on the new Node pin.
-- [ ] `bash scripts/check-tooling-contract.sh`, `actionlint` and `zizmor --offline .github/workflows`
+- [x] `node --test scripts/tests/roadmap.test.ts` passes on the new Node pin.
+- [x] `bash scripts/check-tooling-contract.sh`, `actionlint` and `zizmor --offline .github/workflows`
       pass, and `mise run audit_deps` is not needed because no Cargo dependency changes.
+
+## Comments
+
+### Shipped, 2026-10-26
+
+The site job is `.github/workflows/site.yml`, path-filtered and not a required check. The task is
+`mise run site_build`, then `mise run site_test`. Two things surfaced on the way:
+
+- Release builds of the console had never worked: Trunk's default `wasm-opt` rejects the
+  bulk-memory and float-to-int instructions current Rust emits. `console/index.html` now passes the
+  feature flags. Debug builds, which every other gate uses, skip `wasm-opt`.
+- Astro 7 backgrounds `astro preview` when it detects an agent, so Playwright saw the server exit.
+  The config passes `--ignore-lock`, which keeps it in the foreground.
+
+`npm` rather than `pnpm`: it ships with the pinned Node, so the site adds no tool to `mise.toml`.

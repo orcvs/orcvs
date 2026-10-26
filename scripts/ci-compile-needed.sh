@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Prints `compile=true` or `compile=false` for `$GITHUB_OUTPUT`.
 #
-# Only a pull request whose diff is Markdown alone skips the compile. No crate
-# compiles or reads a `.md` file, so such a diff cannot change what cargo builds
-# or tests; the tooling contract and the roadmap planner do read Markdown, and
+# Only a pull request whose diff is Markdown and `site/` alone skips the compile.
+# No crate compiles or reads a `.md` file or anything under `site/`, so such a
+# diff cannot change what cargo builds or tests; the tooling contract and the roadmap planner do read Markdown, and
 # `check_docs` still runs them. Every other event, and any diff the script
 # cannot read, compiles.
 #
@@ -22,6 +22,8 @@ if [[ "${CI_EVENT:?}" != pull_request ]] ||
 fi
 
 while IFS= read -r path; do
+  # No crate builds from `site/`; `.github/workflows/site.yml` checks it.
+  [[ "$path" == site/* ]] && continue
   if [[ "$path" != *.md ]]; then
     echo compile=true
     exit 0
