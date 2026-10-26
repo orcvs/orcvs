@@ -44,7 +44,7 @@ cache.
 For Toby, in the Cloudflare dashboard: Workers & Pages → Create → Import a repository, choose
 `orcvs/orcvs` (this installs Cloudflare's GitHub app), and set:
 
-- Worker name: `orcvs-site`, the `name` in `site/wrangler.jsonc`.
+- Worker name: `orcvs`, the `name` in `site/wrangler.jsonc`.
 - Root directory: `site`. Build command: `npm run build`, Cloudflare's default.
 - Deploy command: `npx wrangler@4.149.0 deploy`. Turn on builds for non-production branches, with
   `npx wrangler@4.149.0 preview` as the preview command.

@@ -3,7 +3,7 @@
 // added, the Worker answers on workers.dev.
 {
   "$schema": "https://unpkg.com/wrangler@4.149.0/config-schema.json",
-  "name": "orcvs-site",
+  "name": "orcvs",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./dist",
