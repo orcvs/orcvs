@@ -6993,7 +6993,7 @@ async fn a_link_the_console_cannot_open_starts_empty_and_says_why() {
 }
 
 ///
-/// The small console (ADR 0085) opens empty and stopped, shows no menu bar,
+/// The small console (ADR 0086) opens empty and stopped, shows no menu bar,
 /// and opens each Source File text sent to it, still stopped.
 ///
 #[tokio::test]

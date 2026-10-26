@@ -199,7 +199,7 @@ wasm-bindgen-futures = "0.4"
 # connection events are left off: Orcvs sends, does not ask for system
 # exclusive, and discovery is something the performer asks for.
 # `MessageEvent` is the small console's posted Source (`web_startup.rs`, ADR
-# 0085), another generated binding that adds no dependency.
+# 0086), another generated binding that adds no dependency.
 web-sys = { version = "0.3", features = [
     "Document",
     "Element",

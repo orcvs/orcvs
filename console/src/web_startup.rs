@@ -17,7 +17,7 @@ pub fn canvas_or_report(
 
 ///
 /// Puts the Source File text each `{ type: "orcvs.open", source }` message
-/// posts in `inbox`, and repaints `ctx` so a frame opens it (ADR 0085). A
+/// posts in `inbox`, and repaints `ctx` so a frame opens it (ADR 0086). A
 /// message from another origin, of another type, or whose `source` is not a
 /// string is ignored. The listener lasts as long as the page.
 ///

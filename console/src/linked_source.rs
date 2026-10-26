@@ -8,7 +8,7 @@
 //! full console is never read over or written over. A Linked console opens with
 //! Playback stopped, as every console does, so a link cannot play by itself.
 //!
-//! `?small` opens the small console (ADR 0085): Linked, empty, without the
+//! `?small` opens the small console (ADR 0086): Linked, empty, without the
 //! menu bar, and open to Source File text posted to it, which its [`Inbox`]
 //! holds until the next frame opens it.
 //!

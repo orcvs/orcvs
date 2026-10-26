@@ -44,7 +44,7 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
 - **Examples.** `site/src/console/docs.ts` draws each Source in `docs/first-result.md` and
   `docs/functions.md` as a Grid (`grid.ts`). Pressing a starting Source starts the page's one
   small console, `/play/?small`, and posts it `{ type: "orcvs.open", source }` (`small.ts`, ADR
-  0085). Nothing opens a new tab or window.
+  0086). Nothing opens a new tab or window.
 - **Links.** `/play/?example=<link-name>` opens a shipped example (`cell-tracker`,
   `orca-tracker`); `/play/#source=<percent-encoded Source File>` opens text, up to 16 KiB of
   fragment; `/play/?small` opens the small console. Each opens stopped, none reads or writes saved

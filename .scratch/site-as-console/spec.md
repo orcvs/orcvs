@@ -26,7 +26,7 @@ Toby's direction, 2026-10-26:
 - "Function source code references should use a grid." Examples are drawn as Cells.
 - "Launching examples in a new window is bad." Nothing opens a new tab or window.
 - "Can we embed a smaller console and pass messages to it for code examples?" A page with examples
-  holds one small console and sends it each example by message (ADR 0085).
+  holds one small console and sends it each example by message (ADR 0086).
 - Learn and Reference are reached from the console's Help menu (`orcvs-site/13`).
 
 The prototype is on the `prototype/site-as-console` branch (`site/prototype-console-site/`).
@@ -35,7 +35,7 @@ The prototype is on the `prototype/site-as-console` branch (`site/prototype-cons
 
 - **Home.** `/` is a page whose console fills the window: `/play/` in a same-origin frame, with the
   sound module below it once the built-in synth exists (`orcvs-site/07`, `08`).
-- **Small console.** `/play/?small` (ADR 0085): no menu bar, Linked, listens for `orcvs.open`.
+- **Small console.** `/play/?small` (ADR 0086): no menu bar, Linked, listens for `orcvs.open`.
 - **Learn and Reference.** Starlight renders the repository's docs. Its colours come from the
   Grayscale Themes and its fonts from Monaspace Neon. The site's own pages hold no prose of their
   own beyond titles. The About page and the home page's hero go.

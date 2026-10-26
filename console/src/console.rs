@@ -140,7 +140,7 @@ pub struct Console {
     /// The context an Open wakes the Panel through when the new Orcvs's
     /// Playback Engine publishes.
     ctx: egui::Context,
-    /// The small console's posted Source File text (ADR 0085), or `None`
+    /// The small console's posted Source File text (ADR 0086), or `None`
     /// for any other console. A small console shows no menu bar.
     #[cfg(any(target_arch = "wasm32", test))]
     small: Option<crate::linked_source::Inbox>,

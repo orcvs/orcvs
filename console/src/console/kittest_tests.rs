@@ -4284,7 +4284,7 @@ async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
 }
 
 ///
-/// The small console (ADR 0085) shows the Grid and the Panel without the
+/// The small console (ADR 0086) shows the Grid and the Panel without the
 /// menu bar.
 ///
 #[tokio::test]

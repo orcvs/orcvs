@@ -1,4 +1,4 @@
-// The page's small console (ADR 0085): `/play/?small`, started on the first press of a Grid and
+// The page's small console (ADR 0086): `/play/?small`, started on the first press of a Grid and
 // sent each pressed Grid's Source by message, so every example opens in the one console.
 
 let frame: HTMLIFrameElement | undefined;
