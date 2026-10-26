@@ -331,6 +331,33 @@ async fn a_console_save_restarts_from_the_native_ron_file() {
 }
 
 ///
+/// A console its URL opens neither restores the stored Source nor stores its
+/// own: the stored revision is the same after the linked console edits and
+/// saves, so trying an example never loses the reader's work.
+///
+#[tokio::test]
+async fn a_linked_console_neither_restores_nor_stores_the_source() {
+    let kept = edited_source();
+    let mut storage = InMemoryStorage::default();
+    save(&mut storage, &kept);
+    let stored = eframe::Storage::get_string(&storage, SOURCE_KEY);
+
+    let mut cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+    cc.storage = Some(&storage);
+    let mut console = super::tests::start_linked_console(&cc, "", "#source=1");
+    assert_ne!(
+        console.orcvs.source().snapshot(),
+        kept.snapshot(),
+        "the linked console restored the stored Source"
+    );
+
+    console.orcvs.write("9");
+    console.save(&mut storage);
+
+    assert_eq!(eframe::Storage::get_string(&storage, SOURCE_KEY), stored);
+}
+
+///
 /// The running Console stores its window's geometry with the Source, so a
 /// relaunch can return the window to it.
 ///

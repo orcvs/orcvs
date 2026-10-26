@@ -1,0 +1,114 @@
+name: Console web
+
+# Builds the release web console once (`mise run console_web_build`) and keeps
+# it as the `console-web` artifact. Its URLs are relative, so the same build
+# serves from any path: the site's `/play/`, or a download. On `main` the build
+# is also published as `console-web.tar.gz` on the `console-web` release, which
+# is public and never expires: Cloudflare's build of the site (`site/build.sh`)
+# downloads the console from there and never compiles it. Path-filtered to what
+# the console is compiled from: the console, the crates under it, and the
+# toolchain and tool pins.
+#
+# Repeated under both triggers because Actions does not support YAML anchors.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'console/**'
+      - 'orcvs/**'
+      - 'lang/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'mise.toml'
+      - '.github/workflows/console-web.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'console/**'
+      - 'orcvs/**'
+      - 'lang/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'mise.toml'
+      - '.github/workflows/console-web.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    # One release WASM build with wasm-opt: a few minutes warm.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      - run: mise run console_web_build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: console-web
+          path: target/console-web
+          if-no-files-found: error
+
+  # Publishes a console built on `main` where Cloudflare's site build fetches
+  # it, then asks Cloudflare to rebuild the site so the live site serves it.
+  # The deploy hook is a URL from the Worker's Builds settings that can only
+  # start a build; the step skips until the repository has it.
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    concurrency:
+      group: console-web-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write # replace the console-web release asset
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: console-web
+          path: console-web
+      - name: Publish the console on the console-web release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tar -czf console-web.tar.gz -C console-web .
+          notes="The web console built from $GITHUB_SHA on main. The site's build downloads console-web.tar.gz from here."
+          if gh release view console-web > /dev/null 2>&1; then
+            gh release edit console-web --notes "$notes"
+          else
+            gh release create console-web --prerelease --target "$GITHUB_SHA" \
+              --title "Web console (latest main)" --notes "$notes"
+          fi
+          gh release upload console-web console-web.tar.gz --clobber
+      - name: Rebuild the site on Cloudflare
+        env:
+          DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+        run: |
+          if [[ -z "$DEPLOY_HOOK" ]]; then
+            echo "No Cloudflare deploy hook yet; the site picks the console up on its next build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          curl -fsS -X POST "$DEPLOY_HOOK" > /dev/null

@@ -39,6 +39,7 @@ use self::repaint::{moving_run_clock, request_timed_repaint, wake_panel_when_pla
 use self::source_view::SourceView;
 use crate::config::Config;
 use crate::console_midi::ConsoleMidiBackend;
+use crate::linked_source::Opening;
 use crate::midi::MidiDeviceSelection;
 use crate::persistence::starting_source;
 use crate::theme::Appearance;
@@ -139,6 +140,10 @@ pub struct Console {
     /// The context an Open wakes the Panel through when the new Orcvs's
     /// Playback Engine publishes.
     ctx: egui::Context,
+    /// Whether `save` stores the Source. A console its URL opened stores
+    /// nothing, so the Source a reader keeps is never written over.
+    #[cfg(feature = "persistence")]
+    stores_source: bool,
 }
 
 impl Console {
@@ -160,25 +165,62 @@ impl Console {
         // one it needs and never reads the machine's own Theme directory.
         // Settings are read here for the same reason: native reads
         // `~/.orcvs/config.toml` and the web runs on the defaults.
-        let console = Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())?;
+        let console = Self::new(
+            cc,
+            ThemeRegistry::start(cc.storage),
+            Config::start(),
+            Opening::Stored,
+        )?;
         #[cfg(not(target_arch = "wasm32"))]
         let console = console.through_splash(crate::window_geometry::stored(cc.storage));
         Ok(console)
     }
 
     ///
-    /// The console over the running Orcvs its storage last held, choosing
-    /// among the Themes `registry` holds under the settings `config` holds.
-    /// [`Console::start`] is the shipped entry point, and discovers
-    /// `registry` and reads `config` itself.
+    /// The console at a URL with `search` and `fragment`, as the web page's
+    /// `Location` gives them: the Source the URL names, or the stored one when
+    /// it names none (`crate::linked_source`).
+    ///
+    #[cfg(target_arch = "wasm32")]
+    pub fn start_at(
+        cc: &eframe::CreationContext<'_>,
+        search: &str,
+        fragment: &str,
+    ) -> Result<Self, PlaybackStartError> {
+        Self::new(
+            cc,
+            ThemeRegistry::start(cc.storage),
+            Config::start(),
+            crate::linked_source::opening(search, fragment),
+        )
+    }
+
+    ///
+    /// The console over the Source `opening` names, choosing among the Themes
+    /// `registry` holds under the settings `config` holds. [`Console::start`]
+    /// is the shipped entry point, and discovers `registry` and reads `config`
+    /// itself.
     ///
     pub(crate) fn new(
         cc: &eframe::CreationContext<'_>,
         mut registry: ThemeRegistry,
         config: Config,
+        opening: Opening,
     ) -> Result<Self, PlaybackStartError> {
-        // The stored Source revision, or an empty Source when storage holds none.
-        let source = starting_source(cc.storage);
+        #[cfg(feature = "persistence")]
+        let stores_source = matches!(opening, Opening::Stored);
+        let source = match opening {
+            // The stored Source revision, or an empty Source when storage
+            // holds none.
+            Opening::Stored => starting_source(cc.storage),
+            #[cfg(any(target_arch = "wasm32", test))]
+            Opening::Linked(Ok(source)) => source,
+            #[cfg(any(target_arch = "wasm32", test))]
+            Opening::Linked(Err(message)) => {
+                registry.notice(message);
+                crate::persistence::default_source()
+            }
+        };
 
         // What the settings file could not supply reaches the viewer through
         // the Theme notice channel, as a Theme file's problem does.
@@ -257,6 +299,8 @@ impl Console {
             #[cfg(not(target_arch = "wasm32"))]
             splash: None,
             ctx: cc.egui_ctx.clone(),
+            #[cfg(feature = "persistence")]
+            stores_source,
         })
     }
 }
@@ -307,7 +351,9 @@ impl eframe::App for Console {
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        crate::persistence::save(storage, self.orcvs.source());
+        if self.stores_source {
+            crate::persistence::save(storage, self.orcvs.source());
+        }
         // While the splash shows, the window is the splash's, so the save
         // stores the geometry it grows to, or nothing when that is the default.
         #[cfg(not(target_arch = "wasm32"))]

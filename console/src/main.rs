@@ -90,13 +90,21 @@ fn main() {
         return;
     };
 
-    wasm_bindgen_futures::spawn_local(async {
+    // Read once: the Source a link names is the one the console starts from.
+    let location = web_sys::window().map(|window| window.location());
+    let search = location
+        .as_ref()
+        .and_then(|l| l.search().ok())
+        .unwrap_or_default();
+    let fragment = location.and_then(|l| l.hash().ok()).unwrap_or_default();
+
+    wasm_bindgen_futures::spawn_local(async move {
         console::console_midi::request_access_within(MIDI_ACCESS_WAIT).await;
         let start_result = eframe::WebRunner::new()
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(Console::start(cc)?))),
+                Box::new(move |cc| Ok(Box::new(Console::start_at(cc, &search, &fragment)?))),
             )
             .await;
 

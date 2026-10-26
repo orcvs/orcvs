@@ -10,7 +10,9 @@
     <title>Orcvs</title>
 
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
-    <link data-trunk rel="rust" data-wasm-opt="2" />
+    <!-- Release builds run wasm-opt, which must be told the features current Rust emits for
+         wasm32-unknown-unknown, or it rejects the module. Debug builds skip wasm-opt. -->
+    <link data-trunk rel="rust" data-wasm-opt="2" data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int" />
     <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
     <base data-trunk-public-url />
 
@@ -128,7 +130,11 @@
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
     <script>
         // We disable caching during development so that we always view the latest version.
-        if ('serviceWorker' in navigator && window.location.hash !== "#dev") {
+        // A console a link opens (`?example=` or `#source=`, `console/src/linked_source.rs`)
+        // is an embed, and registers no worker, so it never caches the site's console.
+        const linked = new URLSearchParams(window.location.search).has("example")
+            || window.location.hash.startsWith("#source=");
+        if ('serviceWorker' in navigator && window.location.hash !== "#dev" && !linked) {
             window.addEventListener('load', function () {
                 navigator.serviceWorker.register('sw.js');
             });

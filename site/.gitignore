@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.astro/
+# The web console, copied in by `mise run site_build`. Never committed.
+public/play/
+test-results/
+playwright-report/

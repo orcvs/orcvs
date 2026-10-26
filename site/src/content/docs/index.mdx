@@ -1,0 +1,29 @@
+---
+title: Orcvs
+description: A grid-based environment for composing and performing compact musical expressions.
+template: splash
+hero:
+  tagline: Write Functions in a Grid, start Playback, and change them while they run.
+  actions:
+    - text: Your first result
+      link: /learn/
+      icon: right-arrow
+    - text: Open the console
+      link: /play/
+      variant: minimal
+---
+
+import Console from "../../components/Console.astro";
+
+:::caution[Pre-release]
+The Orcvs language is pre-release. Function spellings and behaviour may change between versions.
+:::
+
+Orcvs is a grid-based environment for composing and performing compact musical expressions, in the
+tradition of [Orca](https://100r.co/site/orca.html). You write a program as two-character Functions
+in a 256 by 256 Grid of Cells, and on every Tick Playback runs that program, writes its results back
+into the Grid, and sends MIDI.
+
+The console on this site is the real one, built for the browser. Every example opens in it.
+
+<Console example="cell-tracker" label="Cell Tracker, one of the console's shipped examples" />

@@ -13,8 +13,9 @@
 # The roadmap planner and its test suite are TypeScript run through node's own
 # type stripping and test runner, so the gate that executes them needs a pinned
 # runtime like every other tool here. `package.json` declares the floor the type
-# stripping needs; this pin is the version the gate actually runs.
-node = "22.23.1"
+# stripping needs; this pin is the version the gate actually runs. The site
+# (`site/`) runs on it too, and Astro 7.4.2 requires 22.23.4 or newer.
+node = "22.23.4"
 # The workflows are the one part of the verification surface no compiler reads.
 # `actionlint` checks their syntax and expressions; `zizmor` audits them for
 # injection and permission findings. Both are pinned like every other tool here so
@@ -414,6 +415,24 @@ cd console
 env -u NO_COLOR trunk build --locked
 env -u NO_COLOR trunk build --no-default-features --locked
 '''
+
+[tasks.console_web_build]
+description = "Build the release web console into target/console-web"
+# `--public-url ./` makes every URL relative, so one build serves from any path.
+dir = "console"
+run = "env -u NO_COLOR trunk build --release --locked --public-url ./ --dist ../target/console-web"
+
+[tasks.site_build]
+description = "Build the site around a built web console"
+# Downloads the console published from `main`; `CONSOLE_WEB=target/console-web`
+# takes the one `console_web_build` wrote instead.
+run = "bash site/build.sh"
+
+[tasks.site_test]
+description = "Smoke-test the built site in Chromium"
+# Serves `site/dist/` with `astro preview`, so `site_build` runs first.
+dir = "site"
+run = 'npx playwright test'
 
 [tasks.test_wasm]
 description = "Run browser regressions in headless Firefox"

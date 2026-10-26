@@ -14,6 +14,8 @@ pub mod diagnostics;
 mod examples;
 mod function_reference;
 mod grid_viewport;
+// Whether a console opens a Source its URL names, and which.
+mod linked_source;
 mod marks;
 mod midi;
 mod paint;

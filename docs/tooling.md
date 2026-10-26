@@ -18,9 +18,9 @@ Verification has two trigger tiers:
   tier at proptest's full case count, and a compile of the release captures. CI distributes these gates across the existing Linux and WASM
   jobs on `merge_group`, after a push to `main`, or on manual dispatch.
 
-A pull request whose diff is Markdown alone does not compile. The `changes` job asks
+A pull request whose diff is Markdown and `site/` alone does not compile. The `changes` job asks
 `scripts/ci-compile-needed.sh`, which answers `false` only for a pull request whose every changed
-path ends in `.md`, counting both sides of a rename; the Linux job then runs `mise run check_docs` —
+path ends in `.md` or lies under `site/`, counting both sides of a rename; the Linux job then runs `mise run check_docs` —
 the tooling contract and the roadmap planner, the only gates that read Markdown — and the WASM job
 is skipped. `check_pull_request` runs `check_docs` as its first step, so a Markdown-reading gate is
 added in one place and both tiers run it.
@@ -34,6 +34,27 @@ The Linux pull-request tier and `check_wasm` therefore ran on the pull request's
 `main` as it stood then, not on the queued candidate. A conflict between two queued pull requests
 that only those gates would catch — a wasm-only build break, a feature-off build, a rustdoc or
 workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
+
+The web console and the site build separately, and GitHub Actions deploys neither.
+`.github/workflows/console-web.yml`, path-filtered to the console, the crates under it and the
+toolchain and tool pins, runs `mise run console_web_build`: one release Trunk build with relative
+URLs into `target/console-web/`, kept as the `console-web` artifact. On `main` it also publishes the
+build as `console-web.tar.gz` on the public `console-web` release, then posts to the
+`CLOUDFLARE_DEPLOY_HOOK` secret, when the repository has it, so Cloudflare rebuilds the site.
+
+Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
+the root directory and `bash build.sh` as the build command. `site/build.sh` downloads the
+published console into `site/public/play/`, or copies the directory `CONSOLE_WEB` names, and
+builds the Astro site around it into `site/dist/`; it never compiles the console. A push to `main`
+deploys, and a pull request gets Cloudflare's preview URL. `site/.node-version` is the Node pin
+Cloudflare's build reads, and a site test holds it equal to `mise.toml`'s.
+
+`.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it renders,
+runs the same script and the Playwright suite and deploys nothing. Its build job takes the console
+from the `console-web` run for the same commit when that commit changed the console, and otherwise
+lets the script download the published one. `mise run site_test` serves `site/dist/` and runs the
+Playwright tests in Chromium. None of these is part of `check_pull_request`, and neither workflow
+is a required check.
 
 `mise run check` runs both tiers locally. The merge queue verifies the combined candidate with the
 merge tier, the browser suite and the macOS native tier before it reaches `main`. Development happens on macOS, so its

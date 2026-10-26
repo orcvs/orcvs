@@ -1,0 +1,10 @@
+# Cloudflare reads this file at deploy time and does not serve it.
+#
+# The console keeps fixed file names (`console/Trunk.toml` turns hashing off for its service
+# worker), so every `/play/` file is revalidated: a deploy reaches a reader on their next load.
+/play/*
+  Cache-Control: no-cache
+
+# Astro names these files by content hash, so a name never changes meaning.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable

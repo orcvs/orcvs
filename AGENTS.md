@@ -89,6 +89,10 @@ Then run only the gates whose inputs the change actually touched:
   the capture calls: `mise run check_release_capture`. The merge tier runs it; no pull-request gate
   compiles the feature.
 - egui or eframe presentation, UI tests, or inspection: the `egui` skill
+- `site/`, or what the site renders (`docs/first-result.md`, `docs/functions.md`): `mise run site_build`
+  then `mise run site_test`, and the `website` skill. The site builds around the console published
+  from `main`; to show a `console/` change, run `mise run console_web_build` and build the site
+  with `CONSOLE_WEB=target/console-web`.
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
   `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, and focused
   tests on every affected target and platform. Miri is the tool this gate would prefer and it
@@ -168,4 +172,5 @@ symlinks in `.claude/skills/`. See `docs/agents/skills.md`.
 
 `rust-change`, `rust-review`, `rust-unsafe` and `rust-dependency-change` route by the risk in the
 change. `egui` routes by the crate, not the risk. It carries the pinned versions
-and the upstream references, so read it rather than restating it here.
+and the upstream references, so read it rather than restating it here. `website` routes by the
+`site/` directory and carries the site's embed and link contracts.

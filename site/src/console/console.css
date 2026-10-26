@@ -1,0 +1,48 @@
+/* An embedded console (`embed.ts`). Starlight loads this on every page, through `customCss`. */
+.orcvs-console {
+  margin-block: 1.5rem;
+  border: 1px solid var(--sl-color-gray-5);
+}
+.orcvs-console iframe {
+  display: block;
+  width: 100%;
+  height: 32rem;
+  border: 0;
+}
+.orcvs-console-preview {
+  padding: 1rem;
+}
+.orcvs-console-preview pre {
+  margin: 0 0 0.75rem;
+  font-family: var(--sl-font-mono);
+}
+.orcvs-console-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.orcvs-console-launch {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--sl-color-white);
+  background: var(--sl-color-white);
+  color: var(--sl-color-black);
+  cursor: pointer;
+}
+.orcvs-console-failure,
+.orcvs-console figcaption {
+  padding: 0.5rem 1rem;
+}
+.orcvs-console figcaption {
+  border-top: 1px solid var(--sl-color-gray-5);
+  color: var(--sl-color-gray-2);
+}
+/* A narrow screen gets the full console in its own tab rather than a cramped canvas. */
+@media (max-width: 50rem) {
+  .orcvs-console-launch {
+    display: none;
+  }
+}
+.orcvs-console a {
+  color: var(--sl-color-white);
+}

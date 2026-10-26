@@ -1,0 +1,24 @@
+/* The console's font and the Grayscale built-in Themes' colours (`console/src/theme.rs`), so the
+   site reads as the console it embeds. */
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("../../../console/assets/MonaspaceNeon-Regular.otf") format("opentype");
+  font-display: swap;
+}
+
+:root {
+  --sl-font: "Monaspace Neon", ui-monospace, monospace;
+  --sl-font-mono: "Monaspace Neon", ui-monospace, monospace;
+  --sl-color-accent-low: #262626;
+  --sl-color-accent: #8c8c8c;
+  --sl-color-accent-high: #e6e6e6;
+  --sl-color-black: #000000;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #e6e6e6;
+  --sl-color-accent: #595959;
+  --sl-color-accent-high: #1a1a1a;
+  --sl-color-white: #000000;
+  --sl-color-black: #ffffff;
+}
