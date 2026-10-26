@@ -1,5 +1,5 @@
 [workspace]
-members = ["lang", "orcvs", "console"]
+members = ["lang", "orcvs", "console", "synth"]
 resolver = "3"
 
 [workspace.package]
