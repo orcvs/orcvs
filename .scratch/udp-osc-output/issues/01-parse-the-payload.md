@@ -17,4 +17,9 @@ anything yet.
 - [ ] A Write that overwrites the closer changes the extent from the next parse.
 - [ ] Both are invalid where a value is required, as every Terminal Output Function is.
 - [ ] Paint shows the spelling and closer as the Function and the Payload as its text.
-- [ ] Tests cover a closed, an unclosed and an empty Payload, `!uhi!c`, and a Write into a Payload.
+- [ ] A `!` a Write puts inside a Payload is read as a character for the rest of that Tick and
+      closes the Payload from the next parse.
+- [ ] Cells after an early closer parse as ordinary Source, so `!uhi!c000140` diagnoses `c000140`
+      as invalid Source.
+- [ ] Tests cover a closed, an unclosed and an empty Payload, `!uhi!c000140`, a Write into a
+      Payload, and a Write of `!` into one.

@@ -1,6 +1,6 @@
 # UDP and OSC send the Cells up to their closer
 
-Status: accepted. Settled in `.scratch/udp-osc-output/`. Amends [ADR 0008](0008-preserve-symbolic-arithmetic-functions.md), [ADR 0016](0016-use-distinct-raw-and-timed-play-functions.md) and [ADR 0019](0019-map-orca-capabilities-onto-orcvs-language-families.md), which deferred `!u` and `!o` until Orcvs had a message value. [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md) retired the value model that deferral waited on, so no message value is coming. The research is `docs/research/udp-osc-output.md`.
+Status: accepted. Settled in `.scratch/udp-osc-output/`. Amends [ADR 0008](0008-preserve-symbolic-arithmetic-functions.md), [ADR 0016](0016-use-distinct-raw-and-timed-play-functions.md) and [ADR 0019](0019-map-orca-capabilities-onto-orcvs-language-families.md), which deferred `!u` and `!o` until Orcvs had a message or text value. Each now sends Cells of Source instead of a value, so neither waits for one. Since [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md) a Function answers at most one two-Cell Atom and a series lives as Cells in Source, and a Payload follows that model. The research is `docs/research/udp-osc-output.md`.
 
 Orca's `;` sends the glyphs east of it, up to the first `.`, as one UDP datagram. Its `=` sends an OSC message to `/` plus one glyph, with every later glyph as an int32 of its base-36 value. Orcvs keeps the idea, which is that the Cells after the Function are the message, and changes the details where Orcvs Source differs from Orca's.
 
@@ -8,14 +8,14 @@ Orca's `;` sends the glyphs east of it, up to the first `.`, as one UDP datagram
 
 **A Payload is the Cells from the end of a `!u` or `!o` spelling through the next `!` on its row, which closes it.** `!uhello!` sends `hello`. With no closer, the Payload runs to the end of the row, as an unclosed Comment does ([ADR 0074](0074-a-comment-closes-at-the-next-introducer.md)). The Parser finds the closer by search, so the Payload's extent is fixed when the Source is parsed and the schedule stays fixed. A Payload cannot contain `!`, and there are no escapes. Its Cells are never parsed.
 
-**A Payload's Cells are ordinary Cells, and its Function reads them at its Turn.** The occupied Cells are the spelling and the closer, as a Comment's are its two delimiters. A Write writes into the Payload, and a Read reads from it. The Function reads its Payload after every writer of those Cells has taken its Turn, so a Write lands in the same Tick. A write that changes or removes the closer changes the extent from the next parse, as an overwritten Comment closer does.
+**A Payload's Cells are ordinary Cells, and its Function reads them at its Turn.** The occupied Cells are the spelling and the closer, as a Comment's are its two delimiters. A Write writes into the Payload, and a Read reads from it. The Function reads its Payload after every writer of those Cells has taken its Turn, so a Write lands in the same Tick. The extent stays fixed for the whole Tick, so a `!` a Write puts inside the Payload is sent as a character in that Tick and closes the Payload only from the next parse. A write that changes or removes the closer likewise changes the extent from the next parse, as an overwritten Comment closer does.
 
-**Each Cell sends its character, and an empty Cell sends a space.** `!u` sends exactly those bytes as one UDP datagram, with no terminator. An empty Payload, `!u!`, sends nothing.
+**Each Cell sends its character, and an empty Cell sends a space.** A Cell holds one ASCII byte (ADR 0008), so a Payload of `n` Cells is `n` bytes. `!u` sends exactly those bytes as one UDP datagram, with no terminator. An empty Payload, `!u!`, sends nothing.
 
 **An OSC Payload is an address, then an optional type string, then arguments, separated by spaces.** The first word is the address and must start with `/`. A next word that starts with `,` is an OSC type string, such as `,ifs`, with one letter per argument. Without one, each argument's type is guessed from its shape:
 
-- Two hexadecimal digits are an int32 holding that Number, so `40` sends 64, as everywhere else in the Grid.
-- A decimal with a point, such as `0.5` or `440.0`, is a float32.
+- Two uppercase hexadecimal digits are an int32 holding that Number, so `40` sends 64, as everywhere else in the Grid. Lowercase hexadecimal, such as `ab`, is not a Number, so it is a string.
+- A decimal with a point, an optional leading `-` and at least one digit on each side of the point, such as `0.5`, `-0.5` or `440.0`, is a float32. `.5`, `5.` and `1e3` are strings.
 - Any other word is a string.
 
 A type string accepts only `i`, `f` and `s`. Under it, an `i` word must be two hexadecimal digits, an `f` word must be a decimal with a point, and an `s` word is sent as written. An address that does not start with `/`, any other type letter, a type string whose length differs from the argument count, or a word that does not fit its type each diagnose and send nothing, as an out-of-range MIDI operand does. A two-Cell pair has no Note type outside an operand (`CONTEXT.md`, Operand Literal), so `C4` sends the int32 196.
@@ -42,6 +42,7 @@ A type string accepts only `i`, `f` and `s`. Under it, an `i` word must be two h
 
 ## Consequences
 
-- `!` now has two jobs on a row: it opens every Terminal Output Function and closes a Payload. In `!uhi!c` the Parser closes the Payload at the second `!`, while a reader may see Control Change `!c`. A blank Cell after the closer keeps a row readable.
+- `!` now has two jobs on a row: it opens every Terminal Output Function and closes a Payload. In `!uhi!c000140` the Parser closes the Payload at the second `!`, while a reader may see Control Change `!c`. The Cells after a closer parse as ordinary Source, so the stray `c000140` diagnoses as invalid Source rather than vanishing. Paint draws a Payload as text, so the cut is visible. A blank Cell after the closer keeps a row readable.
+- On Windows, a datagram sent where nothing listens comes back as `ConnectionReset` on a later send. That reports an earlier datagram, not the send in hand, so it is ignored rather than diagnosed. Every other failed send diagnoses.
 - The OSC type rules read words as text. A float has no Orcvs value spelling, so a float can come only from a Payload, written or put there by a Write.
 - The v1 definition of done keeps UDP and OSC as accepted deferrals. This decision settles their design, not their release.
