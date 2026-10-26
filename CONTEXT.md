@@ -275,7 +275,7 @@ One MIDI message the Playback Engine hands an output adapter. A Play Command say
 _Avoid_: Wire command, output event, delivered Play Command
 
 **Terminal Output Function**:
-The family of `!`-spelled Functions that perform an effect and answer with no language value: Raw Play `!>`, Timed Play `!~`, Monophonic Play `!%`, Control Change `!c`, Pitch Bend `!b`, and in turn Application Command `!$`. Every member performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result. Activation gates evaluation itself, so an inactive terminal root reports no evaluation-time diagnostic either: ADR 0016's operand diagnostics are outcomes of evaluation, and an Expression that never evaluates has no outcome to report. Lexical and syntax diagnostics are unaffected and still fire regardless of activation. Each MIDI member emits a Play Command carrying operands already validated against their MIDI domains, so the output adapter alone assembles the wire message. Each Expression performs at most one Play Command: a domain or type fault diagnoses and emits no MIDI output, and a Rest emits none and diagnoses nothing. A chord is several Terminal Output roots that one Bang activates.
+The family of `!`-spelled Functions that perform an effect and answer with no language value: Raw Play `!>`, Timed Play `!~`, Monophonic Play `!%`, Control Change `!c`, Pitch Bend `!b`, UDP `!u`, OSC `!o`, and in turn Application Command `!$`. Every member performs only when its root is activated, is invalid where another Function requires a value, and never writes a Cell result. Activation gates evaluation itself, so an inactive terminal root reports no evaluation-time diagnostic either: ADR 0016's operand diagnostics are outcomes of evaluation, and an Expression that never evaluates has no outcome to report. Lexical and syntax diagnostics are unaffected and still fire regardless of activation. Each MIDI member emits a Play Command carrying operands already validated against their MIDI domains, so the output adapter alone assembles the wire message. Each Expression performs at most one Play Command: a domain or type fault diagnoses and emits no MIDI output, and a Rest emits none and diagnoses nothing. A chord is several Terminal Output roots that one Bang activates.
 _Avoid_: Effect Function, side-effecting Function, output verb, action Function
 
 **Play Function**:
@@ -305,6 +305,18 @@ _Avoid_: Global Mono voice, Play-wide voice stealing, implicit channel sharing
 **Application Command Function**:
 The terminal `!$` Function that sends a command to the Orcvs host application. It can invoke only commands that the application explicitly provides; it never invokes an operating-system shell or arbitrary executable. Its command value encoding is deferred until Orcvs defines a suitable text or message value.
 _Avoid_: Host Command, shell command, process execution
+
+**UDP Function**:
+The terminal `!u` Function. Per ADR 0085, when activated it sends its Payload as one UDP datagram to the console's UDP destination: one byte per Cell, a space for an empty Cell, and no terminator. An empty Payload sends nothing. In a build that cannot send UDP, an activated `!u` diagnoses instead.
+_Avoid_: String output, UDP message value
+
+**OSC Function**:
+The terminal `!o` Function. Per ADR 0085, when activated it sends its Payload as one OSC message to the console's OSC destination. The Payload's first word is the address and starts with `/`; an optional next word starting with `,` is a type string of `i`, `f` and `s`; the remaining words are the arguments. Without a type string, two hexadecimal digits send an int32 holding that Number, a decimal with a point sends a float32, and any other word sends a string. A malformed address, type string or argument diagnoses and sends nothing. It sends no bundle and no timetag.
+_Avoid_: OSC path glyph, OSC value
+
+**Payload**:
+The Cells a UDP or OSC Function sends: every Cell from the end of its spelling through the next `!` on its row, which closes it, or through the row's end when none follows. A Payload is never parsed and cannot contain `!`. Only the spelling and the closer are occupied Cells, so the Payload's own Cells are ordinary Cells that a Write writes and a Read reads, and its Function reads them at its Turn after their writers. Its extent is fixed when the Source is parsed.
+_Avoid_: Text value, message value, string literal
 
 **Cursor**:
 The one Cell the console is editing: a Position drawn with a still outline on its Cell's edges. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.

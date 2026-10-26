@@ -25,3 +25,7 @@ Function names continue to use standard ASCII. Unicode remains deferred because 
 ## Amendment, 2026-10-10: Read, Write and Copy families
 
 [ADR 0070](0070-read-write-and-copy-are-separate-families.md) replaces the address family `&` and the Source family `@` with three families named by action. `&` reads Source, `@` writes Source, and `=` copies Source: it reads one pair and writes another. The four directional Jump Functions are the Copy Functions `=^`, `=v`, `=<` and `=>`, with their behaviour unchanged. The `&` arrows are the directional Reads `&^ &v &< &> n`, and the `@` arrows the directional Writes `@^ @v @< @> n value`; in every family an arrow names the Cell the Function acts on. The absolute forms take `$` as their second glyph in every family: `&$ column row`, `@$ column row value` and `=$ src-column src-row dst-column dst-row`. `$` recurs from `!$`, as this decision allows an operation glyph to do. Track is `&t index count` and Push is `@t index count value`. The reservation of `@<` for Source Read and `@>` for Source Write, which read their arrows as data flow, is withdrawn: `@<` and `@>` are the west and east Writes.
+
+## Amendment, 2026-10-26: UDP and OSC
+
+[ADR 0085](0085-udp-and-osc-send-the-cells-up-to-their-closer.md) ends the deferral of `!u` and `!o`. Neither waits for a message value: each sends the Cells after its spelling, up to the next `!` on its row, as its Payload. `!$` keeps its deferral.
