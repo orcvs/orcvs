@@ -5,7 +5,7 @@ Type: task
 Blocked by: 02
 
 **What to build:** The native console lets the performer set the host, the UDP port and the OSC port
-next to MIDI port selection, and saves them with its other settings ([spec](../spec.md), ADR 0086).
+next to MIDI port selection, and saves them with its other settings ([spec](../spec.md), ADR 0085).
 
 - [ ] Defaults are `127.0.0.1`, UDP `49161` and OSC `49162`.
 - [ ] The setting lives in the console, never in Source.

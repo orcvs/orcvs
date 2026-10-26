@@ -28,4 +28,4 @@ Function names continue to use standard ASCII. Unicode remains deferred because 
 
 ## Amendment, 2026-10-26: UDP and OSC
 
-[ADR 0086](0086-udp-and-osc-send-the-cells-up-to-their-closer.md) ends the deferral of `!u` and `!o`. Neither waits for a message value: each sends the Cells after its spelling, up to the next `!` on its row, as its Payload. `!$` keeps its deferral.
+[ADR 0085](0085-udp-and-osc-send-the-cells-up-to-their-closer.md) ends the deferral of `!u` and `!o`. Neither waits for a message value: each sends the Cells after its spelling, up to the next `!` on its row, as its Payload. `!$` keeps its deferral.

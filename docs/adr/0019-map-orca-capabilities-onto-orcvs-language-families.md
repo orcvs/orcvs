@@ -58,4 +58,4 @@ This audit deferred two design boundaries intentionally rather than leaving them
 
 ## Amendment, 2026-10-26: UDP and OSC
 
-[ADR 0086](0086-udp-and-osc-send-the-cells-up-to-their-closer.md) settles the UDP `;` and OSC `=` rows. `;` maps to `!u` and `=` to `!o`, and each sends the Cells after its spelling, up to the next `!` on its row, rather than waiting for a text or message value. OSC takes a full address and typed arguments instead of Orca's one-glyph path and base-36 integers. Application Command keeps its deferral.
+[ADR 0085](0085-udp-and-osc-send-the-cells-up-to-their-closer.md) settles the UDP `;` and OSC `=` rows. `;` maps to `!u` and `=` to `!o`, and each sends the Cells after its spelling, up to the next `!` on its row, rather than waiting for a text or message value. OSC takes a full address and typed arguments instead of Orca's one-glyph path and base-36 integers. Application Command keeps its deferral.

@@ -5,7 +5,7 @@ Type: task
 Blocked by: 01
 
 **What to build:** An activated `!u` sends its Payload as one UDP datagram through the Playback
-Engine to a native network output adapter ([spec](../spec.md), ADR 0086).
+Engine to a native network output adapter ([spec](../spec.md), ADR 0085).
 
 - [ ] Evaluation turns the Payload into one command carrying its bytes: one per Cell, a space for an
       empty Cell. `!u!` emits nothing.

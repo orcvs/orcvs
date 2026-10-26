@@ -6,7 +6,7 @@ Status: ready-for-agent
 
 `!u` sends UDP and `!o` sends OSC, each from the Cells after its spelling up to the next `!` on
 its row. Toby settled the design in a grilling on 2026-10-26, and
-[ADR 0086](../../docs/adr/0086-udp-and-osc-send-the-cells-up-to-their-closer.md) records it. The
+[ADR 0085](../../docs/adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md) records it. The
 research behind it is [`docs/research/udp-osc-output.md`](../../docs/research/udp-osc-output.md).
 
 The build comes after v1. `.scratch/v1-release/definition-of-done.md` keeps UDP and OSC as accepted
