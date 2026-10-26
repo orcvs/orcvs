@@ -138,6 +138,7 @@ fn open_stream(inbox: Inbox) -> Result<cpal::Stream, MidiError> {
     let sample_rate = config.sample_rate as f32;
     let mut synth = Synth::new(sample_rate);
     let mut stats = Stats::default();
+    let mut waiting: Vec<Message> = Vec::new();
     let stream = device
         .build_output_stream::<f32, _, _>(
             config,
@@ -152,24 +153,30 @@ fn open_stream(inbox: Inbox) -> Result<cpal::Stream, MidiError> {
                 let buffer_ms = frames as f64 * 1000.0 / f64::from(sample_rate);
                 let play_start_ms = callback_ms + lead_ms;
                 // The fixed delay a timestamped message sounds after it was sent:
-                // two buffers, so a message sent just after a callback still
-                // lands inside the buffer that plays at its time.
-                let delay_ms = 2.0 * buffer_ms + 20.0;
+                // the lead the browser schedules ahead (about 70 ms) plus a
+                // buffer and a margin for a late callback.
+                let delay_ms = 3.0 * buffer_ms + 30.0;
 
-                let mut messages = std::mem::take(
-                    &mut *inbox
+                let mut messages = std::mem::take(&mut waiting);
+                messages.append(
+                    &mut inbox
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner),
                 );
                 let mut scheduled: Vec<(usize, [u8; 3])> = Vec::with_capacity(messages.len());
-                for message in messages.drain(..) {
+                for message in messages {
                     let frame = if message.timestamped {
                         let offset_ms = message.sent_ms + delay_ms - play_start_ms;
                         if offset_ms < 0.0 {
                             stats.late_messages += 1;
                         }
-                        ((offset_ms.max(0.0) * f64::from(sample_rate) / 1000.0) as usize)
-                            .min(frames.saturating_sub(1))
+                        let frame = (offset_ms.max(0.0) * f64::from(sample_rate) / 1000.0) as usize;
+                        if frame >= frames {
+                            // Its time falls in a later buffer.
+                            waiting.push(message);
+                            continue;
+                        }
+                        frame
                     } else {
                         0
                     };
@@ -180,6 +187,7 @@ fn open_stream(inbox: Inbox) -> Result<cpal::Stream, MidiError> {
                     }
                     scheduled.push((frame, message.bytes));
                 }
+                scheduled.sort_by_key(|(frame, _)| *frame);
 
                 let mut next = 0;
                 for frame in 0..frames {
