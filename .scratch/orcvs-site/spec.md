@@ -129,19 +129,24 @@ filter, the agent workflow and the acceptance criteria.
   before a click, keys scroll the page and do not move the Cursor; after one click, arrow keys move
   the Cursor and the page does not scroll; and Tab or a click outside gives keys back to the page.
   A failure becomes its own ticket, with that condition as its test.
-- **Build.** `site/build.sh` builds in this order, with no built files committed; the CI build
-  job runs it and keeps `site/dist/` as the `site-<sha>` artifact every later job uses:
-  1. Install the tools pinned in `mise.toml`.
-  2. In `console/`, `trunk build --release --locked --public-url <base>/play/ --dist ../site/public/play`.
-  3. In `site/`, the Astro build with `base` set to `<base>`. It copies `public/play/` unchanged.
-  4. A check that fails if `public/play/index.html` does not name `<base>/play/` as its base.
-  5. Serve the artifact locally and run the smoke tests against it.
-  6. Deploy or preview the same artifact (Hosting, below).
+- **Build.** The web console and the site are separate builds, with no built files committed
+  (Toby, 2026-10-26: the site build and the app build are orthogonal).
+  1. The console: `.github/workflows/console-web.yml` runs `mise run console_web_build`, which in
+     `console/` runs `trunk build --release --locked --public-url ./ --dist ../target/console-web`.
+     Every URL in it is relative, so one build serves from `/play/` or from a release download. It
+     is kept as the `console-web` artifact.
+  2. The site: `site/build.sh` copies a built console (`CONSOLE_WEB`, `target/console-web` by
+     default) into `site/public/play/` unchanged, then runs the Astro build with `base` set to
+     `<base>`. The site's CI build job downloads the console from the `console-web` run for the
+     same commit when that commit changed the console, otherwise from the latest run on `main`,
+     and keeps `site/dist/` as the `site-<sha>` artifact every later job uses.
+  3. Serve the site artifact locally and run the smoke tests against it.
+  4. Deploy or preview the same artifact (Hosting, below).
 
   The site is served from the root of its domain, so `<base>` is empty and the console is at
-  `/play/`. `<base>` is still one workflow variable, so the two base paths cannot disagree if that
-  changes. The existing
-  feature-on and feature-off WASM builds in `check_wasm` stay as they are.
+  `/play/`. The console needs no base of its own, so `<base>` can change without rebuilding it.
+  A new console on `main` dispatches the site workflow, so the deployed site follows it. The
+  existing feature-on and feature-off WASM builds in `check_wasm` stay as they are.
 - **CI paths.** Today a pull request whose diff is only Markdown skips compiling (`test.yml`,
   `changes` job). Site files get their own path filter and a site job that runs the Astro build and
   smoke tests without the Rust gates, unless `console/` or the toolchain also changed. The new

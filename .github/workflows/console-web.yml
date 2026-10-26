@@ -1,0 +1,89 @@
+name: Console web
+
+# Builds the release web console once (`mise run console_web_build`) and keeps
+# it as the `console-web` artifact. Its URLs are relative, so the same build
+# serves from any path: the site's `/play/`, or a release download. The site
+# takes this artifact rather than compiling the console, so the two builds
+# change independently. Path-filtered to what the console is compiled from: the
+# console, the crates under it, and the toolchain and tool pins. The monthly
+# run keeps a current artifact within the retention window when the console has
+# not changed.
+#
+# Repeated under both triggers because Actions does not support YAML anchors.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 1 * *'
+  push:
+    branches: [main]
+    paths:
+      - 'console/**'
+      - 'orcvs/**'
+      - 'lang/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'mise.toml'
+      - '.github/workflows/console-web.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'console/**'
+      - 'orcvs/**'
+      - 'lang/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'mise.toml'
+      - '.github/workflows/console-web.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    # One release WASM build with wasm-opt: a few minutes warm.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      - run: mise run console_web_build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: console-web
+          path: target/console-web
+          if-no-files-found: error
+
+  # A new console on `main` reaches the deployed site: the site workflow runs
+  # again and takes this run's artifact.
+  site:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # dispatch the site workflow
+    steps:
+      - name: Rebuild the site with this console
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run site.yml --ref main

@@ -37,3 +37,12 @@ The site job is `.github/workflows/site.yml`, path-filtered and not a required c
   The config passes `--ignore-lock`, which keeps it in the foreground.
 
 `npm` rather than `pnpm`: it ships with the pinned Node, so the site adds no tool to `mise.toml`.
+
+### Builds split, 2026-10-26
+
+Toby asked for the site build and the app build to be orthogonal. The console now builds on its own
+(`mise run console_web_build`, `.github/workflows/console-web.yml`) with relative URLs, and
+`site/build.sh` copies that build into `public/play/` instead of compiling it. The base check is
+gone: a relative console has no base to disagree with. The site workflow's path filter no longer
+names the console or the crates; a console change reaches the site through the `console-web`
+artifact.

@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# Builds the site as it deploys, from the repository root: Trunk writes the release console into
-# `site/public/play/` with `$SITE_BASE/play/` as its base, and Astro builds with `SITE_BASE` as
-# its own and copies `public/` into `site/dist/` untouched. The last line fails the build if the
-# two base paths disagree, which would break every asset URL the console loads. `SITE_BASE` is
-# empty: the site is served from its domain's root. `mise run site_build` runs this, locally and
-# in the `site` workflow's build job.
+# Builds the site, from the repository root, around a web console built on its own: `CONSOLE_WEB`
+# names the console's directory, `target/console-web` by default, which `mise run
+# console_web_build` writes and the `site` workflow fills from the `console-web` artifact. The
+# console is copied into `site/public/play/` unchanged; its URLs are relative, so it serves from
+# `/play/` under any `SITE_BASE`. Astro then copies `public/` into `site/dist/`. `mise run
+# site_build` runs this, locally and in the `site` workflow's build job.
 set -euo pipefail
-SITE_BASE="${SITE_BASE:-}"
-export SITE_BASE
+CONSOLE_WEB="${CONSOLE_WEB:-target/console-web}"
 
-cd console
-env -u NO_COLOR trunk build --release --locked --public-url "$SITE_BASE/play/" --dist ../site/public/play
-cd ../site
+if [[ ! -f "$CONSOLE_WEB/index.html" ]]; then
+  echo "No web console in $CONSOLE_WEB: run \`mise run console_web_build\` first." >&2
+  exit 1
+fi
+rm -rf site/public/play
+mkdir -p site/public
+cp -R "$CONSOLE_WEB" site/public/play
+cd site
 npm ci
 npm run build
-grep -F "<base href=\"$SITE_BASE/play/\"" dist/play/index.html > /dev/null

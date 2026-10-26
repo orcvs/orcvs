@@ -1,12 +1,13 @@
 name: Site
 
-# Builds the site with the console at `/play/` once (`site/build.sh`) and keeps
-# it as the `site-<sha>` artifact. Every later job uses that artifact: the
-# Chromium tests, the Cloudflare deploy on `main`, and the preview on a pull
-# request, so what deploys is exactly what was tested. Path-filtered to what the composed
-# output is built from: the site, the console and the crates under it, the
-# toolchain and tool pins, and the repository docs the site renders. A pull
-# request that changes none of them cannot change the site.
+# Builds the site once (`site/build.sh`) and keeps it as the `site-<sha>`
+# artifact. Every later job uses that artifact: the Chromium tests, the
+# Cloudflare deploy on `main`, and the preview on a pull request, so what
+# deploys is exactly what was tested. The web console is not compiled here: the
+# build takes the `console-web` artifact from the `console-web` workflow, which
+# dispatches this workflow when a new console lands on `main`. Path-filtered to
+# what the site itself is built from: the site, the tool pins, and the
+# repository docs it renders.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
@@ -15,12 +16,6 @@ on:
     branches: [main]
     paths:
       - 'site/**'
-      - 'console/**'
-      - 'orcvs/**'
-      - 'lang/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
       - 'mise.toml'
       - 'docs/first-result.md'
       - 'docs/functions.md'
@@ -29,12 +24,6 @@ on:
     branches: [main]
     paths:
       - 'site/**'
-      - 'console/**'
-      - 'orcvs/**'
-      - 'lang/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
       - 'mise.toml'
       - 'docs/first-result.md'
       - 'docs/functions.md'
@@ -47,27 +36,45 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   build:
-    # A release WASM build and the Astro build: a few minutes warm.
-    timeout-minutes: 20
+    # The Astro build takes a minute or two; the bound also covers waiting for
+    # a console build from the same commit, which `console-web` bounds at 20.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+      actions: read # find and download the console-web artifact
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
+      # The console built from this commit when this commit changed it, waiting
+      # for that build to finish; otherwise the latest console built on `main`.
+      - name: Download the web console
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -o pipefail
+          run=$(gh run list --workflow console-web.yml --commit "$HEAD_SHA" --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')
+          if [[ -n "$run" ]]; then
+            gh run watch "$run" --exit-status > /dev/null
+          else
+            run=$(gh run list --workflow console-web.yml --branch main --status success --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+          fi
+          if [[ -z "$run" ]]; then
+            echo "No console-web build to take the console from." >&2
+            exit 1
+          fi
+          gh run download "$run" --name console-web --dir target/console-web
+          echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
       - run: mise run site_build
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

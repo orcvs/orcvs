@@ -27,12 +27,14 @@ how it handles input belongs to the `egui` skill; this skill covers how the site
 Node must be the `mise.toml` pin: Astro 7 refuses older Node.
 
 ```sh
-mise run site_build   # release console into site/public/play/, then the Astro build into site/dist/
-mise run site_test    # Playwright against site/dist/
+mise run console_web_build   # the release web console into target/console-web/
+mise run site_build          # copies it into site/public/play/, then the Astro build into site/dist/
+mise run site_test           # Playwright against site/dist/
 ```
 
-Without mise, `bash site/build.sh` from the repository root builds. After a change to `site/` alone,
-`npm run build` in `site/` is enough; rebuild the console only when `console/` changed.
+Without mise, `bash site/build.sh` from the repository root builds the site; `CONSOLE_WEB` names
+another console directory, such as a downloaded `console-web` artifact. Build the console again
+only when `console/` changed; after a change to `site/` alone, `npm run build` in `site/` is enough.
 
 ## Contracts the code cannot show
 
@@ -56,12 +58,17 @@ Without mise, `bash site/build.sh` from the repository root builds. After a chan
   own Playwright project after the rest. `.github/workflows/site.yml` builds once into the
   `site-<sha>` artifact, and its test, deploy and preview jobs all use that artifact, so a build
   step belongs in `site/build.sh` and nowhere later.
+- **Console build.** The site never compiles the console. It copies the `console-web` artifact
+  (`.github/workflows/console-web.yml`), whose URLs are relative, so a console change belongs in
+  that build and the site needs no base path for it.
 
 ## Gates a site change owes
 
 - Every site change: `mise run site_test`, after a build that includes the change.
-- `console/`: the crate gates in `CLAUDE.md` and `mise run check_wasm`, then `mise run site_build`.
-- `.github/workflows/site.yml` or `mise.toml`: the tooling gates in `CLAUDE.md`.
+- `console/`: the crate gates in `CLAUDE.md` and `mise run check_wasm`, then `mise run
+  console_web_build` and `mise run site_build`.
+- `.github/workflows/site.yml`, `.github/workflows/console-web.yml` or `mise.toml`: the tooling
+  gates in `CLAUDE.md`.
 - `.scratch/`: the roadmap gates in `CLAUDE.md`.
 
 An outside skill, such as a design skill, is read and pinned to a commit before it is used,

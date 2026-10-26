@@ -26,8 +26,8 @@ The workflow is written so it does nothing until those exist.
 
 ### Built, 2026-10-26; waiting on the Cloudflare account
 
-`.github/workflows/site.yml` builds once with `site/build.sh` and uploads `site/dist/` as the
-`site-<sha>` artifact. The `test` job runs the Playwright suite against that artifact; `deploy`
+`.github/workflows/site.yml` builds once with `site/build.sh`, around the `console-web` artifact
+the console's own workflow builds, and uploads `site/dist/` as the `site-<sha>` artifact. The `test` job runs the Playwright suite against that artifact; `deploy`
 (pushes to `main`) and `preview` (pull requests from this repository) download the same artifact
 and run Wrangler 4.149.0 through `npx`. So what reaches Cloudflare is byte for byte what the tests
 passed, and a release can publish the same build (ticket 12). On 2026-10-26 Toby asked for this

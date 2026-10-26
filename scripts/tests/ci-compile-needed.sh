@@ -13,6 +13,10 @@ repo() {
   git init -q "$work/repo"
   git -C "$work/repo" config user.email test@example.com
   git -C "$work/repo" config user.name test
+  # Auto-maintenance after a commit can run detached and still be writing to
+  # `.git/objects` when the next case's `rm -rf` runs, which then fails.
+  git -C "$work/repo" config maintenance.auto false
+  git -C "$work/repo" config gc.auto 0
   mkdir -p "$work/repo/src" "$work/repo/docs"
   echo 'fn main() {}' > "$work/repo/src/main.rs"
   echo '# Notes' > "$work/repo/docs/notes.md"

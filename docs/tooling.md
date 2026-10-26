@@ -35,13 +35,21 @@ The Linux pull-request tier and `check_wasm` therefore ran on the pull request's
 that only those gates would catch — a wasm-only build break, a feature-off build, a rustdoc or
 workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
 
-The site in `site/` has its own workflow, `.github/workflows/site.yml`, path-filtered to what it
-is built from: the site, the console and the crates under it, the toolchain and tool pins, and the
-docs it renders. `mise run site_build` builds the release console into `site/public/play/` with
-`/play/` as its base, builds the Astro site around it into `site/dist/`, and fails if the two base
-paths disagree; `site/build.sh` holds those steps. `mise run site_test` serves `site/dist/` and runs the Playwright tests in
-Chromium. Neither is part of `check_pull_request`, and the workflow is not a required check.
-The workflow builds once and keeps `site/dist/` as the `site-<sha>` artifact; the test, deploy and
+The web console and the site build separately. `.github/workflows/console-web.yml`, path-filtered
+to the console, the crates under it and the toolchain and tool pins, runs `mise run
+console_web_build`: one release Trunk build with relative URLs into `target/console-web/`, kept as
+the `console-web` artifact, so the same build serves from the site's `/play/` or from a release. A
+monthly run keeps a current artifact within the retention window, and a push to `main` dispatches
+the site workflow so the deployed site takes the new console.
+
+The site has `.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it
+renders. Its build job downloads the `console-web` artifact, from the run for the same commit when
+that commit changed the console and otherwise from the latest run on `main`, and `mise run
+site_build` copies it into `site/public/play/` unchanged and builds the Astro site around it into
+`site/dist/`; `site/build.sh` holds those steps, and takes the console's directory from
+`CONSOLE_WEB`. `mise run site_test` serves `site/dist/` and runs the Playwright tests in Chromium.
+None of these is part of `check_pull_request`, and neither workflow is a required check. The site
+workflow builds once and keeps `site/dist/` as the `site-<sha>` artifact; the test, deploy and
 preview jobs each download it, so what deploys is what was tested. A push to `main` deploys it to
 Cloudflare as a Worker with static assets (`site/wrangler.jsonc`), and a pull request from this
 repository uploads a preview and comments its URL. Both skip until the repository has the

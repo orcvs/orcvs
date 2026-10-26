@@ -416,8 +416,15 @@ env -u NO_COLOR trunk build --locked
 env -u NO_COLOR trunk build --no-default-features --locked
 '''
 
+[tasks.console_web_build]
+description = "Build the release web console into target/console-web"
+# `--public-url ./` makes every URL relative, so one build serves from any path.
+dir = "console"
+run = "env -u NO_COLOR trunk build --release --locked --public-url ./ --dist ../target/console-web"
+
 [tasks.site_build]
-description = "Build the site with the release console at /play/"
+description = "Build the site around a built web console"
+# Takes the console from `target/console-web` (`console_web_build`) or `CONSOLE_WEB`.
 run = "bash site/build.sh"
 
 [tasks.site_test]
