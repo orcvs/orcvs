@@ -206,11 +206,10 @@ impl SourceView {
         self.pan = clamp_pan(self.pan, console_size, extent);
 
         // The pointer offers a Pan only where there is one: not on a Grid that
-        // fits the console on both axes, and not for Alt
-        // pressed partway through a Region drag, which stays one. Alt is the
-        // one Pan gesture the pointer can announce before it starts: a
-        // middle-drag has no hover state to show, and a wheel Pan is not a
-        // grab.
+        // fits the console on both axes, and not for Alt pressed partway
+        // through a Region drag, which stays one. Alt is the one Pan gesture
+        // the pointer can announce before it starts: a middle-drag has no hover
+        // state to show, and a wheel Pan is not a grab.
         let can_pan = pannable(console_size, extent);
         let hand = if can_pan && drag.is_some() {
             Some(CursorIcon::Grabbing)

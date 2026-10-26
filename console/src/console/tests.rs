@@ -974,11 +974,11 @@ fn painted_text(ctx: &egui::Context) -> String {
 /// Where a running Console presented its Source Grid, asked of the
 /// transform the pass left behind.
 ///
-/// The same call `show_source_scene` makes, and for the reason the
-/// `presented` helper cannot serve here: that one fits the Grid to a console
-/// area, and a running Console's console area is the screen less the top
-/// panel and the Panel. The stored transform
-/// already carries that fit, so this asks it rather than re-deriving it.
+/// The same call `show_source_scene` makes, and for the reason the `presented`
+/// helper cannot serve here: that one fits the Grid to a console area, and a
+/// running Console's console area is the screen less the top panel and the
+/// Panel. The stored transform already carries that fit, so this asks it rather
+/// than re-deriving it.
 ///
 fn console_viewport(console: &Console) -> GridViewport {
     console.source_view.shown().viewport()
@@ -2146,8 +2146,8 @@ async fn a_source_smaller_than_the_console_sits_at_the_top_left_and_holds_no_cel
 
 ///
 /// The console opens on the one Grid at the Source's own Cell size, on its
-/// top-left corner, with the Grid running past the far edges
-/// so there is room to Pan, and no Glyph is resampled to be shown.
+/// top-left corner, with the Grid running past the far edges so there is room
+/// to Pan, and no Glyph is resampled to be shown.
 ///
 #[tokio::test]
 async fn the_default_window_presents_the_grid_at_its_own_scale() {
@@ -5059,10 +5059,10 @@ fn pinned_at(view: &mut SourceView, pan: Vec2) {
 #[tokio::test]
 async fn the_draw_loop_paints_the_visible_range_rather_than_the_whole_source() {
     let ctx = egui::Context::default();
-    // A 128 by 80 Grid at the Source's own Cell size is exactly this
-    // console, so the first pass at egui's zoom
-    // factor of 1.0 has every Cell on screen. Smaller than the one Grid so the whole of
-    // it fits a console this test can afford to paint.
+    // A 128 by 80 Grid at the Source's own Cell size is exactly this console,
+    // so the first pass at egui's zoom factor of 1.0 has every Cell on screen.
+    // Smaller than the one Grid so the whole of it fits a console this test can
+    // afford to paint.
     const COLUMNS: usize = 128;
     const ROWS: usize = 80;
     let screen = Rect::from_min_size(
@@ -6191,8 +6191,9 @@ fn overview_image(shapes: &[Shape]) -> Option<(egui::TextureId, Rect)> {
 }
 
 ///
-/// The Overview's 256 by 256 Grid is 256 texels a side, drawn square at a whole number of physical pixels per texel on whole
-/// physical pixels: one at 1× and 1.5×, two at 2×.
+/// The Overview's 256 by 256 Grid is 256 texels a side, drawn square at a whole
+/// number of physical pixels per texel on whole physical pixels: one at 1× and
+/// 1.5×, two at 2×.
 ///
 #[tokio::test]
 async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel() {
