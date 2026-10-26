@@ -10,10 +10,17 @@ Playback; and whether native gets it too. See `../spec.md` (Built-in synth) and
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-human
+**Status:** resolved
 
-- [ ] The ADR takes the next number in `docs/adr/` and follows the existing shape (decision,
+- [x] The ADR takes the next number in `docs/adr/` and follows the existing shape (decision,
       rejected alternatives, consequences).
-- [ ] Rejected alternatives include a Tone.js iframe bridged from JavaScript, as Learn Orca's Enfer
+- [x] Rejected alternatives include a Tone.js iframe bridged from JavaScript, as Learn Orca's Enfer
       is.
-- [ ] `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` pass.
+- [x] `node --test scripts/tests/roadmap.test.ts` and `node scripts/roadmap.ts > /dev/null` pass.
+
+## Comments
+
+Resolved on 2026-10-26 by ADR 0087 and the Built-in Synth entry in `CONTEXT.md`, decided with Toby
+in three rounds. Two answers moved the ticket's starting point: the synth lives in the page's sound
+module and the console plays it by message, and the web build ships first with native in ticket
+14. The research is `docs/research/tone-generation.md`.
