@@ -43,17 +43,16 @@ impl Console {
     }
 
     ///
-    /// Opens the Source File text posted to a small console, oldest first. A
-    /// Source the reader refuses leaves the open one in place and raises a
-    /// notice.
+    /// Opens the Source File text last posted to a small console. A Source
+    /// the reader refuses leaves the open one in place and raises a notice.
     ///
     #[cfg(any(target_arch = "wasm32", test))]
-    pub(super) fn open_sent_sources(&mut self) {
+    pub(super) fn open_sent_source(&mut self) {
         let Some(inbox) = &self.small else {
             return;
         };
-        let sent = std::mem::take(&mut *inbox.borrow_mut());
-        for text in sent {
+        let sent = inbox.borrow_mut().take();
+        if let Some(text) = sent {
             match crate::linked_source::source_message(&text) {
                 Ok(source) => {
                     if !self.open(source) {

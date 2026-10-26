@@ -41,11 +41,11 @@ pub(crate) enum Opening {
 }
 
 ///
-/// The Source File text posted to a small console, oldest first, until a
-/// frame opens it. The page's message listener fills it, and repaints.
+/// The Source File text last posted to a small console, until a frame opens
+/// it. The page's message listener fills it, and repaints.
 ///
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) type Inbox = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+pub(crate) type Inbox = std::rc::Rc<std::cell::RefCell<Option<String>>>;
 
 ///
 /// What a console at a URL with `search` and `fragment` opens. Each may be

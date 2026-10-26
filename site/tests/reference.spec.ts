@@ -37,6 +37,23 @@ test("pressing an example opens it in the page's small console", async ({ page }
   await send(page, page.locator(".orcvs-grid[data-source]").first());
 });
 
+test("a console that does not start says so, and the next press starts another", async ({ page }) => {
+  await page.clock.install();
+  await page.route("**/play/?small", (route) => route.fulfill({ contentType: "text/html", body: "" }));
+  await page.goto("/reference/");
+  const grid = page.locator(".orcvs-grid[data-source]").first();
+  await grid.click();
+  await expect(page.locator("iframe.orcvs-small")).toHaveCount(1);
+  await page.clock.fastForward(30_000);
+  await expect(page.getByRole("status")).toHaveText("The console did not start.");
+  await expect(page.locator("iframe.orcvs-small")).toHaveCount(0);
+
+  await page.unroute("**/play/?small");
+  await page.clock.resume();
+  await send(page, grid);
+  await expect(page.getByRole("status")).toHaveCount(0);
+});
+
 // Pagefind indexes words, so a spelling made only of symbols, such as `.+`, is not searchable;
 // `.scratch/orcvs-site/issues/10-find-a-function-by-a-symbol-spelling.md` holds that case.
 test("site search finds a Function by its name and by a spelling with a letter", async ({ page }) => {

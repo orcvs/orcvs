@@ -45,3 +45,10 @@ button.orcvs-grid:focus-visible {
   border: 1px solid var(--orcvs-panel-border);
   background: var(--orcvs-window);
 }
+/* What the dock shows when its console did not start. */
+.orcvs-small-failed {
+  height: auto;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  color: var(--orcvs-ordinary);
+}

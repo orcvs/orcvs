@@ -11,6 +11,8 @@ const FUNCTION_REFERENCE = fileURLToPath(new URL("../../../docs/functions.md", i
 const SPELLINGS = new Set(
   [...readFileSync(FUNCTION_REFERENCE, "utf8").matchAll(/^### `(..)`/gm)].map((match) => match[1]),
 );
+// A heading format the pattern no longer matches would draw every Function as an ordinary Cell.
+if (SPELLINGS.size === 0) throw new Error(`no Function spelling found in ${FUNCTION_REFERENCE}`);
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
 

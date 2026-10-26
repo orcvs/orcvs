@@ -7017,7 +7017,7 @@ async fn a_small_console_opens_each_message_it_is_sent_stopped() {
             .as_ref()
             .expect("a small console has an inbox")
             .borrow_mut()
-            .push(text.to_owned());
+            .replace(text.to_owned());
         for _ in 0..3 {
             app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
             tokio::task::yield_now().await;
@@ -7051,11 +7051,11 @@ async fn a_small_console_keeps_its_source_when_a_message_is_refused() {
     let mut host = eframe::Frame::_new_kittest();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let inbox = console.small.clone().expect("a small console has an inbox");
-    inbox.borrow_mut().push(".+0102\n".to_owned());
+    *inbox.borrow_mut() = Some(".+0102\n".to_owned());
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     let opened = console.orcvs.source().snapshot();
 
-    inbox.borrow_mut().push("\t".to_owned());
+    *inbox.borrow_mut() = Some("\t".to_owned());
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     assert_eq!(console.orcvs.source().snapshot(), opened);

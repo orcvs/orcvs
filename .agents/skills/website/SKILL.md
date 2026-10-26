@@ -51,7 +51,8 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
   work, and none registers the service worker (`console/src/linked_source.rs`,
   `console/index.html`).
 - **Started.** The canvas has no DOM. eframe gives `#the_canvas_id` a `width` attribute when it
-  starts; that attribute is the only start signal. What the console shows is compared as frame
+  starts, which is what a test waits on; the small console also posts `{ type: "orcvs.ready" }` to
+  its page once it listens for Sources, which is what `small.ts` waits on. What the console shows is compared as frame
   screenshots, and keys reach it as real input.
 - **Markdown.** Astro 7 renders Markdown with Sätteri, not remark: a transform is a Sätteri mdast
   plugin in `markdown.processor`, as `site/src/console/docs.ts` is.

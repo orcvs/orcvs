@@ -4303,6 +4303,30 @@ async fn a_small_console_shows_no_menu_bar() {
 }
 
 ///
+/// A small console sent a Source it refuses shows the refusal in a bar of
+/// its own, though it has no menu bar.
+///
+#[tokio::test]
+async fn a_small_console_shows_a_refused_source_s_notice() {
+    let mut harness = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| super::tests::start_linked_console(cc, "?small", ""));
+    harness.run_steps(2);
+    assert!(harness.query_by_label_contains("Notices").is_none());
+
+    harness
+        .state()
+        .small
+        .as_ref()
+        .expect("a small console has an inbox")
+        .borrow_mut()
+        .replace("\t".to_owned());
+    harness.run_steps(2);
+    harness.get_by_label("Notices (1)");
+}
+
+///
 /// Opens `Help → Examples` and clicks the example named `name` in it.
 ///
 fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {

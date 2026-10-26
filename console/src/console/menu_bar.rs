@@ -348,6 +348,35 @@ impl Console {
         });
         choice
     }
+
+    ///
+    /// The small console's top bar (ADR 0086), shown only while there are
+    /// notices: the Notices menu alone, at the right edge where the full bar
+    /// shows it, so a refused Source says why the open one stayed.
+    ///
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(super) fn show_notice_bar(&mut self, root: &mut egui::Ui, appearance: Appearance) {
+        if self.themes.notice_count() == 0 {
+            return;
+        }
+        let mut frame = egui::Frame::side_top_panel(root.style().as_ref());
+        frame.inner_margin.top = 0;
+        frame.inner_margin.bottom = 0;
+        let top_panel = egui::Panel::top("top_panel")
+            .resizable(false)
+            .exact_size(TOP_PANEL_HEIGHT);
+        let separator = crate::style::bar_separator(self.themes.presented(appearance));
+        show_bar(root, top_panel, frame, BarEdge::Bottom, separator, |ui| {
+            ui.spacing_mut().interact_size.y = ui.available_height();
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // A small console opens no Source File, so it has no
+                    // Source File notices.
+                    show_notices(ui, &mut self.themes, &mut Vec::new());
+                });
+            });
+        });
+    }
 }
 
 #[cfg(test)]

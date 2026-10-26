@@ -438,10 +438,11 @@ impl eframe::App for Console {
         }
         self.keep_tab_for_source(&ctx);
         #[cfg(any(target_arch = "wasm32", test))]
-        self.open_sent_sources();
+        self.open_sent_source();
         self.observe_playback_diagnostics();
         #[cfg(any(target_arch = "wasm32", test))]
         let menu = if self.small.is_some() {
+            self.show_notice_bar(root, appearance);
             menu_bar::MenuBarChoice::default()
         } else {
             self.show_menu_bar(root, appearance)
