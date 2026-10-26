@@ -374,7 +374,9 @@ impl Console {
                     });
                     ui.separator();
                     for (label, url) in SITE_LINKS {
-                        if ui.button(label).clicked() {
+                        // The URL on hover tells a site page from the
+                        // Function Reference above, which stays in the console.
+                        if ui.button(label).on_hover_text(url).clicked() {
                             open_link(ui.ctx(), url);
                         }
                     }
