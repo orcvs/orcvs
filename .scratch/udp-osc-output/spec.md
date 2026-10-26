@@ -19,7 +19,7 @@ Native is the point. A browser cannot send UDP, so the web build only diagnoses.
 ```
 !uhello!                    sends the datagram "hello"
 !o/synth/freq 40 7F!        sends /synth/freq with int32 64 and int32 127
-!o/synth/freq ,fs 40 hi!    sends /synth/freq with float32 64.0 and the string "hi"
+!o/synth/freq ,fs 64.0 hi!  sends /synth/freq with float32 64.0 and the string "hi"
 !o/amp 0.5!                 sends /amp with float32 0.5
 ```
 
