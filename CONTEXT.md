@@ -311,7 +311,7 @@ The terminal `!u` Function. Per ADR 0085, when activated it sends its Payload as
 _Avoid_: String output, UDP message value
 
 **OSC Function**:
-The terminal `!o` Function. Per ADR 0085, when activated it sends its Payload as one OSC message to the console's OSC destination. The Payload's first word is the address and starts with `/`; an optional next word starting with `,` is a type string of `i`, `f` and `s`; the remaining words are the arguments. Without a type string, two hexadecimal digits send an int32 holding that Number, a decimal with a point sends a float32, and any other word sends a string. A malformed address, type string or argument diagnoses and sends nothing. It sends no bundle and no timetag.
+The terminal `!o` Function. Per ADR 0085, when activated it sends its Payload as one OSC message to the console's OSC destination. The Payload's first word is the address and starts with `/`; an optional next word starting with `,` is a type string of `i`, `f` and `s`; the remaining words are the arguments. Without a type string, one to eight uppercase hexadecimal digits send an int32 whose bits they spell, so `1B8` sends 440, a decimal with a point sends a float32, and any other word sends a string. A malformed address, type string or argument diagnoses and sends nothing. It sends no bundle and no timetag.
 _Avoid_: OSC path glyph, OSC value
 
 **Payload**:

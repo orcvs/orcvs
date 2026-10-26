@@ -14,11 +14,11 @@ Orca's `;` sends the glyphs east of it, up to the first `.`, as one UDP datagram
 
 **An OSC Payload is an address, then an optional type string, then arguments, separated by spaces.** The first word is the address and must start with `/`. A next word that starts with `,` is an OSC type string, such as `,ifs`, with one letter per argument. Without one, each argument's type is guessed from its shape:
 
-- Two uppercase hexadecimal digits are an int32 holding that Number, so `40` sends 64, as everywhere else in the Grid. Lowercase hexadecimal, such as `ab`, is not a Number, so it is a string.
+- One to eight uppercase hexadecimal digits are an int32 whose bits they spell, so `40` sends 64, `1B8` sends 440 and `FFFFFFFF` sends -1. Hex is what a Number is everywhere else in the Grid, so `440` sends 1088. Lowercase hexadecimal, such as `ab`, is a string.
 - A decimal with a point, an optional leading `-` and at least one digit on each side of the point, such as `0.5`, `-0.5` or `440.0`, is a float32. `.5`, `5.` and `1e3` are strings.
 - Any other word is a string.
 
-A type string accepts only `i`, `f` and `s`. Under it, an `i` word must be two hexadecimal digits, an `f` word must be a decimal with a point, and an `s` word is sent as written. An address that does not start with `/`, any other type letter, a type string whose length differs from the argument count, or a word that does not fit its type each diagnose and send nothing, as an out-of-range MIDI operand does. A two-Cell pair has no Note type outside an operand (`CONTEXT.md`, Operand Literal), so `C4` sends the int32 196.
+A type string accepts only `i`, `f` and `s`. Under it, an `i` word must be one to eight uppercase hexadecimal digits, an `f` word must be a decimal with a point, and an `s` word is sent as written. An address that does not start with `/`, any other type letter, a type string whose length differs from the argument count, or a word that does not fit its type each diagnose and send nothing, as an out-of-range MIDI operand does. A two-Cell pair has no Note type outside an operand (`CONTEXT.md`, Operand Literal), so `C4` sends the int32 196.
 
 **One activation sends one plain message, in Tick Plan order, when its Tick runs.** No OSC bundle and no timetag is sent. OSC 1.1 leaves a timetag's meaning to each receiver, and many receivers act on arrival anyway. `!u` and `!o` follow every other Terminal Output Function: they perform only when activated, are invalid where a value is required, and write no Cell result.
 
@@ -38,6 +38,8 @@ A type string accepts only `i`, `f` and `s`. Under it, an `i` word must be two h
 - **One-glyph OSC addresses, as Orca does.** They cannot spell the addresses that SuperCollider or TouchDesigner expect.
 - **Every argument a string.** That is the simplest option, but receivers dispatch on the OSC type, and a numeric control given the string `"40"` either errors or needs converting at the receiver.
 - **Every argument an int32, as Orca does.** There would be no strings and no floats.
+- **Two hexadecimal digits only, the width of a Number.** No int32 above 255, and no negative one, could be written.
+- **Decimal integers, as other OSC senders read them.** `440` would send 440, but OSC words would then read decimal where every other Cell pair in the Grid reads hex.
 - **A `"` Text unit that may stand anywhere in the Grid.** Nothing needs free-standing text, so the Payload exists only after a Function that takes one.
 
 ## Consequences

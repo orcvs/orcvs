@@ -36,10 +36,10 @@ changes what the next send carries.
 - **UDP bytes.** One byte per Cell, a space for an empty Cell, no terminator, one datagram. `!u!`
   sends nothing.
 - **OSC.** Words are split on spaces. The first word is the address and starts with `/`. An
-  optional `,` type string of `i`, `f` and `s` follows. Without one, two uppercase hexadecimal digits
-  are an int32, a decimal matching `-?[0-9]+\.[0-9]+` is a float32, and anything else is a string
-  (`ab`, `.5`, `5.` and `1e3` included). Under a type string, `i` needs two uppercase hexadecimal
-  digits, `f` such a decimal, and `s` takes the word as written.
+  optional `,` type string of `i`, `f` and `s` follows. Without one, one to eight uppercase hexadecimal
+  digits are an int32 whose bits they spell (`40` is 64, `1B8` is 440, `FFFFFFFF` is -1), a decimal matching `-?[0-9]+\.[0-9]+` is a float32, and anything else is a string
+  (`ab`, `.5`, `5.` and `1e3` included). Under a type string, `i` needs one to eight uppercase
+  hexadecimal digits, `f` such a decimal, and `s` takes the word as written.
   A bad address, an unknown letter, a count mismatch or a misfit word diagnoses and sends nothing.
 - **Delivery.** One plain message per activation, in Tick Plan order, through the Playback Engine to
   a network output adapter. No bundles or timetags. A failed send is a diagnostic and never stops

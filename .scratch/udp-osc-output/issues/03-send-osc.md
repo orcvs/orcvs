@@ -9,8 +9,8 @@ adapter from ticket 02 ([spec](../spec.md), ADR 0085).
 
 - [ ] Evaluation splits the Payload into words and validates the address, the optional `,` type
       string and each argument, emitting one command of typed arguments: int32, float32 or string.
-- [ ] Guessing without a type string: two uppercase hexadecimal digits are an int32 of that
-      Number (`40` is 64), a decimal matching `-?[0-9]+\.[0-9]+` is a float32, anything else is a
+- [ ] Guessing without a type string: one to eight uppercase hexadecimal digits are an int32
+      whose bits they spell (`40` is 64, `1B8` is 440, `440` is 1088, `FFFFFFFF` is -1), a decimal matching `-?[0-9]+\.[0-9]+` is a float32, anything else is a
       string. `C4` is the int32 196; `ab`, `.5`, `5.` and `1e3` are strings.
 - [ ] A bad address, a letter other than `i`, `f` or `s`, a count mismatch or a misfit word
       diagnoses, names the word, and sends nothing.
