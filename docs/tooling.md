@@ -45,13 +45,14 @@ build as `console-web.tar.gz` on the public `console-web` release, then posts to
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
 `site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
-the directory `CONSOLE_WEB` names, and Astro builds the site around it into `site/dist/`; nothing
-in the site build compiles the console. A push to `main`
-deploys, and a pull request gets Cloudflare's preview URL. `site/.node-version` is the Node pin
-Cloudflare's build reads, and a site test holds it equal to `mise.toml`'s.
+the directory `CONSOLE_WEB` names, relative to `site/`, and Astro builds the site around it into
+`site/dist/`; nothing in the site build compiles the console. A push to `main` deploys, and a pull
+request gets Cloudflare's preview URL. `site/.node-version` is the Node pin Cloudflare's build
+reads, and a site test holds it equal to `mise.toml`'s.
 
 `.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it renders,
-runs the same script and the Playwright suite and deploys nothing. Its build job takes the console
+runs `mise run site_build`, which is the same `npm ci && npm run build` in `site/`, then the
+Playwright suite, and deploys nothing. Its build job takes the console
 from the `console-web` run for the same commit when that commit changed the console, and otherwise
 lets the script download the published one. `mise run site_test` serves `site/dist/` and runs the
 Playwright tests in Chromium. None of these is part of `check_pull_request`, and neither workflow

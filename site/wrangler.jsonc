@@ -1,6 +1,6 @@
 // The site as a Worker that serves static assets and runs no script. Cloudflare's build runs
-// `npm run build`, which writes `dist/`: the Astro pages and the console at `/play/`. Until a domain is
-// added, the Worker answers on workers.dev.
+// `npm run build`, which writes `dist/`: the Astro pages and the console at `/play/`. Until a
+// domain is added, the Worker answers on workers.dev.
 {
   "$schema": "https://unpkg.com/wrangler@4.149.0/config-schema.json",
   "name": "orcvs",

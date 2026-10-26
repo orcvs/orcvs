@@ -32,8 +32,9 @@ mise run site_test           # Playwright against site/dist/
 ```
 
 To try a console change in the site, `mise run console_web_build` and then
-`CONSOLE_WEB=target/console-web mise run site_build`. Without mise, `npm ci && npm run build` in
-`site/` builds the site.
+`CONSOLE_WEB=../target/console-web mise run site_build`; the path is relative to `site/`, where the
+build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. A console already in
+`site/public/play/` is kept; delete that directory to fetch the published one again.
 
 ## Contracts the code cannot show
 
@@ -56,9 +57,12 @@ To try a console change in the site, `mise run console_web_build` and then
 - **Deploy.** `site/tests/deploy.spec.ts` rewrites files in `site/dist/play/`, so it runs in its
   own Playwright project after the rest.
 - **Build and deploy.** Cloudflare's GitHub app builds and deploys the site by running
-  `npm run build` in `site/`, with the Node version in `site/.node-version`. So a build step
-  belongs in that script or its `prebuild` step, and `.github/workflows/site.yml` runs the same script only to test it.
-- **Console build.** The site never compiles the console. `site/scripts/console.sh`, npm's `prebuild` step, downloads the build
+  `npm run build` in `site/`, with the Node version in `site/.node-version`, after installing the
+  dependencies. So a build step belongs in that script or its `prebuild` step.
+  `.github/workflows/site.yml` runs `mise run site_build`, which is `npm ci && npm run build` in
+  `site/`, only to test it.
+- **Console build.** The site never compiles the console. `site/scripts/console.sh`, npm's
+  `prebuild` step, downloads the build
   `.github/workflows/console-web.yml` publishes from `main` on the `console-web` release, whose
   URLs are relative, so the site needs no base path for it.
 
