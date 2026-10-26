@@ -102,6 +102,20 @@ fn timestamped_by_url() -> bool {
     }
 }
 
+/// `?frames=512` asks for a smaller audio buffer than the host's default.
+fn buffer_frames_by_url() -> Option<u32> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let search = web_sys::window()?.location().search().ok()?;
+        let (_, rest) = search.split_once("frames=")?;
+        rest.split('&').next()?.parse().ok()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::env::var("ORCVS_SYNTH_FRAMES").ok()?.parse().ok()
+    }
+}
+
 struct SynthConnection {
     inbox: Inbox,
     timestamped: bool,
@@ -130,10 +144,13 @@ fn open_stream(inbox: Inbox) -> Result<cpal::Stream, MidiError> {
     let device = host
         .default_output_device()
         .ok_or_else(|| MidiError::new("no audio output device"))?;
-    let config = device
+    let mut config = device
         .default_output_config()
         .map_err(|e| error(&e))?
         .config();
+    if let Some(frames) = buffer_frames_by_url() {
+        config.buffer_size = cpal::BufferSize::Fixed(frames);
+    }
     let channels = usize::from(config.channels);
     let sample_rate = config.sample_rate as f32;
     let mut synth = Synth::new(sample_rate);
