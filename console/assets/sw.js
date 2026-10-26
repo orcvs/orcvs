@@ -1,9 +1,10 @@
-var cacheName = 'orcvs-pwa-v3';
+var cacheName = 'orcvs-pwa-v4';
 var filesToCache = [
   './',
   './index.html',
   './console.js',
   './console_bg.wasm',
+  './logo-splash.png',
 ];
 
 /* Start the service worker and cache all of the app's content */
