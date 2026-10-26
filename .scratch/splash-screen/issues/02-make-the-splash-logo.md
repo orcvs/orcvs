@@ -1,6 +1,6 @@
 # 02 — Make the splash logo
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 **What to build:** `logo-splash.png` in the console's assets, derived from `orcvs.png` as
