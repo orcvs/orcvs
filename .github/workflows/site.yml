@@ -1,13 +1,12 @@
 name: Site
 
-# Builds the site once (`site/build.sh`) and keeps it as the `site-<sha>`
-# artifact. Every later job uses that artifact: the Chromium tests, the
-# Cloudflare deploy on `main`, and the preview on a pull request, so what
-# deploys is exactly what was tested. The web console is not compiled here: the
-# build takes the `console-web` artifact from the `console-web` workflow, which
-# dispatches this workflow when a new console lands on `main`. Path-filtered to
-# what the site itself is built from: the site, the tool pins, and the
-# repository docs it renders.
+# Tests the site. Cloudflare builds and deploys it, through its GitHub app, by
+# running `site/build.sh`; this workflow runs the same script and the
+# Playwright suite against the result, and deploys nothing. The console comes
+# from the `console-web` workflow's build for the same commit when that commit
+# changed the console, and otherwise from the published `console-web` release,
+# as Cloudflare's build takes it. Path-filtered to what the site itself is
+# built from: the site, the tool pins, and the repository docs it renders.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
@@ -53,8 +52,9 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # The console built from this commit when this commit changed it, waiting
-      # for that build to finish; otherwise the latest console built on `main`.
-      - name: Download the web console
+      # for that build to finish. Otherwise `site/build.sh` downloads the
+      # published console, as Cloudflare's build does.
+      - name: Download this commit's web console
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -63,17 +63,13 @@ jobs:
           set -o pipefail
           run=$(gh run list --workflow console-web.yml --commit "$HEAD_SHA" --limit 1 \
             --json databaseId --jq '.[0].databaseId // empty')
-          if [[ -n "$run" ]]; then
-            gh run watch "$run" --exit-status > /dev/null
-          else
-            run=$(gh run list --workflow console-web.yml --branch main --status success --limit 1 \
-              --json databaseId --jq '.[0].databaseId // empty')
-          fi
           if [[ -z "$run" ]]; then
-            echo "No console-web build to take the console from." >&2
-            exit 1
+            echo "Console from the console-web release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          gh run watch "$run" --exit-status > /dev/null
           gh run download "$run" --name console-web --dir target/console-web
+          echo "CONSOLE_WEB=target/console-web" >> "$GITHUB_ENV"
           echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
       - run: mise run site_build
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -105,73 +101,3 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
       - run: mise run site_test
-
-  # The Cloudflare jobs skip until the repository has the CLOUDFLARE_API_TOKEN
-  # secret, scoped to the account's Workers Scripts Edit, and the
-  # CLOUDFLARE_ACCOUNT_ID variable. Wrangler runs at a pinned version through
-  # npx, so the build and tests never install it.
-  deploy:
-    needs: test
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    timeout-minutes: 10
-    runs-on: ubuntu-latest
-    concurrency:
-      group: site-deploy
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: site-${{ github.sha }}
-          path: site/dist
-      - name: Deploy to Cloudflare
-        working-directory: site
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_SEND_METRICS: 'false'
-        run: |
-          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
-            echo "No Cloudflare credentials yet; nothing deployed." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          npx --yes wrangler@4.149.0 deploy
-
-  preview:
-    needs: test
-    # A pull request from a fork gets no secrets, so it gets no preview.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    timeout-minutes: 10
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read # checkout
-      pull-requests: write # one comment with the preview URL, edited per push
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: site-${{ github.sha }}
-          path: site/dist
-      - name: Upload a preview to Cloudflare and post its URL
-        working-directory: site
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_SEND_METRICS: 'false'
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
-            echo "No Cloudflare credentials yet; no preview." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          set -o pipefail
-          npx --yes wrangler@4.149.0 preview --name "pr-$PR_NUMBER" --json | tee preview.json
-          url=$(jq -er '.preview.urls[0]' preview.json)
-          echo "Preview of this pull request: $url" >> "$GITHUB_STEP_SUMMARY"
-          gh pr comment "$PR_NUMBER" --edit-last --create-if-none --body "Site preview: $url"

@@ -1,11 +1,11 @@
 # 12 — Publish the site build with releases
 
 **What to build:** A release publishes the web console it names, and the site it deploys. The
-`console-web` workflow keeps each console build as the `console-web` artifact, with relative URLs
-so it runs from any path, and the `site` workflow keeps each site build as `site-<sha>` and deploys
-only that. A release attaches the console, as an archive, beside the native builds the
-`/download/` route lists once releases exist, and the site it deploys takes that same console.
-Artifacts expire, so the release copies the build rather than linking to the run. See `../spec.md`
+`console-web` workflow already publishes each console built on `main` as `console-web.tar.gz` on
+the rolling `console-web` release, with relative URLs so it runs from any path, and Cloudflare's
+site build downloads it from there. A tagged release attaches the same archive beside the native
+builds the `/download/` route lists once releases exist, and the site deployed for the tag serves
+that console. See `../spec.md`
 (Build, Hosting) and ticket 05.
 
 **Blocked by:** 05, and a decision on how native releases are built and tagged.

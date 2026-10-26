@@ -2,18 +2,16 @@ name: Console web
 
 # Builds the release web console once (`mise run console_web_build`) and keeps
 # it as the `console-web` artifact. Its URLs are relative, so the same build
-# serves from any path: the site's `/play/`, or a release download. The site
-# takes this artifact rather than compiling the console, so the two builds
-# change independently. Path-filtered to what the console is compiled from: the
-# console, the crates under it, and the toolchain and tool pins. The monthly
-# run keeps a current artifact within the retention window when the console has
-# not changed.
+# serves from any path: the site's `/play/`, or a download. On `main` the build
+# is also published as `console-web.tar.gz` on the `console-web` release, which
+# is public and never expires: Cloudflare's build of the site (`site/build.sh`)
+# downloads the console from there and never compiles it. Path-filtered to what
+# the console is compiled from: the console, the crates under it, and the
+# toolchain and tool pins.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 4 1 * *'
   push:
     branches: [main]
     paths:
@@ -72,18 +70,45 @@ jobs:
           path: target/console-web
           if-no-files-found: error
 
-  # A new console on `main` reaches the deployed site: the site workflow runs
-  # again and takes this run's artifact.
-  site:
+  # Publishes a console built on `main` where Cloudflare's site build fetches
+  # it, then asks Cloudflare to rebuild the site so the live site serves it.
+  # The deploy hook is a URL from the Worker's Builds settings that can only
+  # start a build; the step skips until the repository has it.
+  publish:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     timeout-minutes: 5
     runs-on: ubuntu-latest
+    concurrency:
+      group: console-web-publish
+      cancel-in-progress: false
     permissions:
-      actions: write # dispatch the site workflow
+      contents: write # replace the console-web release asset
     steps:
-      - name: Rebuild the site with this console
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: console-web
+          path: console-web
+      - name: Publish the console on the console-web release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh workflow run site.yml --ref main
+        run: |
+          tar -czf console-web.tar.gz -C console-web .
+          notes="The web console built from $GITHUB_SHA on main. The site's build downloads console-web.tar.gz from here."
+          if gh release view console-web > /dev/null 2>&1; then
+            gh release edit console-web --notes "$notes"
+          else
+            gh release create console-web --prerelease --target "$GITHUB_SHA" \
+              --title "Web console (latest main)" --notes "$notes"
+          fi
+          gh release upload console-web console-web.tar.gz --clobber
+      - name: Rebuild the site on Cloudflare
+        env:
+          DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+        run: |
+          if [[ -z "$DEPLOY_HOOK" ]]; then
+            echo "No Cloudflare deploy hook yet; the site picks the console up on its next build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          curl -fsS -X POST "$DEPLOY_HOOK" > /dev/null

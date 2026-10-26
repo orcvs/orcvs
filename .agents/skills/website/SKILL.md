@@ -27,14 +27,13 @@ how it handles input belongs to the `egui` skill; this skill covers how the site
 Node must be the `mise.toml` pin: Astro 7 refuses older Node.
 
 ```sh
-mise run console_web_build   # the release web console into target/console-web/
-mise run site_build          # copies it into site/public/play/, then the Astro build into site/dist/
+mise run site_build          # the published console into site/public/play/, then Astro into site/dist/
 mise run site_test           # Playwright against site/dist/
 ```
 
-Without mise, `bash site/build.sh` from the repository root builds the site; `CONSOLE_WEB` names
-another console directory, such as a downloaded `console-web` artifact. Build the console again
-only when `console/` changed; after a change to `site/` alone, `npm run build` in `site/` is enough.
+To try a console change in the site, `mise run console_web_build` and then
+`CONSOLE_WEB=target/console-web mise run site_build`. Without mise, `bash site/build.sh` builds the
+site. After a change to `site/` alone, `npm run build` in `site/` is enough.
 
 ## Contracts the code cannot show
 
@@ -55,12 +54,13 @@ only when `console/` changed; after a change to `site/` alone, `npm run build` i
 - **Serving.** `astro preview` moves itself to the background when it detects an agent; pass
   `--ignore-lock` to keep it in the foreground, and stop it with `npx astro preview stop`.
 - **Deploy.** `site/tests/deploy.spec.ts` rewrites files in `site/dist/play/`, so it runs in its
-  own Playwright project after the rest. `.github/workflows/site.yml` builds once into the
-  `site-<sha>` artifact, and its test, deploy and preview jobs all use that artifact, so a build
-  step belongs in `site/build.sh` and nowhere later.
-- **Console build.** The site never compiles the console. It copies the `console-web` artifact
-  (`.github/workflows/console-web.yml`), whose URLs are relative, so a console change belongs in
-  that build and the site needs no base path for it.
+  own Playwright project after the rest.
+- **Build and deploy.** Cloudflare's GitHub app builds and deploys the site by running
+  `site/build.sh` from `site/`, with the Node version in `site/.node-version`. So a build step
+  belongs in that script, and `.github/workflows/site.yml` runs the same script only to test it.
+- **Console build.** The site never compiles the console. `site/build.sh` downloads the build
+  `.github/workflows/console-web.yml` publishes from `main` on the `console-web` release, whose
+  URLs are relative, so the site needs no base path for it.
 
 ## Gates a site change owes
 

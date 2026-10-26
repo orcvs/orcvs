@@ -424,7 +424,8 @@ run = "env -u NO_COLOR trunk build --release --locked --public-url ./ --dist ../
 
 [tasks.site_build]
 description = "Build the site around a built web console"
-# Takes the console from `target/console-web` (`console_web_build`) or `CONSOLE_WEB`.
+# Downloads the console published from `main`; `CONSOLE_WEB=target/console-web`
+# takes the one `console_web_build` wrote instead.
 run = "bash site/build.sh"
 
 [tasks.site_test]

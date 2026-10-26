@@ -35,26 +35,26 @@ The Linux pull-request tier and `check_wasm` therefore ran on the pull request's
 that only those gates would catch — a wasm-only build break, a feature-off build, a rustdoc or
 workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
 
-The web console and the site build separately. `.github/workflows/console-web.yml`, path-filtered
-to the console, the crates under it and the toolchain and tool pins, runs `mise run
-console_web_build`: one release Trunk build with relative URLs into `target/console-web/`, kept as
-the `console-web` artifact, so the same build serves from the site's `/play/` or from a release. A
-monthly run keeps a current artifact within the retention window, and a push to `main` dispatches
-the site workflow so the deployed site takes the new console.
+The web console and the site build separately, and GitHub Actions deploys neither.
+`.github/workflows/console-web.yml`, path-filtered to the console, the crates under it and the
+toolchain and tool pins, runs `mise run console_web_build`: one release Trunk build with relative
+URLs into `target/console-web/`, kept as the `console-web` artifact. On `main` it also publishes the
+build as `console-web.tar.gz` on the public `console-web` release, then posts to the
+`CLOUDFLARE_DEPLOY_HOOK` secret, when the repository has it, so Cloudflare rebuilds the site.
 
-The site has `.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it
-renders. Its build job downloads the `console-web` artifact, from the run for the same commit when
-that commit changed the console and otherwise from the latest run on `main`, and `mise run
-site_build` copies it into `site/public/play/` unchanged and builds the Astro site around it into
-`site/dist/`; `site/build.sh` holds those steps, and takes the console's directory from
-`CONSOLE_WEB`. `mise run site_test` serves `site/dist/` and runs the Playwright tests in Chromium.
-None of these is part of `check_pull_request`, and neither workflow is a required check. The site
-workflow builds once and keeps `site/dist/` as the `site-<sha>` artifact; the test, deploy and
-preview jobs each download it, so what deploys is what was tested. A push to `main` deploys it to
-Cloudflare as a Worker with static assets (`site/wrangler.jsonc`), and a pull request from this
-repository uploads a preview and comments its URL. Both skip until the repository has the
-`CLOUDFLARE_API_TOKEN` secret, scoped to Workers Scripts Edit, and the `CLOUDFLARE_ACCOUNT_ID`
-variable.
+Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
+the root directory and `bash build.sh` as the build command. `site/build.sh` downloads the
+published console into `site/public/play/`, or copies the directory `CONSOLE_WEB` names, and
+builds the Astro site around it into `site/dist/`; it never compiles the console. A push to `main`
+deploys, and a pull request gets Cloudflare's preview URL. `site/.node-version` is the Node pin
+Cloudflare's build reads, and a site test holds it equal to `mise.toml`'s.
+
+`.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it renders,
+runs the same script and the Playwright suite and deploys nothing. Its build job takes the console
+from the `console-web` run for the same commit when that commit changed the console, and otherwise
+lets the script download the published one. `mise run site_test` serves `site/dist/` and runs the
+Playwright tests in Chromium. None of these is part of `check_pull_request`, and neither workflow
+is a required check.
 
 `mise run check` runs both tiers locally. The merge queue verifies the combined candidate with the
 merge tier, the browser suite and the macOS native tier before it reaches `main`. Development happens on macOS, so its

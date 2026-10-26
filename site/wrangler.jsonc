@@ -1,6 +1,6 @@
-// The site as a Worker that serves static assets and runs no script. `build.sh` writes `dist/`,
-// which holds the Astro pages and the console at `/play/`; the `site` workflow deploys that build's
-// artifact. Until a domain is added, the Worker answers on workers.dev.
+// The site as a Worker that serves static assets and runs no script. Cloudflare's build runs
+// `build.sh`, which writes `dist/`: the Astro pages and the console at `/play/`. Until a domain is
+// added, the Worker answers on workers.dev.
 {
   "$schema": "https://unpkg.com/wrangler@4.149.0/config-schema.json",
   "name": "orcvs-site",
