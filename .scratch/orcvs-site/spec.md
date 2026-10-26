@@ -33,9 +33,9 @@ A built-in synth gives the console sound with no MIDI device: a MIDI destination
 any Web MIDI ports, that plays notes through Web Audio. The embed selects it, so a lesson makes
 sound as Learn Orca's does.
 
-CI builds the console and the site together into one static output and deploys it to Cloudflare,
-as a Worker that serves static assets, with a preview for each pull request. Nothing built is
-committed.
+One build script makes the console and the site into one static output. CI tests it, and
+Cloudflare's GitHub integration builds and deploys it as a Worker that serves static assets, with a
+preview for each pull request. Nothing built is committed.
 
 The research behind this spec is `docs/research/orcvs-site.md`. A second guide Toby supplied on
 2026-10-25 contributed the routes, the launch-on-click rule, the saved-work rule, the CI path
@@ -129,13 +129,14 @@ filter, the agent workflow and the acceptance criteria.
   before a click, keys scroll the page and do not move the Cursor; after one click, arrow keys move
   the Cursor and the page does not scroll; and Tab or a click outside gives keys back to the page.
   A failure becomes its own ticket, with that condition as its test.
-- **Build.** One CI job builds in this order, with no built files committed:
+- **Build.** `site/build.sh` builds in this order, with no built files committed; the CI job and
+  Workers Builds both run it:
   1. Install the tools pinned in `mise.toml`.
   2. In `console/`, `trunk build --release --locked --public-url <base>/play/ --dist ../site/public/play`.
   3. In `site/`, the Astro build with `base` set to `<base>`. It copies `public/play/` unchanged.
   4. A check that fails if `public/play/index.html` does not name `<base>/play/` as its base.
-  5. Serve the output locally and run the smoke tests against it.
-  6. Deploy with `wrangler deploy` (Hosting, below).
+  5. In CI, serve the output locally and run the smoke tests against it.
+  6. On Cloudflare, deploy or preview it (Hosting, below).
 
   The site is served from the root of its domain, so `<base>` is empty and the console is at
   `/play/`. `<base>` is still one workflow variable, so the two base paths cannot disagree if that
@@ -160,11 +161,13 @@ filter, the agent workflow and the acceptance criteria.
 - **Hosting.** Cloudflare, as a Worker with static assets and no script: `site/wrangler.jsonc`
   names the build output as `assets.directory`, with `not_found_handling` set to `404-page`.
   Cloudflare recommends Workers static assets over Pages for new projects, and it supports
-  `_headers`, `_redirects` and preview URLs. GitHub Actions builds and deploys, because the build
-  needs the Rust and Trunk pins from `mise.toml`: a push to `main` runs `wrangler deploy`, and a
-  pull request that changes the site uploads a preview and posts its URL. Toby supplies the
-  Cloudflare account, an API token stored as a repository secret, and the domain. A `_headers` file
-  sets cache headers so a deploy replaces `/play/`'s HTML and JS promptly.
+  `_headers`, `_redirects` and preview URLs. Workers Builds, Cloudflare's GitHub integration,
+  builds and deploys, chosen by Toby on 2026-10-26 over a GitHub Actions deploy: it needs no API
+  token in the repository and posts each preview's URL on its pull request itself. Its build image
+  has Node but no Rust, so `site/cloudflare-build.sh` installs the pinned toolchain and Trunk
+  before `site/build.sh`. A push to `main` deploys, and a pull request that changes the site gets
+  a preview. Toby connects the repository in the Cloudflare dashboard and supplies the domain. A
+  `_headers` file sets cache headers so a deploy replaces `/play/`'s HTML and JS promptly.
 - **Built-in synth.** A MIDI destination named in the ADR, offered by the web console beside the
   Web MIDI ports, through the existing `MidiBackend` seam (`orcvs/src/midi.rs`,
   `console/src/web_midi.rs`). Its connection turns the bytes Playback sends into Web Audio voices

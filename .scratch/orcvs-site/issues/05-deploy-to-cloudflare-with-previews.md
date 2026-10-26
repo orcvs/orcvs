@@ -2,9 +2,9 @@
 
 **What to build:** The composed site deploys to Cloudflare as a Worker with static assets and no
 script. `site/wrangler.jsonc` names the build output as `assets.directory`, with
-`not_found_handling` set to `404-page` and preview URLs on. A GitHub Actions workflow runs the
-ticket 03 build, then `wrangler deploy` on pushes to `main`, and uploads a preview for each pull
-request that changes the site, posting its URL. A `_headers` file sets caching so a deploy replaces
+`not_found_handling` set to `404-page` and preview URLs on. Workers Builds, Cloudflare's GitHub
+integration, runs the ticket 03 build, deploys pushes to `main`, and posts a preview URL on each
+pull request that changes the site. A `_headers` file sets caching so a deploy replaces
 `/play/`'s HTML and JS. `/play/` keeps its service worker, scoped to `/play/`, and a deploy must
 replace a cached console: this ticket picks file hashing (off today in `console/Trunk.toml`) or a
 versioned worker. See `../spec.md` (Hosting, Service worker).
@@ -13,39 +13,48 @@ versioned worker. See `../spec.md` (Hosting, Service worker).
 
 **Status:** ready-for-human
 
-Toby provides the Cloudflare account, an API token stored as a repository secret, and the domain.
-The workflow is written so it does nothing until those exist.
+Toby connects the repository in the Cloudflare dashboard, with the settings below, and supplies
+the domain.
 
 - [x] A test or recorded check shows a second deploy replaces the console a returning reader had
       cached.
 - [ ] A pull request that changes the site gets a preview URL.
-- [x] The workflow passes `bash scripts/check-tooling-contract.sh`, `actionlint` and
-      `zizmor --offline .github/workflows`, and its token has the least scope the deploy needs.
+- [x] The build installs only pinned, checksummed tools, and the repository holds no Cloudflare
+      credential.
 
 ## Comments
 
-### Built, 2026-10-26; waiting on the Cloudflare account
+### Built, 2026-10-26; waiting on the dashboard
 
-`site/wrangler.jsonc` and `site/public/_headers` configure the Worker, and the deploy steps sit at
-the end of the `site` job in `.github/workflows/site.yml`, so they use the build the tests just
-passed. A preview's URL goes to the job summary and to one comment on the pull request, edited on
-each upload. They skip until the repository has the `CLOUDFLARE_API_TOKEN` secret and the
-`CLOUDFLARE_ACCOUNT_ID` variable. `wrangler deploy --dry-run` reads the 53 built files with no
-bindings.
+On 2026-10-26 Toby chose Cloudflare's GitHub integration over a deploy from GitHub Actions, so
+the repository holds no API token and Cloudflare posts the preview URLs itself. Its build image
+has Node but no Rust, so `site/cloudflare-build.sh` installs rustup 1.28.2 and Trunk from
+mise.toml's pin, each checked against a SHA-256, then runs `site/build.sh`, the same build
+`mise run site_build` and the `site` workflow run. The script ran end to end in this session from
+an empty home directory. `site/.node-version` picks the image's Node; the script fails if it
+drifts from `mise.toml`.
 
 The console keeps fixed file names and its existing worker: navigations, `console.js` and
 `console_bg.wasm` are network-first, and `_headers` makes every `/play/` file revalidate. So a
 deploy needs neither hashing nor a new cache name, and the ticket's choice between them is answered
-with "neither": either would repeat what the worker and `_headers` already guarantee. `site/tests/deploy.spec.ts` proves it by
-replacing the served page and script, with the page naming the new script's integrity hash as a
-build would, under a reader whose worker controls the page. The new console must start, and the
-test fails if the worker answers navigations from its cache.
+with "neither": either would repeat what the worker and `_headers` already guarantee.
+`site/tests/deploy.spec.ts` proves it by replacing the served page and script, with the page
+naming the new script's integrity hash as a build would, under a reader whose worker controls the
+page. The new console must start, and the test fails if the worker answers navigations from its
+cache.
 
-Wrangler 4.149.0 runs through `npx` in the workflow rather than from `site/package.json`: as a
-dependency it adds about 180 MB to every site install, and its local-dev runtime carries an
-undici advisory that the deploy never runs.
+For Toby, in the Cloudflare dashboard under Workers & Pages, create a Worker by importing
+`orcvs/orcvs` from GitHub, then set:
 
-For Toby: create an account API token with only Account → Workers Scripts → Edit, store it as the
-`CLOUDFLARE_API_TOKEN` repository secret, set the `CLOUDFLARE_ACCOUNT_ID` repository variable, and
-name the domain so it can go in `routes`. The first pull request after that shows its preview URL
-in the job summary, which closes the remaining box.
+- Worker name: `orcvs-site`, matching `site/wrangler.jsonc`.
+- Root directory: `site`.
+- Build command: `bash cloudflare-build.sh`.
+- Deploy command: `npx wrangler@4.149.0 deploy`.
+- Preview builds: on, with preview command `npx wrangler@4.149.0 preview`.
+- Production branch: `main`.
+- Build watch paths: `site/*`, `console/*`, `orcvs/*`, `lang/*`, `Cargo.toml`, `Cargo.lock`,
+  `rust-toolchain.toml`, `mise.toml`, `docs/first-result.md`, `docs/functions.md`.
+- The domain, once chosen, under the Worker's Domains & Routes.
+
+The first pull request after that shows its preview URL in a Cloudflare comment, which closes the
+remaining box.
