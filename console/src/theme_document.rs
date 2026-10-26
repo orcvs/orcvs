@@ -2125,7 +2125,7 @@ mod tests {
         // rather than taken from `style_catalogue!`, so a key routed to the
         // wrong field fails even though the macro's reader and writer agree.
         // The catalogue's count is what says the list is complete.
-        let fields: [(ColorKey, Field<Color32>); 54] = [
+        let fields: [(ColorKey, Field<Color32>); 55] = [
             (ColorKey::WindowBackground, |theme| theme.window_background),
             (ColorKey::PanelBackground, |theme| theme.panel_background),
             (ColorKey::GridBackground, |theme| theme.grid_background),
@@ -2202,6 +2202,7 @@ mod tests {
             (ColorKey::RegionBorder, |theme| theme.region_border),
             (ColorKey::RegionBackground, |theme| theme.region_background),
             (ColorKey::PanelBorder, |theme| theme.panel_border),
+            (ColorKey::PanelSeparator, |theme| theme.panel_separator),
             (ColorKey::SelectionBackground, |theme| {
                 theme.selection_background
             }),
@@ -2313,9 +2314,12 @@ mod tests {
                 theme.source_bang_border_width.points()
             }),
         ];
-        let chrome_fields: [(ChromeWidthKey, Field<f32>); 6] = [
+        let chrome_fields: [(ChromeWidthKey, Field<f32>); 7] = [
             (ChromeWidthKey::PanelBorder, |theme| {
                 theme.panel_border_width.points()
+            }),
+            (ChromeWidthKey::PanelSeparator, |theme| {
+                theme.panel_separator_width.points()
             }),
             (ChromeWidthKey::SelectionBorder, |theme| {
                 theme.selection_border_width.points()

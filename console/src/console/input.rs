@@ -172,46 +172,44 @@ pub(super) const DIAGNOSTICS_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::D);
 
 ///
-/// Whether a toolkit event is the Diagnostics chord: the command modifier
-/// and D, with no Shift or Alt and no key repeat.
+/// Whether a toolkit event is a fresh press of `shortcut`: its key with exactly
+/// its Shift and Alt and the command modifier, and no key repeat.
+///
+/// Shift and Alt match exactly: do not use `InputState::consume_shortcut`,
+/// whose logical match lets a held Shift through, so ⌘⇧S would also be Save.
 ///
 #[cfg(not(target_arch = "wasm32"))]
-fn toggles_diagnostics(event: &Event) -> bool {
+fn is_fresh_press_of(shortcut: egui::KeyboardShortcut, event: &Event) -> bool {
     matches!(
         event,
-        Event::Key {
-            key: Key::D,
-            pressed: true,
-            repeat: false,
-            modifiers,
-            ..
-        } if modifiers.command && !modifiers.alt && !modifiers.shift
-    )
-}
-
-///
-/// The File command a toolkit event's chord asks for, or none.
-///
-/// Matches the command modifier with exactly the shortcut's Shift and no Alt,
-/// so ⌘⇧S is Save As and ⌘⇧N is nothing. Key repeats run nothing.
-///
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) fn file_command(event: &Event) -> Option<FileCommand> {
-    match event {
         Event::Key {
             key,
             pressed: true,
             repeat: false,
             modifiers,
             ..
-        } if modifiers.command && !modifiers.alt => {
-            FileCommand::CHORDED.into_iter().find(|command| {
-                let shortcut = command.shortcut();
-                shortcut.logical_key == *key && shortcut.modifiers.shift == modifiers.shift
-            })
-        }
-        _ => None,
-    }
+        } if *key == shortcut.logical_key && modifiers.matches_exact(shortcut.modifiers)
+    )
+}
+
+///
+/// Whether a toolkit event is [`DIAGNOSTICS_SHORTCUT`], by
+/// [`is_fresh_press_of`].
+///
+#[cfg(not(target_arch = "wasm32"))]
+fn toggles_diagnostics(event: &Event) -> bool {
+    is_fresh_press_of(DIAGNOSTICS_SHORTCUT, event)
+}
+
+///
+/// The File command whose [`FileCommand::shortcut`] a toolkit event is, by
+/// [`is_fresh_press_of`], or none: ⌘⇧S is Save As and ⌘⇧N is nothing.
+///
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn file_command(event: &Event) -> Option<FileCommand> {
+    FileCommand::CHORDED
+        .into_iter()
+        .find(|command| is_fresh_press_of(command.shortcut(), event))
 }
 
 impl Console {
@@ -315,5 +313,53 @@ impl Console {
         self.keyboard_elsewhere = ctx.egui_wants_keyboard_input()
             || egui::Popup::is_any_open(ctx)
             || self.discard_confirmation.is_some();
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use egui::{Event, Key, Modifiers};
+
+    use super::toggles_diagnostics;
+
+    fn key(key: Key, modifiers: Modifiers, repeat: bool) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn only_a_fresh_command_d_toggles_diagnostics() {
+        let cases = [
+            ("⌘D", key(Key::D, Modifiers::COMMAND, false), true),
+            (
+                "⌘D on macOS",
+                key(Key::D, Modifiers::MAC_CMD | Modifiers::COMMAND, false),
+                true,
+            ),
+            (
+                "⌘⇧D",
+                key(Key::D, Modifiers::COMMAND | Modifiers::SHIFT, false),
+                false,
+            ),
+            (
+                "⌘⌥D",
+                key(Key::D, Modifiers::COMMAND | Modifiers::ALT, false),
+                false,
+            ),
+            (
+                "a repeated ⌘D",
+                key(Key::D, Modifiers::COMMAND, true),
+                false,
+            ),
+            ("a bare D", key(Key::D, Modifiers::NONE, false), false),
+        ];
+        for (chord, event, toggles) in cases {
+            assert_eq!(toggles_diagnostics(&event), toggles, "{chord}");
+        }
     }
 }

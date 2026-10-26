@@ -5,16 +5,15 @@
 use std::time::Duration;
 
 use egui::{Color32, FontId, Key, Vec2};
-use orcvs::grid::Grid;
 use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
 use super::diagnostics_panel::summary_height;
-use super::source_view::one_row_between_margins;
 use crate::console_midi;
 use crate::grid_viewport::snapped_cell;
 use crate::midi::destination_presentation;
+use crate::theme::Appearance;
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
@@ -22,10 +21,10 @@ pub(super) const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
 
 ///
 /// The height Diagnostics leave the Source: one Row of `cell`s, at the
-/// snapped height the Source draws them, between its margins above and below.
+/// snapped height the Source draws them.
 ///
-fn source_reserve(ui: &egui::Ui, grid: Grid, cell: Vec2) -> f32 {
-    one_row_between_margins(grid, snapped_cell(cell, ui.ctx().pixels_per_point()).y)
+fn source_reserve(ui: &egui::Ui, cell: Vec2) -> f32 {
+    snapped_cell(cell, ui.ctx().pixels_per_point()).y
 }
 
 /// Extra left inset on top of `Frame::side_top_panel`'s inner margin.
@@ -90,6 +89,14 @@ fn panel_readout_gaps(ui: &egui::Ui) -> (f32, f32) {
     )
 }
 
+///
+/// The gap between the Panel's Readout groups, `GROUP_GAP_CELLS` monospace
+/// cells, which the top bar's menus share.
+///
+pub(super) fn readout_group_gap(ui: &egui::Ui) -> f32 {
+    panel_readout_gaps(ui).1
+}
+
 pub(super) fn panel_monospace_id(ui: &egui::Ui) -> FontId {
     ui.style()
         .text_styles
@@ -124,6 +131,10 @@ pub(super) fn reserved_monospace(ui: &mut egui::Ui, text: &str, width: f32) -> e
         .anchor_size(rect.left_center(), galley.size())
         .min;
     ui.painter().galley(pos, galley, ui.visuals().text_color());
+    // A painted galley has no AccessKit node of its own; name the slot as
+    // the Label it reads as.
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), text));
     response
 }
 
@@ -228,6 +239,51 @@ fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     frame
 }
 
+/// The edge of a bar that faces the Source.
+#[derive(Clone, Copy)]
+pub(super) enum BarEdge {
+    Top,
+    Bottom,
+}
+
+///
+/// Shows `bar` in `frame` with `separator` along its `edge`, in place of
+/// egui's own separator line. As egui places its line, this one lies just
+/// outside the frame's outline, its inner edge touching the outline, in room
+/// added to the frame's outer margin, so the bar's contents stay clear of it
+/// and the bar keeps its size.
+///
+pub(super) fn show_bar<R>(
+    root: &mut egui::Ui,
+    bar: egui::Panel,
+    mut frame: egui::Frame,
+    edge: BarEdge,
+    separator: egui::Stroke,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    // A `ChromeWidth` is at most 2 points, so the room fits an `i8`; rounded
+    // up, so a fractional width is never painted over the contents.
+    let room = separator.width.ceil() as i8;
+    match edge {
+        BarEdge::Top => frame.outer_margin.top += room,
+        BarEdge::Bottom => frame.outer_margin.bottom += room,
+    }
+    let shown = bar
+        .show_separator_line(false)
+        .frame(frame)
+        .show(root, add_contents);
+    // The response covers the outer margin; the outline lies that margin
+    // inside it, and the line's inner edge touches the outline.
+    let rect = shown.response.rect;
+    let half = separator.width / 2.0;
+    let y = match edge {
+        BarEdge::Top => rect.top() + f32::from(frame.outer_margin.top) - half,
+        BarEdge::Bottom => rect.bottom() - f32::from(frame.outer_margin.bottom) + half,
+    };
+    root.painter().hline(rect.x_range(), y, separator);
+    shown.inner
+}
+
 impl Console {
     ///
     /// Hands this frame's Playback diagnostics to the Panel's MIDI status, or,
@@ -265,79 +321,79 @@ impl Console {
         root: &mut egui::Ui,
         observation: &PlaybackObservation,
         run_clock: Duration,
+        appearance: Appearance,
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
         let diagnostics_room = root.available_height()
             - BOTTOM_PANEL_HEIGHT
             - separation
-            - source_reserve(root, self.orcvs.grid(), self.source_view.cell);
+            - source_reserve(root, self.source_view.cell);
         let diagnostics_height = self
             .diagnostics_open
             .then(|| summary_height(root).min(diagnostics_room.max(0.0)));
         let extra_height = diagnostics_height.map_or(0.0, |height| height + separation);
         let height = BOTTOM_PANEL_HEIGHT + extra_height;
-        egui::Panel::bottom("bottom_panel")
+        let separator = crate::style::bar_separator(self.themes.presented(appearance));
+        let bottom_panel = egui::Panel::bottom("bottom_panel")
             .resizable(false)
-            .exact_size(height)
-            .frame(frame)
-            .show(root, |ui| {
-                ui.allocate_ui_with_layout(
-                    egui::vec2(
-                        ui.available_width(),
-                        (ui.available_height() - extra_height).max(0.0),
-                    ),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        panel_label(ui, "B");
-                        ui.add_space(label_value_gap);
-                        let mut bpm = self.orcvs.bpm().beats_per_minute();
-                        // The field is shown under `BPM_FIELD_ID`, the id
-                        // `Console::new` already gave `bpm_widget_id`.
-                        let (_, committed) = add_bpm_field(ui, &mut bpm);
-                        if committed
-                            && let Some(next) = Bpm::new(bpm)
-                            && next != self.orcvs.bpm()
-                        {
-                            self.orcvs.set_bpm(next);
-                        }
-                        ui.add_space(label_value_gap);
-                        let beat_text = format_beat_marker(observation.state, observation.on_beat);
-                        let beat_width = monospace_width(ui, BEAT_MARKER);
-                        reserved_monospace(ui, beat_text, beat_width);
-                        ui.add_space(entry_gap);
-                        panel_label(ui, "T");
-                        ui.add_space(label_value_gap);
-                        let tick_text = format_tick(observation.tick.get());
-                        let tick_width = monospace_width(ui, "00000");
-                        reserved_monospace(ui, &tick_text, tick_width);
-                        ui.add_space(entry_gap);
-                        panel_label(ui, "C");
-                        ui.add_space(label_value_gap);
-                        let clock_text = format_run_clock(run_clock);
-                        let clock_width =
-                            monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
-                        reserved_monospace(ui, &clock_text, clock_width);
-                        ui.add_space(entry_gap);
-                        panel_label(ui, "O");
-                        ui.add_space(label_value_gap);
-                        self.show_destination(ui);
-                    },
-                );
-                diagnostics_height.map(|height| {
-                    ui.add(egui::Separator::default().horizontal().spacing(0.0));
-                    // Reserve the readouts before the Source takes its space;
-                    // fill them once that Source's current geometry is known.
-                    let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), height));
-                    let mut diagnostics =
-                        ui.new_child(egui::UiBuilder::new().id_salt("diagnostics").max_rect(rect));
-                    diagnostics.set_clip_rect(diagnostics.clip_rect().intersect(rect));
-                    diagnostics
-                })
+            .exact_size(height);
+        show_bar(root, bottom_panel, frame, BarEdge::Top, separator, |ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(
+                    ui.available_width(),
+                    (ui.available_height() - extra_height).max(0.0),
+                ),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    panel_label(ui, "B");
+                    ui.add_space(label_value_gap);
+                    let mut bpm = self.orcvs.bpm().beats_per_minute();
+                    // The field is shown under `BPM_FIELD_ID`, the id
+                    // `Console::new` already gave `bpm_widget_id`.
+                    let (_, committed) = add_bpm_field(ui, &mut bpm);
+                    if committed
+                        && let Some(next) = Bpm::new(bpm)
+                        && next != self.orcvs.bpm()
+                    {
+                        self.orcvs.set_bpm(next);
+                    }
+                    ui.add_space(label_value_gap);
+                    let beat_text = format_beat_marker(observation.state, observation.on_beat);
+                    let beat_width = monospace_width(ui, BEAT_MARKER);
+                    reserved_monospace(ui, beat_text, beat_width);
+                    ui.add_space(entry_gap);
+                    panel_label(ui, "T");
+                    ui.add_space(label_value_gap);
+                    let tick_text = format_tick(observation.tick.get());
+                    let tick_width = monospace_width(ui, "00000");
+                    reserved_monospace(ui, &tick_text, tick_width);
+                    ui.add_space(entry_gap);
+                    panel_label(ui, "C");
+                    ui.add_space(label_value_gap);
+                    let clock_text = format_run_clock(run_clock);
+                    let clock_width =
+                        monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
+                    reserved_monospace(ui, &clock_text, clock_width);
+                    ui.add_space(entry_gap);
+                    panel_label(ui, "O");
+                    ui.add_space(label_value_gap);
+                    self.show_destination(ui);
+                },
+            );
+            diagnostics_height.map(|height| {
+                ui.add(egui::Separator::default().horizontal().spacing(0.0));
+                // Reserve the readouts before the Source takes its space;
+                // fill them once that Source's current geometry is known.
+                let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), height));
+                let mut diagnostics =
+                    ui.new_child(egui::UiBuilder::new().id_salt("diagnostics").max_rect(rect));
+                diagnostics.set_clip_rect(diagnostics.clip_rect().intersect(rect));
+                diagnostics
             })
-            .inner
+        })
     }
 
     ///
@@ -355,6 +411,11 @@ impl Console {
         let (scan, selected) = ui
             .add_enabled_ui(presentation.enabled, |ui| {
                 apply_panel_field_spacing(ui);
+                // The field draws no arrow, so it reserves no icon slot. The
+                // popup builds its own Ui from the context's style, so the
+                // list keeps egui's icon spacing.
+                ui.spacing_mut().icon_width = 0.0;
+                ui.spacing_mut().icon_spacing = 0.0;
                 let mut selected = None;
                 let mut scan = false;
                 let combo_response = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
@@ -411,6 +472,7 @@ impl Console {
             ui.ctx().request_repaint();
         }
         if let Some(status) = self.midi.status() {
+            ui.add_space(readout_group_gap(ui));
             ui.colored_label(ui.visuals().error_fg_color, status);
         }
     }

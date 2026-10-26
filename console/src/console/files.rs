@@ -8,7 +8,6 @@ use crate::persistence::default_source;
 use orcvs::source::Source;
 
 use super::input::FileCommand;
-use super::menu_bar::MENU_BAR_GAP;
 use super::source_view::SourceView;
 use super::{Console, environment};
 
@@ -333,7 +332,8 @@ impl Console {
         let modal = egui::Modal::new(egui::Id::new(DISCARD_CONFIRMATION_ID)).show(ctx, |ui| {
             ui.set_max_width(DISCARD_CONFIRMATION_WIDTH);
             ui.label(confirmation.question);
-            ui.add_space(MENU_BAR_GAP);
+            // `add_space` adds to the item spacing.
+            ui.add_space(DISCARD_CONFIRMATION_GAP - ui.spacing().item_spacing.y);
             ui.horizontal(|ui| {
                 let cancel = ui.button("Cancel");
                 if ui.memory(|memory| memory.focused().is_none()) {
@@ -426,3 +426,5 @@ const QUIT_CONFIRMATION: DiscardConfirmation = DiscardConfirmation {
 const DISCARD_CONFIRMATION_ID: &str = "orcvs-discard-confirmation";
 /// How wide the discard confirmation grows before its question wraps.
 const DISCARD_CONFIRMATION_WIDTH: f32 = 360.0;
+/// The gap between the discard confirmation's question and its buttons.
+const DISCARD_CONFIRMATION_GAP: f32 = 16.0;

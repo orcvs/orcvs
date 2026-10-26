@@ -83,7 +83,6 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
-use super::source_view::one_row_between_margins;
 use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, PictureMap, SourceCellPoint, snapped_cell};
@@ -97,6 +96,8 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 mod capture;
 
 mod live_editing;
+mod menu_bar_layout;
+mod panel_readouts;
 mod splash;
 
 ///
@@ -230,9 +231,10 @@ fn click_at(harness: &mut Harness<'_, Console>, point: Pos2) {
 /// An ordinary control, found by the name a viewer reads rather than by a
 /// position a test computed.
 ///
-/// View → Diagnostics expands the fixed Panel without covering the Source.
-/// Its readouts sit below the playback controls, and closing it restores the
-/// space the Source had before it opened.
+/// A fresh console opens with Diagnostics hidden. View → Diagnostics expands
+/// the fixed Panel without covering the Source. Its readouts sit below the
+/// playback controls, and closing it restores the space the Source had before
+/// it opened.
 ///
 #[tokio::test]
 async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_space() {
@@ -244,24 +246,15 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
             .outer_rect
     };
     assert!(
-        harness.state().diagnostics_open,
-        "a fresh console did not open with Diagnostics showing"
+        !harness.state().diagnostics_open,
+        "a fresh console opened with Diagnostics showing"
     );
     assert!(
-        harness.query_by_label("Visible Source region").is_some(),
-        "Diagnostics are missing from the fresh console"
+        harness.query_by_label("FPS").is_none(),
+        "Diagnostics are presented in the fresh console"
     );
-    let initial_expanded = panel_rect(&harness);
-
-    harness.get_by_label("View").click();
-    harness.step();
-    harness.get_by_label("Diagnostics").click();
-    harness.run_steps(3);
-    assert!(!harness.state().diagnostics_open);
-    assert!(harness.query_by_label("FPS").is_none());
     let compact = panel_rect(&harness);
     let compact_source = source_rect(&harness);
-    assert!(compact.height() < initial_expanded.height());
 
     harness.get_by_label("View").click();
     harness.step();
@@ -280,7 +273,6 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
         "the console holds diagnostics_open but presented no Diagnostics"
     );
     let expanded = panel_rect(&harness);
-    assert_eq!(expanded, initial_expanded);
     assert!(expanded.height() > compact.height());
     assert_eq!(expanded.bottom(), compact.bottom());
     assert_eq!(source_rect(&harness).bottom(), expanded.top());
@@ -366,14 +358,9 @@ async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_me
     );
     // The Overview's layer is the picture and its border and no more, so the
     // Source and the bottom panel beside it still take the pointer.
-    let border = harness
-        .ctx
-        .global_style()
-        .visuals
-        .widgets
-        .noninteractive
-        .bg_stroke
-        .width;
+    let border = default_theme(Appearance::Dark)
+        .panel_separator_width
+        .points();
     let area = harness
         .ctx
         .memory(|memory| memory.area_rect(egui::Id::new("overview")));
@@ -646,9 +633,9 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
     harness.step();
     harness.step();
     // Worked by hand from the texel count rather than through the Overview's
-    // map: the picture is 260 texels across and down, one for each of the 256
-    // Columns and Rows and the two margin Cells past either side.
-    let scale = Vec2::splat(260.0) / overview_picture(&harness).size();
+    // map: the picture is 256 texels across and down, one for each Column and
+    // Row.
+    let scale = Vec2::splat(256.0) / overview_picture(&harness).size();
     assert_near(
         &harness,
         source_view_centre(&harness),
@@ -671,12 +658,11 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
 }
 
 ///
-/// A drag past the Grid's far corner stops the Source View at the margin
-/// past it, as every Pan does: the console's far corner rests on the
-/// extent's.
+/// A drag past the Grid's far corner stops the Source View there, as every
+/// Pan does: the console's far corner rests on the extent's.
 ///
 #[tokio::test]
-async fn a_drag_from_the_overview_past_the_grid_stops_at_the_margin() {
+async fn a_drag_from_the_overview_past_the_grid_stops_at_its_far_corner() {
     let mut harness = console_with_overview_and_region();
     let picture = overview_picture(&harness);
     let press = picture.center();
@@ -693,7 +679,7 @@ async fn a_drag_from_the_overview_past_the_grid_stops_at_the_margin() {
         &harness,
         shown.shown().max(),
         shown.extent().max(),
-        "the Source View did not stop at the margin past the Grid's far corner",
+        "the Source View did not stop at the Grid's far corner",
     );
     primary(&mut harness, beyond, false);
     harness.step();
@@ -742,7 +728,7 @@ async fn the_overview_shows_a_grab_hand_and_a_grabbing_hand_while_held() {
 async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    assert!(harness.state().diagnostics_open);
+    assert!(!harness.state().diagnostics_open);
 
     harness.get_by_label("View").click();
     harness.step();
@@ -750,7 +736,7 @@ async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it()
     let item = harness.get_by_label("Diagnostics");
     let node = item.accesskit_node();
     assert_eq!(node.role(), egui::accesskit::Role::CheckBox);
-    assert_eq!(node.toggled(), Some(egui::accesskit::Toggled::True));
+    assert_eq!(node.toggled(), Some(egui::accesskit::Toggled::False));
     let zoom_in = menu_item(&harness, "Zoom In").rect();
     let diagnostics = item.rect();
     assert_eq!(
@@ -764,38 +750,38 @@ async fn the_diagnostics_item_is_a_trailing_check_box_and_command_d_toggles_it()
     harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
     harness.run_steps(2);
     assert!(
+        harness.state().diagnostics_open,
+        "command D did not show Diagnostics"
+    );
+    assert!(harness.query_by_label("FPS").is_some());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
+    harness.run_steps(2);
+    assert!(
         !harness.state().diagnostics_open,
         "command D did not hide Diagnostics"
     );
     assert!(harness.query_by_label("FPS").is_none());
-    harness.key_press_modifiers(Modifiers::COMMAND, Key::D);
-    harness.run_steps(2);
-    assert!(
-        harness.state().diagnostics_open,
-        "command D did not show Diagnostics"
-    );
 }
 
 ///
-/// A fresh console shrunk to the smallest window it allows still shows the
-/// Source: the docked Diagnostics it opens with leave the Grid room for a
-/// whole row of Cells inside its margins.
+/// A console shrunk to the smallest window it allows still shows the Source
+/// with Diagnostics docked: they leave the Grid room for a whole row of Cells.
 ///
 #[tokio::test]
-async fn the_smallest_window_keeps_a_row_of_cells_beside_default_diagnostics() {
+async fn the_smallest_window_keeps_a_row_of_cells_beside_docked_diagnostics() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE_MIN));
+    harness.state_mut().diagnostics_open = true;
     harness.run_steps(2);
     assert!(
-        harness.state().diagnostics_open,
-        "a fresh console did not open with Diagnostics showing"
+        harness.query_by_label("FPS").is_some(),
+        "Diagnostics are not docked in the smallest window"
     );
 
     let source = source_rect(&harness);
-    let usable = one_row_between_margins(harness.state().orcvs.grid(), CELL_SIZE.y);
+    let usable = CELL_SIZE.y;
     assert!(
         source.height() >= usable,
-        "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells \
-         and its margins take"
+        "the smallest window leaves the Source {source:?}, under the {usable} a row of Cells takes"
     );
 }
 
@@ -863,6 +849,7 @@ async fn docked_diagnostics_labels_are_not_truncated() {
 #[tokio::test]
 async fn docked_diagnostics_report_the_current_source_region_after_view_changes() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.state_mut().diagnostics_open = true;
     harness.run_steps(2);
     let assert_region = |harness: &Harness<'_, Console>| {
         let region = harness.state().source_view.shown().shown();
@@ -1208,6 +1195,51 @@ fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
 ///
 fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
     harness.get_by_label(label).accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+}
+
+///
+/// The top bar is the compact bottom Panel's height. Its menu buttons fill
+/// that height with their labels centred, so a menu opens from the bar's
+/// bottom edge; the mode buttons, which open no menu, sit centred in it.
+///
+#[tokio::test]
+async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
+    let top = egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("top_panel"))
+        .expect("the console shows its top bar")
+        .outer_rect;
+    assert_eq!(
+        top.height(),
+        super::panel::BOTTOM_PANEL_HEIGHT,
+        "the top bar is not the compact bottom Panel's height"
+    );
+    let separator = default_theme(Appearance::Dark)
+        .panel_separator_width
+        .points();
+    for label in ["File", "View", "Help"] {
+        let rect = harness.get_by_label(label).rect();
+        // The bar's separator line takes its last points.
+        assert!(
+            rect.top() == top.top() && top.bottom() - rect.bottom() <= separator,
+            "{label} does not span the top bar's height: {rect:?} in {top:?}"
+        );
+    }
+    for label in ["Follow the OS", "Dark", "Light"] {
+        let rect = harness.get_by_label(label).rect();
+        assert!(
+            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() / 2.0,
+            "{label} is not an icon centred in the top bar: {rect:?} in {top:?}"
+        );
+    }
+
+    harness.get_by_label("File").click();
+    harness.step();
+    harness.run_steps(1);
+    let new = menu_item(&harness, "New").rect();
+    assert!(
+        new.top() >= top.bottom(),
+        "the File menu opens inside the top bar: New at {new:?}, bar {top:?}"
+    );
 }
 
 ///
@@ -1792,7 +1824,7 @@ async fn arrow_keys_move_the_cursor_through_the_source_input_path() {
 /// (`Console::ui` reads the Render Frame after `Orcvs::event_handler` runs).
 ///
 /// This zooms egui to 2.0 first, which halves the window's width in points,
-/// so Column 40 lies past its far edge. The console's width is read back from
+/// so Column 45 lies past its far edge. The console's width is read back from
 /// egui rather than written down, since each zoom step rescales it.
 ///
 #[tokio::test]
@@ -1816,7 +1848,7 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
         "zooming in on an unmoved Cursor already in view Panned regardless"
     );
 
-    for _ in 0..40 {
+    for _ in 0..45 {
         harness.key_press(egui::Key::ArrowRight);
     }
     harness.step();
@@ -1824,26 +1856,24 @@ async fn arrow_keys_that_move_the_cursor_out_of_view_pan_the_source_view_to_foll
 
     assert_eq!(
         cursor(harness.state()),
-        (40, 0),
-        "forty ArrowRight presses did not reach the Source"
+        (45, 0),
+        "forty-five ArrowRight presses did not reach the Source"
     );
 
-    // The follow shows Column 40's far edge, which sits the Source View's
-    // margin of two Cells further along than the Column itself. A Cell is
-    // `CELL_SIZE.x` points wide at every zoom.
+    // The follow brings Column 45's far edge, 46 Cells along, flush with the
+    // console's. A Cell is `CELL_SIZE.x` points wide at every zoom.
     let console_width = harness.ctx.content_rect().width();
     let pan = harness.state().source_view.pan;
-    let margin = -harness.state().source_view.shown().extent().min().x();
-    let expected = console_width - (41.0 + margin) * CELL_SIZE.x;
+    let expected = console_width - 46.0 * CELL_SIZE.x;
     assert!(
         (pan.x - expected).abs() < 1e-3 && pan.y == 0.0,
-        "the Cursor move did not Pan the least distance that shows Column 40: {pan:?}, not {expected}"
+        "the Cursor move did not Pan the least distance that shows Column 45: {pan:?}, not {expected}"
     );
 
-    let column_40 = presented_source(&harness).cell_rect(40, 0);
+    let column_45 = presented_source(&harness).cell_rect(45, 0);
     assert!(
-        column_40.min.x >= 0.0 && column_40.max.x <= console_width + 1e-3,
-        "Column 40 is still out of view at {column_40:?} in a console {console_width} points wide"
+        column_45.min.x >= 0.0 && column_45.max.x <= console_width + 1e-3,
+        "Column 45 is still out of view at {column_45:?} in a console {console_width} points wide"
     );
 }
 
@@ -2913,8 +2943,7 @@ async fn the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_
 ///
 /// The grab hand offers a Pan, so it does not show where Alt starts none: partway
 /// through a primary drag that is selecting a Region, which stays a Region drag,
-/// or over a Grid that with its margins fits the console on both axes and has
-/// nowhere to Pan.
+/// or over a Grid that fits the console on both axes and has nowhere to Pan.
 ///
 #[tokio::test]
 async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
@@ -2951,8 +2980,8 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
     harness.step();
 
     // A Grid with nowhere to Pan: zoomed out to half, the default window is
-    // twice as many points across, and this Grid and its margins are
-    // smaller than its console on both axes.
+    // twice as many points across, and this Grid is smaller than its
+    // console on both axes.
     harness.state_mut().orcvs = orcvs::app::Orcvs::with_shape(64, 40).expect("the test runtime");
     harness.state_mut().source_view =
         super::source_view::SourceView::new(crate::grid_viewport::CELL_SIZE);
@@ -3027,9 +3056,9 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// Console's own repaint scheduling asks for nothing at all.
 ///
 /// The console is resized to a width that is not a multiple of the Cell's,
-/// so Column 14 (192..204 at egui's zoom factor of 1.0, after the two-Cell
-/// margin) is cut off at the console's right edge (200) and a click on it
-/// needs the follow to bring it fully into view.
+/// so Column 16 (192..204 at egui's zoom factor of 1.0) is cut off at the
+/// console's right edge (200) and a click on it needs the follow to bring it
+/// fully into view.
 ///
 #[tokio::test]
 async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
@@ -3045,7 +3074,7 @@ async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
         "the resize alone Panned before anything moved the Cursor"
     );
 
-    let target = presented_source(&harness).cell_rect(14, 0).min + Vec2::new(3.0, 3.0);
+    let target = presented_source(&harness).cell_rect(16, 0).min + Vec2::new(3.0, 3.0);
     harness.event(Event::PointerMoved(target));
     harness.event(Event::PointerButton {
         pos: target,
@@ -3063,15 +3092,15 @@ async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
 
     assert_eq!(
         cursor(harness.state()),
-        (14, 0),
-        "the click did not select Column 14"
+        (16, 0),
+        "the click did not select Column 16"
     );
 
-    let column_14 = presented_source(&harness).cell_rect(14, 0);
+    let column_16 = presented_source(&harness).cell_rect(16, 0);
     assert!(
-        column_14.max.x <= 200.0,
-        "the click's Cursor move did not Pan to bring Column 14 fully into a 200 point \
-         console: {column_14:?}"
+        column_16.max.x <= 200.0,
+        "the click's Cursor move did not Pan to bring Column 16 fully into a 200 point \
+         console: {column_16:?}"
     );
 }
 

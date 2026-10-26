@@ -1,7 +1,6 @@
-//! The Overview: the whole Grid and its margin, one texel per Cell in the
-//! Theme's colours, floating over the window's bottom-right corner.
+//! The Overview: the whole Grid, one texel per Cell in the Theme's colours,
+//! floating over the window's bottom-right corner.
 
-use std::iter::repeat_n;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -218,8 +217,9 @@ impl Console {
             return None;
         }
         let ctx = root.ctx().clone();
-        // The stroke egui's panel separator draws on the bottom panel.
-        let border = root.visuals().widgets.noninteractive.bg_stroke;
+        let theme = self.themes.presented(appearance);
+        // The line the bottom panel draws along its edge facing the Source.
+        let border = crate::style::bar_separator(theme);
         let rect = place_picture(
             ctx.content_rect(),
             below_menu,
@@ -227,7 +227,6 @@ impl Console {
             frame.grid(),
             ctx.pixels_per_point(),
         )?;
-        let theme = self.themes.presented(appearance);
         let texture = self
             .overview
             .texture(&ctx, revision, frame, theme, appearance);
@@ -328,8 +327,7 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
 
 ///
 /// Draws `frame` into `picture` in `theme`'s colours: one texel per Source
-/// Cell of the extent, row by row, with the margin around the Grid as the
-/// surface the Source is displayed on.
+/// Cell of the extent, row by row.
 ///
 /// Each Cell's colour is its Plain displayed colours reduced by a fixed rule:
 /// the displayed foreground where the Cell is occupied, otherwise the
@@ -342,29 +340,20 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
 /// same size allocates nothing.
 ///
 pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage) {
-    let grid = frame.grid();
-    let extent = extent(grid);
+    let extent = extent(frame.grid());
     let (width, height) = (extent.size().x as usize, extent.size().y as usize);
-    // The margin's texels before the Grid on each axis, and after it.
-    let (left, top) = (-extent.min().x() as usize, -extent.min().y() as usize);
-    let (right, bottom) = (width - left - grid.columns(), height - top - grid.rows());
     let mut colours = CellColours::new(theme);
-    let background = colours.surface();
 
     picture.size = [width, height];
     picture.source_size = egui::vec2(width as f32, height as f32);
     let pixels = &mut picture.pixels;
     pixels.clear();
-    pixels.extend(repeat_n(background, top * width));
-    for row in frame.cells().chunks(grid.columns()) {
-        pixels.extend(repeat_n(background, left));
-        pixels.extend(
-            row.iter()
-                .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain)),
-        );
-        pixels.extend(repeat_n(background, right));
-    }
-    pixels.extend(repeat_n(background, bottom * width));
+    pixels.extend(
+        frame
+            .cells()
+            .iter()
+            .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain)),
+    );
 }
 
 ///
@@ -401,15 +390,9 @@ mod tests {
 
     use super::{draw_picture, place_picture};
     use crate::console::menu_bar::TOP_PANEL_HEIGHT;
-    use crate::console::source_view::extent;
     use crate::console::{DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
     use crate::theme::{Appearance, Theme};
     use crate::theme_registry::tests_support::default_theme;
-
-    /// The margin around the Grid in texels, read from the extent.
-    fn margin() -> usize {
-        -extent(Grid::new()).min().x() as usize
-    }
 
     fn running_orcvs(cols: usize, rows: usize) -> Orcvs {
         Orcvs::with_shape(cols, rows).expect("the test runtime")
@@ -429,18 +412,18 @@ mod tests {
         picture
     }
 
-    /// The texel of the Cell at `column` and `row`, inside the margin.
+    /// The texel of the Cell at `column` and `row`.
     fn texel(picture: &ColorImage, column: usize, row: usize) -> Color32 {
-        picture.pixels[(row + margin()) * picture.size[0] + column + margin()]
+        picture.pixels[row * picture.size[0] + column]
     }
 
     #[tokio::test]
-    async fn an_empty_grid_and_its_margin_are_all_grid_background() {
+    async fn an_empty_grid_is_all_grid_background() {
         let orcvs = running_orcvs(6, 4);
         let theme = default_theme(Appearance::Dark);
         let picture = picture(&orcvs, &theme);
 
-        assert_eq!(picture.size, [6 + 2 * margin(), 4 + 2 * margin()]);
+        assert_eq!(picture.size, [6, 4]);
         assert!(
             picture
                 .pixels
@@ -451,7 +434,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn each_occupied_cell_takes_its_roles_foreground_and_the_margin_stays_grid_background() {
+    async fn each_occupied_cell_takes_its_roles_foreground_and_an_empty_one_stays_grid_background()
+    {
         let mut orcvs = running_orcvs(8, 4);
         write_row(&mut orcvs, 0, ".+0304");
         write_row(&mut orcvs, 1, "**");
@@ -468,20 +452,13 @@ mod tests {
             assert_eq!(texel(&picture, column + 2, 0), theme.source_number);
             assert_eq!(texel(&picture, column + 2, 3), theme.diagnostic_foreground);
         }
-        let [width, height] = picture.size;
-        let margin = margin();
-        for y in 0..height {
-            for x in 0..width {
-                let in_margin =
-                    x < margin || y < margin || x >= width - margin || y >= height - margin;
-                if in_margin {
-                    assert_eq!(
-                        picture.pixels[y * width + x],
-                        theme.grid_background,
-                        "margin texel ({x}, {y})"
-                    );
-                }
-            }
+        assert_eq!(picture.size, [8, 4]);
+        for (column, row) in [(6, 0), (2, 1), (7, 2), (6, 3)] {
+            assert_eq!(
+                texel(&picture, column, row),
+                theme.grid_background,
+                "empty texel ({column}, {row})"
+            );
         }
     }
 
@@ -523,7 +500,6 @@ mod tests {
             "an occupied Function Cell"
         );
         assert_eq!(texel(&picture, 3, 1), surface, "an empty Cell");
-        assert_eq!(picture.pixels[0], surface, "the margin");
         assert!(
             picture.pixels.iter().all(|texel| texel.a() == 255),
             "a texel is translucent"
@@ -564,7 +540,7 @@ mod tests {
     }
 
     ///
-    /// The 256 by 256 Grid and its two-Cell margin are 260 texels a side,
+    /// The 256 by 256 Grid is 256 texels a side,
     /// placed square at the window's bottom-right corner at a whole number of
     /// physical pixels per texel, up to the whole pixels per point: one at 1×
     /// and 1.5×, two at 2× and 3 at 3.5×.
@@ -578,7 +554,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("at {pixels_per_point}×: the picture was not placed"));
             let physical = picture.size() * pixels_per_point;
             assert!(
-                (physical - Vec2::splat(260.0 * pixels_per_texel)).length() < 1e-3,
+                (physical - Vec2::splat(256.0 * pixels_per_texel)).length() < 1e-3,
                 "at {pixels_per_point}×: the picture is {physical:?} physical pixels"
             );
             assert!(
@@ -623,7 +599,7 @@ mod tests {
     #[test]
     fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below_one() {
         let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
-        let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 259.0);
+        let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 255.0);
         let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
         let usual = Vec2::from(DEFAULT_VIEW_SIZE);
         for (size, pixels_per_point, pixels_per_texel) in [
@@ -646,7 +622,7 @@ mod tests {
                     });
                     let physical = picture.size() * pixels_per_point;
                     assert!(
-                        (physical - Vec2::splat(260.0 * pixels_per_texel)).length() < 1e-3,
+                        (physical - Vec2::splat(256.0 * pixels_per_texel)).length() < 1e-3,
                         "{size:?} at {pixels_per_point}×: the picture is {physical:?} physical \
                          pixels"
                     );

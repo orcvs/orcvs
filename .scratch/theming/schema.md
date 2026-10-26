@@ -98,6 +98,7 @@ written against. `.scratch/theme-independence/issues/07` retired that Theme;
 | `region.cursor.foreground` | `none` |
 | `region.background` | `#FFFFFF2B` |
 | `panel.border` | `#1C3932` |
+| `panel.separator` | `#1C3932` |
 | `selection.background` | `#0A2A22` |
 | `selection.border` | `#65E6BE` |
 | `selection.border.rest` | `#52C3A3` |
@@ -131,6 +132,7 @@ written against. `.scratch/theme-independence/issues/07` retired that Theme;
 | `source.function.border.width` | 0.5 | 0–1 |
 | `source.bang.border.width` | 0.5 | 0–1 |
 | `panel.border.width` | 1 | 0–2 |
+| `panel.separator.width` | 1 | 0–2 |
 | `selection.border.width` | 1 | 0–2 |
 | `widget.border.width` | 1 | 0–2 |
 | `widget.inactive.border.width` | 0 | 0–2 |
@@ -172,6 +174,7 @@ built-in colours but no longer borrow the live Bang property.
 | Source surface | `grid.background` |
 | Extreme/faint input background | `input.background` |
 | Panel/window/noninteractive border | `panel.border`, `panel.border.width` |
+| Bar edge facing the Source; the Overview's inner edges | `panel.separator`, `panel.separator.width` |
 | Inactive widget border | `widget.inactive.border`, `widget.inactive.border.width` |
 | Hovered/open widget border | `selection.border.rest`, `widget.border.width` |
 | Active widget border | `selection.border`, `widget.border.width` |
@@ -183,7 +186,7 @@ built-in colours but no longer borrow the live Bang property.
 | Text selection | `selection.background`, `selection.border`, `selection.border.width` |
 | Input caret and active IME underline | `input.cursor`, `input.cursor.width` |
 | Inactive IME underline | Same width; existing half-linear colour attenuation |
-| Links; code spans | `link`; `code.background` |
+| Links; text egui marks as code (`RichText::code`, `Ui::code`), which the console does not show | `link`; `code.background` |
 | Error/warning messages | `error`; `warning` |
 | The Source View's outline on the Overview | `overview.source_view`, `overview.source_view.width` |
 

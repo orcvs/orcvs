@@ -84,6 +84,7 @@ pub struct Console {
     midi: MidiDeviceSelection,
     font_family: egui::FontFamily,
     source_view: SourceView,
+    /// Whether the View menu shows Diagnostics. Off at start and not saved.
     diagnostics_open: bool,
     diagnostics_timing: TimingReadouts,
     /// Whether the View menu shows the Overview. On at start and not saved.
@@ -232,7 +233,7 @@ impl Console {
             midi,
             font_family: egui::FontFamily::Monospace,
             source_view: SourceView::new(config.cell),
-            diagnostics_open: true,
+            diagnostics_open: false,
             diagnostics_timing: TimingReadouts::default(),
             overview_open: true,
             overview: Overview::default(),
@@ -377,7 +378,7 @@ impl eframe::App for Console {
         }
         self.keep_tab_for_source(&ctx);
         self.observe_playback_diagnostics();
-        let menu = self.show_menu_bar(root);
+        let menu = self.show_menu_bar(root, appearance);
         // The Overview fits below this. Nothing shown before the Overview
         // may take room from the top, or it would overlap what does.
         let below_menu = root.available_rect_before_wrap().top();
@@ -402,7 +403,7 @@ impl eframe::App for Console {
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
-        let diagnostics = self.show_panel(root, &observation, sampled_run_clock);
+        let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
         if let Some(centre) = self.show_overview(root, below_menu, revision, &frame, appearance) {

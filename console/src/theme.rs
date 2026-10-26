@@ -174,6 +174,7 @@ macro_rules! style_catalogue {
                 RegionBorder(region_border) => "region.border",
                 RegionBackground(region_background) => "region.background",
                 PanelBorder(panel_border) => "panel.border",
+                PanelSeparator(panel_separator) => "panel.separator",
                 SelectionBackground(selection_background) => "selection.background",
                 SelectionBorder(selection_border) => "selection.border",
                 SelectionBorderRest(selection_border_rest) => "selection.border.rest",
@@ -208,6 +209,7 @@ macro_rules! style_catalogue {
             }
             ChromeWidthKey {
                 PanelBorder(panel_border_width) => "panel.border.width",
+                PanelSeparator(panel_separator_width) => "panel.separator.width",
                 SelectionBorder(selection_border_width) => "selection.border.width",
                 WidgetBorder(widget_border_width) => "widget.border.width",
                 WidgetInactiveBorder(widget_inactive_border_width) => "widget.inactive.border.width",
@@ -291,6 +293,9 @@ pub struct Theme {
     pub(crate) region_background: Color32,
 
     pub(crate) panel_border: Color32,
+    /// The line along each bar's edge that faces the Source, and the
+    /// Overview's edges that do.
+    pub(crate) panel_separator: Color32,
     pub(crate) selection_background: Color32,
     pub(crate) selection_border: Color32,
     pub(crate) selection_border_rest: Color32,
@@ -336,6 +341,7 @@ pub struct Theme {
     pub(crate) source_bang_border_width: GridWidth,
 
     pub(crate) panel_border_width: ChromeWidth,
+    pub(crate) panel_separator_width: ChromeWidth,
     pub(crate) selection_border_width: ChromeWidth,
     pub(crate) widget_border_width: ChromeWidth,
     pub(crate) widget_inactive_border_width: ChromeWidth,
@@ -511,6 +517,7 @@ pub fn grayscale_dark() -> Theme {
         region_background: straight_rgba(0x38_38_38_FF),
 
         panel_border: straight_rgba(0x2A_2A_2A_FF),
+        panel_separator: straight_rgba(0x55_55_55_FF),
         selection_background: straight_rgba(0x33_33_33_FF),
         selection_border: straight_rgba(0xE6_E6_E6_FF),
         selection_border_rest: straight_rgba(0xA8_A8_A8_FF),
@@ -549,6 +556,7 @@ pub fn grayscale_dark() -> Theme {
         source_bang_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        panel_separator_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
@@ -623,6 +631,7 @@ pub fn grayscale_light() -> Theme {
         region_background: straight_rgba(0xE1_E1_E1_FF),
 
         panel_border: straight_rgba(0xD5_D5_D5_FF),
+        panel_separator: straight_rgba(0xAD_AD_AD_FF),
         selection_background: straight_rgba(0xCC_CC_CC_FF),
         selection_border: straight_rgba(0x19_19_19_FF),
         selection_border_rest: straight_rgba(0x57_57_57_FF),
@@ -661,6 +670,7 @@ pub fn grayscale_light() -> Theme {
         source_bang_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        panel_separator_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
         selection_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
