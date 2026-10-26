@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light"><title>Orcvs</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { display: flex; flex-direction: column; }
+  /* The console page as it ships: its own menubar, Grid and Panel, and its own splash. */
+  iframe.console { flex: 1; border: 0; width: 100%; display: block; }
+  /* HYPOTHETICAL: the sound module, the built-in synth's strip (ticket 07, ADR pending). */
+  .sound { border-top: 1px solid var(--panel-border); display: flex; gap: 24px; align-items: center;
+    padding: 8px 12px; height: 56px; box-sizing: border-box; }
+  .sound .label { color: var(--muted); }
+  .knob { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }
+  .knob b { display: block; width: 26px; height: 26px; border: 1px solid var(--separator); border-radius: 50%;
+    color: var(--fn); font-weight: normal; font-size: 10px; line-height: 26px; text-align: center; }
+  .meter { flex: 1; height: 6px; background: var(--num-bg); position: relative; }
+  .meter i { position: absolute; inset: 0 70% 0 0; background: var(--fn-bg); }
+</style></head><body>
+<iframe class="console" src="play/" title="Orcvs console"></iframe>
+<div class="sound">
+  <span class="label">SYNTH</span>
+  <span class="knob"><b>00</b>CH</span>
+  <span class="knob"><b>SQ</b>WAVE</span>
+  <span class="knob"><b>40</b>ATK</span>
+  <span class="knob"><b>60</b>REL</span>
+  <span class="knob"><b>7F</b>VOL</span>
+  <span class="meter"><i></i></span>
+</div>
+<div class="proto">PROTOTYPE · sound module is hypothetical</div>
+</body></html>

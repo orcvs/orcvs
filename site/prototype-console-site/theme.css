@@ -1,0 +1,18 @@
+/* PROTOTYPE: Grayscale Dark and Light, copied from console/src/theme.md. */
+@font-face { font-family: "Monaspace Neon"; src: url(MonaspaceNeon-Regular.otf); }
+:root {
+  --window: #000000; --text: #C8C8C8; --muted: #C8C8C899; --panel-border: #2A2A2A;
+  --separator: #555555; --fn: #E6E6E6; --fn-bg: #444444; --num: #898989; --num-bg: #222222;
+  --bang: #00FF00; --bang-bg: #111111; --ordinary: #C8C8C8; --grid-border: #FFFFFF1A;
+  --code-bg: #2A2A2A; --link: #E6E6E6;
+}
+@media (prefers-color-scheme: light) { :root {
+  --window: #FFFFFF; --text: #373737; --muted: #373737AF; --panel-border: #D5D5D5;
+  --separator: #ADADAD; --fn: #191919; --fn-bg: #BBBBBB; --num: #616161; --num-bg: #DDDDDD;
+  --bang: #D100D1; --bang-bg: #FFFFFF; --ordinary: #373737; --grid-border: #0000001A;
+  --code-bg: #D5D5D5; --link: #191919;
+} }
+html, body { margin: 0; height: 100%; background: var(--window); color: var(--text);
+  font: 14px/1.5 "Monaspace Neon", ui-monospace, monospace; }
+.proto { position: fixed; right: 8px; bottom: 8px; z-index: 9; font-size: 11px; padding: 2px 6px;
+  border: 1px dashed var(--separator); color: var(--muted); background: var(--window); }

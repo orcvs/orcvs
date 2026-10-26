@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light"><title>Orcvs · Functions</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 80px; }
+  h2 { font-weight: normal; color: var(--fn); margin: 40px 0 4px; font-size: 18px; }
+  h2 .sp { background: var(--fn-bg); padding: 0 .3em; }
+  p { margin: 4px 0 12px; }
+  .frames { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .frame figcaption { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  /* A Source as Grid Cells: each Cell one glyph, typed as the console paints it. */
+  .grid { display: inline-grid; grid-auto-columns: 1.4em; grid-auto-rows: 2.1em;
+    border: 1px solid var(--grid-border); font-size: 16px; }
+  .grid span { display: flex; align-items: center; justify-content: center;
+    border-right: 1px solid var(--grid-border); border-bottom: 1px solid var(--grid-border); }
+  .grid .f { color: var(--fn); background: var(--fn-bg); }
+  .grid .n { color: var(--num); background: var(--num-bg); }
+  .grid .b { color: var(--bang); background: var(--bang-bg); }
+  .grid .e { color: var(--separator); }
+  /* A small console for the example, fed its Source by message. */
+  .mini { width: 100%; height: 260px; border: 1px solid var(--panel-border); display: block; margin-top: 12px; }
+  button { font: inherit; color: var(--fn); background: var(--fn-bg); border: 0; padding: 2px 10px; cursor: pointer; }
+  .state { color: var(--muted); font-size: 11px; }
+</style></head><body><main>
+<div id="entries"></div>
+</main>
+<div class="proto">PROTOTYPE · Source by message is a stand-in (reloads #source=)</div>
+<script>
+const ENTRIES = [
+  { spelling: ".+", name: "Add", text: "Answers left + right, wrapping past FF to 00.",
+    frames: [["Before any Tick", ".+0102"], ["After Tick 0", ".+0102\n03"]] },
+  { spelling: "~.", name: "Clock", text: "Answers a count that steps every rate Ticks, wrapping at modulus.",
+    frames: [["Before any Tick", "~.0104"], ["After Tick 0", "~.0104\n00"], ["After Tick 1", "~.0104\n01"]] },
+];
+const FN = /^[.~=&!*@#$%^|<>?+\-\/]/;
+function cells(source) {
+  const rows = source.split("\n"), width = Math.max(...rows.map(r => r.length), 8);
+  const g = document.createElement("div"); g.className = "grid";
+  rows.forEach((row, y) => {
+    for (let x = 0; x < width; x += 2) {
+      const pair = row.slice(x, x + 2).padEnd(2, " ");
+      const kind = pair === "**" ? "b" : (x === 0 && FN.test(pair)) ? "f" : /^[0-9A-F]{2}$/.test(pair) ? "n" : pair.trim() ? "" : "e";
+      [...pair].forEach((ch, i) => {
+        const c = document.createElement("span"); c.className = kind;
+        c.style.gridColumn = x + i + 1; c.style.gridRow = y + 1;
+        c.textContent = ch === " " ? "·" : ch; g.append(c);
+      });
+    }
+  });
+  return g;
+}
+const root = document.getElementById("entries");
+ENTRIES.forEach((e, i) => {
+  const s = document.createElement("section");
+  s.innerHTML = `<h2><span class="sp">${e.spelling}</span> ${e.name}</h2><p>${e.text}</p>`;
+  const frames = document.createElement("div"); frames.className = "frames";
+  e.frames.forEach(([label, src]) => {
+    const f = document.createElement("figure"); f.className = "frame"; f.style.margin = 0;
+    f.innerHTML = `<figcaption>${label}</figcaption>`; f.append(cells(src)); frames.append(f);
+  });
+  s.append(frames);
+  const run = document.createElement("button"); run.textContent = "Try it here";
+  const state = document.createElement("span"); state.className = "state";
+  s.append(run, " ", state);
+  run.onclick = () => {
+    let mini = s.querySelector("iframe");
+    const message = { type: "orcvs.open", source: e.frames[0][1] + "\n" };
+    if (!mini) { mini = document.createElement("iframe"); mini.className = "mini"; mini.title = e.name; s.append(mini); }
+    // Stand-in: the real console would take this through window.postMessage.
+    mini.src = "play/#source=" + encodeURIComponent(message.source);
+    state.textContent = "posted " + JSON.stringify(message);
+  };
+  root.append(s);
+});
+</script></body></html>
