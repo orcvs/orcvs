@@ -329,3 +329,22 @@ async fn a_console_save_restarts_from_the_native_ron_file() {
         "Console::new did not restore the revision the native RON file held"
     );
 }
+
+///
+/// The running Console stores its window's geometry with the Source, so a
+/// relaunch can return the window to it.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn a_save_stores_the_window_geometry() {
+    use crate::window_geometry::{WindowGeometry, stored};
+
+    let mut storage = InMemoryStorage::default();
+    let mut console = console_over(&storage);
+    console.save(&mut storage);
+
+    assert_eq!(
+        stored(Some(&storage)),
+        Some(WindowGeometry::of(&console.ctx))
+    );
+}

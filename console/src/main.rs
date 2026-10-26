@@ -8,7 +8,7 @@ use std::sync::Once;
 static INIT: Once = Once::new();
 
 #[cfg(not(target_arch = "wasm32"))]
-use console::console::{DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
+use console::console::SPLASH_WINDOW;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn trace() {
@@ -35,9 +35,15 @@ async fn main() -> eframe::Result {
     trace();
 
     let native_options = eframe::NativeOptions {
+        // The window opens as the splash, which grows it into the console and
+        // restores the geometry the console stores itself. eframe's own restore
+        // would size this first window to the console (ADR 0083).
+        persist_window: false,
+        centered: true,
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size(DEFAULT_VIEW_SIZE)
-            .with_min_inner_size(DEFAULT_VIEW_SIZE_MIN)
+            .with_inner_size(SPLASH_WINDOW)
+            .with_decorations(false)
+            .with_resizable(false)
             .with_icon(
                 // NOTE: Adding an icon is optional
                 eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])
@@ -94,7 +100,7 @@ fn main() {
             )
             .await;
 
-        // Remove the loading text and spinner:
+        // Remove the splash:
         let loading_text = web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.get_element_by_id("loading_text"));

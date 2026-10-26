@@ -22,6 +22,11 @@ mod panel;
 mod repaint;
 pub(crate) mod shapes;
 mod source_view;
+// The splash the native console opens through.
+#[cfg(not(target_arch = "wasm32"))]
+mod splash;
+#[cfg(not(target_arch = "wasm32"))]
+pub use splash::SPLASH_WINDOW;
 
 use self::diagnostics_panel::{TimingReadouts, show_diagnostics};
 use self::files::DiscardConfirmation;
@@ -127,6 +132,9 @@ pub struct Console {
     /// let through rather than asked about again.
     #[cfg(not(target_arch = "wasm32"))]
     closing: bool,
+    /// The splash the window opened as, until its logo has faded.
+    #[cfg(not(target_arch = "wasm32"))]
+    splash: Option<splash::Splash>,
     /// The context an Open wakes the Panel through when the new Orcvs's
     /// Playback Engine publishes.
     ctx: egui::Context,
@@ -151,7 +159,10 @@ impl Console {
         // one it needs and never reads the machine's own Theme directory.
         // Settings are read here for the same reason: native reads
         // `~/.orcvs/config.toml` and the web runs on the defaults.
-        Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())
+        let console = Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let console = console.through_splash(crate::window_geometry::stored(cc.storage));
+        Ok(console)
     }
 
     ///
@@ -242,6 +253,8 @@ impl Console {
             shown_title: None,
             #[cfg(not(target_arch = "wasm32"))]
             closing: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            splash: None,
             ctx: cc.egui_ctx.clone(),
         })
     }
@@ -288,12 +301,23 @@ impl Console {
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
-    /// intervals while running. This stores the current Source revision;
-    /// settings are never saved.
+    /// intervals while running. This stores the current Source revision and,
+    /// natively, the window's geometry; settings are never saved.
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         crate::persistence::save(storage, self.orcvs.source());
+        // While the splash shows, the window is the splash's, so the save
+        // stores the geometry it grows to, or nothing when that is the default.
+        #[cfg(not(target_arch = "wasm32"))]
+        let window = match &self.splash {
+            Some(splash) => splash.console_window(),
+            None => Some(crate::window_geometry::WindowGeometry::of(&self.ctx)),
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(window) = window {
+            crate::window_geometry::store(storage, &window);
+        }
     }
 
     ///
@@ -347,6 +371,10 @@ impl eframe::App for Console {
         // it until the frame is done — a View menu change is held until
         // then — so the Source reads the Theme the chrome was styled from.
         let appearance = Appearance::from(ctx.theme());
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.hold_splash(&ctx, appearance) {
+            return;
+        }
         self.keep_tab_for_source(&ctx);
         self.observe_playback_diagnostics();
         let menu = self.show_menu_bar(root);
@@ -398,6 +426,10 @@ impl eframe::App for Console {
         self.show_title(&ctx);
 
         self.latch_keyboard_owner(&ctx);
+
+        // Over everything the console showed, while the logo fades.
+        #[cfg(not(target_arch = "wasm32"))]
+        self.fade_splash(&ctx, appearance);
 
         // Last, once every widget of this frame has been styled from the
         // appearance it began in, so no frame mixes two Themes. The next

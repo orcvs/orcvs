@@ -23,6 +23,7 @@
     <link data-trunk rel="copy-file" href="assets/icon-256.png" />
     <link data-trunk rel="copy-file" href="assets/icon_ios_touch_192.png" />
     <link data-trunk rel="copy-file" href="assets/maskable_icon_x512.png" />
+    <link data-trunk rel="copy-file" href="assets/logo-splash.png" />
 
 
     <link rel="manifest" href="manifest.json">
@@ -71,47 +72,41 @@
             height: 100%;
         }
 
-        .centered {
-            margin-right: auto;
-            margin-left: auto;
-            display: block;
+        /* The splash while the WASM loads: the native splash's logo and name on the
+           OS appearance's backdrop. The console's start removes it, and a failed
+           start replaces its contents with the crash message. */
+        #loading_text {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: #f0f0f0;
-            font-size: 24px;
-            font-family: Ubuntu-Light, Helvetica, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 18px;
+            color: #c8c8c8;
+            font: 18px ui-monospace, Menlo, Consolas, monospace;
             text-align: center;
         }
 
-        /* ---------------------------------------------- */
-        /* Loading animation from https://loading.io/css/ */
-        .lds-dual-ring {
-            display: inline-block;
-            width: 24px;
-            height: 24px;
+        #loading_text img {
+            width: min(300px, 60vmin);
+            height: auto;
         }
 
-        .lds-dual-ring:after {
-            content: " ";
-            display: block;
-            width: 24px;
-            height: 24px;
-            margin: 0px;
-            border-radius: 50%;
-            border: 3px solid #fff;
-            border-color: #fff transparent #fff transparent;
-            animation: lds-dual-ring 1.2s linear infinite;
+        #loading_text .name {
+            letter-spacing: 0.5em;
+            margin-right: -0.5em;
         }
 
-        @keyframes lds-dual-ring {
-            0% {
-                transform: rotate(0deg);
+        @media (prefers-color-scheme: light) {
+            #loading_text {
+                color: #373737;
             }
 
-            100% {
-                transform: rotate(360deg);
+            /* The logo is white on transparent: inverted, it reads on white. */
+            #loading_text img {
+                filter: invert(1);
             }
         }
 
@@ -122,6 +117,12 @@
     <!-- The WASM code will resize the canvas dynamically -->
     <!-- the id is hardcoded in main.rs . so, make sure both match. -->
     <canvas id="the_canvas_id"></canvas>
+
+    <!-- The id is read in main.rs, which removes the element once the console starts. -->
+    <div id="loading_text">
+        <img src="logo-splash.png" alt="Orcvs">
+        <div class="name">ORCVS</div>
+    </div>
 
     <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->

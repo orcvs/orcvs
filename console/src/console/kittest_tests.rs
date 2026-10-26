@@ -97,6 +97,7 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 mod capture;
 
 mod live_editing;
+mod splash;
 
 ///
 /// A running `Console` at `size`, built the way eframe builds it.
