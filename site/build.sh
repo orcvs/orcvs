@@ -3,8 +3,8 @@
 # `site/public/play/` with `$SITE_BASE/play/` as its base, and Astro builds with `SITE_BASE` as
 # its own and copies `public/` into `site/dist/` untouched. The last line fails the build if the
 # two base paths disagree, which would break every asset URL the console loads. `SITE_BASE` is
-# empty: the site is served from its domain's root. `mise run site_build` and Workers Builds
-# (`cloudflare-build.sh`) both run this.
+# empty: the site is served from its domain's root. `mise run site_build` runs this, locally and
+# in the `site` workflow's build job.
 set -euo pipefail
 SITE_BASE="${SITE_BASE:-}"
 export SITE_BASE

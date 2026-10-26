@@ -1,8 +1,9 @@
 name: Site
 
-# Builds the site with the console at `/play/` and tests it in Chromium
-# (`mise run site_build`, `mise run site_test`). Cloudflare's GitHub integration
-# deploys it, from its own build of the same `site/build.sh`. Path-filtered to what the composed
+# Builds the site with the console at `/play/` once (`site/build.sh`) and keeps
+# it as the `site-<sha>` artifact. Every later job uses that artifact: the
+# Chromium tests, the Cloudflare deploy on `main`, and the preview on a pull
+# request, so what deploys is exactly what was tested. Path-filtered to what the composed
 # output is built from: the site, the console and the crates under it, the
 # toolchain and tool pins, and the repository docs the site renders. A pull
 # request that changes none of them cannot change the site.
@@ -50,10 +51,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  site:
-    # A release WASM build, the Astro build and a few dozen browser tests: a
-    # few minutes warm. The bound is generous against that and cheap against a
-    # browser that never answers.
+  build:
+    # A release WASM build and the Astro build: a few minutes warm.
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
@@ -70,8 +69,102 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run site_build
-      - name: Install Chromium for the smoke tests
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-${{ github.sha }}
+          path: site/dist
+          if-no-files-found: error
+
+  test:
+    needs: build
+    # A dozen-odd browser tests against the built artifact. The bound is
+    # generous against that and cheap against a browser that never answers.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: site-${{ github.sha }}
+          path: site/dist
+      - name: Install the test dependencies and Chromium
         working-directory: site
-        run: npx playwright install --with-deps chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - run: mise run site_test
 
+  # The Cloudflare jobs skip until the repository has the CLOUDFLARE_API_TOKEN
+  # secret, scoped to the account's Workers Scripts Edit, and the
+  # CLOUDFLARE_ACCOUNT_ID variable. Wrangler runs at a pinned version through
+  # npx, so the build and tests never install it.
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    concurrency:
+      group: site-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: site-${{ github.sha }}
+          path: site/dist
+      - name: Deploy to Cloudflare
+        working-directory: site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "No Cloudflare credentials yet; nothing deployed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npx --yes wrangler@4.149.0 deploy
+
+  preview:
+    needs: test
+    # A pull request from a fork gets no secrets, so it gets no preview.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+      pull-requests: write # one comment with the preview URL, edited per push
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: site-${{ github.sha }}
+          path: site/dist
+      - name: Upload a preview to Cloudflare and post its URL
+        working-directory: site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "No Cloudflare credentials yet; no preview." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          set -o pipefail
+          npx --yes wrangler@4.149.0 preview --name "pr-$PR_NUMBER" --json | tee preview.json
+          url=$(jq -er '.preview.urls[0]' preview.json)
+          echo "Preview of this pull request: $url" >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR_NUMBER" --edit-last --create-if-none --body "Site preview: $url"

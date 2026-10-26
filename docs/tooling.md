@@ -41,11 +41,12 @@ docs it renders. `mise run site_build` builds the release console into `site/pub
 `/play/` as its base, builds the Astro site around it into `site/dist/`, and fails if the two base
 paths disagree; `site/build.sh` holds those steps. `mise run site_test` serves `site/dist/` and runs the Playwright tests in
 Chromium. Neither is part of `check_pull_request`, and the workflow is not a required check.
-Cloudflare deploys the site, not this workflow. Workers Builds, Cloudflare's GitHub integration,
-builds each push with `site/cloudflare-build.sh`, which installs the pinned Rust toolchain and
-Trunk and runs `site/build.sh`. It deploys `main` as a Worker with static assets
-(`site/wrangler.jsonc`) and posts a preview URL on each pull request. Its settings live in the
-Cloudflare dashboard, listed in `.scratch/orcvs-site/issues/05-deploy-to-cloudflare-with-previews.md`.
+The workflow builds once and keeps `site/dist/` as the `site-<sha>` artifact; the test, deploy and
+preview jobs each download it, so what deploys is what was tested. A push to `main` deploys it to
+Cloudflare as a Worker with static assets (`site/wrangler.jsonc`), and a pull request from this
+repository uploads a preview and comments its URL. Both skip until the repository has the
+`CLOUDFLARE_API_TOKEN` secret, scoped to Workers Scripts Edit, and the `CLOUDFLARE_ACCOUNT_ID`
+variable.
 
 `mise run check` runs both tiers locally. The merge queue verifies the combined candidate with the
 merge tier, the browser suite and the macOS native tier before it reaches `main`. Development happens on macOS, so its

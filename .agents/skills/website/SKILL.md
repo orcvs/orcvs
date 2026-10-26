@@ -53,10 +53,9 @@ Without mise, `bash site/build.sh` from the repository root builds. After a chan
 - **Serving.** `astro preview` moves itself to the background when it detects an agent; pass
   `--ignore-lock` to keep it in the foreground, and stop it with `npx astro preview stop`.
 - **Deploy.** `site/tests/deploy.spec.ts` rewrites files in `site/dist/play/`, so it runs in its
-  own Playwright project after the rest. Cloudflare's GitHub integration deploys: it runs
-  `site/cloudflare-build.sh`, which installs Rust and Trunk and then `site/build.sh`, so a build
-  step belongs in `build.sh`, where CI runs it too. `site/.node-version` must match `mise.toml`'s
-  Node, and the script fails the deploy when it does not.
+  own Playwright project after the rest. `.github/workflows/site.yml` builds once into the
+  `site-<sha>` artifact, and its test, deploy and preview jobs all use that artifact, so a build
+  step belongs in `site/build.sh` and nowhere later.
 
 ## Gates a site change owes
 

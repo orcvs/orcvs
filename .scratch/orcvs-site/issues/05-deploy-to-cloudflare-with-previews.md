@@ -2,9 +2,9 @@
 
 **What to build:** The composed site deploys to Cloudflare as a Worker with static assets and no
 script. `site/wrangler.jsonc` names the build output as `assets.directory`, with
-`not_found_handling` set to `404-page` and preview URLs on. Workers Builds, Cloudflare's GitHub
-integration, runs the ticket 03 build, deploys pushes to `main`, and posts a preview URL on each
-pull request that changes the site. A `_headers` file sets caching so a deploy replaces
+`not_found_handling` set to `404-page` and preview URLs on. A GitHub Actions workflow runs the
+ticket 03 build once, keeps it as an artifact, and deploys that artifact on pushes to `main` and
+as a preview, with its URL posted, on each pull request that changes the site. A `_headers` file sets caching so a deploy replaces
 `/play/`'s HTML and JS. `/play/` keeps its service worker, scoped to `/play/`, and a deploy must
 replace a cached console: this ticket picks file hashing (off today in `console/Trunk.toml`) or a
 versioned worker. See `../spec.md` (Hosting, Service worker).
@@ -13,26 +13,28 @@ versioned worker. See `../spec.md` (Hosting, Service worker).
 
 **Status:** ready-for-human
 
-Toby connects the repository in the Cloudflare dashboard, with the settings below, and supplies
-the domain.
+Toby provides the Cloudflare account, an API token stored as a repository secret, and the domain.
+The workflow is written so it does nothing until those exist.
 
 - [x] A test or recorded check shows a second deploy replaces the console a returning reader had
       cached.
 - [ ] A pull request that changes the site gets a preview URL.
-- [x] The build installs only pinned, checksummed tools, and the repository holds no Cloudflare
-      credential.
+- [x] The workflow passes `bash scripts/check-tooling-contract.sh`, `actionlint` and
+      `zizmor --offline .github/workflows`, and its token has the least scope the deploy needs.
 
 ## Comments
 
-### Built, 2026-10-26; waiting on the dashboard
+### Built, 2026-10-26; waiting on the Cloudflare account
 
-On 2026-10-26 Toby chose Cloudflare's GitHub integration over a deploy from GitHub Actions, so
-the repository holds no API token and Cloudflare posts the preview URLs itself. Its build image
-has Node but no Rust, so `site/cloudflare-build.sh` installs rustup 1.28.2 and Trunk from
-mise.toml's pin, each checked against a SHA-256, then runs `site/build.sh`, the same build
-`mise run site_build` and the `site` workflow run. The script ran end to end in this session from
-an empty home directory. `site/.node-version` picks the image's Node; the script fails if it
-drifts from `mise.toml`.
+`.github/workflows/site.yml` builds once with `site/build.sh` and uploads `site/dist/` as the
+`site-<sha>` artifact. The `test` job runs the Playwright suite against that artifact; `deploy`
+(pushes to `main`) and `preview` (pull requests from this repository) download the same artifact
+and run Wrangler 4.149.0 through `npx`. So what reaches Cloudflare is byte for byte what the tests
+passed, and a release can publish the same build (ticket 12). On 2026-10-26 Toby asked for this
+over Cloudflare's GitHub integration, which builds from source in its own image and cannot deploy
+a build made elsewhere. The Cloudflare steps skip until the
+`CLOUDFLARE_API_TOKEN` secret and `CLOUDFLARE_ACCOUNT_ID` variable exist. The preview comment is
+one comment per pull request, edited on each push.
 
 The console keeps fixed file names and its existing worker: navigations, `console.js` and
 `console_bg.wasm` are network-first, and `_headers` makes every `/play/` file revalidate. So a
@@ -43,18 +45,7 @@ naming the new script's integrity hash as a build would, under a reader whose wo
 page. The new console must start, and the test fails if the worker answers navigations from its
 cache.
 
-For Toby, in the Cloudflare dashboard under Workers & Pages, create a Worker by importing
-`orcvs/orcvs` from GitHub, then set:
-
-- Worker name: `orcvs-site`, matching `site/wrangler.jsonc`.
-- Root directory: `site`.
-- Build command: `bash cloudflare-build.sh`.
-- Deploy command: `npx wrangler@4.149.0 deploy`.
-- Preview builds: on, with preview command `npx wrangler@4.149.0 preview`.
-- Production branch: `main`.
-- Build watch paths: `site/*`, `console/*`, `orcvs/*`, `lang/*`, `Cargo.toml`, `Cargo.lock`,
-  `rust-toolchain.toml`, `mise.toml`, `docs/first-result.md`, `docs/functions.md`.
-- The domain, once chosen, under the Worker's Domains & Routes.
-
-The first pull request after that shows its preview URL in a Cloudflare comment, which closes the
+For Toby: create an account API token with only Account → Workers Scripts → Edit, store it as the
+`CLOUDFLARE_API_TOKEN` repository secret, set the `CLOUDFLARE_ACCOUNT_ID` repository variable, and
+name the domain. The first pull request after that gets a preview comment, which closes the
 remaining box.
