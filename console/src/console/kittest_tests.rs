@@ -4284,6 +4284,25 @@ async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
 }
 
 ///
+/// The small console (ADR 0085) shows the Grid and the Panel without the
+/// menu bar.
+///
+#[tokio::test]
+async fn a_small_console_shows_no_menu_bar() {
+    let mut harness = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| super::tests::start_linked_console(cc, "?small", ""));
+    harness.run_steps(2);
+    for menu in ["File", "View", "Help"] {
+        assert!(
+            harness.query_by_label(menu).is_none(),
+            "the small console shows {menu}"
+        );
+    }
+}
+
+///
 /// Opens `Help → Examples` and clicks the example named `name` in it.
 ///
 fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {

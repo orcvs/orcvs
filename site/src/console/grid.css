@@ -1,0 +1,47 @@
+/* A Source drawn as Cells (`grid.ts`), each 2 wide by 3 tall as the console's default Cell. */
+.orcvs-grid {
+  display: inline-grid;
+  grid-template-columns: repeat(var(--columns), 1.2em);
+  grid-auto-rows: 1.8em;
+  margin-block: 0.75rem;
+  padding: 0;
+  font: inherit;
+  font-family: var(--sl-font-mono);
+  color: var(--orcvs-ordinary);
+  background: var(--orcvs-window);
+  border: 1px solid var(--orcvs-grid-border);
+  border-width: 1px 0 0 1px;
+}
+.orcvs-grid span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--orcvs-grid-border);
+  border-width: 0 1px 1px 0;
+}
+.orcvs-grid .function {
+  color: var(--orcvs-function);
+  background: var(--orcvs-function-background);
+}
+.orcvs-grid .bang {
+  color: var(--orcvs-bang);
+  background: var(--orcvs-bang-background);
+}
+button.orcvs-grid {
+  cursor: pointer;
+}
+button.orcvs-grid:hover,
+button.orcvs-grid:focus-visible {
+  outline: 1px solid var(--orcvs-function);
+}
+/* The page's small console (`small.ts`), docked over the page's bottom right. */
+.orcvs-small {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 10;
+  width: min(36rem, calc(100vw - 2rem));
+  height: min(24rem, 50vh);
+  border: 1px solid var(--orcvs-panel-border);
+  background: var(--orcvs-window);
+}

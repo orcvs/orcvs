@@ -6991,3 +6991,78 @@ async fn a_link_the_console_cannot_open_starts_empty_and_says_why() {
         "{notices:?}"
     );
 }
+
+///
+/// The small console (ADR 0085) opens empty and stopped, shows no menu bar,
+/// and opens each Source File text sent to it, still stopped.
+///
+#[tokio::test]
+async fn a_small_console_opens_each_message_it_is_sent_stopped() {
+    let ctx = egui::Context::default();
+    let mut console = start_linked_console(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        "?small",
+        "",
+    );
+    let mut host = eframe::Frame::_new_kittest();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    assert_eq!(
+        console.orcvs.source().snapshot(),
+        crate::persistence::default_source().snapshot()
+    );
+
+    for text in [".+0102\n", "~.04\n"] {
+        console
+            .small
+            .as_ref()
+            .expect("a small console has an inbox")
+            .borrow_mut()
+            .push(text.to_owned());
+        for _ in 0..3 {
+            app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+            tokio::task::yield_now().await;
+        }
+        let sent = orcvs::source::file::read(text.as_bytes()).expect("a Source File");
+        assert_eq!(
+            console.orcvs.source().snapshot(),
+            sent.snapshot(),
+            "the small console did not open the Source it was sent"
+        );
+        assert_eq!(
+            console.orcvs.playback_observation().state,
+            orcvs::playback::PlaybackState::Stopped,
+            "a Source sent to the small console started playing by itself"
+        );
+    }
+}
+
+///
+/// Source File text the small console refuses leaves its Source in place
+/// and says why in the top bar's notices.
+///
+#[tokio::test]
+async fn a_small_console_keeps_its_source_when_a_message_is_refused() {
+    let ctx = egui::Context::default();
+    let mut console = start_linked_console(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        "?small",
+        "",
+    );
+    let mut host = eframe::Frame::_new_kittest();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let inbox = console.small.clone().expect("a small console has an inbox");
+    inbox.borrow_mut().push(".+0102\n".to_owned());
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let opened = console.orcvs.source().snapshot();
+
+    inbox.borrow_mut().push("\t".to_owned());
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+    assert_eq!(console.orcvs.source().snapshot(), opened);
+    assert_eq!(
+        console.themes.notice_count(),
+        1,
+        "{:?}",
+        console.themes.notice_list()
+    );
+}

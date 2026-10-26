@@ -181,6 +181,12 @@ impl SelectedThemes {
             .chain(self.registry.notices())
     }
 
+    /// Raises `message` among the registry's notices.
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn notice(&mut self, message: String) {
+        self.registry.notice(message);
+    }
+
     pub(crate) fn notice_count(&self) -> usize {
         self.notices().count()
     }

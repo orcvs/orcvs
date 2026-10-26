@@ -140,6 +140,10 @@ pub struct Console {
     /// The context an Open wakes the Panel through when the new Orcvs's
     /// Playback Engine publishes.
     ctx: egui::Context,
+    /// The small console's posted Source File text (ADR 0085), or `None`
+    /// for any other console. A small console shows no menu bar.
+    #[cfg(any(target_arch = "wasm32", test))]
+    small: Option<crate::linked_source::Inbox>,
     /// Whether `save` stores the Source. A console its URL opened stores
     /// nothing, so the Source a reader keeps is never written over.
     #[cfg(feature = "persistence")]
@@ -187,12 +191,16 @@ impl Console {
         search: &str,
         fragment: &str,
     ) -> Result<Self, PlaybackStartError> {
-        Self::new(
+        let console = Self::new(
             cc,
             ThemeRegistry::start(cc.storage),
             Config::start(),
             crate::linked_source::opening(search, fragment),
-        )
+        )?;
+        if let Some(inbox) = &console.small {
+            crate::web_startup::listen_for_sources(inbox.clone(), cc.egui_ctx.clone());
+        }
+        Ok(console)
     }
 
     ///
@@ -209,6 +217,8 @@ impl Console {
     ) -> Result<Self, PlaybackStartError> {
         #[cfg(feature = "persistence")]
         let stores_source = matches!(opening, Opening::Stored);
+        #[cfg(any(target_arch = "wasm32", test))]
+        let small = matches!(opening, Opening::Small).then(crate::linked_source::Inbox::default);
         let source = match opening {
             // The stored Source revision, or an empty Source when storage
             // holds none.
@@ -220,6 +230,8 @@ impl Console {
                 registry.notice(message);
                 crate::persistence::default_source()
             }
+            #[cfg(any(target_arch = "wasm32", test))]
+            Opening::Small => crate::persistence::default_source(),
         };
 
         // What the settings file could not supply reaches the viewer through
@@ -299,6 +311,8 @@ impl Console {
             #[cfg(not(target_arch = "wasm32"))]
             splash: None,
             ctx: cc.egui_ctx.clone(),
+            #[cfg(any(target_arch = "wasm32", test))]
+            small,
             #[cfg(feature = "persistence")]
             stores_source,
         })
@@ -423,7 +437,16 @@ impl eframe::App for Console {
             return;
         }
         self.keep_tab_for_source(&ctx);
+        #[cfg(any(target_arch = "wasm32", test))]
+        self.open_sent_sources();
         self.observe_playback_diagnostics();
+        #[cfg(any(target_arch = "wasm32", test))]
+        let menu = if self.small.is_some() {
+            menu_bar::MenuBarChoice::default()
+        } else {
+            self.show_menu_bar(root, appearance)
+        };
+        #[cfg(not(any(target_arch = "wasm32", test)))]
         let menu = self.show_menu_bar(root, appearance);
         // The Overview fits below this. Nothing shown before the Overview
         // may take room from the top, or it would overlap what does.

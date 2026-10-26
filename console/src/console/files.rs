@@ -43,6 +43,30 @@ impl Console {
     }
 
     ///
+    /// Opens the Source File text posted to a small console, oldest first. A
+    /// Source the reader refuses leaves the open one in place and raises a
+    /// notice.
+    ///
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(super) fn open_sent_sources(&mut self) {
+        let Some(inbox) = &self.small else {
+            return;
+        };
+        let sent = std::mem::take(&mut *inbox.borrow_mut());
+        for text in sent {
+            match crate::linked_source::source_message(&text) {
+                Ok(source) => {
+                    if !self.open(source) {
+                        self.themes
+                            .notice("The Source sent could not start".to_owned());
+                    }
+                }
+                Err(refusal) => self.themes.notice(refusal),
+            }
+        }
+    }
+
+    ///
     /// Opens the Function reference: `Help → Function Reference`.
     ///
     pub(super) fn load_function_reference(&mut self) {

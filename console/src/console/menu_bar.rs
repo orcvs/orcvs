@@ -226,6 +226,7 @@ impl Console {
 /// What the viewer chose in the top bar this frame, for the frame to act on
 /// once the bar is done.
 ///
+#[derive(Default)]
 pub(super) struct MenuBarChoice {
     /// A File command from the File menu, run once the chords are read.
     pub(super) file_command: Option<FileCommand>,

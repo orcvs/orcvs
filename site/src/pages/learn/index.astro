@@ -1,0 +1,17 @@
+---
+// `/learn/` is `docs/first-result.md`, rendered at build time through `repositoryDocs`
+// (`src/console/docs.ts`); this page only frames it.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { Content, getHeadings } from "../../../../docs/first-result.md";
+---
+
+<StarlightPage
+  frontmatter={{ title: "Your first result" }}
+  headings={getHeadings().filter((heading) => heading.depth > 1)}
+>
+  <Content />
+</StarlightPage>
+
+<script>
+  import "../../console/small";
+</script>

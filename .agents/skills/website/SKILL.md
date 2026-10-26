@@ -38,20 +38,23 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
 
 ## Contracts the code cannot show
 
-- **Embedding.** `<Console example="…" />` or `<Console source="…" />` (`site/src/components/`)
-  renders the markup in `site/src/console/embed.ts`; `launch.ts` swaps the preview for a
-  same-origin iframe only when the reader presses Launch, so a page starts only the consoles its
-  reader opens. Pressing Launch is the reader's click: the console takes the keyboard as it
-  starts, and a click outside gives keys back to the page.
+- **The site is the console.** `/` is `/play/` filling the window, with its own splash. Every
+  page wears the Grayscale Themes and Monaspace Neon (`site/src/styles/orcvs.css`), and carries
+  the repository's docs, never prose written for the site (`.scratch/site-as-console/spec.md`).
+- **Examples.** `site/src/console/docs.ts` draws each Source in `docs/first-result.md` and
+  `docs/functions.md` as a Grid (`grid.ts`). Pressing a starting Source starts the page's one
+  small console, `/play/?small`, and posts it `{ type: "orcvs.open", source }` (`small.ts`, ADR
+  0085). Nothing opens a new tab or window.
 - **Links.** `/play/?example=<link-name>` opens a shipped example (`cell-tracker`,
   `orca-tracker`); `/play/#source=<percent-encoded Source File>` opens text, up to 16 KiB of
-  fragment. Either opens stopped, neither reads nor writes saved work, and neither registers the
-  service worker (`console/src/linked_source.rs`, `console/index.html`).
+  fragment; `/play/?small` opens the small console. Each opens stopped, none reads or writes saved
+  work, and none registers the service worker (`console/src/linked_source.rs`,
+  `console/index.html`).
 - **Started.** The canvas has no DOM. eframe gives `#the_canvas_id` a `width` attribute when it
   starts; that attribute is the only start signal. What the console shows is compared as frame
   screenshots, and keys reach it as real input.
 - **Markdown.** Astro 7 renders Markdown with Sätteri, not remark: a transform is a Sätteri mdast
-  plugin in `markdown.processor`, as `site/src/console/function-reference.ts` is.
+  plugin in `markdown.processor`, as `site/src/console/docs.ts` is.
 - **Serving.** `astro preview` moves itself to the background when it detects an agent; pass
   `--ignore-lock` to keep it in the foreground, and stop it with `npx astro preview stop`.
 - **Deploy.** `site/tests/deploy.spec.ts` rewrites files in `site/dist/play/`, so it runs in its
