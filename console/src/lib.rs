@@ -46,6 +46,10 @@ mod theme_selection;
 mod web_midi;
 #[cfg(target_arch = "wasm32")]
 pub mod web_startup;
+// The native console window's size, position and state, which the console
+// stores and restores itself. The web has no window of its own.
+#[cfg(not(target_arch = "wasm32"))]
+mod window_geometry;
 
 #[doc(inline)]
 pub use paint::{

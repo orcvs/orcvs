@@ -151,7 +151,26 @@ impl Console {
         // one it needs and never reads the machine's own Theme directory.
         // Settings are read here for the same reason: native reads
         // `~/.orcvs/config.toml` and the web runs on the defaults.
-        Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())
+        let console = Self::new(cc, ThemeRegistry::start(cc.storage), Config::start())?;
+        #[cfg(not(target_arch = "wasm32"))]
+        console.open_window(crate::window_geometry::stored(cc.storage));
+        Ok(console)
+    }
+
+    ///
+    /// Returns the window to `stored`, the geometry the console was last
+    /// closed at, when there is one; otherwise it stays at the default size
+    /// `main` opened it at.
+    ///
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn open_window(&self, stored: Option<crate::window_geometry::WindowGeometry>) {
+        let Some(stored) = stored else {
+            return;
+        };
+        let monitor_size = self.ctx.input(|input| input.viewport().monitor_size);
+        for command in stored.commands(DEFAULT_VIEW_SIZE_MIN.into(), monitor_size) {
+            self.ctx.send_viewport_cmd(command);
+        }
     }
 
     ///
@@ -288,12 +307,17 @@ impl Console {
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
-    /// intervals while running. This stores the current Source revision;
-    /// settings are never saved.
+    /// intervals while running. This stores the current Source revision and,
+    /// natively, the window's geometry; settings are never saved.
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         crate::persistence::save(storage, self.orcvs.source());
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::window_geometry::store(
+            storage,
+            &crate::window_geometry::WindowGeometry::of(&self.ctx),
+        );
     }
 
     ///

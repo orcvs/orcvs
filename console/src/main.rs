@@ -35,6 +35,9 @@ async fn main() -> eframe::Result {
     trace();
 
     let native_options = eframe::NativeOptions {
+        // The console stores and restores its own window geometry
+        // (`window_geometry`, ADR 0083).
+        persist_window: false,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(DEFAULT_VIEW_SIZE)
             .with_min_inner_size(DEFAULT_VIEW_SIZE_MIN)
