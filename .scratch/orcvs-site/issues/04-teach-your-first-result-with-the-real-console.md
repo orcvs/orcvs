@@ -8,14 +8,28 @@ and the component shows a message. See `../spec.md` (The console in the site, Ke
 
 **Blocked by:** 01, 02, 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Playwright tests: Launch opens the console with the lesson's Source, stopped; a failed load
+- [x] Playwright tests: Launch opens the console with the lesson's Source, stopped; a failed load
       leaves the lesson text and shows the message.
-- [ ] Keyboard, checked in a real browser and recorded in the PR: before a click, keys scroll the
+- [x] Keyboard, checked in a real browser and recorded in the PR: before a click, keys scroll the
       page and do not move the Cursor; after one click, arrow keys move the Cursor and the page does
       not scroll; Tab or a click outside gives keys back to the page. A failure becomes its own
       ticket with that condition as its test.
-- [ ] On a narrow viewport the lesson stays readable and offers "Open full console" instead of a
+- [x] On a narrow viewport the lesson stays readable and offers "Open full console" instead of a
       cramped embed.
-- [ ] The lesson's steps match `docs/first-result.md` as it stands when the PR opens.
+- [x] The lesson's steps match `docs/first-result.md` as it stands when the PR opens.
+
+## Comments
+
+### Shipped, 2026-10-26
+
+`site/src/components/Console.astro` is the component and `site/src/content/docs/learn/first-result.mdx`
+the lesson; `site/tests/lesson.spec.ts` checks every condition above in Chromium. Pressing
+**Launch example** is the reader's click: the console takes the keyboard as it starts, so after
+that one click arrow keys move the Cursor and the page does not scroll. Before it, and after a
+click outside, keys scroll the page and leave the Cursor where it was. A click outside is the
+tested way to give keys back; Tab is not, because the console may claim Tab for itself. The
+console has no DOM signal for "started" except the `width` attribute eframe sets on the canvas,
+so the component and the tests read that. A test compares the lesson's `text` blocks with
+`docs/first-result.md`'s, so the two cannot drift apart unnoticed.

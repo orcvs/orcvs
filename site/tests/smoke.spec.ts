@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 // What the deployed site must always do: every top-level page loads with no page errors, and the
-// console at `/play/` starts. The console draws on a canvas with no DOM, so "starts" is the
-// loading text removed and the canvas sized, which `console/src/main.rs` does once eframe runs.
+// console at `/play/` starts. The console draws on a canvas with no DOM, so "starts" is the canvas
+// given a `width` attribute, which eframe sets once it runs and a page whose WASM failed never has.
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -24,11 +24,7 @@ for (const path of ["/", "/learn/", "/reference/"]) {
 }
 
 async function consoleStarts(page: Page) {
-  const canvas = page.locator("#the_canvas_id");
-  await expect(canvas).toBeVisible();
-  await expect
-    .poll(() => canvas.evaluate((element: HTMLCanvasElement) => element.width), { timeout: 30_000 })
-    .toBeGreaterThan(0);
+  await expect(page.locator("#the_canvas_id")).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
 }
 
 test("/play/ starts the console and registers its service worker", async ({ page }) => {
