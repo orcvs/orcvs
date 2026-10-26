@@ -110,8 +110,13 @@ orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 #
 # `.agents/skills/egui/references/guide.md` records the release this stack is
 # read against and what moving it costs.
+#
+# `links` lets native open the Help menu's site links in the system browser
+# through `webbrowser`; without it eframe logs a warning and opens nothing. The
+# web opens them through the browser, which needs no feature.
 eframe = { version = "=0.36.2", default-features = false, features = [
     "glow",
+    "links",
     "wayland",
     "x11",
 ] }

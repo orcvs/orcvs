@@ -11,6 +11,12 @@ use crate::examples::EXAMPLES;
 use crate::theme::Appearance;
 use crate::theme_selection::SelectedThemes;
 
+/// The site's pages the Help menu links to, by item label.
+const SITE_LINKS: [(&str, &str); 2] = [
+    ("Learn", "https://orcvs.com/learn/"),
+    ("Reference", "https://orcvs.com/reference/"),
+];
+
 /// The height the top panel takes from the window, leaving the rest to the
 /// console: the bottom Panel's compact height, so the two bars match.
 pub(super) const TOP_PANEL_HEIGHT: f32 = super::panel::BOTTOM_PANEL_HEIGHT;
@@ -327,6 +333,13 @@ impl Console {
                             }
                         }
                     });
+                    ui.separator();
+                    // A new tab, so the open console and its Source stay.
+                    for (label, url) in SITE_LINKS {
+                        if ui.button(label).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
+                    }
                 });
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.

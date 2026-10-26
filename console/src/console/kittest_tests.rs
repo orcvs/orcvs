@@ -4284,6 +4284,38 @@ async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
 }
 
 ///
+/// `Help → Learn` and `Help → Reference` ask to open the site's pages in a
+/// new tab, so the open console and its Source stay where they are.
+///
+#[tokio::test]
+async fn the_help_menu_links_to_the_sites_learn_and_reference_pages() {
+    for (label, url) in [
+        ("Learn", "https://orcvs.com/learn/"),
+        ("Reference", "https://orcvs.com/reference/"),
+    ] {
+        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        harness.run_steps(2);
+        harness.get_by_label("Help").click();
+        harness.step();
+        harness.run_steps(1);
+        menu_item(&harness, label).click();
+        harness.step();
+
+        let opened: Vec<_> = harness
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                egui::OutputCommand::OpenUrl(open) => Some((open.url.as_str(), open.new_tab)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(opened, [(url, true)], "Help → {label}");
+    }
+}
+
+///
 /// Opens `Help → Examples` and clicks the example named `name` in it.
 ///
 fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {
