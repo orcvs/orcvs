@@ -136,10 +136,11 @@ filter, the agent workflow and the acceptance criteria.
      `console/` runs `trunk build --release --locked --public-url ./ --dist ../target/console-web`.
      Every URL in it is relative, so one build serves from `/play/` or from a download. On `main`
      it is published as `console-web.tar.gz` on the public `console-web` release.
-  2. The site: Cloudflare runs `site/build.sh`, which downloads that console (or copies the
-     directory `CONSOLE_WEB` names) into `site/public/play/` unchanged, then runs the Astro build
-     with `base` set to `<base>`.
-  3. The `site` workflow runs the same script and the smoke tests, and deploys nothing.
+  2. The site: Cloudflare installs the dependencies and runs `npm run build` in `site/`, whose
+     `prebuild` step downloads that console (or copies the directory `CONSOLE_WEB` names) into
+     `site/public/play/` unchanged, then runs the Astro build with `base` set to `<base>`.
+  3. The `site` workflow runs the same two commands (`mise run site_build`) and the smoke tests,
+     and deploys nothing.
 
   The site is served from the root of its domain, so `<base>` is empty and the console is at
   `/play/`. The console needs no base of its own, so `<base>` can change without rebuilding it.

@@ -424,9 +424,10 @@ run = "env -u NO_COLOR trunk build --release --locked --public-url ./ --dist ../
 
 [tasks.site_build]
 description = "Build the site around a built web console"
-# Downloads the console published from `main`; `CONSOLE_WEB=target/console-web`
-# takes the one `console_web_build` wrote instead.
-run = "bash site/build.sh"
+# Downloads the console published from `main`; `CONSOLE_WEB=../target/console-web`
+# (relative to `site/`) takes the one `console_web_build` wrote instead.
+dir = "site"
+run = "npm ci && npm run build"
 
 [tasks.site_test]
 description = "Smoke-test the built site in Chromium"

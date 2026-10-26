@@ -3,9 +3,9 @@
 **What to build:** The composed site deploys to Cloudflare as a Worker with static assets and no
 script. `site/wrangler.jsonc` names the build output as `assets.directory`, with
 `not_found_handling` set to `404-page` and preview URLs on. Cloudflare's GitHub app builds the site
-with `site/build.sh` and deploys it on pushes to `main`, and as a preview on each pull request that
-changes the site. A `_headers` file sets caching so a deploy replaces
-`/play/`'s HTML and JS. `/play/` keeps its service worker, scoped to `/play/`, and a deploy must
+with `npm run build` in `site/` and deploys it on pushes to `main`, and as a preview on each pull
+request that changes the site. A `_headers` file sets caching so a deploy replaces `/play/`'s HTML
+and JS. `/play/` keeps its service worker, scoped to `/play/`, and a deploy must
 replace a cached console: this ticket picks file hashing (off today in `console/Trunk.toml`) or a
 versioned worker. See `../spec.md` (Hosting, Service worker).
 
@@ -26,11 +26,12 @@ Toby provides the Cloudflare account, connects Cloudflare's GitHub app, and name
 ### Built, 2026-10-26; waiting on the Cloudflare account
 
 Cloudflare builds and deploys the site through its GitHub app, as Toby asked on 2026-10-26, so
-GitHub holds no Cloudflare token. Its build runs `site/build.sh`, which downloads the console
-`.github/workflows/console-web.yml` publishes from `main` on the `console-web` release and builds
+GitHub holds no Cloudflare token. Its build installs the dependencies and runs `npm run build`,
+whose `prebuild` step (`site/scripts/console.sh`) downloads the console
+`.github/workflows/console-web.yml` publishes from `main` on the `console-web` release, then builds
 only the Astro site. That workflow posts to a deploy hook after publishing, so a console change
-reaches the live site without a site change. `.github/workflows/site.yml` runs the same script and
-the Playwright suite, and deploys nothing.
+reaches the live site without a site change. `.github/workflows/site.yml` runs the same two
+commands through `mise run site_build`, then the Playwright suite, and deploys nothing.
 
 The console keeps fixed file names and its existing worker: navigations, `console.js` and
 `console_bg.wasm` are network-first, and `_headers` makes every `/play/` file revalidate. So a
@@ -44,10 +45,11 @@ cache.
 For Toby, in the Cloudflare dashboard: Workers & Pages → Create → Import a repository, choose
 `orcvs/orcvs` (this installs Cloudflare's GitHub app), and set:
 
-- Worker name: `orcvs-site`, the `name` in `site/wrangler.jsonc`.
-- Root directory: `site`. Build command: `bash build.sh`.
+- Worker name: `orcvs`, the `name` in `site/wrangler.jsonc`.
+- Root directory: `site`. Build command: `npm run build`, Cloudflare's default.
 - Deploy command: `npx wrangler@4.149.0 deploy`. Turn on builds for non-production branches, with
-  `npx wrangler@4.149.0 preview` as the preview command.
+  `npx wrangler@4.149.0 preview` as the preview command. `wrangler preview` needs the empty
+  `previews` block in `site/wrangler.jsonc`.
 - Build watch paths: `site/*`, `docs/first-result.md`, `docs/functions.md` and `mise.toml`, so a
   console-only push does not rebuild the site before its console is published.
 - Under Builds → Deploy Hooks, a hook for `main`; store its URL as the `CLOUDFLARE_DEPLOY_HOOK`
