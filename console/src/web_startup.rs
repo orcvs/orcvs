@@ -19,22 +19,21 @@ pub fn canvas_or_report(
 /// Keeps the Source File text of the latest `{ type: "orcvs.open", source }`
 /// message the embedding page posts in `inbox`, and repaints `ctx` so a frame
 /// opens it (ADR 0086). A message from another window or origin, of another
-/// type, or whose `source` is not a string is ignored. Once listening, posts
-/// `{ type: "orcvs.ready" }` to the embedding page, which sends nothing
-/// before it. The listener lasts as long as the page.
+/// type, or whose `source` is not a string is ignored. Returns whether it
+/// listens; the listener lasts as long as the page.
 ///
-pub(crate) fn listen_for_sources(inbox: crate::linked_source::Inbox, ctx: egui::Context) {
+pub(crate) fn listen_for_sources(inbox: crate::linked_source::Inbox, ctx: egui::Context) -> bool {
     use wasm_bindgen::JsCast as _;
     use wasm_bindgen::closure::Closure;
 
     let Some(window) = web_sys::window() else {
-        return;
+        return false;
     };
     let Ok(origin) = window.location().origin() else {
-        return;
+        return false;
     };
     let Ok(Some(parent)) = window.parent() else {
-        return;
+        return false;
     };
     let field = |data: &wasm_bindgen::JsValue, name: &str| {
         js_sys::Reflect::get(data, &name.into())
@@ -65,14 +64,32 @@ pub(crate) fn listen_for_sources(inbox: crate::linked_source::Inbox, ctx: egui::
         window.add_event_listener_with_callback("message", listener.as_ref().unchecked_ref())
     {
         log::warn!("the small console cannot listen for Sources: {reason:?}");
-        return;
+        return false;
     }
+    // The page holds the listener for its whole life.
+    listener.forget();
+    true
+}
+
+///
+/// Posts `{ type: "orcvs.ready" }` to the embedding page once the console
+/// listens for everything the page sends it: the page sends nothing before
+/// it (ADR 0086, ADR 0087).
+///
+pub(crate) fn say_ready() {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(origin) = window.location().origin() else {
+        return;
+    };
+    let Ok(Some(parent)) = window.parent() else {
+        return;
+    };
     let ready = js_sys::Object::new();
     // Setting a field on a fresh plain object cannot fail.
     let _ = js_sys::Reflect::set(&ready, &"type".into(), &"orcvs.ready".into());
     if let Err(reason) = parent.post_message(&ready, &origin) {
-        log::warn!("the small console cannot say it is ready: {reason:?}");
+        log::warn!("the console cannot say it is ready: {reason:?}");
     }
-    // The page holds the listener for its whole life.
-    listener.forget();
 }

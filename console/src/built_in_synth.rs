@@ -184,18 +184,19 @@ mod browser {
 
     impl BrowserPage {
         ///
-        /// Listens for the framing page's `orcvs.synth` announcements, and
-        /// posts it `{ type: "orcvs.ready" }` so it knows to send one (ADR
-        /// 0086). An announcement repaints `ctx`, so the next frame answers
-        /// it. A console no page frames listens for nothing. Only the first
-        /// call listens; the listener lasts as long as the page.
+        /// Listens for the framing page's `orcvs.synth` announcements, which
+        /// the page sends once the console says it is ready
+        /// (`crate::web_startup::say_ready`). An announcement repaints `ctx`,
+        /// so the next frame answers it. Returns whether it listens: a console
+        /// no page frames listens for nothing. Only the first call listens;
+        /// the listener lasts as long as the page.
         ///
-        pub(crate) fn listen(ctx: egui::Context) {
+        pub(crate) fn listen(ctx: egui::Context) -> bool {
             if LISTENING.with(|listening| listening.replace(true)) {
-                return;
+                return true;
             }
             let Some((window, parent, origin)) = framing() else {
-                return;
+                return false;
             };
             let listened_parent = parent.clone();
             let listened_origin = origin.clone();
@@ -217,16 +218,11 @@ mod browser {
                 .add_event_listener_with_callback("message", listener.as_ref().unchecked_ref())
             {
                 log::warn!("the console cannot listen for the Built-in Synth: {reason:?}");
-                return;
-            }
-            let ready = js_sys::Object::new();
-            // Setting a field on a fresh plain object cannot fail.
-            let _ = js_sys::Reflect::set(&ready, &"type".into(), &"orcvs.ready".into());
-            if let Err(reason) = parent.post_message(&ready, &origin) {
-                log::warn!("the console cannot tell its page it is ready: {reason:?}");
+                return false;
             }
             // The page holds the listener for its whole life.
             listener.forget();
+            true
         }
     }
 

@@ -56,11 +56,12 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("a launched console plays the page's synth at a constant offset from its Ticks", async ({ page }) => {
-  await page.goto("/learn/first-result/");
-  // The first launch loads the page's synth; a console framed beside it is answered the same way.
+test("a framed console plays the page's synth at a constant offset from its Ticks", async ({ page }) => {
+  await page.goto("/learn/");
+  // The first press of a Grid starts the small console and loads the page's synth; a console framed
+  // beside it is answered the same way.
   await expect.poll(() => page.evaluate(() => !!window.synthSpy.context)).toBe(false);
-  await page.getByRole("button", { name: "Launch example" }).first().click();
+  await page.locator(".orcvs-grid[data-source]").first().click();
   await expect.poll(() => page.evaluate(() => !!window.synthSpy.context)).toBe(true);
   await page.evaluate((source) => {
     const frame = document.createElement("iframe");
