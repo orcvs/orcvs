@@ -19,10 +19,10 @@ const EFFECTS: [string, number][] = [
   ["R1", 0x00],
   ["R2", 0x00],
 ];
-const EFFECTS_PER_ROW = 4;
-/** An effect's name, value and magnitude, two Cells each, and a spacer. */
-const EFFECT_CELLS = 7;
-/** A row of channel lights, two Cells each, and the Grid's width. */
+/**
+ * The Grid's width: sixteen channel lights of two Cells each, or four effects of eight, a name,
+ * value and magnitude of two Cells each and two spacers, so each row of effects wraps on its own.
+ */
 const COLUMNS = 32;
 
 const hex = (value: number) => value.toString(16).toUpperCase().padStart(2, "0");
@@ -50,6 +50,8 @@ export function soundModule(module: HTMLElement) {
     grid.append(...pair);
     return { pair, timer: 0 };
   });
+  // A blank row between the lights and the effects.
+  for (let blank = 0; blank < COLUMNS; blank++) grid.append(cell());
 
   const effects = EFFECTS.map(([name, value], index) => {
     const digits = [cell("number"), cell("number")];
@@ -59,10 +61,7 @@ export function soundModule(module: HTMLElement) {
       target.dataset.effect = String(index);
       target.title = `CC ${index + 1}`;
     }
-    grid.append(...named, ...digits, ...magnitude, cell());
-    if (index % EFFECTS_PER_ROW === EFFECTS_PER_ROW - 1) {
-      for (let blank = EFFECTS_PER_ROW * EFFECT_CELLS; blank < COLUMNS; blank++) grid.append(cell());
-    }
+    grid.append(...named, ...digits, ...magnitude, cell(), cell());
     const effect = { value, digits, magnitude };
     show(effect, value);
     return effect;

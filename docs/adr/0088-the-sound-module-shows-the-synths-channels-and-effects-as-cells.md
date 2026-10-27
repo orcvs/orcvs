@@ -19,7 +19,8 @@ beside it. It holds two things, sixteen channel lights and eight effects.
 first holding its hex digit. A Note On fills them with the magnitude colour at its velocity's
 fraction of `7F`, and they clear 150 ms later.
 
-**Each effect is a name, a value and a magnitude, two Cells each, then a spacer Cell.**
+**Each effect is a name, a value and a magnitude, two Cells each, then two spacer Cells.** A
+blank row separates the channel lights from the effects.
 
 - The name is two Cells in the Function role's colours.
 - The value is the effect's `00`–`7F` as two hex digits in the Number role's colours.
