@@ -4327,6 +4327,27 @@ async fn a_small_console_shows_a_refused_source_s_notice() {
 }
 
 ///
+/// The Help menu offers Learn and Reference, the site's pages, after its
+/// Examples. Clicking one would open the system browser, so this only finds
+/// them; `menu_bar::tests` proves the command a click runs.
+///
+#[tokio::test]
+async fn the_help_menu_offers_the_sites_learn_and_reference_pages() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    harness.get_by_label("Help").click();
+    harness.step();
+    harness.run_steps(1);
+    let examples = harness.get_by_label("Examples ⏵").rect();
+    let learn = menu_item(&harness, "Learn").rect();
+    let reference = menu_item(&harness, "Reference").rect();
+    assert!(
+        examples.top() < learn.top() && learn.top() < reference.top(),
+        "Help does not list Examples, Learn, then Reference"
+    );
+}
+
+///
 /// Opens `Help → Examples` and clicks the example named `name` in it.
 ///
 fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {
