@@ -1,5 +1,9 @@
 #![warn(clippy::all)]
 
+// The Built-in Synth a framing page announces, as a MIDI destination. Its
+// logic is compiled for tests on every target, driven by a fake of the page.
+#[cfg(any(target_arch = "wasm32", test))]
+mod built_in_synth;
 // The settings `~/.orcvs/config.toml` holds, read once at native startup.
 mod config;
 pub mod console;

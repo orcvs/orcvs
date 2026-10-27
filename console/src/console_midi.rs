@@ -155,18 +155,21 @@ mod backend {
 mod backend {
     use orcvs::midi::{MidiBackend, MidiDestination, MidiDestinationId, MidiError};
 
+    use crate::built_in_synth::{BrowserPage, WithBuiltInSynth};
     use crate::web_midi::{BrowserMidi, WebMidiBackend};
 
     pub const AVAILABLE: bool = true;
 
     ///
-    /// The browser's Web MIDI, reached on the console thread.
+    /// The browser's Web MIDI, reached on the console thread, with the
+    /// Built-in Synth of the page that frames the console listed after its
+    /// ports (`crate::built_in_synth`).
     ///
     /// Building one asks the browser for MIDI access if this page has not
     /// asked yet; see `crate::web_midi` for how discovery and connect answer
     /// while that request is outstanding and after it is refused.
     ///
-    pub struct ConsoleMidiBackend(WebMidiBackend<BrowserMidi>);
+    pub struct ConsoleMidiBackend(WithBuiltInSynth<WebMidiBackend<BrowserMidi>, BrowserPage>);
 
     impl Default for ConsoleMidiBackend {
         fn default() -> Self {
@@ -176,7 +179,7 @@ mod backend {
 
     impl ConsoleMidiBackend {
         pub fn new() -> Self {
-            Self(WebMidiBackend::browser())
+            Self(WithBuiltInSynth::new(WebMidiBackend::browser(), BrowserPage))
         }
     }
 
