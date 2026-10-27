@@ -170,16 +170,15 @@ filter, the agent workflow and the acceptance criteria.
   Cloudflare token (Toby, 2026-10-26). Toby supplies the Cloudflare account, connects the app, and
   names the domain. A `_headers` file sets cache headers so a deploy replaces `/play/`'s HTML and JS
   promptly.
-- **Built-in synth.** A MIDI destination named in the ADR, offered by the web console beside the
-  Web MIDI ports, through the existing `MidiBackend` seam (`orcvs/src/midi.rs`,
-  `console/src/web_midi.rs`). Its connection turns the bytes Playback sends into Web Audio voices
-  through `web-sys`, so it needs no MIDI permission and no JavaScript beside the console. Embed mode
-  selects it. Outside embed mode it is chosen like any other destination. A browser lets Web Audio
-  sound only after a user gesture, so the audio context starts or resumes on the reader's action
-  that starts Playback, which the stopped-on-load rule already requires. An ADR, recorded before
-  the code, decides: the destination's name and its `CONTEXT.md` entry, which messages it answers
-  (Note On and Off, and whether channels or Control Change select sounds), how many voices sound at
-  once and what happens past that, the sounds themselves, and whether native gets it too.
+- **Built-in synth.** ADR 0087 decides it: the Built-in Synth. A page that frames the console
+  announces it by message, and the console offers it under **O** after the MIDI ports, chosen like
+  any destination and picked by a Linked or small console. The console posts each message Playback
+  sends, with its Tick's planned time, to that page, whose sound module plays it at that time plus a
+  fixed delay within a 50 ms target. The sound comes from one Rust synth core running in an
+  AudioWorklet: Pilot-style tones on channels `00`–`07` and an 808-style kit, synthesised without
+  recordings, on channels `08`–`0F`. The audio context resumes on the first message of a run, which
+  follows the reader's gesture. Native gets the same core later (ticket 14), and an effects panel
+  belongs to the sound module (ticket 15).
 
 ## Testing Decisions
 
@@ -199,10 +198,11 @@ filter, the agent workflow and the acceptance criteria.
   message; and the keyboard conditions above. The egui canvas exposes no DOM to assert on, so the
   console's own behaviour stays tested by the Rust and browser suites. Site tests use screenshots
   and real input only for what the page shows.
-- **Built-in synth.** Tests through the `MidiBackend` seam that the destination is listed beside
-  Web MIDI ports, that embed mode selects it, and that the messages it receives become the voices
-  the ADR specifies, observed at a test-only sink below the Web Audio calls. The browser suite
-  checks that the audio context is running after the Playback gesture.
+- **Built-in synth.** Tests through the `MidiBackend` seam that the destination is listed after the
+  MIDI ports only while a page announces it, that a Linked console picks it, and that each message
+  is posted with its Tick's planned time. The synth core is tested below the AudioWorklet: the
+  messages it receives become the voices ADR 0087 specifies, at the frames their times name. The
+  browser suite checks that the audio context is running after the Playback gesture.
 - **Deploy.** A test that a second deploy replaces the cached `/play/` console, and that a pull
   request gets a preview URL.
 

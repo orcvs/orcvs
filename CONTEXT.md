@@ -306,6 +306,10 @@ _Avoid_: Global Mono voice, Play-wide voice stealing, implicit channel sharing
 The terminal `!$` Function that sends a command to the Orcvs host application. It can invoke only commands that the application explicitly provides; it never invokes an operating-system shell or arbitrary executable. Its command value encoding is deferred until Orcvs defines a suitable text or message value.
 _Avoid_: Host Command, shell command, process execution
 
+**Built-in Synth**:
+The synth a page that frames the console offers it as a MIDI destination, so an example sounds with no MIDI device. Per ADR 0087 it plays each message at its Tick's planned time plus a fixed delay: tones on channels `00`–`07`, an 808-style kit synthesised without recordings on channels `08`–`0F` with the instrument picked by the Note's pitch class, sixteen voices at once, loudness from velocity alone. It is listed after every MIDI port and chosen like one, and a Linked or small console picks it.
+_Avoid_: internal synth, sound module, Pilot, Enfer
+
 **Cursor**:
 The one Cell the console is editing: a Position drawn with a still outline on its Cell's edges. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.
 _Avoid_: Caret, pointer, insertion point
