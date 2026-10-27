@@ -72,8 +72,11 @@
     } else if (data?.type === "orcvs.midi" && node && Array.isArray(data.bytes) && typeof data.time === "number") {
       // The reader's gesture that started Playback activates this page too,
       // so the first message of a run can resume the context.
+      // A message that arrives before the context runs is dropped rather than
+      // queued, so a resume does not sound a backlog at once.
       if (context.state !== "running") {
         context.resume().catch((reason) => console.warn("The Built-in Synth cannot start:", reason));
+        return;
       }
       node.port.postMessage({ bytes: data.bytes, when: contextTime(data.time) });
     }

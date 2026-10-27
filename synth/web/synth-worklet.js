@@ -11,18 +11,18 @@ class BuiltInSynth extends AudioWorkletProcessor {
     super();
     this.synth = new WebAssembly.Instance(options.processorOptions.module, {}).exports;
     this.synth.synth_start(sampleRate);
-    // The context frame the synth's own frame clock counts from. The synth
-    // renders one frame for each the context renders from here on, and none
-    // before its first `process`: a suspended context does not advance
-    // `currentFrame` either, so the two clocks stay one offset apart.
-    this.origin = currentFrame;
+    // The context frame the synth's own frame clock counts from: the frame
+    // of its first `process`, after which it renders one frame for each the
+    // context renders. A message before that counts from the frame now.
+    this.origin = undefined;
     this.port.onmessage = ({ data: { bytes, when } }) => {
-      const frame = Math.round(when * sampleRate) - this.origin;
+      const frame = Math.round(when * sampleRate) - (this.origin ?? currentFrame);
       this.synth.synth_schedule(frame, bytes[0] ?? 0, bytes[1] ?? 0, bytes[2] ?? 0);
     };
   }
 
   process(_inputs, [output]) {
+    this.origin ??= currentFrame;
     const frames = output[0].length;
     const at = this.synth.synth_render(frames);
     const samples = new Float32Array(this.synth.memory.buffer, at, frames);

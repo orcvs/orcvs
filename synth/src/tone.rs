@@ -75,6 +75,10 @@ impl Tone {
         }
     }
 
+    pub(crate) fn is_held(&self) -> bool {
+        self.held
+    }
+
     pub(crate) fn release(&mut self) {
         self.held = false;
     }

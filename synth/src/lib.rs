@@ -106,7 +106,7 @@ impl Synth {
         let channel = status & 0x0F;
         match status & 0xF0 {
             0x90 if data2 > 0 => self.note_on(channel, data1, data2),
-            0x80 | 0x90 => self.release(|voice| voice.channel == channel && voice.note == data1),
+            0x80 | 0x90 => self.release_note(channel, data1),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release(|voice| voice.channel == channel),
             _ => {}
@@ -121,6 +121,24 @@ impl Synth {
             {
                 tone.release();
             }
+        }
+    }
+
+    /// Releases the oldest held tone of `note` on `channel`, so a note struck
+    /// again before its Note Off arrives keeps sounding until its own.
+    fn release_note(&mut self, channel: u8, note: u8) {
+        let oldest = self
+            .voices
+            .iter_mut()
+            .flatten()
+            .filter(|voice| voice.channel == channel && voice.note == note)
+            .filter_map(|voice| match &mut voice.sound {
+                Sound::Tone(tone) if tone.is_held() => Some((voice.started, tone)),
+                _ => None,
+            })
+            .min_by_key(|(started, _)| *started);
+        if let Some((_, tone)) = oldest {
+            tone.release();
         }
     }
 
@@ -290,6 +308,18 @@ mod tests {
 
         assert!(rms(&out[seconds(0.2)..seconds(0.25)]) > 0.005);
         assert_eq!(rms(&out[seconds(0.36)..]), 0.0);
+    }
+
+    #[test]
+    fn a_note_off_releases_only_the_oldest_held_voice_of_its_note() {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(0, 60, 100));
+        synth.schedule(seconds(0.1) as u64, note_on(0, 60, 100));
+        synth.schedule(seconds(0.1) as u64, note_off(0, 60));
+
+        render(&mut synth, seconds(0.5));
+
+        assert_eq!(synth.sounding(), vec![(0, 60)]);
     }
 
     #[test]

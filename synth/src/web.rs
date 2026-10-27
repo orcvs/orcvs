@@ -32,7 +32,8 @@ pub extern "C" fn synth_schedule(frame: f64, status: u8, data1: u8, data2: u8) {
 }
 
 /// Renders the next `frames` samples and answers where in the module's memory
-/// they start. They stay there until the next call.
+/// they start. The caller reads them before it calls into the module again:
+/// the next call may overwrite them, or grow the memory and move them.
 // SAFETY: no other symbol in the module is named `synth_render`.
 #[unsafe(no_mangle)]
 pub extern "C" fn synth_render(frames: u32) -> *const f32 {
