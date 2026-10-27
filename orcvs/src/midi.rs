@@ -83,7 +83,7 @@ pub trait MidiConnection: Send {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError>;
 
     ///
-    /// Sends `message` for a Tick seen `since_due` after its planned instant.
+    /// Sends `message` for a Tick submitted `since_due` after its planned instant.
     ///
     /// A device port plays what it receives on arrival and sends as `send`
     /// does; a destination that schedules, as the Built-in Synth does (ADR

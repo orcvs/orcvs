@@ -90,8 +90,8 @@ pub trait OutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError>;
 
     ///
-    /// Submits the commands of a Tick the clock saw `since_due` after the
-    /// instant it was due at.
+    /// Submits the commands of a Tick `since_due` after the instant it was
+    /// due at.
     ///
     /// A destination that plays each message at a time it is given, as the
     /// Built-in Synth does (ADR 0087), places it at its Tick's planned time
@@ -931,7 +931,9 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // executed Tick.
             let mut owned = self.owned.clone();
             let delivery = owned.deliver(tick, &plan.play_commands);
-            let since_due = timing.observed_at.saturating_sub(timing.scheduled_at);
+            // Read at the submission rather than at the clock's wake, so the
+            // time this Tick took to interpret counts as lateness too.
+            let since_due = ClockInstant::now().saturating_duration_since(timing.deadline());
             match self.adapter.submit_due(&delivery, since_due) {
                 Ok(()) => {
                     self.owned = owned;
@@ -2608,23 +2610,25 @@ mod tests {
     }
 
     #[test]
-    fn a_tick_hands_the_adapter_how_late_it_was_seen() {
+    fn a_tick_hands_the_adapter_how_late_it_is_submitted() {
         let source = SourceCommander::new(Grid::with_shape(10, 12));
         write(&source, 20, ".+0102");
         write(&source, 60, ".=0101");
         let mut run = HandDrivenRun::new(source, RecordingAdapter::default());
         run.begin_run();
+        let late = Duration::from_millis(300);
+        let epoch = ClockInstant::now() - late;
 
-        run.tick(scheduled(Duration::ZERO, Duration::ZERO));
-        run.tick(scheduled(
-            Duration::from_secs(1),
-            Duration::from_millis(1_300),
-        ));
+        run.tick(scheduled_from(epoch, Duration::ZERO, late));
+        run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
 
-        assert_eq!(
-            run.inner.adapter.since_due,
-            vec![Duration::ZERO, Duration::from_millis(300)]
+        let since_due = &run.inner.adapter.since_due;
+        assert!(
+            since_due[0] >= late && since_due[0] < late * 2,
+            "{since_due:?}"
         );
+        // A Tick due in the future is not early: nothing sounds before it is submitted.
+        assert_eq!(since_due[1], Duration::ZERO);
     }
 
     #[test]

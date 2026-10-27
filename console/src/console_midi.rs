@@ -179,7 +179,10 @@ mod backend {
 
     impl ConsoleMidiBackend {
         pub fn new() -> Self {
-            Self(WithBuiltInSynth::new(WebMidiBackend::browser(), BrowserPage))
+            Self(WithBuiltInSynth::new(
+                WebMidiBackend::browser(),
+                BrowserPage,
+            ))
         }
     }
 
