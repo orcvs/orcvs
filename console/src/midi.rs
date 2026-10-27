@@ -164,8 +164,12 @@ impl MidiDeviceSelection {
                 self.discovery_pending = false;
             }
             Err(error) => {
-                self.destinations = Vec::new();
                 self.discovery_pending = error.is_pending();
+                self.destinations = if self.discovery_pending {
+                    self.backend.destinations_while_pending()
+                } else {
+                    Vec::new()
+                };
                 self.status = Some(error.message);
             }
         }
@@ -315,7 +319,12 @@ impl MidiDeviceSelection {
     /// made.
     ///
     pub(crate) fn auto_select_first_if_unselected(&mut self) {
-        if self.auto_select_attempted || self.selected_destination_id().is_some() {
+        // A pending discovery has not listed every port yet, so nothing is
+        // first until it settles.
+        if self.auto_select_attempted
+            || self.discovery_pending
+            || self.selected_destination_id().is_some()
+        {
             return;
         }
         let first_id = self

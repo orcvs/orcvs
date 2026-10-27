@@ -68,11 +68,14 @@ mod tests {
 
         assert!(
             adapter
-                .submit(&[OutputCommand::NoteOn {
-                    channel: MidiChannel::try_from(0).unwrap(),
-                    velocity: Velocity::try_from(0x7f).unwrap(),
-                    note: Note::try_from(60).unwrap(),
-                }])
+                .submit(
+                    &[OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(0).unwrap(),
+                        velocity: Velocity::try_from(0x7f).unwrap(),
+                        note: Note::try_from(60).unwrap(),
+                    }],
+                    std::time::Duration::ZERO
+                )
                 .is_ok()
         );
         assert!(adapter.safety_reset().is_ok());

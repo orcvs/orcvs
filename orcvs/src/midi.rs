@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tokio::sync::watch;
 
 mod selection;
@@ -79,6 +81,17 @@ impl MidiError {
 
 pub trait MidiConnection: Send {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError>;
+
+    ///
+    /// Sends `message` for a Tick submitted `since_due` after its planned instant.
+    ///
+    /// A device port plays what it receives on arrival and sends as `send`
+    /// does; a destination that schedules, as the Built-in Synth does,
+    /// places the message at the planned instant instead.
+    ///
+    fn send_due(&mut self, message: &[u8], _since_due: Duration) -> Result<(), MidiError> {
+        self.send(message)
+    }
 }
 
 /// An opening operation owned by its caller until it becomes a connection.
@@ -101,6 +114,15 @@ pub trait PendingMidiConnection: Send {
 
 pub trait MidiBackend: Send {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError>;
+
+    ///
+    /// The destinations listed while `destinations` answers that it is
+    /// pending: those that need no device access to reach.
+    ///
+    fn destinations_while_pending(&mut self) -> Vec<MidiDestination> {
+        Vec::new()
+    }
+
     fn connect(
         &mut self,
         destination_id: &MidiDestinationId,
@@ -251,7 +273,11 @@ fn safety_reset_messages(channel: u8) -> [[u8; 3]; 3] {
 }
 
 impl OutputAdapter for MidiOutputAdapter {
-    fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+    fn submit(
+        &mut self,
+        commands: &[OutputCommand],
+        since_due: Duration,
+    ) -> Result<(), OutputAdapterError> {
         let Some(connection) = self.connection.as_mut() else {
             return self.delivery_failure.clone().map_or(Ok(()), Err);
         };
@@ -299,7 +325,7 @@ impl OutputAdapter for MidiOutputAdapter {
                     [0xE0 | channel.value(), lsb.value(), msb.value()]
                 }
             };
-            if let Err(error) = connection.send(&message) {
+            if let Err(error) = connection.send_due(&message, since_due) {
                 let delivery_error = OutputAdapterError::new(error.message);
                 // The teardown's own refusals, all forty-eight of them, are
                 // discarded deliberately. The sibling call sites report theirs
@@ -454,6 +480,8 @@ mod tests {
         /// How many connections this backend opened have since been dropped,
         /// which is when a real port is closed and its device released.
         released: usize,
+        /// How late each message sent with a time was, in send order.
+        since_due: Vec<Duration>,
     }
 
     struct FakeBackend {
@@ -507,6 +535,11 @@ mod tests {
             state.messages.push(message.to_vec());
             Ok(())
         }
+
+        fn send_due(&mut self, message: &[u8], since_due: Duration) -> Result<(), MidiError> {
+            self.state.lock().unwrap().since_due.push(since_due);
+            self.send(message)
+        }
     }
 
     fn install_on_adapter(
@@ -528,24 +561,53 @@ mod tests {
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
-            .submit(&[
-                OutputCommand::NoteOn {
-                    channel: MidiChannel::try_from(0x0f).unwrap(),
-                    velocity: Velocity::try_from(1).unwrap(),
-                    note: Note::try_from(0x15).unwrap(),
-                },
-                OutputCommand::NoteOn {
-                    channel: MidiChannel::try_from(2).unwrap(),
-                    velocity: Velocity::try_from(0x7f).unwrap(),
-                    note: Note::try_from(0x45).unwrap(),
-                },
-            ])
+            .submit(
+                &[
+                    OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(0x0f).unwrap(),
+                        velocity: Velocity::try_from(1).unwrap(),
+                        note: Note::try_from(0x15).unwrap(),
+                    },
+                    OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(2).unwrap(),
+                        velocity: Velocity::try_from(0x7f).unwrap(),
+                        note: Note::try_from(0x45).unwrap(),
+                    },
+                ],
+                Duration::ZERO,
+            )
             .unwrap();
 
         assert_eq!(
             state.lock().unwrap().messages,
             vec![vec![0x9f, 0x15, 1], vec![0x92, 0x45, 0x7f]]
         );
+    }
+
+    #[test]
+    fn a_submission_hands_each_message_how_late_its_tick_was() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut backend = FakeBackend {
+            state: state.clone(),
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
+        let note_off = |note| OutputCommand::NoteOff {
+            channel: MidiChannel::try_from(0).unwrap(),
+            note: Note::try_from(note).unwrap(),
+        };
+
+        adapter
+            .submit(&[note_off(60), note_off(64)], Duration::from_millis(20))
+            .unwrap();
+        adapter.safety_reset().unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(
+            state.since_due,
+            vec![Duration::from_millis(20), Duration::from_millis(20)]
+        );
+        assert_eq!(state.messages.len(), 2 + 16 * 3);
     }
 
     #[test]
@@ -558,16 +620,19 @@ mod tests {
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
-            .submit(&[
-                OutputCommand::NoteOff {
-                    channel: MidiChannel::try_from(0x0f).unwrap(),
-                    note: Note::try_from(0x15).unwrap(),
-                },
-                OutputCommand::NoteOff {
-                    channel: MidiChannel::try_from(2).unwrap(),
-                    note: Note::try_from(0x45).unwrap(),
-                },
-            ])
+            .submit(
+                &[
+                    OutputCommand::NoteOff {
+                        channel: MidiChannel::try_from(0x0f).unwrap(),
+                        note: Note::try_from(0x15).unwrap(),
+                    },
+                    OutputCommand::NoteOff {
+                        channel: MidiChannel::try_from(2).unwrap(),
+                        note: Note::try_from(0x45).unwrap(),
+                    },
+                ],
+                Duration::ZERO,
+            )
             .unwrap();
 
         // `0x80 | channel` with a release velocity of `00`, and an
@@ -589,18 +654,21 @@ mod tests {
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
-            .submit(&[
-                OutputCommand::ControlChange {
-                    channel: MidiChannel::try_from(0x0F).unwrap(),
-                    controller: Controller::try_from(0x07).unwrap(),
-                    value: ControlValue::try_from(0x40).unwrap(),
-                },
-                OutputCommand::PitchBend {
-                    channel: MidiChannel::try_from(0x0A).unwrap(),
-                    lsb: BendLsb::try_from(0x2A).unwrap(),
-                    msb: BendMsb::try_from(0x33).unwrap(),
-                },
-            ])
+            .submit(
+                &[
+                    OutputCommand::ControlChange {
+                        channel: MidiChannel::try_from(0x0F).unwrap(),
+                        controller: Controller::try_from(0x07).unwrap(),
+                        value: ControlValue::try_from(0x40).unwrap(),
+                    },
+                    OutputCommand::PitchBend {
+                        channel: MidiChannel::try_from(0x0A).unwrap(),
+                        lsb: BendLsb::try_from(0x2A).unwrap(),
+                        msb: BendMsb::try_from(0x33).unwrap(),
+                    },
+                ],
+                Duration::ZERO,
+            )
             .unwrap();
 
         // `0xB0 | channel` and `0xE0 | channel` are the two statuses, and a
@@ -727,11 +795,14 @@ mod tests {
         state.lock().unwrap().failing_sends = vec![0];
 
         let error = adapter
-            .submit(&[OutputCommand::NoteOn {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(0x7f).unwrap(),
-                note: Note::try_from(60).unwrap(),
-            }])
+            .submit(
+                &[OutputCommand::NoteOn {
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(0x7f).unwrap(),
+                    note: Note::try_from(60).unwrap(),
+                }],
+                Duration::ZERO,
+            )
             .unwrap_err();
 
         assert_eq!(error, OutputAdapterError::new("device lost on send 0"));
@@ -742,22 +813,28 @@ mod tests {
         assert_eq!(adapter.selected_destination_id(), None);
         assert_eq!(
             adapter
-                .submit(&[OutputCommand::NoteOn {
-                    channel: MidiChannel::try_from(0).unwrap(),
-                    velocity: Velocity::try_from(1).unwrap(),
-                    note: Note::try_from(60).unwrap()
-                }])
+                .submit(
+                    &[OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(0).unwrap(),
+                        velocity: Velocity::try_from(1).unwrap(),
+                        note: Note::try_from(60).unwrap()
+                    }],
+                    Duration::ZERO
+                )
                 .unwrap_err(),
             OutputAdapterError::new("device lost on send 0")
         );
 
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
         adapter
-            .submit(&[OutputCommand::NoteOn {
-                channel: MidiChannel::try_from(1).unwrap(),
-                velocity: Velocity::try_from(1).unwrap(),
-                note: Note::try_from(61).unwrap(),
-            }])
+            .submit(
+                &[OutputCommand::NoteOn {
+                    channel: MidiChannel::try_from(1).unwrap(),
+                    velocity: Velocity::try_from(1).unwrap(),
+                    note: Note::try_from(61).unwrap(),
+                }],
+                Duration::ZERO,
+            )
             .unwrap();
 
         let state = state.lock().unwrap();

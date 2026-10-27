@@ -1,2 +1,9 @@
 [build]
 filehash = false
+
+# The Built-in Synth ships beside the web console, so the site's
+# build compiles no Rust.
+[[hooks]]
+stage = "post_build"
+command = "bash"
+command_arguments = ["../scripts/stage-synth.sh"]

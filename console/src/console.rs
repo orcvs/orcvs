@@ -83,6 +83,10 @@ pub struct Console {
     /// `console_midi::AVAILABLE` says whether the ComboBox is enabled and
     /// whether Scan is shown.
     midi: MidiDeviceSelection,
+    /// The framing page's Built-in Synth announcements, which list the synth
+    /// under **O** and, in a Linked console, pick it.
+    #[cfg(target_arch = "wasm32")]
+    synth: crate::built_in_synth::SynthAnnouncements<crate::built_in_synth::BrowserPage>,
     font_family: egui::FontFamily,
     source_view: SourceView,
     /// Whether the View menu shows Diagnostics. Off at start and not saved.
@@ -197,9 +201,7 @@ impl Console {
             Config::start(),
             crate::linked_source::opening(search, fragment),
         )?;
-        if let Some(inbox) = &console.small {
-            crate::web_startup::listen_for_sources(inbox.clone(), cc.egui_ctx.clone());
-        }
+        crate::web_startup::listen_to_page(console.small.clone(), cc.egui_ctx.clone());
         Ok(console)
     }
 
@@ -219,6 +221,8 @@ impl Console {
         let stores_source = matches!(opening, Opening::Stored);
         #[cfg(any(target_arch = "wasm32", test))]
         let small = matches!(opening, Opening::Small).then(crate::linked_source::Inbox::default);
+        #[cfg(target_arch = "wasm32")]
+        let linked = !matches!(opening, Opening::Stored);
         let source = match opening {
             // The stored Source revision, or an empty Source when storage
             // holds none.
@@ -285,6 +289,11 @@ impl Console {
         Ok(Self {
             orcvs,
             midi,
+            #[cfg(target_arch = "wasm32")]
+            synth: crate::built_in_synth::SynthAnnouncements::new(
+                crate::built_in_synth::BrowserPage,
+                linked,
+            ),
             font_family: egui::FontFamily::Monospace,
             source_view: SourceView::new(config.cell),
             diagnostics_open: false,
@@ -440,6 +449,8 @@ impl eframe::App for Console {
         #[cfg(any(target_arch = "wasm32", test))]
         self.open_sent_source();
         self.observe_playback_diagnostics();
+        #[cfg(target_arch = "wasm32")]
+        self.synth.observe(&mut self.midi);
         #[cfg(any(target_arch = "wasm32", test))]
         let menu = if self.small.is_some() {
             self.show_notice_bar(root, appearance);

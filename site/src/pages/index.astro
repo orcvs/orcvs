@@ -1,6 +1,7 @@
 ---
 // The site is the console: `/play/` fills the window, and shows its own splash while it loads.
-// The sound module takes the row below it once the built-in synth exists.
+// The page's Built-in Synth (ADR 0087), which ships beside the console in `/play/`, plays it. The
+// sound module takes the row below once it has controls.
 ---
 
 <!doctype html>
@@ -41,6 +42,7 @@
     <main>
       <iframe src="/play/" title="Orcvs console"></iframe>
     </main>
+    <script is:inline src="/play/synth-host.js"></script>
     <script>
       // The console is the page, so it has the keyboard from the start.
       const frame = document.querySelector("iframe")!;

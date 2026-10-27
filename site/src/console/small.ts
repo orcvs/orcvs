@@ -8,10 +8,22 @@ let frame: HTMLIFrameElement | undefined;
 let started: Promise<void> | undefined;
 let failure: HTMLElement | undefined;
 
+// The page's Built-in Synth (ADR 0087), which the console plays. It ships beside the console in
+// `/play/` and answers the console's `orcvs.ready`. Loaded with the first console, not before.
+let synthLoaded = false;
+function loadSynth() {
+  if (synthLoaded) return;
+  synthLoaded = true;
+  const synth = document.createElement("script");
+  synth.src = "/play/synth-host.js";
+  document.head.append(synth);
+}
+
 // The console posts `{ type: "orcvs.ready" }` once it listens for Sources, and drops what is
 // sent before that.
 function start(): Promise<void> {
   failure?.remove();
+  loadSynth();
   const starting = document.createElement("iframe");
   starting.src = "/play/?small";
   starting.title = "Orcvs console";

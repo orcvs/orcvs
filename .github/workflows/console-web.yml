@@ -7,7 +7,7 @@ name: Console web
 # is public and never expires: Cloudflare's build of the site (`npm run build`
 # in `site/`) downloads the console from there and never compiles it.
 # Path-filtered to what the console is compiled from: the console, the crates
-# under it, and the toolchain and tool pins.
+# under it, the Built-in Synth staged beside it, and the toolchain and tool pins.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
@@ -18,6 +18,8 @@ on:
       - 'console/**'
       - 'orcvs/**'
       - 'lang/**'
+      - 'synth/**'
+      - 'scripts/stage-synth.sh'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -29,6 +31,8 @@ on:
       - 'console/**'
       - 'orcvs/**'
       - 'lang/**'
+      - 'synth/**'
+      - 'scripts/stage-synth.sh'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
