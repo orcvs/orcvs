@@ -223,6 +223,10 @@ mod backend {
             self.0.destinations()
         }
 
+        fn destinations_while_pending(&mut self) -> Vec<MidiDestination> {
+            self.0.destinations_while_pending()
+        }
+
         fn connect(
             &mut self,
             destination_id: &MidiDestinationId,

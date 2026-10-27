@@ -69,16 +69,24 @@ impl<B: MidiBackend, P: SynthPage> WithBuiltInSynth<B, P> {
 impl<B: MidiBackend, P: SynthPage> MidiBackend for WithBuiltInSynth<B, P> {
     ///
     /// The ports, then the synth while it is announced. A discovery still
-    /// waiting on the browser's MIDI access answers that it is waiting, so
-    /// automatic selection never picks the synth over ports not yet listed;
-    /// a Linked console picks it by connecting, which needs no listing.
+    /// waiting on the browser's MIDI access answers that it is waiting.
     ///
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
         let mut destinations = self.midi.destinations()?;
-        if self.page.announced().is_some() {
-            destinations.push(MidiDestination::new(BUILT_IN_SYNTH, BUILT_IN_SYNTH));
-        }
+        destinations.extend(self.destinations_while_pending());
         Ok(destinations)
+    }
+
+    ///
+    /// The synth while it is announced, which needs no MIDI access, so it can
+    /// be picked while the browser's access is still waiting.
+    ///
+    fn destinations_while_pending(&mut self) -> Vec<MidiDestination> {
+        self.page
+            .announced()
+            .map(|_| MidiDestination::new(BUILT_IN_SYNTH, BUILT_IN_SYNTH))
+            .into_iter()
+            .collect()
     }
 
     fn connect(
@@ -351,12 +359,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pending_midi_access_lists_nothing_but_a_linked_console_still_picks_the_synth() {
+    async fn pending_midi_access_lists_the_synth_without_picking_it() {
+        let page = FakePage::default();
+        let (_orcvs, mut midi) = selection(Err(MidiError::pending("waiting")), &page);
+        let mut announcements = SynthAnnouncements::new(page.clone(), false);
+        page.announce(Announcement::Available);
+        frame(&mut announcements, &mut midi).await;
+
+        assert_eq!(midi.destinations(), [synth()]);
+        assert_eq!(midi.selected_destination_id(), None);
+    }
+
+    #[tokio::test]
+    async fn pending_midi_access_still_lets_a_linked_console_pick_the_synth() {
         let page = FakePage::default();
         page.announce(Announcement::Available);
-        let mut backend = with_synth(Err(MidiError::pending("waiting")), &page);
-        assert_eq!(backend.destinations(), Err(MidiError::pending("waiting")));
-
         let (_orcvs, mut midi) = selection(Err(MidiError::pending("waiting")), &page);
         let mut announcements = SynthAnnouncements::new(page.clone(), true);
         frame(&mut announcements, &mut midi).await;

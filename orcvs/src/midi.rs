@@ -114,6 +114,15 @@ pub trait PendingMidiConnection: Send {
 
 pub trait MidiBackend: Send {
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError>;
+
+    ///
+    /// The destinations listed while `destinations` answers that it is
+    /// pending: those that need no device access to reach.
+    ///
+    fn destinations_while_pending(&mut self) -> Vec<MidiDestination> {
+        Vec::new()
+    }
+
     fn connect(
         &mut self,
         destination_id: &MidiDestinationId,
