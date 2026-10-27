@@ -5,6 +5,8 @@
 
 mod drum;
 mod tone;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 use drum::{Drum, Instrument};
 use tone::Tone;

@@ -36,9 +36,11 @@ that only those gates would catch — a wasm-only build break, a feature-off bui
 workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
 
 The web console and the site build separately, and GitHub Actions deploys neither.
-`.github/workflows/console-web.yml`, path-filtered to the console, the crates under it and the
-toolchain and tool pins, runs `mise run console_web_build`: one release Trunk build with relative
-URLs into `target/console-web/`, kept as the `console-web` artifact. On `main` it also publishes the
+`.github/workflows/console-web.yml`, path-filtered to the console, the crates under it, the
+Built-in Synth and the toolchain and tool pins, runs `mise run console_web_build`: one release Trunk
+build with relative URLs into `target/console-web/`, kept as the `console-web` artifact. Trunk's
+post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly module and stages
+it beside the console with `synth/web/`'s AudioWorklet and page scripts (ADR 0087). On `main` it also publishes the
 build as `console-web.tar.gz` on the public `console-web` release, then posts to the
 `CLOUDFLARE_DEPLOY_HOOK` secret, when the repository has it, so Cloudflare rebuilds the site.
 
