@@ -1,7 +1,8 @@
 # The site plays the console through a Built-in Synth
 
 Status: accepted; when the audio context resumes is amended by [ADR 0089](0089-the-panel-plays-and-rewinds.md), which resumes it inside the reader's gesture. Settled with Toby on 2026-10-26 in `.scratch/orcvs-site/` (tickets 07 and 08).
-The research is `docs/research/tone-generation.md`.
+The research is `docs/research/tone-generation.md`. [ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)
+amends it: Control Change 1 to 8 set the synth's eight effects, which the sound module shows.
 
 The site shows Orcvs running, and an example nobody hears teaches half of what it shows. Most
 readers have no MIDI device, and the console only sends MIDI. Learn Orca makes sound by patching

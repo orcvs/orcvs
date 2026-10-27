@@ -177,8 +177,11 @@ filter, the agent workflow and the acceptance criteria.
   fixed delay within a 50 ms target. The sound comes from one Rust synth core running in an
   AudioWorklet: Pilot-style tones on channels `00`–`07` and an 808-style kit, synthesised without
   recordings, on channels `08`–`0F`. The audio context resumes on the first message of a run, which
-  follows the reader's gesture. Native gets the same core later (ticket 14), and an effects panel
-  belongs to the sound module (ticket 15).
+  follows the reader's gesture. Native gets the same core later (ticket 14).
+- **Sound Module.** ADR 0088 decides it: the row below the console on `/` shows sixteen channel
+  lights and the Built-in Synth's eight effects as Cells. Control Change 1 to 8 on any channel, or
+  the reader dragging on an effect, sets them, and they reset on every load. Ticket 15 ships it with
+  `MD`'s sound; tickets 17 to 23 add each other effect's sound.
 
 ## Testing Decisions
 
