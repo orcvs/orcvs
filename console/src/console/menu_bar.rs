@@ -11,6 +11,12 @@ use crate::examples::EXAMPLES;
 use crate::theme::Appearance;
 use crate::theme_selection::SelectedThemes;
 
+/// The site's pages the Help menu links to, by item label.
+const SITE_LINKS: [(&str, &str); 2] = [
+    ("Learn", "https://orcvs.com/learn/"),
+    ("Reference", "https://orcvs.com/reference/"),
+];
+
 /// The height the top panel takes from the window, leaving the rest to the
 /// console: the bottom Panel's compact height, so the two bars match.
 pub(super) const TOP_PANEL_HEIGHT: f32 = super::panel::BOTTOM_PANEL_HEIGHT;
@@ -22,6 +28,45 @@ pub(super) const TOP_PANEL_HEIGHT: f32 = super::panel::BOTTOM_PANEL_HEIGHT;
 ///
 pub(super) fn menu_bar_gap(ui: &egui::Ui) -> f32 {
     (super::panel::readout_group_gap(ui) - 2.0 * ui.spacing().button_padding.x).max(0.0)
+}
+
+///
+/// Opens `url` without leaving the console: in a new tab on the web, so the
+/// open Source stays, and in the system browser on native.
+///
+fn open_link(ctx: &egui::Context, url: &str) {
+    #[cfg(target_arch = "wasm32")]
+    ctx.open_url(egui::OpenUrl::new_tab(url));
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = ctx;
+        match browser(url).spawn() {
+            // Waited for apart, so the opener leaves no zombie once it exits.
+            Ok(mut opener) => {
+                std::thread::spawn(move || opener.wait());
+            }
+            Err(error) => crate::report::error!("{url} could not be opened: {error}"),
+        }
+    }
+}
+
+///
+/// The command that opens `url` in the system's browser. eframe opens a URL
+/// natively only through its `links` feature, whose `webbrowser` brings `url`
+/// and the ICU tables beneath it to parse two fixed links.
+///
+#[cfg(not(target_arch = "wasm32"))]
+fn browser(url: &str) -> std::process::Command {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    let mut command = std::process::Command::new(opener);
+    command.arg(url);
+    command
 }
 
 ///
@@ -327,6 +372,14 @@ impl Console {
                             }
                         }
                     });
+                    ui.separator();
+                    for (label, url) in SITE_LINKS {
+                        // The URL on hover tells a site page from the
+                        // Function Reference above, which stays in the console.
+                        if ui.button(label).on_hover_text(url).clicked() {
+                            open_link(ui.ctx(), url);
+                        }
+                    }
                 });
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.
@@ -352,6 +405,24 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::trailing_checkbox;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_browser_command_opens_the_url_with_the_systems_opener() {
+        let command = super::browser("https://orcvs.com/learn/");
+        let opener = if cfg!(target_os = "macos") {
+            "open"
+        } else if cfg!(target_os = "windows") {
+            "explorer"
+        } else {
+            "xdg-open"
+        };
+        assert_eq!(command.get_program(), opener);
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["https://orcvs.com/learn/"]
+        );
+    }
 
     ///
     /// The box and mark `add` paints, the mark placed relative to the box's
