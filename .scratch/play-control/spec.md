@@ -1,6 +1,6 @@
 # An explicit Play control
 
-Status: needs-triage
+Status: resolved
 
 ## The question
 
@@ -29,6 +29,7 @@ Where does the control sit, what does it show, and does it carry anything beside
 4. **The small console.** It shows the bottom Panel but no menu bar (ADR 0086), so placement decides
    whether embedded examples on Learn and Reference get the control.
 
-## Prototype
+## Outcome
 
-`issues/01-prototype-the-play-control.md`.
+Prototyped in `issues/01-prototype-the-play-control.md`; decided in ADR 0089 and built in
+`issues/02-play-and-rewind-from-the-panel.md`.

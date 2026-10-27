@@ -1357,11 +1357,11 @@ async fn each_mode_button_explains_itself_on_hover() {
 }
 
 ///
-/// Each mode glyph has a glyph of its own in the console's one font, which
+/// Each mode, Play and Rewind control glyph has a glyph of its own in the console's one font, which
 /// otherwise draws its replacement glyph.
 ///
 #[tokio::test]
-async fn the_mode_glyphs_are_in_the_console_font() {
+async fn the_mode_and_play_glyphs_are_in_the_console_font() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let font = egui::FontId::proportional(14.0);
@@ -1382,7 +1382,11 @@ async fn the_mode_glyphs_are_in_the_console_font() {
         replacement,
         "the probe no longer tells a missing glyph from a present one"
     );
-    for glyph in super::menu_bar::MODE_GLYPHS {
+    for glyph in super::menu_bar::MODE_GLYPHS
+        .into_iter()
+        .chain(super::panel::PLAY_GLYPHS)
+        .chain([super::panel::REWIND_GLYPH])
+    {
         assert_ne!(
             uv(glyph),
             replacement,
@@ -3638,6 +3642,102 @@ async fn space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it() {
         written,
         "the chord reached the Source as a character"
     );
+}
+
+///
+/// The Panel's Play control plays and stops Playback as Space does, and a
+/// press of it leaves Space as it was: one Space after it toggles once.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_play_control_plays_and_stops_playback_as_space_does() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let mut engine = harness.state().orcvs.playback_observation_watch();
+
+    harness.get_by_label("Play").click();
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing)
+        .await,
+        "the Play control did not start Playback"
+    );
+    harness.run_steps(1);
+
+    harness.get_by_label("Stop").click();
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Stopped)
+        .await,
+        "the Stop control did not stop Playback"
+    );
+    harness.run_steps(1);
+
+    harness.key_press(Key::Space);
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing)
+        .await,
+        "Space after the control did not start Playback"
+    );
+    harness.run_steps(1);
+    harness.get_by_label("Stop");
+}
+
+///
+/// The Panel's Rewind control makes Tick `0` the next Tick, as Command Shift R
+/// does on native: a paused Playback shows Tick `0` and stays stopped.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_rewind_control_rewinds_a_paused_playback_to_tick_zero() {
+    use orcvs::source::Tick;
+
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let mut engine = harness.state().orcvs.playback_observation_watch();
+
+    harness.get_by_label("Play").click();
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing
+            && observed.tick >= Tick::new(1))
+        .await,
+        "the Play control did not start Playback"
+    );
+    harness.run_steps(1);
+    harness.get_by_label("Stop").click();
+    harness.step();
+    harness.run_steps(1);
+
+    harness.get_by_label("Rewind").click();
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Stopped
+            && observed.tick == Tick::ZERO)
+        .await,
+        "the Rewind control did not rewind the paused Playback"
+    );
+}
+
+///
+/// The small console (ADR 0086) has no menu bar but keeps the Panel, so an
+/// embedded example can be played and rewound without a key.
+///
+#[tokio::test]
+async fn a_small_console_shows_the_play_and_rewind_controls() {
+    let mut harness = Harness::builder()
+        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
+        .with_pixels_per_point(1.0)
+        .build_eframe(|cc| super::tests::start_linked_console(cc, "?small", ""));
+    harness.run_steps(2);
+    harness.get_by_label("Play");
+    harness.get_by_label("Rewind");
 }
 
 ///

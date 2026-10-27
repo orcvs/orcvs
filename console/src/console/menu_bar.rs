@@ -190,7 +190,7 @@ pub(super) enum AppearanceChange {
 
 ///
 /// The mode control's glyphs: Follow the OS, Dark, Light. Each must be in the
-/// console's one font (`kittest_tests::the_mode_glyphs_are_in_the_console_font`).
+/// console's one font (`kittest_tests::the_mode_and_play_glyphs_are_in_the_console_font`).
 ///
 pub(super) const MODE_GLYPHS: [&str; 3] = ["◐", "☾", "☼"];
 

@@ -1,6 +1,6 @@
 # 01 — Prototype the Play control
 
-Status: needs-triage
+Status: resolved
 Type: prototype
 Blocked by: None — can start immediately
 
@@ -14,6 +14,12 @@ The prototype lives on the throwaway branch `prototype/play-control`.
 
 **Acceptance criteria:**
 
-- [ ] Each variant is drawn by the console itself and captured at desktop and phone widths, dark and
+- [x] Each variant is drawn by the console itself and captured at desktop and phone widths, dark and
       light.
-- [ ] The user has chosen a variant, and the choice is recorded here.
+- [x] The user has chosen a variant, and the choice is recorded here.
+
+## Comments
+
+2026-10-27: Built as `?variant=A`–`D` on `prototype/play-control`, with captures in its
+`.scratch/play-control/prototype/`. All four fit at 390 px; an emulated touch tap on A plays.
+Toby chose **A with ⏮ Rewind**: Rewind and Play/Stop glyphs at the start of the Panel (ADR 0089).
