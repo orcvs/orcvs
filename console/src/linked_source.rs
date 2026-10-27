@@ -8,6 +8,10 @@
 //! full console is never read over or written over. A Linked console opens with
 //! Playback stopped, as every console does, so a link cannot play by itself.
 //!
+//! `?small` opens the small console (ADR 0086): Linked, empty, without the
+//! menu bar, and open to Source File text posted to it, which its [`Inbox`]
+//! holds until the next frame opens it.
+//!
 
 #[cfg(any(target_arch = "wasm32", test))]
 use orcvs::source::Source;
@@ -30,7 +34,18 @@ pub(crate) enum Opening {
     /// The console neither restores from nor saves to storage.
     #[cfg(any(target_arch = "wasm32", test))]
     Linked(Result<Source, String>),
+    /// The small console: Linked, on an empty Source, opening the Source File
+    /// text posted to it.
+    #[cfg(any(target_arch = "wasm32", test))]
+    Small,
 }
+
+///
+/// The Source File text last posted to a small console, until a frame opens
+/// it. The page's message listener fills it, and repaints.
+///
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) type Inbox = std::rc::Rc<std::cell::RefCell<Option<String>>>;
 
 ///
 /// What a console at a URL with `search` and `fragment` opens. Each may be
@@ -38,7 +53,14 @@ pub(crate) enum Opening {
 ///
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn opening(search: &str, fragment: &str) -> Opening {
-    let example = parameter(search.strip_prefix('?').unwrap_or(search), "example");
+    let search = search.strip_prefix('?').unwrap_or(search);
+    if search
+        .split('&')
+        .any(|pair| pair == "small" || pair.starts_with("small="))
+    {
+        return Opening::Small;
+    }
+    let example = parameter(search, "example");
     let text = parameter(fragment.strip_prefix('#').unwrap_or(fragment), "source");
     match (example, text) {
         (None, None) => Opening::Stored,
@@ -82,6 +104,22 @@ fn source_from(text: &str) -> Result<Source, String> {
 }
 
 ///
+/// The Source that Source File text posted to a small console opens, under
+/// the limit a link's text has.
+///
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn source_message(text: &str) -> Result<Source, String> {
+    if text.len() > SOURCE_TEXT_LIMIT {
+        return Err(format!(
+            "the Source sent is {} bytes, over the limit of {SOURCE_TEXT_LIMIT}",
+            text.len()
+        ));
+    }
+    orcvs::source::file::read(text.as_bytes())
+        .map_err(|refusal| format!("the Source sent is not a Source File: {refusal}"))
+}
+
+///
 /// `text` with each `%` and the two hex digits after it read as one byte, or
 /// `None` when a `%` is not followed by two hex digits. `+` stays `+`: it is
 /// a Function's glyph, and only a query string spells a space with it.
@@ -104,12 +142,14 @@ fn percent_decoded(text: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Opening, SOURCE_TEXT_LIMIT, opening};
+    use super::{Opening, SOURCE_TEXT_LIMIT, opening, source_message};
     use orcvs::source::file;
 
     fn linked(search: &str, fragment: &str) -> Result<String, String> {
         match opening(search, fragment) {
-            Opening::Stored => panic!("{search:?} {fragment:?} opened the stored Source"),
+            Opening::Stored | Opening::Small => {
+                panic!("{search:?} {fragment:?} opened no linked Source")
+            }
             Opening::Linked(result) => result.map(|source| file::write(&source)),
         }
     }
@@ -197,6 +237,34 @@ mod tests {
                 "{text:?} was accepted"
             );
         }
+    }
+
+    #[test]
+    fn small_opens_the_small_console() {
+        for search in ["?small", "?x=1&small", "?small="] {
+            assert!(
+                matches!(opening(search, ""), Opening::Small),
+                "{search:?} did not open the small console"
+            );
+        }
+        assert!(matches!(opening("?smaller", ""), Opening::Stored));
+    }
+
+    #[test]
+    fn a_message_opens_its_text_as_a_source_file() {
+        let source = source_message(".+0102\n  0C\n").expect("a Source File");
+        assert_eq!(file::write(&source), ".+0102\n  0C\n");
+    }
+
+    #[test]
+    fn a_message_over_the_limit_or_not_a_source_file_is_refused() {
+        let over = format!("{}\n", ".".repeat(255)).repeat(SOURCE_TEXT_LIMIT / 256 + 1);
+        assert!(over.len() > SOURCE_TEXT_LIMIT);
+        let refusal = source_message(&over)
+            .map(|source| file::write(&source))
+            .expect_err("a Source over the limit");
+        assert!(refusal.contains("limit"), "{refusal}");
+        assert!(source_message("\t").is_err());
     }
 
     #[test]

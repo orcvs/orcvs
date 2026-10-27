@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<!-- Disable zooming: -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <!-- change this to your project name -->
+    <title>Orcvs</title>
+
+    <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
+    <!-- Release builds run wasm-opt, which must be told the features current Rust emits for
+         wasm32-unknown-unknown, or it rejects the module. Debug builds skip wasm-opt. -->
+    
+<script type="module">
+import init, * as bindings from './console.js';
+const wasm = await init({ module_or_path: './console_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
+    <base href="./" />
+
+    <link rel="icon" href="./favicon.ico" integrity="sha384-jNOAE6jgE03LznIulCTVP6BH4NrTuROFjP9wj8bV1UUMJKtZAvstFpIAP3PDcFpx"/>
+
+
+    
+    
+    
+    
+    
+    
+    
+
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon_ios_touch_192.png">
+    <!-- The page's colours before the first egui frame, and around the canvas: each is the
+         window_background of the built-in Theme the matching OS appearance presents by default
+         (Grayscale Dark for dark, Grayscale Light for light; `console/src/theme.rs`). The page cannot read
+         a stored explicit Dark or Light View mode before the WASM loads, so a viewer whose mode
+         disagrees with the OS still sees the OS appearance's backdrop until the first frame. -->
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+
+    <style>
+        html {
+            /* Remove touch delay: */
+            touch-action: manipulation;
+        }
+
+        body {
+            background: #000000;
+        }
+
+        @media (prefers-color-scheme: light) {
+            body {
+                background: #ffffff;
+            }
+        }
+
+        /* Allow canvas to fill entire web page: */
+        html,
+        body {
+            overflow: hidden;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: 100%;
+            width: 100%;
+        }
+
+        /* Position canvas in center-top: */
+        canvas {
+            display: block;
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* The splash while the WASM loads: the native splash's logo and name on the
+           OS appearance's backdrop. The console's start removes it, and a failed
+           start replaces its contents with the crash message. */
+        #loading_text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 18px;
+            color: #c8c8c8;
+            font: 18px ui-monospace, Menlo, Consolas, monospace;
+            text-align: center;
+        }
+
+        #loading_text img {
+            width: min(300px, 60vmin);
+            height: auto;
+        }
+
+        #loading_text .name {
+            letter-spacing: 0.5em;
+            margin-right: -0.5em;
+        }
+
+        @media (prefers-color-scheme: light) {
+            #loading_text {
+                color: #373737;
+            }
+
+            /* The logo is white on transparent: inverted, it reads on white. */
+            #loading_text img {
+                filter: invert(1);
+            }
+        }
+
+    </style>
+<link rel="modulepreload" href="./console.js" crossorigin="anonymous" integrity="sha384-KfiT+5lnvxsW5Jg1Vxe6kyjHZes02ka4TxhdUBhePDBjtF8SaH2ywXtzwhRdIVcb"><link rel="preload" href="./console_bg.wasm" crossorigin="anonymous" integrity="sha384-U6Z63lF8Yy4moAnxwC8vFys+TC6SRFA4BO4D8Cka7LcqtXBAkpnid2jhjKE+XjIM" as="fetch" type="application/wasm"></head>
+
+<body>
+    <!-- The WASM code will resize the canvas dynamically -->
+    <!-- the id is hardcoded in main.rs . so, make sure both match. -->
+    <canvas id="the_canvas_id"></canvas>
+
+    <!-- The id is read in main.rs, which removes the element once the console starts. -->
+    <div id="loading_text">
+        <img src="logo-splash.png" alt="Orcvs">
+        <div class="name">ORCVS</div>
+    </div>
+
+    <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
+    <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
+    <script>
+        // We disable caching during development so that we always view the latest version.
+        // A console a link opens (`?example=` or `#source=`, `console/src/linked_source.rs`)
+        // is an embed, and registers no worker, so it never caches the site's console.
+        const linked = new URLSearchParams(window.location.search).has("example")
+            || window.location.hash.startsWith("#source=");
+        if ('serviceWorker' in navigator && window.location.hash !== "#dev" && !linked) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('sw.js');
+            });
+        }
+    </script>
+</body>
+
+</html>
+
+<!-- Powered by egui: https://github.com/emilk/egui/ -->

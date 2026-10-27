@@ -1,5 +1,6 @@
-/* The console's font and the Grayscale built-in Themes' colours (`console/src/theme.rs`), so the
-   site reads as the console it embeds. */
+/* The console's font and the Grayscale Dark and Light Themes' colours (`console/src/theme.md`),
+   so every page reads as the console. Starlight's grays run from its text (`white`) to its
+   ground (`black`); each is the Theme colour in that place. */
 @font-face {
   font-family: "Monaspace Neon";
   src: url("../../../console/assets/MonaspaceNeon-Regular.otf") format("opentype");
@@ -9,16 +10,57 @@
 :root {
   --sl-font: "Monaspace Neon", ui-monospace, monospace;
   --sl-font-mono: "Monaspace Neon", ui-monospace, monospace;
-  --sl-color-accent-low: #262626;
-  --sl-color-accent: #8c8c8c;
-  --sl-color-accent-high: #e6e6e6;
+
+  --orcvs-window: #000000;
+  --orcvs-ordinary: #c8c8c8;
+  --orcvs-function: #e6e6e6;
+  --orcvs-function-background: #444444;
+  --orcvs-bang: #00ff00;
+  --orcvs-bang-background: #111111;
+  --orcvs-grid-border: #ffffff1a;
+  --orcvs-panel-border: #2a2a2a;
+
+  --sl-color-white: #e6e6e6;
+  --sl-color-gray-1: #c8c8c8;
+  --sl-color-gray-2: #c8c8c8;
+  --sl-color-gray-3: #898989;
+  --sl-color-gray-4: #555555;
+  --sl-color-gray-5: #2a2a2a;
+  --sl-color-gray-6: #111111;
   --sl-color-black: #000000;
+  --sl-color-accent-low: #2a2a2a;
+  --sl-color-accent: #898989;
+  --sl-color-accent-high: #e6e6e6;
+}
+
+/* The console has one ground; Starlight's header and sidebar take it too. */
+:root,
+:root[data-theme="light"] {
+  --sl-color-bg-nav: var(--sl-color-black);
+  --sl-color-bg-sidebar: var(--sl-color-black);
+  --sl-color-bg-inline-code: var(--sl-color-gray-5);
 }
 
 :root[data-theme="light"] {
-  --sl-color-accent-low: #e6e6e6;
-  --sl-color-accent: #595959;
-  --sl-color-accent-high: #1a1a1a;
-  --sl-color-white: #000000;
+  --orcvs-window: #ffffff;
+  --orcvs-ordinary: #373737;
+  --orcvs-function: #191919;
+  --orcvs-function-background: #bbbbbb;
+  --orcvs-bang: #d100d1;
+  --orcvs-bang-background: #ffffff;
+  --orcvs-grid-border: #0000001a;
+  --orcvs-panel-border: #d5d5d5;
+
+  --sl-color-white: #191919;
+  --sl-color-gray-1: #373737;
+  --sl-color-gray-2: #373737;
+  --sl-color-gray-3: #616161;
+  --sl-color-gray-4: #adadad;
+  --sl-color-gray-5: #d5d5d5;
+  --sl-color-gray-6: #eeeeee;
+  --sl-color-gray-7: #f6f6f6;
   --sl-color-black: #ffffff;
+  --sl-color-accent-low: #d5d5d5;
+  --sl-color-accent: #616161;
+  --sl-color-accent-high: #191919;
 }

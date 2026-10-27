@@ -1,17 +1,17 @@
 ---
-// `/reference/` is `docs/functions.md`, rendered at build time through
-// `functionReference` (`src/console/function-reference.ts`); this page only frames it.
+// `/reference/` is `docs/functions.md`, rendered at build time through `repositoryDocs`
+// (`src/console/docs.ts`); this page only frames it.
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { Content, getHeadings } from "../../../../docs/functions.md";
 ---
 
 <StarlightPage
-  frontmatter={{ title: "Function reference", description: "Every Orcvs Function, with an example to launch." }}
+  frontmatter={{ title: "Function reference" }}
   headings={getHeadings().filter((heading) => heading.depth > 1)}
 >
   <Content />
 </StarlightPage>
 
 <script>
-  import "../../console/launch";
+  import "../../console/small";
 </script>
