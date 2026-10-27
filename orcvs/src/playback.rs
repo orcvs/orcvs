@@ -87,25 +87,17 @@ pub enum OutputCommand {
 }
 
 pub trait OutputAdapter {
-    fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError>;
-
     ///
     /// Submits the commands of a Tick `since_due` after the instant it was
-    /// due at.
+    /// due at. A destination that plays each message at a time it is given,
+    /// as the Built-in Synth does, places it at that instant; one that plays
+    /// on arrival ignores `since_due`.
     ///
-    /// A destination that plays each message at a time it is given, as the
-    /// Built-in Synth does (ADR 0087), places it at its Tick's planned time
-    /// rather than at the moment it arrives. Every other adapter submits as
-    /// `submit` does.
-    ///
-    fn submit_due(
+    fn submit(
         &mut self,
         commands: &[OutputCommand],
         since_due: Duration,
-    ) -> Result<(), OutputAdapterError> {
-        let _ = since_due;
-        self.submit(commands)
-    }
+    ) -> Result<(), OutputAdapterError>;
 
     fn safety_reset(&mut self) -> Result<(), OutputAdapterError>;
 }
@@ -472,7 +464,11 @@ impl OutputOnlyAdapter for InMemoryOutputAdapter {}
 
 #[cfg(any(test, feature = "test-output-adapter"))]
 impl OutputAdapter for InMemoryOutputAdapter {
-    fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+    fn submit(
+        &mut self,
+        commands: &[OutputCommand],
+        _since_due: std::time::Duration,
+    ) -> Result<(), OutputAdapterError> {
         let mut state = self.state.lock().unwrap();
         if let Some(error) = state.next_failure.take() {
             return Err(error);
@@ -934,7 +930,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // Read at the submission rather than at the clock's wake, so the
             // time this Tick took to interpret counts as lateness too.
             let since_due = ClockInstant::now().saturating_duration_since(timing.deadline());
-            match self.adapter.submit_due(&delivery, since_due) {
+            match self.adapter.submit(&delivery, since_due) {
                 Ok(()) => {
                     self.owned = owned;
                     self.last_output_failure = None;
@@ -1952,21 +1948,17 @@ mod tests {
     }
 
     impl OutputAdapter for RecordingAdapter {
-        fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
-            if let Some(source) = &self.source {
-                self.source_at_submission.push(source.snapshot());
-            }
-            self.command_lists.push(commands.to_vec());
-            Ok(())
-        }
-
-        fn submit_due(
+        fn submit(
             &mut self,
             commands: &[OutputCommand],
             since_due: Duration,
         ) -> Result<(), OutputAdapterError> {
+            if let Some(source) = &self.source {
+                self.source_at_submission.push(source.snapshot());
+            }
+            self.command_lists.push(commands.to_vec());
             self.since_due.push(since_due);
-            self.submit(commands)
+            Ok(())
         }
 
         fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
@@ -1991,7 +1983,11 @@ mod tests {
     }
 
     impl OutputAdapter for RefusingOutputAdapter {
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             Err(OutputAdapterError::new(Self::ERROR))
         }
 
@@ -2122,7 +2118,11 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for DoublyPanickingOutputAdapter {
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             self.delivery_started.store(true, Ordering::SeqCst);
             panic!("test output panic");
         }
@@ -2137,7 +2137,11 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for SilencePanickingOutputAdapter {
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             Ok(())
         }
 
@@ -2151,7 +2155,11 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for PanickingOutputAdapter {
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             self.delivery_started.store(true, Ordering::SeqCst);
             panic!("test output panic");
         }
@@ -2182,7 +2190,11 @@ mod tests {
         ///
         /// The wait is bounded for the reason the control's is.
         ///
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             let (lock, changed) = &*self.control.state;
             let mut state = lock.lock().unwrap();
             state.deliveries += 1;
@@ -2239,7 +2251,11 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputAdapter for StoppingOutputAdapter {
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             self.deliveries.fetch_add(1, Ordering::SeqCst);
             if let Some(engine) = self.stopping.lock().unwrap().take() {
                 let (stopped_tx, stopped_rx) = std_mpsc::channel();
@@ -3609,7 +3625,11 @@ mod tests {
     }
 
     impl OutputAdapter for ArrivingDuringSilence {
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             self.log.lock().unwrap().push("tick");
             Ok(())
         }
@@ -4457,7 +4477,11 @@ mod tests {
     }
 
     impl OutputAdapter for AlternatingRefusals {
-        fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        fn submit(
+            &mut self,
+            _commands: &[OutputCommand],
+            _since_due: std::time::Duration,
+        ) -> Result<(), OutputAdapterError> {
             self.submissions += 1;
             if self.submissions.is_multiple_of(2) {
                 Err(OutputAdapterError::new(Self::long()))

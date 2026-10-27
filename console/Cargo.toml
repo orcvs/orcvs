@@ -199,7 +199,7 @@ wasm-bindgen-futures = "0.4"
 # connection events are left off: Orcvs sends, does not ask for system
 # exclusive, and discovery is something the performer asks for.
 # `MessageEvent` is the small console's posted Source (`web_startup.rs`, ADR
-# 0086) and the Built-in Synth's announcement (`built_in_synth.rs`, ADR 0087);
+# 0086) and the Built-in Synth's announcement (`built_in_synth.rs`);
 # `Performance` is the shared clock each message posted to the synth is stamped
 # by. Both are generated bindings that add no dependency.
 web-sys = { version = "0.3", features = [

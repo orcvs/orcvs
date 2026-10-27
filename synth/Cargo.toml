@@ -10,6 +10,6 @@ rust-version.workspace = true
 workspace = true
 
 [lib]
-# `cdylib` is the WASM module the site's AudioWorklet instantiates (ADR 0087);
+# `cdylib` is the WASM module the site's AudioWorklet instantiates;
 # `rlib` is what the crate's tests and any Rust caller link.
 crate-type = ["rlib", "cdylib"]

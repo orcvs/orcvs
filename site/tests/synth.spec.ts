@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// The Built-in Synth (ADR 0087): a console a page frames plays the page's synth, each message a
+// The Built-in Synth: a console a page frames plays the page's synth, each message a
 // fixed delay after its Tick's planned instant. The page's own clock and the audio context's are
 // compared through what the page passes the synth's AudioWorklet, which a spy records.
 

@@ -3,6 +3,8 @@
 //! The crate does no audio I/O. A caller schedules each message at the frame
 //! it should sound on and asks for samples; the frame clock is the caller's.
 
+use std::collections::VecDeque;
+
 mod drum;
 mod tone;
 #[cfg(target_arch = "wasm32")]
@@ -32,7 +34,7 @@ pub struct Synth {
     started: u64,
     /// Messages not yet applied, in frame order; equal frames keep the order
     /// they were scheduled in.
-    queue: Vec<(u64, [u8; 3])>,
+    queue: VecDeque<(u64, [u8; 3])>,
 }
 
 struct Voice {
@@ -55,12 +57,13 @@ impl Synth {
             frame: 0,
             voices: Default::default(),
             started: 0,
-            queue: Vec::new(),
+            queue: VecDeque::new(),
         }
     }
 
     /// The frame the next rendered sample is.
-    pub fn frame(&self) -> u64 {
+    #[cfg(test)]
+    fn frame(&self) -> u64 {
         self.frame
     }
 
@@ -76,10 +79,10 @@ impl Synth {
     pub fn render(&mut self, out: &mut [f32]) {
         let dt = 1.0 / self.sample_rate;
         for sample in out {
-            while let Some(&(at, message)) = self.queue.first()
+            while let Some(&(at, message)) = self.queue.front()
                 && at <= self.frame
             {
-                self.queue.remove(0);
+                self.queue.pop_front();
                 self.apply(message);
             }
             let mut mix = 0.0;
@@ -132,16 +135,10 @@ impl Synth {
             Sound::Drum(Drum::new(instrument, self.sample_rate))
         };
         self.started += 1;
-        let slot = self
-            .voices
-            .iter()
-            .position(Option::is_none)
-            .or_else(|| {
-                (0..VOICES).min_by_key(|&index| {
-                    self.voices[index].as_ref().map_or(0, |voice| voice.started)
-                })
-            })
-            .unwrap_or(0);
+        // A free voice ranks first, then the oldest.
+        let slot = (0..VOICES)
+            .min_by_key(|&index| self.voices[index].as_ref().map_or(0, |voice| voice.started))
+            .unwrap_or_default();
         self.voices[slot] = Some(Voice {
             channel,
             note,

@@ -13,7 +13,7 @@ of a run. The core's WASM and worklet script ship in `console-web` beside the co
 
 **Blocked by:** 02, 07
 
-**Status:** resolved
+**Status:** ready-for-human
 
 - [x] Tests through the `MidiBackend` seam: the destination is listed after the MIDI ports only
       while a page announces it; a Linked console picks it; each message is posted with its Tick's
@@ -24,7 +24,7 @@ of a run. The core's WASM and worklet script ship in `console-web` beside the co
       parameter only a test supplies.
 - [x] A browser test shows the audio context is running after the Playback gesture, and that a
       steady 16th pattern sounds at a constant offset from its Ticks within the 50 ms target.
-- [x] Any `web-sys` feature or dependency added is recorded with its rationale, and
+- [ ] Any `web-sys` feature or dependency added is recorded with its rationale, and
       `mise run audit_deps` passes.
 - [x] `mise run check_wasm` passes, and the site's build still compiles no Rust.
 
@@ -34,14 +34,18 @@ of a run. The core's WASM and worklet script ship in `console-web` beside the co
   functions, so the module imports nothing and needs no generated glue. `synth/web/` holds the
   worklet and the page's host script; `scripts/stage-synth.sh`, Trunk's post-build hook, stages
   them and `synth.wasm` into `console-web`.
-- Playback hands each destination how late its Tick is submitted (`OutputAdapter::submit_due`,
-  `MidiConnection::send_due`), and the synth's connection turns that back into the planned instant
+- Playback hands each destination how late its Tick is submitted (`OutputAdapter::submit`'s
+  `since_due`, `MidiConnection::send_due`), and the synth's connection turns that back into the planned instant
   on the page's clock. The host plays each message 50 ms after it.
 - The site loads the host from `site/src/console/launch.ts`, beside the consoles it launches.
   `site/tests/synth.spec.ts` frames a steady sixteenth pattern and finds the Ticks on a 125 ms grid,
   each sounding 50 ms after its Tick and none reaching the worklet late.
-- While Web MIDI access is still pending, discovery lists the synth alone; a Scan lists the ports
-  once the browser answers.
+- While Web MIDI access is still pending, discovery answers that it is waiting, so automatic
+  selection never picks the synth over ports it has not listed yet; a Linked console still picks
+  the synth, since connecting to it needs no listing.
+- `check_wasm`'s steps were run by hand: workspace clippy for `wasm32-unknown-unknown`, then
+  `trunk build --locked` with and without default features, which staged `synth.wasm` and both
+  scripts beside the console.
 - `web-sys` gains `MessageEvent` and `Performance`, recorded in `console/Cargo.toml`. The `synth`
   crate has no dependencies. `cargo deny` was not available where this was built, so
-  `mise run audit_deps` is left to CI.
+  `mise run audit_deps` has not run yet; its box stays open until CI or a local run passes it.

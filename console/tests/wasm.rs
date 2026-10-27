@@ -246,7 +246,11 @@ struct StallingOutputAdapter {
 }
 
 impl OutputAdapter for StallingOutputAdapter {
-    fn submit(&mut self, _commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+    fn submit(
+        &mut self,
+        _commands: &[OutputCommand],
+        _since_due: std::time::Duration,
+    ) -> Result<(), OutputAdapterError> {
         self.submissions.fetch_add(1, Ordering::Relaxed);
         stall_until(clock_now() + self.cost_millis);
         Ok(())

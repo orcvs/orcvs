@@ -1,4 +1,4 @@
-//! The synth as the AudioWorklet's WebAssembly module sees it (ADR 0087).
+//! The synth as the AudioWorklet's WebAssembly module sees it.
 //!
 //! The worklet instantiates the module with no imports and calls these three
 //! functions from the audio thread, which is the module's only thread. Plain

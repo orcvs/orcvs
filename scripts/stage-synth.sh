@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Built-in Synth's WebAssembly module and stages it, with its
 # AudioWorklet and page scripts from `synth/web/`, beside the web console
-# Trunk is building (ADR 0087). Trunk runs it as a post-build hook
+# Trunk is building. Trunk runs it as a post-build hook
 # (`console/Trunk.toml`) and names the staging directory.
 set -euo pipefail
 

@@ -86,11 +86,10 @@ pub trait MidiConnection: Send {
     /// Sends `message` for a Tick submitted `since_due` after its planned instant.
     ///
     /// A device port plays what it receives on arrival and sends as `send`
-    /// does; a destination that schedules, as the Built-in Synth does (ADR
-    /// 0087), places the message at the planned instant instead.
+    /// does; a destination that schedules, as the Built-in Synth does,
+    /// places the message at the planned instant instead.
     ///
-    fn send_due(&mut self, message: &[u8], since_due: Duration) -> Result<(), MidiError> {
-        let _ = since_due;
+    fn send_due(&mut self, message: &[u8], _since_due: Duration) -> Result<(), MidiError> {
         self.send(message)
     }
 }
@@ -265,11 +264,7 @@ fn safety_reset_messages(channel: u8) -> [[u8; 3]; 3] {
 }
 
 impl OutputAdapter for MidiOutputAdapter {
-    fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
-        self.submit_due(commands, Duration::ZERO)
-    }
-
-    fn submit_due(
+    fn submit(
         &mut self,
         commands: &[OutputCommand],
         since_due: Duration,
@@ -557,18 +552,21 @@ mod tests {
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
-            .submit(&[
-                OutputCommand::NoteOn {
-                    channel: MidiChannel::try_from(0x0f).unwrap(),
-                    velocity: Velocity::try_from(1).unwrap(),
-                    note: Note::try_from(0x15).unwrap(),
-                },
-                OutputCommand::NoteOn {
-                    channel: MidiChannel::try_from(2).unwrap(),
-                    velocity: Velocity::try_from(0x7f).unwrap(),
-                    note: Note::try_from(0x45).unwrap(),
-                },
-            ])
+            .submit(
+                &[
+                    OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(0x0f).unwrap(),
+                        velocity: Velocity::try_from(1).unwrap(),
+                        note: Note::try_from(0x15).unwrap(),
+                    },
+                    OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(2).unwrap(),
+                        velocity: Velocity::try_from(0x7f).unwrap(),
+                        note: Note::try_from(0x45).unwrap(),
+                    },
+                ],
+                Duration::ZERO,
+            )
             .unwrap();
 
         assert_eq!(
@@ -591,7 +589,7 @@ mod tests {
         };
 
         adapter
-            .submit_due(&[note_off(60), note_off(64)], Duration::from_millis(20))
+            .submit(&[note_off(60), note_off(64)], Duration::from_millis(20))
             .unwrap();
         adapter.safety_reset().unwrap();
 
@@ -613,16 +611,19 @@ mod tests {
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
-            .submit(&[
-                OutputCommand::NoteOff {
-                    channel: MidiChannel::try_from(0x0f).unwrap(),
-                    note: Note::try_from(0x15).unwrap(),
-                },
-                OutputCommand::NoteOff {
-                    channel: MidiChannel::try_from(2).unwrap(),
-                    note: Note::try_from(0x45).unwrap(),
-                },
-            ])
+            .submit(
+                &[
+                    OutputCommand::NoteOff {
+                        channel: MidiChannel::try_from(0x0f).unwrap(),
+                        note: Note::try_from(0x15).unwrap(),
+                    },
+                    OutputCommand::NoteOff {
+                        channel: MidiChannel::try_from(2).unwrap(),
+                        note: Note::try_from(0x45).unwrap(),
+                    },
+                ],
+                Duration::ZERO,
+            )
             .unwrap();
 
         // `0x80 | channel` with a release velocity of `00`, and an
@@ -644,18 +645,21 @@ mod tests {
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
 
         adapter
-            .submit(&[
-                OutputCommand::ControlChange {
-                    channel: MidiChannel::try_from(0x0F).unwrap(),
-                    controller: Controller::try_from(0x07).unwrap(),
-                    value: ControlValue::try_from(0x40).unwrap(),
-                },
-                OutputCommand::PitchBend {
-                    channel: MidiChannel::try_from(0x0A).unwrap(),
-                    lsb: BendLsb::try_from(0x2A).unwrap(),
-                    msb: BendMsb::try_from(0x33).unwrap(),
-                },
-            ])
+            .submit(
+                &[
+                    OutputCommand::ControlChange {
+                        channel: MidiChannel::try_from(0x0F).unwrap(),
+                        controller: Controller::try_from(0x07).unwrap(),
+                        value: ControlValue::try_from(0x40).unwrap(),
+                    },
+                    OutputCommand::PitchBend {
+                        channel: MidiChannel::try_from(0x0A).unwrap(),
+                        lsb: BendLsb::try_from(0x2A).unwrap(),
+                        msb: BendMsb::try_from(0x33).unwrap(),
+                    },
+                ],
+                Duration::ZERO,
+            )
             .unwrap();
 
         // `0xB0 | channel` and `0xE0 | channel` are the two statuses, and a
@@ -782,11 +786,14 @@ mod tests {
         state.lock().unwrap().failing_sends = vec![0];
 
         let error = adapter
-            .submit(&[OutputCommand::NoteOn {
-                channel: MidiChannel::try_from(0).unwrap(),
-                velocity: Velocity::try_from(0x7f).unwrap(),
-                note: Note::try_from(60).unwrap(),
-            }])
+            .submit(
+                &[OutputCommand::NoteOn {
+                    channel: MidiChannel::try_from(0).unwrap(),
+                    velocity: Velocity::try_from(0x7f).unwrap(),
+                    note: Note::try_from(60).unwrap(),
+                }],
+                Duration::ZERO,
+            )
             .unwrap_err();
 
         assert_eq!(error, OutputAdapterError::new("device lost on send 0"));
@@ -797,22 +804,28 @@ mod tests {
         assert_eq!(adapter.selected_destination_id(), None);
         assert_eq!(
             adapter
-                .submit(&[OutputCommand::NoteOn {
-                    channel: MidiChannel::try_from(0).unwrap(),
-                    velocity: Velocity::try_from(1).unwrap(),
-                    note: Note::try_from(60).unwrap()
-                }])
+                .submit(
+                    &[OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(0).unwrap(),
+                        velocity: Velocity::try_from(1).unwrap(),
+                        note: Note::try_from(60).unwrap()
+                    }],
+                    Duration::ZERO
+                )
                 .unwrap_err(),
             OutputAdapterError::new("device lost on send 0")
         );
 
         install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
         adapter
-            .submit(&[OutputCommand::NoteOn {
-                channel: MidiChannel::try_from(1).unwrap(),
-                velocity: Velocity::try_from(1).unwrap(),
-                note: Note::try_from(61).unwrap(),
-            }])
+            .submit(
+                &[OutputCommand::NoteOn {
+                    channel: MidiChannel::try_from(1).unwrap(),
+                    velocity: Velocity::try_from(1).unwrap(),
+                    note: Note::try_from(61).unwrap(),
+                }],
+                Duration::ZERO,
+            )
             .unwrap();
 
         let state = state.lock().unwrap();

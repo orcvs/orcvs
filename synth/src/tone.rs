@@ -25,8 +25,8 @@ enum Shape {
     Saw,
     Square,
     /// Two-operator FM: the modulator runs at `ratio` times the carrier and
-    /// deepens the carrier's phase by `index`, which falls by `decay` per
-    /// second's e-fold, so a bell starts bright and mellows.
+    /// deepens the carrier's phase by `index`, which decays with the time
+    /// constant `decay` in seconds, so a bell starts bright and mellows.
     Fm {
         ratio: f32,
         index: f32,

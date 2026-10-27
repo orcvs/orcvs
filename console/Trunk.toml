@@ -1,7 +1,7 @@
 [build]
 filehash = false
 
-# The Built-in Synth ships beside the web console (ADR 0087), so the site's
+# The Built-in Synth ships beside the web console, so the site's
 # build compiles no Rust.
 [[hooks]]
 stage = "post_build"

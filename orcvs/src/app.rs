@@ -232,7 +232,11 @@ impl Orcvs<()> {
     /// struct Silent;
     ///
     /// impl OutputAdapter for Silent {
-    ///     fn submit(&mut self, _: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+    ///     fn submit(
+    ///         &mut self,
+    ///         _: &[OutputCommand],
+    ///         _: std::time::Duration,
+    ///     ) -> Result<(), OutputAdapterError> {
     ///         Ok(())
     ///     }
     ///
@@ -934,6 +938,7 @@ mod test {
         fn submit(
             &mut self,
             _commands: &[crate::playback::OutputCommand],
+            _since_due: std::time::Duration,
         ) -> Result<(), crate::playback::OutputAdapterError> {
             panic!("test output panic");
         }

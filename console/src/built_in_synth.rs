@@ -69,21 +69,15 @@ impl<B: MidiBackend, P: SynthPage> WithBuiltInSynth<B, P> {
 impl<B: MidiBackend, P: SynthPage> MidiBackend for WithBuiltInSynth<B, P> {
     ///
     /// The ports, then the synth while it is announced. A discovery still
-    /// waiting on the browser's MIDI access lists the synth alone, so a reader
-    /// who never answers the permission prompt can still play it; a Scan
-    /// lists the ports once access is answered.
+    /// waiting on the browser's MIDI access answers that it is waiting, so
+    /// automatic selection never picks the synth over ports not yet listed;
+    /// a Linked console picks it by connecting, which needs no listing.
     ///
     fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-        let ports = self.midi.destinations();
-        if self.page.announced().is_none() {
-            return ports;
+        let mut destinations = self.midi.destinations()?;
+        if self.page.announced().is_some() {
+            destinations.push(MidiDestination::new(BUILT_IN_SYNTH, BUILT_IN_SYNTH));
         }
-        let mut destinations = match ports {
-            Ok(ports) => ports,
-            Err(error) if error.is_pending() => Vec::new(),
-            Err(error) => return Err(error),
-        };
-        destinations.push(MidiDestination::new(BUILT_IN_SYNTH, BUILT_IN_SYNTH));
         Ok(destinations)
     }
 
@@ -414,13 +408,18 @@ mod tests {
         assert_eq!(backend.destinations(), Ok(vec![port(), synth()]));
     }
 
-    #[test]
-    fn the_synth_is_listed_while_midi_access_is_pending() {
+    #[tokio::test]
+    async fn pending_midi_access_lists_nothing_but_a_linked_console_still_picks_the_synth() {
         let page = FakePage::default();
         page.announce(Announcement::Available);
         let mut backend = with_synth(Err(MidiError::pending("waiting")), &page);
+        assert_eq!(backend.destinations(), Err(MidiError::pending("waiting")));
 
-        assert_eq!(backend.destinations(), Ok(vec![synth()]));
+        let (_orcvs, mut midi) = selection(Err(MidiError::pending("waiting")), &page);
+        let mut announcements = SynthAnnouncements::new(page.clone(), true);
+        frame(&mut announcements, &mut midi).await;
+
+        assert_eq!(midi.selected_destination_id(), Some(synth().id));
     }
 
     #[test]
@@ -465,7 +464,10 @@ mod tests {
         );
     }
 
-    fn selection(ports: Vec<MidiDestination>, page: &FakePage) -> (Orcvs, MidiDeviceSelection) {
+    fn selection(
+        ports: Result<Vec<MidiDestination>, MidiError>,
+        page: &FakePage,
+    ) -> (Orcvs, MidiDeviceSelection) {
         let mut orcvs = Orcvs::with_source_and_midi_output_adapter(
             orcvs::source::Source::new(orcvs::grid::Grid::with_shape(10, 3)),
             MidiOutputAdapter::new(),
@@ -481,7 +483,7 @@ mod tests {
         }
         let mut midi = MidiDeviceSelection::new(
             orcvs.midi_selection_handle(),
-            Box::new(with_synth(Ok(ports), page)),
+            Box::new(with_synth(ports, page)),
         );
         midi.refresh_destinations();
         (orcvs, midi)
@@ -499,7 +501,7 @@ mod tests {
     #[tokio::test]
     async fn a_linked_console_picks_the_synth_over_a_port() {
         let page = FakePage::default();
-        let (_orcvs, mut midi) = selection(vec![port()], &page);
+        let (_orcvs, mut midi) = selection(Ok(vec![port()]), &page);
         let mut announcements = SynthAnnouncements::new(page.clone(), true);
         frame(&mut announcements, &mut midi).await;
         assert_eq!(midi.selected_destination_id(), Some(port().id));
@@ -516,7 +518,7 @@ mod tests {
         for (ports, picked) in [(vec![port()], port().id), (Vec::new(), synth().id)] {
             let page = FakePage::default();
             page.announce(Announcement::Available);
-            let (_orcvs, mut midi) = selection(ports, &page);
+            let (_orcvs, mut midi) = selection(Ok(ports), &page);
             let mut announcements = SynthAnnouncements::new(page.clone(), false);
 
             frame(&mut announcements, &mut midi).await;
@@ -529,7 +531,7 @@ mod tests {
     async fn a_linked_console_shows_why_an_unavailable_synth_cannot_play() {
         let page = FakePage::default();
         page.announce(Announcement::Unavailable("audio is blocked".to_owned()));
-        let (_orcvs, mut midi) = selection(Vec::new(), &page);
+        let (_orcvs, mut midi) = selection(Ok(Vec::new()), &page);
         let mut announcements = SynthAnnouncements::new(page.clone(), true);
 
         frame(&mut announcements, &mut midi).await;
@@ -542,7 +544,7 @@ mod tests {
     async fn playback_posts_its_notes_to_the_page() {
         let page = FakePage::default();
         page.announce(Announcement::Available);
-        let (mut orcvs, mut midi) = selection(Vec::new(), &page);
+        let (mut orcvs, mut midi) = selection(Ok(Vec::new()), &page);
         let mut announcements = SynthAnnouncements::new(page.clone(), true);
         frame(&mut announcements, &mut midi).await;
 

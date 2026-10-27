@@ -1,4 +1,4 @@
-// The page's Built-in Synth (ADR 0087). A page that frames consoles loads
+// The page's Built-in Synth. A page that frames consoles loads
 // this beside them, from the same directory as the console:
 //
 //   <script src="/play/synth-host.js"></script>
@@ -42,25 +42,39 @@
   function contextTime(time) {
     const playing = context.getOutputTimestamp();
     const planned = time - performance.timeOrigin + DELAY_MS;
-    // A context that has not played yet pairs nothing; its current time is
-    // the nearest stand-in.
-    if (!playing.performanceTime) return context.currentTime + (planned - performance.now()) / 1000;
+    // A context that has not played yet pairs nothing; its render time less
+    // its latency is the nearest stand-in.
+    if (!playing.performanceTime) {
+      const playingNow = context.currentTime - context.baseLatency - (context.outputLatency || 0);
+      return playingNow + (planned - performance.now()) / 1000;
+    }
     return playing.contextTime + (planned - playing.performanceTime) / 1000;
   }
+
+  const announcement = ready.then(
+    () => ({ type: "orcvs.synth", available: true }),
+    (reason) => ({ type: "orcvs.synth", available: false, reason: String(reason.message ?? reason) }),
+  );
+
+  // A console that said it was ready before this script listened is told too. Frames of another
+  // origin are not: the target origin keeps the message from them.
+  announcement.then((answer) => {
+    for (let index = 0; index < window.frames.length; index++) {
+      window.frames[index].postMessage(answer, window.location.origin);
+    }
+  });
 
   window.addEventListener("message", async (event) => {
     if (event.origin !== window.location.origin || !event.source) return;
     const { data } = event;
     if (data?.type === "orcvs.ready") {
-      const answer = await ready.then(
-        () => ({ type: "orcvs.synth", available: true }),
-        (reason) => ({ type: "orcvs.synth", available: false, reason: String(reason.message ?? reason) }),
-      );
-      event.source.postMessage(answer, event.origin);
+      event.source.postMessage(await announcement, event.origin);
     } else if (data?.type === "orcvs.midi" && node && Array.isArray(data.bytes) && typeof data.time === "number") {
       // The reader's gesture that started Playback activates this page too,
       // so the first message of a run can resume the context.
-      if (context.state !== "running") context.resume();
+      if (context.state !== "running") {
+        context.resume().catch((reason) => console.warn("The Built-in Synth cannot start:", reason));
+      }
       node.port.postMessage({ bytes: data.bytes, when: contextTime(data.time) });
     }
   });

@@ -84,7 +84,7 @@ pub struct Console {
     /// whether Scan is shown.
     midi: MidiDeviceSelection,
     /// The framing page's Built-in Synth announcements, which list the synth
-    /// under **O** and, in a Linked console, pick it (ADR 0087).
+    /// under **O** and, in a Linked console, pick it.
     #[cfg(target_arch = "wasm32")]
     synth: crate::built_in_synth::SynthAnnouncements<crate::built_in_synth::BrowserPage>,
     font_family: egui::FontFamily,
