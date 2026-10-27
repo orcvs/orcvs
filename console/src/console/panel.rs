@@ -348,6 +348,18 @@ impl Console {
                 |ui| {
                     let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    if super::play_prototype::variant() == 'A' {
+                        let playing = super::play_prototype::playing(&self.orcvs);
+                        let (text, name) = if playing {
+                            ("⏸", "Stop")
+                        } else {
+                            ("▶", "Play")
+                        };
+                        if super::play_prototype::glyph(ui, text, name, playing) {
+                            super::play_prototype::toggle(&mut self.orcvs);
+                        }
+                        ui.add_space(entry_gap);
+                    }
                     panel_label(ui, "B");
                     ui.add_space(label_value_gap);
                     let mut bpm = self.orcvs.bpm().beats_per_minute();

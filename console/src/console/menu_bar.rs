@@ -316,6 +316,25 @@ impl Console {
             ui.spacing_mut().interact_size.y = ui.available_height();
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = menu_bar_gap(ui);
+                let variant = super::play_prototype::variant();
+                let playing = super::play_prototype::playing(&self.orcvs);
+                if variant == 'C' && ui.button(if playing { "Stop" } else { "Play" }).clicked() {
+                    super::play_prototype::toggle(&mut self.orcvs);
+                }
+                if variant == 'D' {
+                    ui.menu_button("Playback", |ui| {
+                        let item = egui::Button::new(if playing { "Stop" } else { "Play" })
+                            .shortcut_text("Space");
+                        if ui.add(item).clicked() {
+                            super::play_prototype::toggle(&mut self.orcvs);
+                            ui.close();
+                        }
+                        if ui.button("Rewind").clicked() {
+                            super::play_prototype::rewind(&mut self.orcvs);
+                            ui.close();
+                        }
+                    });
+                }
                 // New, Open…, Save, Save As… and Quit on native; New alone on
                 // the web.
                 ui.menu_button("File", |ui| {
@@ -388,6 +407,25 @@ impl Console {
                     // Rightmost: the mode, which is a control rather than a
                     // menu, and applied once the frame is done.
                     choice.appearance_change = mode_control(ui);
+                    if variant == 'B' {
+                        ui.scope(|ui| {
+                            let global = ui.ctx().global_style();
+                            ui.spacing_mut().interact_size.y = global.spacing.interact_size.y;
+                            ui.spacing_mut().item_spacing.x = global.spacing.item_spacing.x;
+                            ui.add_space(menu_bar_gap(ui));
+                            let (text, name) = if playing {
+                                ("⏸", "Stop")
+                            } else {
+                                ("▶", "Play")
+                            };
+                            if super::play_prototype::glyph(ui, text, name, playing) {
+                                super::play_prototype::toggle(&mut self.orcvs);
+                            }
+                            if super::play_prototype::glyph(ui, "⏮", "Rewind", false) {
+                                super::play_prototype::rewind(&mut self.orcvs);
+                            }
+                        });
+                    }
                     // Theme, settings and Source File notices sit
                     // in the bar until dismissed; `report` has already sent
                     // each to the developer console.
