@@ -95,6 +95,8 @@ export function soundModule(module: HTMLElement) {
   });
 
   // The reader's change, sent as a console sends one, so the synth plays it and `hear` shows it.
+  // The display follows that round trip, so it relies on `synth-host.js` and the listener above both
+  // taking `orcvs.midi` that this window posts to itself, as well as a console's.
   function send(index: number, value: number) {
     const clamped = Math.max(0, Math.min(0x7f, value));
     if (clamped === effects[index].value) return;

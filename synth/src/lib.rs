@@ -114,8 +114,8 @@ impl Synth {
         match status & 0xF0 {
             0x90 if data2 > 0 => self.note_on(channel, data1, data2),
             0x80 | 0x90 => self.release_note(channel, data1),
-            // All Sound Off and All Notes Off.
             0xB0 if data1 == 1 => self.vibrato.set(data2),
+            // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             _ => {}
         }
@@ -400,6 +400,31 @@ mod tests {
         assert!(period_spread(&tone(None)) < 1.03);
         assert!(period_spread(&tone(Some([0xB5, 1, 0x7F]))) > 1.08);
         assert_eq!(tone(Some([0xB0, 1, 0x00])), tone(None));
+    }
+
+    #[test]
+    fn changing_modulation_mid_note_moves_the_tone_without_a_step() {
+        let largest_step = |samples: &[f32]| {
+            samples
+                .windows(2)
+                .map(|pair| (pair[1] - pair[0]).abs())
+                .fold(0.0, f32::max)
+        };
+        let mut plain = Synth::new(RATE);
+        plain.schedule(0, note_on(0, 69, 100));
+        let steady = largest_step(&render(&mut plain, seconds(0.5)));
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(0, 69, 100));
+        // A quarter of the way through the vibrato's cycle, where its delay is
+        // at its longest.
+        synth.schedule(0, [0xB0, 1, 0x7F]);
+        synth.schedule(seconds(0.25) as u64, [0xB0, 1, 0x00]);
+        synth.schedule(seconds(0.35) as u64, [0xB0, 1, 0x7F]);
+
+        let out = render(&mut synth, seconds(0.5));
+
+        let step = largest_step(&out);
+        assert!(step < steady * 1.3, "{step} against {steady}");
     }
 
     #[test]

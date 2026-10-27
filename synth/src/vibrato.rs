@@ -8,16 +8,24 @@ const RATE: f32 = 5.0;
 /// bends the pitch by up to `TAU * RATE * A`, here a semitone either way:
 /// a semitone up is `2^(1/12)`, about `1.059463`, times the pitch.
 const MAX_SWING: f32 = 0.059_463 / (TAU * RATE);
+/// How long the swing takes to glide from none to `MAX_SWING`, in seconds. A
+/// swing that jumped would step the delay, and click, whenever the depth
+/// changes mid-note.
+const GLIDE: f32 = 0.05;
 
 /// Vibrato as a delay line whose delay swings between zero and twice the
 /// depth. At depth zero it reads the sample it was just given, so the mix
 /// passes unchanged.
+///
+/// A depth change glides there over `GLIDE` at most, so the delay never
+/// steps, and reaches the new depth exactly.
 pub(crate) struct Vibrato {
     sample_rate: f32,
     line: Vec<f32>,
     write: usize,
     phase: f32,
     swing: f32,
+    target: f32,
 }
 
 impl Vibrato {
@@ -29,18 +37,26 @@ impl Vibrato {
             write: 0,
             phase: 0.0,
             swing: 0.0,
+            target: 0.0,
         }
     }
 
     /// Sets the depth from a Control Change value, `00`–`7F`.
     pub(crate) fn set(&mut self, value: u8) {
-        self.swing = MAX_SWING * f32::from(value) / 127.0;
+        self.target = MAX_SWING * f32::from(value) / 127.0;
     }
 
     /// The vibrato's output for the mix's next sample.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         let length = self.line.len();
         self.line[self.write] = input;
+        let glide = MAX_SWING / (GLIDE * self.sample_rate);
+        let gap = self.target - self.swing;
+        self.swing = if gap.abs() <= glide {
+            self.target
+        } else {
+            self.swing + glide.copysign(gap)
+        };
         let delay = self.swing * (1.0 + (self.phase * TAU).sin()) * self.sample_rate;
         self.phase = (self.phase + RATE / self.sample_rate).fract();
         let whole = delay.floor();
