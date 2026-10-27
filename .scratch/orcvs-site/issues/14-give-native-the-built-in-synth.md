@@ -4,7 +4,8 @@
 ticket 08's synth core through cpal on the console's audio device, with small buffers. It is listed
 after the MIDI ports and chosen like one, and plays each message at its Tick's planned time, so the
 same Source sounds the same natively and on the site. The console draws the Sound Module as ADR 0088
-decides it, and the console's Theme format gains `sound.magnitude`, defaulting to `source.bang`.
+decides it, and the console's Theme format gains `sound.magnitude`, defaulting to `source.bang`, and
+`sound.channel`, defaulting to `#000000`.
 
 **Blocked by:** 08
 
@@ -15,4 +16,4 @@ decides it, and the console's Theme format gains `sound.magnitude`, defaulting t
 - [ ] A missing audio device answers as a connect failure, and Playback runs on silently.
 - [ ] cpal's addition is recorded with its rationale, and `mise run audit_deps` passes.
 - [ ] The console draws the Sound Module's channel lights and effects, and a Theme can set
-      `sound.magnitude`.
+      `sound.magnitude` and `sound.channel`.

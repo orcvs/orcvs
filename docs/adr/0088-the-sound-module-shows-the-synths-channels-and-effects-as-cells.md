@@ -57,10 +57,15 @@ and the sound module shows each value from that same stream, whoever sent it.
 **Values reset on every load.** Nothing persists across page loads. A Source that needs an effect
 sets it.
 
-**The magnitude colour is a Theme colour, `sound.magnitude`.** Each built-in Theme sets it to its
-`source.bang` colour, so it can differ from Bang without changing Bang. The site carries it as
-`--orcvs-sound-magnitude`. The console's Theme format gains the key when the console draws the
-sound module (ticket 14), since nothing in the console reads it until then.
+**The Sound Module takes two Theme colours, `sound.magnitude` and `sound.channel`.**
+`sound.magnitude` fills the channel lights and the magnitudes, and draws the magnitude's border.
+Each built-in Theme sets it to its `source.bang` colour, so it can differ from Bang without
+changing Bang. `sound.channel` draws a lit channel's digit; both built-ins set it to `#000000`. A
+digit takes whichever of `sound.channel` and `source.ordinary` contrasts more with its fill at that
+moment, so it stays legible from a faint fill to a full one, with no threshold tied to a particular
+Theme. The site carries them as `--orcvs-sound-magnitude` and `--orcvs-sound-channel`. The
+console's Theme format gains both keys when the console draws the Sound Module (ticket 14), since
+nothing in the console reads them until then.
 
 **The effects land one at a time.** The sound module ships with all eight effects drawn and
 taking values, plus `MD`'s sound. Each other effect's sound is its own ticket. Until it lands, an

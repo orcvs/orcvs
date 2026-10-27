@@ -113,3 +113,20 @@ test("dragging up on an effect sends its Control Change to the synth", async ({ 
   await expect.poll(() => valueOf(page, 0)).toBe("14");
   await expect.poll(() => page.evaluate(() => window.soundSpy.played.at(-1))).toEqual([0xb0, 1, 0x14]);
 });
+
+test("a lit channel's digit takes the Theme colour that reads on its fill", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/");
+
+  const digits = await page.evaluate(async () => {
+    const lights = document.querySelectorAll<HTMLElement>(".orcvs-sound-module .light");
+    const time = performance.timeOrigin + performance.now();
+    window.postMessage({ type: "orcvs.midi", bytes: [0x93, 60, 0x7f], time }, location.origin);
+    window.postMessage({ type: "orcvs.midi", bytes: [0x94, 60, 0x01], time }, location.origin);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return [lights[6].style.color, lights[8].style.color];
+  });
+
+  // A full fill of Bang green takes `sound.channel`; a faint one keeps the ordinary colour.
+  expect(digits).toEqual(["var(--orcvs-sound-channel)", ""]);
+});
