@@ -88,6 +88,25 @@ pub enum OutputCommand {
 
 pub trait OutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError>;
+
+    ///
+    /// Submits the commands of a Tick the clock saw `since_due` after the
+    /// instant it was due at.
+    ///
+    /// A destination that plays each message at a time it is given, as the
+    /// Built-in Synth does (ADR 0087), places it at its Tick's planned time
+    /// rather than at the moment it arrives. Every other adapter submits as
+    /// `submit` does.
+    ///
+    fn submit_due(
+        &mut self,
+        commands: &[OutputCommand],
+        since_due: Duration,
+    ) -> Result<(), OutputAdapterError> {
+        let _ = since_due;
+        self.submit(commands)
+    }
+
     fn safety_reset(&mut self) -> Result<(), OutputAdapterError>;
 }
 
@@ -912,7 +931,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // executed Tick.
             let mut owned = self.owned.clone();
             let delivery = owned.deliver(tick, &plan.play_commands);
-            match self.adapter.submit(&delivery) {
+            let since_due = timing.observed_at.saturating_sub(timing.scheduled_at);
+            match self.adapter.submit_due(&delivery, since_due) {
                 Ok(()) => {
                     self.owned = owned;
                     self.last_output_failure = None;
@@ -1917,6 +1937,7 @@ mod tests {
         command_lists: Vec<Vec<OutputCommand>>,
         source: Option<SourceCommander>,
         source_at_submission: Vec<String>,
+        since_due: Vec<Duration>,
     }
 
     impl RecordingAdapter {
@@ -1935,6 +1956,15 @@ mod tests {
             }
             self.command_lists.push(commands.to_vec());
             Ok(())
+        }
+
+        fn submit_due(
+            &mut self,
+            commands: &[OutputCommand],
+            since_due: Duration,
+        ) -> Result<(), OutputAdapterError> {
+            self.since_due.push(since_due);
+            self.submit(commands)
         }
 
         fn safety_reset(&mut self) -> Result<(), OutputAdapterError> {
@@ -2574,6 +2604,26 @@ mod tests {
         assert_eq!(
             run.inner.adapter.command_lists,
             vec![vec![note_on(0, 0x7F, 60)]]
+        );
+    }
+
+    #[test]
+    fn a_tick_hands_the_adapter_how_late_it_was_seen() {
+        let source = SourceCommander::new(Grid::with_shape(10, 12));
+        write(&source, 20, ".+0102");
+        write(&source, 60, ".=0101");
+        let mut run = HandDrivenRun::new(source, RecordingAdapter::default());
+        run.begin_run();
+
+        run.tick(scheduled(Duration::ZERO, Duration::ZERO));
+        run.tick(scheduled(
+            Duration::from_secs(1),
+            Duration::from_millis(1_300),
+        ));
+
+        assert_eq!(
+            run.inner.adapter.since_due,
+            vec![Duration::ZERO, Duration::from_millis(300)]
         );
     }
 

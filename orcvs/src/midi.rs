@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tokio::sync::watch;
 
 mod selection;
@@ -79,6 +81,18 @@ impl MidiError {
 
 pub trait MidiConnection: Send {
     fn send(&mut self, message: &[u8]) -> Result<(), MidiError>;
+
+    ///
+    /// Sends `message` for a Tick seen `since_due` after its planned instant.
+    ///
+    /// A device port plays what it receives on arrival and sends as `send`
+    /// does; a destination that schedules, as the Built-in Synth does (ADR
+    /// 0087), places the message at the planned instant instead.
+    ///
+    fn send_due(&mut self, message: &[u8], since_due: Duration) -> Result<(), MidiError> {
+        let _ = since_due;
+        self.send(message)
+    }
 }
 
 /// An opening operation owned by its caller until it becomes a connection.
@@ -252,6 +266,14 @@ fn safety_reset_messages(channel: u8) -> [[u8; 3]; 3] {
 
 impl OutputAdapter for MidiOutputAdapter {
     fn submit(&mut self, commands: &[OutputCommand]) -> Result<(), OutputAdapterError> {
+        self.submit_due(commands, Duration::ZERO)
+    }
+
+    fn submit_due(
+        &mut self,
+        commands: &[OutputCommand],
+        since_due: Duration,
+    ) -> Result<(), OutputAdapterError> {
         let Some(connection) = self.connection.as_mut() else {
             return self.delivery_failure.clone().map_or(Ok(()), Err);
         };
@@ -299,7 +321,7 @@ impl OutputAdapter for MidiOutputAdapter {
                     [0xE0 | channel.value(), lsb.value(), msb.value()]
                 }
             };
-            if let Err(error) = connection.send(&message) {
+            if let Err(error) = connection.send_due(&message, since_due) {
                 let delivery_error = OutputAdapterError::new(error.message);
                 // The teardown's own refusals, all forty-eight of them, are
                 // discarded deliberately. The sibling call sites report theirs
@@ -454,6 +476,8 @@ mod tests {
         /// How many connections this backend opened have since been dropped,
         /// which is when a real port is closed and its device released.
         released: usize,
+        /// How late each message sent with a time was, in send order.
+        since_due: Vec<Duration>,
     }
 
     struct FakeBackend {
@@ -507,6 +531,11 @@ mod tests {
             state.messages.push(message.to_vec());
             Ok(())
         }
+
+        fn send_due(&mut self, message: &[u8], since_due: Duration) -> Result<(), MidiError> {
+            self.state.lock().unwrap().since_due.push(since_due);
+            self.send(message)
+        }
     }
 
     fn install_on_adapter(
@@ -546,6 +575,32 @@ mod tests {
             state.lock().unwrap().messages,
             vec![vec![0x9f, 0x15, 1], vec![0x92, 0x45, 0x7f]]
         );
+    }
+
+    #[test]
+    fn a_submission_hands_each_message_how_late_its_tick_was() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut backend = FakeBackend {
+            state: state.clone(),
+        };
+        let mut adapter = MidiOutputAdapter::new();
+        install_on_adapter(&mut adapter, &mut backend, &MidiDestinationId::new("one"));
+        let note_off = |note| OutputCommand::NoteOff {
+            channel: MidiChannel::try_from(0).unwrap(),
+            note: Note::try_from(note).unwrap(),
+        };
+
+        adapter
+            .submit_due(&[note_off(60), note_off(64)], Duration::from_millis(20))
+            .unwrap();
+        adapter.safety_reset().unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(
+            state.since_due,
+            vec![Duration::from_millis(20), Duration::from_millis(20)]
+        );
+        assert_eq!(state.messages.len(), 2 + 16 * 3);
     }
 
     #[test]
