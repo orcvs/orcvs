@@ -493,3 +493,52 @@ fn the_sequencer_frames_each_voices_steps_in_a_comment() {
     );
     source.read_source(|source| assert_eq!(source.language_map().lexical_diagnostics().count(), 0));
 }
+
+///
+/// The 808 beat's first bar and the Tick that starts its second: kick `C2` on
+/// every beat, snare `D2` on beats 2 and 4 and closed hat `f2` on every
+/// eighth, all on channel `08` and each held one Tick, with nothing diagnosed
+/// before or during the run.
+///
+#[test]
+fn the_808_beat_plays_one_bar_with_nothing_diagnosed() {
+    let (kick, snare, hat) = (36, 38, 42);
+    let source = SourceCommander::with_source(
+        file::read(include_bytes!("../../../../examples/808.orcvs"))
+            .expect("the shipped file is a Source File"),
+    );
+    source.read_source(|source| assert_eq!(source.language_map().diagnostics().count(), 0));
+    let adapter = InMemoryOutputAdapter::default();
+    let mut run = HandDrivenRun::new(source, adapter.clone());
+    run.begin_run();
+
+    for tick in 0..17u64 {
+        let plan = run.run_tick(tick);
+        let mut delivery = Vec::new();
+        // Each hit stops on the Tick after it starts, in the order they started.
+        if tick % 4 == 1 {
+            delivery.push(stop(8, kick));
+        }
+        if tick % 8 == 5 {
+            delivery.push(stop(8, snare));
+        }
+        if tick % 2 == 1 {
+            delivery.push(stop(8, hat));
+        }
+        if tick % 4 == 0 {
+            delivery.push(note_on(8, 0x7F, kick));
+        }
+        if tick % 8 == 4 {
+            delivery.push(note_on(8, 0x64, snare));
+        }
+        if tick % 2 == 0 {
+            delivery.push(note_on(8, 0x40, hat));
+        }
+        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
+        assert_eq!(
+            adapter.command_lists().last(),
+            Some(&delivery),
+            "Tick {tick}'s delivery"
+        );
+    }
+}

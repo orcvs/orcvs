@@ -52,26 +52,38 @@ pub(crate) fn default_source() -> Source {
 }
 
 ///
-/// The Source the console starts from.
+/// The Source a console starts from when nothing is stored. The web console
+/// opens the 808 example, so a first visit has a beat for Space to play; the
+/// native console opens the empty Grid.
 ///
-/// Without the `persistence` feature no revision is ever stored, so the
-/// console always starts an empty Source on the one Grid.
-///
-#[cfg(not(feature = "persistence"))]
-pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source {
+fn first_source() -> Source {
+    #[cfg(target_arch = "wasm32")]
+    return crate::examples::EIGHT_O_EIGHT.source();
+    #[cfg(not(target_arch = "wasm32"))]
     default_source()
 }
 
 ///
-/// The Source the console starts from: the stored revision, or an empty
-/// Source on the one Grid.
+/// The Source the console starts from.
+///
+/// Without the `persistence` feature no revision is ever stored, so the
+/// console always starts as it does when nothing is stored.
+///
+#[cfg(not(feature = "persistence"))]
+pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source {
+    first_source()
+}
+
+///
+/// The Source the console starts from: the stored revision, or what a first
+/// start opens when storage holds none.
 ///
 /// eframe answers `None` both for an absent key and for a value that does not
 /// decode, so the key is read before it is decoded: holding nothing is an
 /// ordinary first start, and holding a value that does not decode — a Grid
 /// shape other than the one, or a Cell count or character the
-/// Source refuses — is reported. Either way the console starts an empty
-/// Source rather than a partly restored one, and its next save overwrites
+/// Source refuses — is reported, and the console starts an empty Source
+/// rather than a partly restored one. Either way its next save overwrites
 /// [`SOURCE_KEY`].
 ///
 /// A value under [`STALE_SOURCE_KEY`] is reported the same way, beside
@@ -81,14 +93,14 @@ pub(crate) fn starting_source(_storage: Option<&dyn eframe::Storage>) -> Source 
 #[cfg(feature = "persistence")]
 pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
     let Some(storage) = storage else {
-        return default_source();
+        return first_source();
     };
     let current = storage.get_string(SOURCE_KEY).is_some();
     if storage.get_string(STALE_SOURCE_KEY).is_some() {
         let starting = if current {
             "starting the Source stored under the current key"
         } else {
-            "starting an empty Grid"
+            "starting as a first start does"
         };
         crate::report::error!(
             "{STALE_SOURCE_KEY}: the stored Source was written in spellings the current \
@@ -96,7 +108,7 @@ pub(crate) fn starting_source(storage: Option<&dyn eframe::Storage>) -> Source {
         );
     }
     if !current {
-        return default_source();
+        return first_source();
     }
     eframe::get_value::<Source>(storage, SOURCE_KEY).unwrap_or_else(|| {
         // `crate::report` sends this to whichever channel the target reads.

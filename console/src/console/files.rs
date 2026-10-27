@@ -418,6 +418,7 @@ pub(super) const EXAMPLE_CONFIRMATIONS: [DiscardConfirmation; EXAMPLES.len()] = 
     example_confirmation(|console| console.load_example(1)),
     example_confirmation(|console| console.load_example(2)),
     example_confirmation(|console| console.load_example(3)),
+    example_confirmation(|console| console.load_example(4)),
 ];
 
 /// The question an example asks before `discard` opens it.
