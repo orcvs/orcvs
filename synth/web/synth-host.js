@@ -12,6 +12,11 @@
   // How long after its planned instant a message sounds. A message that
   // reaches the synth later than this sounds at once.
   const DELAY_MS = 50;
+  // How late a message that arrived while the audio context started can be
+  // and still sound once it runs. Starting takes a device a few hundred
+  // milliseconds at most; a message older than that is dropped, so a slow
+  // start does not sound a backlog at once.
+  const START_MS = 500;
 
   const here = document.currentScript.src;
   let context;
@@ -64,6 +69,18 @@
     }
   });
 
+  // The messages that arrived while the context starts.
+  let starting;
+
+  // Whether `message` is at most `START_MS` past its planned instant.
+  function due(message) {
+    return message.time + START_MS >= performance.timeOrigin + performance.now();
+  }
+
+  function play(message) {
+    node.port.postMessage({ bytes: message.bytes, when: contextTime(message.time) });
+  }
+
   window.addEventListener("message", async (event) => {
     if (event.origin !== window.location.origin || !event.source) return;
     const { data } = event;
@@ -71,14 +88,28 @@
       event.source.postMessage(await announcement, event.origin);
     } else if (data?.type === "orcvs.midi" && node && Array.isArray(data.bytes) && typeof data.time === "number") {
       // The reader's gesture that started Playback activates this page too,
-      // so the first message of a run can resume the context.
-      // A message that arrives before the context runs is dropped rather than
-      // queued, so a resume does not sound a backlog at once.
-      if (context.state !== "running") {
-        context.resume().catch((reason) => console.warn("The Built-in Synth cannot start:", reason));
+      // so the first message of a run can resume the context. Messages that
+      // arrive while it starts wait for it, and those still due sound as soon
+      // as it runs.
+      if (context.state === "running") {
+        play(data);
         return;
       }
-      node.port.postMessage({ bytes: data.bytes, when: contextTime(data.time) });
+      if (starting) {
+        starting = [...starting.filter(due), data];
+        return;
+      }
+      starting = [data];
+      context.resume().then(
+        () => {
+          for (const message of starting.filter(due)) play(message);
+          starting = undefined;
+        },
+        (reason) => {
+          starting = undefined;
+          console.warn("The Built-in Synth cannot start:", reason);
+        },
+      );
     }
   });
 })();

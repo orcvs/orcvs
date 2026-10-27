@@ -16,11 +16,15 @@ declare global {
       /** The planned instant of the `orcvs.midi` the page is handling. */
       planned?: number;
       /** Each message the page passes the worklet: its planned instant, when the synth plays it on
-       * the page's clock, and how long after its planned instant it reached the page. */
-      sounds: { planned: number; at: number; late: number }[];
+       * the page's clock, how long after its planned instant it reached the page, and its MIDI
+       * status byte. */
+      sounds: { planned: number; at: number; late: number; status: number }[];
     };
   }
 }
+
+// Playwright's Chromium starts audio without a gesture; a reader's browser waits for one.
+test.use({ launchOptions: { ignoreDefaultArgs: ["--autoplay-policy=no-user-gesture-required"] } });
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -48,12 +52,33 @@ test.beforeEach(async ({ page }) => {
           planned: spy.planned,
           at: performance.timeOrigin + playing.performanceTime! + (message.when - playing.contextTime!) * 1000,
           late: performance.timeOrigin + performance.now() - spy.planned,
+          status: message.bytes[0],
         });
         spy.planned = undefined;
       }
       return post.call(this, message, ...(rest as [any]));
     };
   });
+});
+
+test("the site's console sounds the first note of a run while the page's audio starts", async ({ page }) => {
+  await page.goto("/");
+  const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
+  await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
+
+  // One Timed Play on Tick 0, typed at the Cursor: `**` above `!~0064C404`.
+  await frame.click({ position: { x: 300, y: 200 } });
+  await page.keyboard.type("**");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.type("!~0064C404");
+  await page.keyboard.press("Space");
+  // The Note On on channel `00`, not only the Note Off that follows once the audio runs.
+  await expect
+    .poll(() => page.evaluate(() => window.synthSpy.sounds.map(({ status }) => status)))
+    .toContain(0x90);
 });
 
 test("a framed console plays the page's synth at a constant offset from its Ticks", async ({ page }) => {
