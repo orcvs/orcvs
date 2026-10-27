@@ -17,6 +17,10 @@
   --orcvs-function-background: #444444;
   --orcvs-bang: #00ff00;
   --orcvs-bang-background: #111111;
+  --orcvs-number: #898989;
+  --orcvs-number-background: #222222;
+  /* The Theme's `sound.magnitude`: the Sound Module's fill. */
+  --orcvs-sound-magnitude: var(--orcvs-bang);
   --orcvs-grid-border: #ffffff1a;
   --orcvs-panel-border: #2a2a2a;
 
@@ -48,6 +52,8 @@
   --orcvs-function-background: #bbbbbb;
   --orcvs-bang: #d100d1;
   --orcvs-bang-background: #ffffff;
+  --orcvs-number: #616161;
+  --orcvs-number-background: #dddddd;
   --orcvs-grid-border: #0000001a;
   --orcvs-panel-border: #d5d5d5;
 

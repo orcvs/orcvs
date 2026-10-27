@@ -1,7 +1,10 @@
 ---
 // The site is the console: `/play/` fills the window, and shows its own splash while it loads.
-// The page's Built-in Synth (ADR 0087), which ships beside the console in `/play/`, plays it. The
-// sound module takes the row below once it has controls.
+// The page's Built-in Synth (ADR 0087), which ships beside the console in `/play/`, plays it, and
+// the Sound Module in the row below shows it.
+import "../styles/orcvs.css";
+import "../console/grid.css";
+import "../console/sound-module.css";
 ---
 
 <!doctype html>
@@ -12,23 +15,32 @@
     <meta name="color-scheme" content="dark light" />
     <title>Orcvs</title>
     <link rel="icon" href="/play/favicon.ico" />
+    <script is:inline>
+      // The page wears the reader's light or dark Theme, as the console does.
+      {
+        const light = matchMedia("(prefers-color-scheme: light)");
+        const wear = () => (document.documentElement.dataset.theme = light.matches ? "light" : "dark");
+        wear();
+        light.addEventListener("change", wear);
+      }
+    </script>
     <style>
       html,
       body {
         margin: 0;
         height: 100%;
-        background: #000000;
-      }
-      @media (prefers-color-scheme: light) {
-        html,
-        body {
-          background: #ffffff;
-        }
+        background: var(--orcvs-window);
       }
       main {
         display: grid;
-        grid-template-rows: 1fr;
+        grid-template-rows: 1fr auto;
         height: 100%;
+      }
+      #sound-module {
+        padding: 12px 16px;
+        border-top: 1px solid var(--orcvs-panel-border);
+        /* Its 32 Cells, each 1.2em wide, fit the window. */
+        font-size: min(14px, calc((100vw - 34px) / 38.4));
       }
       iframe {
         display: block;
@@ -41,9 +53,14 @@
   <body>
     <main>
       <iframe src="/play/" title="Orcvs console"></iframe>
+      <section id="sound-module" aria-label="Sound Module"></section>
     </main>
     <script is:inline src="/play/synth-host.js"></script>
     <script>
+      import { soundModule } from "../console/sound-module";
+
+      soundModule(document.getElementById("sound-module")!);
+
       // The console is the page, so it has the keyboard from the start.
       const frame = document.querySelector("iframe")!;
       frame.addEventListener("load", () => frame.focus());
