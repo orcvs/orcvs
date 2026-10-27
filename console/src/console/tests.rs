@@ -2457,7 +2457,7 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
             .unwrap_or_else(|| panic!("the Panel is missing {text:?} in {spans:?}"))
     }
 
-    let b = span(&spans, "B");
+    let rewind = span(&spans, "⏮");
     let rest = span(&spans, "//");
     let t = span(&spans, "T");
     let tick = span(&spans, "00000");
@@ -2482,15 +2482,15 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
         "groups are as tight as a label and its value: group {beat_to_t} pair {t_to_v}"
     );
 
-    let expected_left =
-        egui::Frame::side_top_panel(&crate::style::style(&default_theme(Appearance::Dark)))
-            .inner_margin
-            .leftf()
-            + f32::from(BOTTOM_PANEL_LEFT_PAD);
+    // The Panel opens with the Rewind control, whose glyph its button pads.
+    let style = crate::style::style(&default_theme(Appearance::Dark));
+    let expected_left = egui::Frame::side_top_panel(&style).inner_margin.leftf()
+        + f32::from(BOTTOM_PANEL_LEFT_PAD)
+        + style.spacing.button_padding.x;
     assert!(
-        (b.1 - expected_left).abs() < 1.0,
-        "B starts at {} rather than {expected_left} in {spans:?}",
-        b.1
+        (rewind.1 - expected_left).abs() < 1.0,
+        "the Rewind control starts at {} rather than {expected_left} in {spans:?}",
+        rewind.1
     );
 }
 

@@ -591,16 +591,8 @@ impl<S> Orcvs<S> {
                     self.paste(text);
                     repaint = true;
                 }
-                // Space pauses and resumes: a stopped engine holds its Tick,
-                // and the next start resumes at the Tick after it.
-                InputEvent::KeyPressed(InputKey::Space) => {
-                    if self.playback_requested {
-                        self.stop();
-                    } else {
-                        self.play();
-                    }
-                }
-                InputEvent::Rewind => self.playback.rewind(),
+                InputEvent::KeyPressed(InputKey::Space) => self.toggle_playback(),
+                InputEvent::Rewind => self.rewind(),
                 InputEvent::Text(text_to_insert)
                     if text_to_insert.len() == 1 && text_to_insert != " " =>
                 {
@@ -719,6 +711,27 @@ impl<S> Orcvs<S> {
             Arrow::Right => self.grid.right(from),
             Arrow::Up => self.grid.up(from),
         }
+    }
+
+    ///
+    /// Plays a stopped Playback and stops a playing one: what Space and the
+    /// console's Play control do. A stopped engine holds its Tick, and the
+    /// next start resumes at the Tick after it.
+    ///
+    pub fn toggle_playback(&mut self) {
+        if self.playback_requested {
+            self.stop();
+        } else {
+            self.play();
+        }
+    }
+
+    ///
+    /// Makes Tick `0` the next Tick Playback executes (ADR 0076): what
+    /// Command Shift R and the console's Rewind control do.
+    ///
+    pub fn rewind(&mut self) {
+        self.playback.rewind();
     }
 
     fn stop(&mut self) {
