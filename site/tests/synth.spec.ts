@@ -23,6 +23,10 @@ declare global {
   }
 }
 
+// The timing test measures how late the console's frames send each Tick, so it does not share the
+// runner with this file's other console.
+test.describe.configure({ mode: "serial" });
+
 // Playwright's Chromium starts audio without a gesture; a reader's browser waits for one.
 test.use({ launchOptions: { ignoreDefaultArgs: ["--autoplay-policy=no-user-gesture-required"] } });
 
