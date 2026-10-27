@@ -13,7 +13,7 @@ of a run. The core's WASM and worklet script ship in `console-web` beside the co
 
 **Blocked by:** 02, 07
 
-**Status:** in-review
+**Status:** resolved
 
 - [x] Tests through the `MidiBackend` seam: the destination is listed after the MIDI ports only
       while a page announces it; a Linked console picks it; each message is posted with its Tick's
