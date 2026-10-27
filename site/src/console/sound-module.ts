@@ -147,22 +147,25 @@ export function soundModule(module: HTMLElement) {
     return index === undefined ? undefined : Number(index);
   };
 
-  // Dragging up raises a value and dragging down lowers it.
+  // Dragging up raises a value and dragging down lowers it. The grid captures the pointer, so a
+  // drag that crosses the console's frame keeps its events, and the capture ends with the drag.
   grid.addEventListener("pointerdown", (event) => {
     const index = effectOf(event.target);
     if (index === undefined) return;
     // The console keeps the keyboard.
     event.preventDefault();
     const from = { y: event.clientY, value: effects[index].value };
-    const move = (moved: PointerEvent) => send(index, from.value + Math.round((from.y - moved.clientY) / DRAG_STEP));
-    const end = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", end);
+    const move = (moved: PointerEvent) => {
+      if (moved.pointerId !== event.pointerId) return;
+      send(index, from.value + Math.round((from.y - moved.clientY) / DRAG_STEP));
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", end);
+    const end = () => {
+      grid.removeEventListener("pointermove", move);
+      grid.removeEventListener("lostpointercapture", end);
+    };
+    grid.addEventListener("pointermove", move);
+    grid.addEventListener("lostpointercapture", end);
+    grid.setPointerCapture(event.pointerId);
   });
 
   grid.addEventListener(
