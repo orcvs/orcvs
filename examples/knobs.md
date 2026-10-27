@@ -50,9 +50,8 @@ Each knob is the same machine in both languages.
 | `Q` query | `&^` Read north | Reads the preset at the top of columns 22 and 23, `n` rows north of its `n` operand. |
 | `J` jumper, `V` variable | `.+` Add and `&>` Read east | The Add points the Read at the knob's value in the selected preset, `04` pairs past the Read's `n` slot and on by one pair a preset. |
 | `Z` lerp | `~>` Interpolation | Moves the knob's value toward that preset's value by at most `04` a Tick, and keeps it in the Cells below itself. |
-| `D1` delay | `~*0101` Delay | Bangs every Tick, which activates the Control Change east of its `**`. |
+| `D1` delay and its `*` | `~*0101` Delay | Bangs every Tick, which activates the Control Change east of its `**`. |
 | `!` cc | `!c` Control Change | Sends the knob's value to its controller on channel `00`. |
-| `#` comment | `\|\|` Comment | The preset, and each knob's presets. The Reads see through it. |
 
 ## One knob
 
@@ -71,8 +70,8 @@ columns east of it, its Control Change one row down and two columns east of
 the Delay, and controller `41 + k`. Its Read north's `n` is `1 + 3k`, the
 distance from its row to row 0, so every knob reads the same preset.
 
-Every value starts at `00`, so after you start Playback each knob takes up to
-twenty Ticks to reach its first preset. At the default 120 BPM a Tick is
+Every value starts at `00`, so after you start Playback the knobs take up to
+seventeen Ticks to reach preset `00`. At the default 120 BPM a Tick is
 125 ms; change the tempo in the Panel's BPM field.
 
 ## Where it differs from Orca
@@ -89,5 +88,8 @@ twenty Ticks to reach its first preset. At the default 120 BPM a Tick is
 - Orca's `Z` reads an empty rate as `0`, which holds its value where it is. The
   port gives the Interpolation a rate of `04`, about Orca's step of one digit,
   so a new preset is heard.
+- Orca's patch is saved with preset `00`'s values already under each `Z`, so
+  its knobs send them from the first frame. Each Orcvs knob starts at `00` and
+  glides up to them.
 - Stopping sends All Notes Off, Reset All Controllers and a centred pitch bend
   on every channel.
