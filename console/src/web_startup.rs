@@ -16,24 +16,39 @@ pub fn canvas_or_report(
 }
 
 ///
-/// Keeps the Source File text of the latest `{ type: "orcvs.open", source }`
-/// message the embedding page posts in `inbox`, and repaints `ctx` so a frame
-/// opens it (ADR 0086). A message from another window or origin, of another
-/// type, or whose `source` is not a string is ignored. Returns whether it
-/// listens; the listener lasts as long as the page.
+/// This console's window, the page that frames it, and the console's own
+/// origin, or `None` when no page frames it.
 ///
-pub(crate) fn listen_for_sources(inbox: crate::linked_source::Inbox, ctx: egui::Context) -> bool {
+pub(crate) fn framing() -> Option<(web_sys::Window, web_sys::Window, String)> {
+    let window = web_sys::window()?;
+    let origin = window.location().origin().ok()?;
+    let parent = window.parent().ok().flatten()?;
+    if js_sys::Object::is(&parent, &window) {
+        return None;
+    }
+    Some((window, parent, origin))
+}
+
+///
+/// Listens for what the framing page posts this console, then posts the page
+/// `{ type: "orcvs.ready" }`, before which the page sends nothing (ADR 0086,
+/// ADR 0087). Only messages from the framing page's window and this
+/// console's origin are read, and each repaints `ctx` so a frame answers it:
+///
+/// - `{ type: "orcvs.open", source }` keeps `source` in `inbox`, for a small
+///   console. Only the latest Source opens, so a burst of messages holds one.
+/// - `{ type: "orcvs.synth", available }` is the Built-in Synth's
+///   announcement (`crate::built_in_synth`).
+///
+/// A console no page frames listens for nothing. The listener lasts as long
+/// as the page.
+///
+pub(crate) fn listen_to_page(inbox: Option<crate::linked_source::Inbox>, ctx: egui::Context) {
     use wasm_bindgen::JsCast as _;
     use wasm_bindgen::closure::Closure;
 
-    let Some(window) = web_sys::window() else {
-        return false;
-    };
-    let Ok(origin) = window.location().origin() else {
-        return false;
-    };
-    let Ok(Some(parent)) = window.parent() else {
-        return false;
+    let Some((window, parent, origin)) = framing() else {
+        return;
     };
     let field = |data: &wasm_bindgen::JsValue, name: &str| {
         js_sys::Reflect::get(data, &name.into())
@@ -48,44 +63,27 @@ pub(crate) fn listen_for_sources(inbox: crate::linked_source::Inbox, ctx: egui::
             let from_parent = event
                 .source()
                 .is_some_and(|sender| js_sys::Object::is(&sender, &listened_parent));
-            if !from_parent
-                || event.origin() != listened_origin
-                || field(&data, "type").as_deref() != Some("orcvs.open")
-            {
+            if !from_parent || event.origin() != listened_origin {
                 return;
             }
-            // Only the latest Source opens, so a burst of messages holds one.
-            if let Some(source) = field(&data, "source") {
+            if let Some(inbox) = &inbox
+                && field(&data, "type").as_deref() == Some("orcvs.open")
+                && let Some(source) = field(&data, "source")
+            {
                 *inbox.borrow_mut() = Some(source);
+                ctx.request_repaint();
+            } else if crate::built_in_synth::receive(&data) {
                 ctx.request_repaint();
             }
         });
     if let Err(reason) =
         window.add_event_listener_with_callback("message", listener.as_ref().unchecked_ref())
     {
-        log::warn!("the small console cannot listen for Sources: {reason:?}");
-        return false;
+        log::warn!("the console cannot listen to its page: {reason:?}");
+        return;
     }
     // The page holds the listener for its whole life.
     listener.forget();
-    true
-}
-
-///
-/// Posts `{ type: "orcvs.ready" }` to the embedding page once the console
-/// listens for everything the page sends it: the page sends nothing before
-/// it (ADR 0086, ADR 0087).
-///
-pub(crate) fn say_ready() {
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let Ok(origin) = window.location().origin() else {
-        return;
-    };
-    let Ok(Some(parent)) = window.parent() else {
-        return;
-    };
     let ready = js_sys::Object::new();
     // Setting a field on a fresh plain object cannot fail.
     let _ = js_sys::Reflect::set(&ready, &"type".into(), &"orcvs.ready".into());

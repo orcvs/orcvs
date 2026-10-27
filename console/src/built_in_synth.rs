@@ -149,7 +149,7 @@ impl<P: SynthPage> SynthAnnouncements<P> {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) use browser::BrowserPage;
+pub(crate) use browser::{BrowserPage, receive};
 
 #[cfg(target_arch = "wasm32")]
 mod browser {
@@ -157,9 +157,7 @@ mod browser {
     use std::time::Duration;
 
     use orcvs::midi::MidiError;
-    use wasm_bindgen::JsCast as _;
     use wasm_bindgen::JsValue;
-    use wasm_bindgen::closure::Closure;
 
     use super::{Announcement, SynthPage};
 
@@ -171,9 +169,6 @@ mod browser {
         /// has to be `Send`.
         ///
         static ANNOUNCED: RefCell<Option<Announcement>> = const { RefCell::new(None) };
-
-        /// Whether this page is listening for announcements yet.
-        static LISTENING: RefCell<bool> = const { RefCell::new(false) };
     }
 
     ///
@@ -182,62 +177,16 @@ mod browser {
     #[derive(Clone, Copy)]
     pub(crate) struct BrowserPage;
 
-    impl BrowserPage {
-        ///
-        /// Listens for the framing page's `orcvs.synth` announcements, which
-        /// the page sends once the console says it is ready
-        /// (`crate::web_startup::say_ready`). An announcement repaints `ctx`,
-        /// so the next frame answers it. Returns whether it listens: a console
-        /// no page frames listens for nothing. Only the first call listens;
-        /// the listener lasts as long as the page.
-        ///
-        pub(crate) fn listen(ctx: egui::Context) -> bool {
-            if LISTENING.with(|listening| listening.replace(true)) {
-                return true;
-            }
-            let Some((window, parent, origin)) = framing() else {
-                return false;
-            };
-            let listened_parent = parent.clone();
-            let listened_origin = origin.clone();
-            let listener = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-                move |event: web_sys::MessageEvent| {
-                    let from_parent = event
-                        .source()
-                        .is_some_and(|sender| js_sys::Object::is(&sender, &listened_parent));
-                    if !from_parent || event.origin() != listened_origin {
-                        return;
-                    }
-                    if let Some(announcement) = announcement(&event.data()) {
-                        ANNOUNCED.with(|announced| *announced.borrow_mut() = Some(announcement));
-                        ctx.request_repaint();
-                    }
-                },
-            );
-            if let Err(reason) = window
-                .add_event_listener_with_callback("message", listener.as_ref().unchecked_ref())
-            {
-                log::warn!("the console cannot listen for the Built-in Synth: {reason:?}");
-                return false;
-            }
-            // The page holds the listener for its whole life.
-            listener.forget();
-            true
-        }
-    }
-
     ///
-    /// This console's window, the page that frames it, and the console's own
-    /// origin, or `None` when no page frames it.
+    /// Keeps the announcement the framing page's message `data` makes, and
+    /// returns whether it made one.
     ///
-    fn framing() -> Option<(web_sys::Window, web_sys::Window, String)> {
-        let window = web_sys::window()?;
-        let origin = window.location().origin().ok()?;
-        let parent = window.parent().ok().flatten()?;
-        if js_sys::Object::is(&parent, &window) {
-            return None;
-        }
-        Some((window, parent, origin))
+    pub(crate) fn receive(data: &JsValue) -> bool {
+        let Some(announcement) = announcement(data) else {
+            return false;
+        };
+        ANNOUNCED.with(|announced| *announced.borrow_mut() = Some(announcement));
+        true
     }
 
     ///
@@ -264,8 +213,8 @@ mod browser {
         }
 
         fn post(&self, message: &[u8], since_due: Duration) -> Result<(), MidiError> {
-            let (window, parent, origin) =
-                framing().ok_or_else(|| MidiError::new(super::DESTINATION_GONE))?;
+            let (window, parent, origin) = crate::web_startup::framing()
+                .ok_or_else(|| MidiError::new(super::DESTINATION_GONE))?;
             let performance = window
                 .performance()
                 .ok_or_else(|| MidiError::new("this page has no clock to time a message by"))?;
@@ -273,10 +222,7 @@ mod browser {
             // clock this console's frame and its page share.
             let time =
                 performance.time_origin() + performance.now() - since_due.as_secs_f64() * 1_000.0;
-            let bytes = js_sys::Array::new();
-            for byte in message {
-                bytes.push(&JsValue::from(*byte));
-            }
+            let bytes: js_sys::Array = message.iter().copied().map(JsValue::from).collect();
             let posted = js_sys::Object::new();
             // Setting fields on a fresh plain object cannot fail.
             let _ = js_sys::Reflect::set(&posted, &"type".into(), &"orcvs.midi".into());

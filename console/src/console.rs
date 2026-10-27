@@ -201,16 +201,7 @@ impl Console {
             Config::start(),
             crate::linked_source::opening(search, fragment),
         )?;
-        // The page sends the synth's announcement and the small console's
-        // Sources only once told the console is ready, so it says so after
-        // both listeners are in place, and not when either cannot listen.
-        let synth = crate::built_in_synth::BrowserPage::listen(cc.egui_ctx.clone());
-        let sources = console.small.as_ref().is_none_or(|inbox| {
-            crate::web_startup::listen_for_sources(inbox.clone(), cc.egui_ctx.clone())
-        });
-        if synth && sources {
-            crate::web_startup::say_ready();
-        }
+        crate::web_startup::listen_to_page(console.small.clone(), cc.egui_ctx.clone());
         Ok(console)
     }
 

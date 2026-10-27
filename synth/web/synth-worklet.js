@@ -25,8 +25,12 @@ class BuiltInSynth extends AudioWorkletProcessor {
     this.origin ??= currentFrame;
     const frames = output[0].length;
     const at = this.synth.synth_render(frames);
-    const samples = new Float32Array(this.synth.memory.buffer, at, frames);
-    for (const channel of output) channel.set(samples);
+    // The view lasts until the module's memory grows or its samples move.
+    const { buffer } = this.synth.memory;
+    if (this.samples?.buffer !== buffer || this.samples.byteOffset !== at || this.samples.length !== frames) {
+      this.samples = new Float32Array(buffer, at, frames);
+    }
+    for (const channel of output) channel.set(this.samples);
     return true;
   }
 }

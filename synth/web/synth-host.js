@@ -96,7 +96,7 @@
         return;
       }
       if (starting) {
-        starting = [...starting.filter(due), data];
+        starting.push(data);
         return;
       }
       starting = [data];

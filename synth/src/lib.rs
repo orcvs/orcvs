@@ -57,7 +57,9 @@ impl Synth {
             frame: 0,
             voices: Default::default(),
             started: 0,
-            queue: VecDeque::new(),
+            // Room for several Ticks of messages, so scheduling on the
+            // audio thread rarely allocates.
+            queue: VecDeque::with_capacity(64),
         }
     }
 
@@ -108,15 +110,15 @@ impl Synth {
             0x90 if data2 > 0 => self.note_on(channel, data1, data2),
             0x80 | 0x90 => self.release_note(channel, data1),
             // All Sound Off and All Notes Off.
-            0xB0 if data1 == 120 || data1 == 123 => self.release(|voice| voice.channel == channel),
+            0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             _ => {}
         }
     }
 
-    /// Releases the tones `which` names. A drum rings out its own decay.
-    fn release(&mut self, which: impl Fn(&Voice) -> bool) {
+    /// Releases the tones on `channel`. A drum rings out its own decay.
+    fn release_channel(&mut self, channel: u8) {
         for voice in self.voices.iter_mut().flatten() {
-            if which(voice)
+            if voice.channel == channel
                 && let Sound::Tone(tone) = &mut voice.sound
             {
                 tone.release();
