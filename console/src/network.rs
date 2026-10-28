@@ -32,7 +32,7 @@ pub(crate) fn stored(_storage: Option<&dyn eframe::Storage>) -> NetworkDestinati
     NetworkDestination::default()
 }
 
-#[cfg(feature = "persistence")]
+#[cfg(all(feature = "persistence", not(target_arch = "wasm32")))]
 pub(crate) fn store(storage: &mut dyn eframe::Storage, destination: &NetworkDestination) {
     eframe::set_value(storage, NETWORK_KEY, destination);
 }
