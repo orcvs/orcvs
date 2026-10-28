@@ -10,17 +10,29 @@ orcvs.com kept the previous console. The deploy-hook step that was meant to clos
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `scripts/console-key.sh` prints one key per console: the same key for two commits that differ
+- [x] `scripts/console-key.sh` prints one key per console: the same key for two commits that differ
       only outside `console-web.yml`'s path filter, and a different key when a path in it changes.
-- [ ] On `main`, `console-web.yml` publishes each console as `console-web-<key>.tar.gz` on the
+- [x] On `main`, `console-web.yml` publishes each console as `console-web-<key>.tar.gz` on the
       `console-web` release, keeps the rolling `console-web.tar.gz`, and keeps only the newest 20
       keyed archives.
-- [ ] When `WORKERS_CI_BRANCH` is `main`, `console.sh` waits for its commit's keyed console,
+- [x] When `WORKERS_CI_BRANCH` is `main`, `console.sh` waits for its commit's keyed console,
       retrying every 20 seconds for up to 15 minutes, and installs it into `site/public/play/`.
-- [ ] When the keyed console never arrives, the build fails with a message naming the key, and
+- [x] When the keyed console never arrives, the build fails with a message naming the key, and
       nothing is deployed.
-- [ ] Any other build (a preview, `site.yml`, a local build) behaves as before.
-- [ ] The deploy-hook step and every mention of `CLOUDFLARE_DEPLOY_HOOK` are gone.
-- [ ] A test of `console.sh` covers each case above without the network.
+- [x] Any other build (a preview, `site.yml`, a local build) behaves as before.
+- [x] The deploy-hook step and every mention of `CLOUDFLARE_DEPLOY_HOOK` are gone.
+- [x] A test of `console.sh` covers each case above without the network.
+
+## Comments
+
+### Built, 2026-10-28
+
+`scripts/console-key.sh` hashes `git ls-tree HEAD` over the paths it reads from
+`console-web.yml`'s filter, so the filter is the one list of what the console is built from. The
+filter gained `.cargo/config.toml`, whose rustflags the WebAssembly build reads, and the key script
+itself. The `publish` job uploads `console-web-<key>.tar.gz` with no queue, since each key names one
+archive; a queued `latest` job replaces the rolling archive and prunes keyed ones beyond 20.
+`site/scripts/tests/console.sh` stubs `curl` and `sleep` on `PATH` and runs both scripts in a
+throwaway repository; `site.yml` runs it.

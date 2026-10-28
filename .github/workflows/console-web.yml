@@ -3,11 +3,14 @@ name: Console web
 # Builds the release web console once (`mise run console_web_build`) and keeps
 # it as the `console-web` artifact. Its URLs are relative, so the same build
 # serves from any path: the site's `/play/`, or a download. On `main` the build
-# is also published as `console-web.tar.gz` on the `console-web` release, which
-# is public and never expires: Cloudflare's build of the site (`npm run build`
-# in `site/`) downloads the console from there and never compiles it.
+# is also published on the `console-web` release, which is public and never
+# expires, as `console-web-<key>.tar.gz` under its console key and as the
+# rolling `console-web.tar.gz`. Cloudflare's production build of the site
+# (`npm run build` in `site/`) waits for its own commit's key and never compiles
+# the console (ADR 0092).
 # Path-filtered to what the console is compiled from: the console, the crates
 # under it, the Built-in Synth staged beside it, and the toolchain and tool pins.
+# `scripts/console-key.sh` reads this filter, so a path added here is in the key.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
@@ -20,6 +23,8 @@ on:
       - 'lang/**'
       - 'synth/**'
       - 'scripts/stage-synth.sh'
+      - 'scripts/console-key.sh'
+      - '.cargo/config.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -33,6 +38,8 @@ on:
       - 'lang/**'
       - 'synth/**'
       - 'scripts/stage-synth.sh'
+      - 'scripts/console-key.sh'
+      - '.cargo/config.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -74,45 +81,60 @@ jobs:
           path: target/console-web
           if-no-files-found: error
 
-  # Publishes a console built on `main` where Cloudflare's site build fetches
-  # it, then asks Cloudflare to rebuild the site so the live site serves it.
-  # The deploy hook is a URL from the Worker's Builds settings that can only
-  # start a build; the step skips until the repository has it.
+  # Publishes a console built on `main` under its console key, where the site's
+  # production build waits for it. Each key names one archive, so concurrent
+  # runs cannot overwrite each other's console and need no queue.
   publish:
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     timeout-minutes: 5
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload to the console-web release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: console-web
+          path: target/console-web
+      - name: Publish the console under its key
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          key="$(bash scripts/console-key.sh)"
+          tar -czf "console-web-$key.tar.gz" -C target/console-web .
+          gh release upload console-web "console-web-$key.tar.gz" --clobber
+          echo "Published console key $key." >> "$GITHUB_STEP_SUMMARY"
+
+  # Replaces the rolling console that previews and local builds take, and keeps
+  # the newest 20 keyed archives. Queued: a newer run replaces a pending one,
+  # which is all the rolling console needs.
+  latest:
+    needs: publish
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
     concurrency:
-      group: console-web-publish
+      group: console-web-latest
       cancel-in-progress: false
     permissions:
-      contents: write # replace the console-web release asset
+      contents: write # replace and delete console-web release assets
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: console-web
           path: console-web
-      - name: Publish the console on the console-web release
+      - name: Replace the rolling console and prune old keys
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           tar -czf console-web.tar.gz -C console-web .
-          notes="The web console built from $GITHUB_SHA on main. The site's build downloads console-web.tar.gz from here."
-          if gh release view console-web > /dev/null 2>&1; then
-            gh release edit console-web --notes "$notes"
-          else
-            gh release create console-web --prerelease --target "$GITHUB_SHA" \
-              --title "Web console (latest main)" --notes "$notes"
-          fi
+          gh release edit console-web \
+            --notes "The web console built from $GITHUB_SHA on main, and the consoles of recent keys. The site's build downloads its console from here."
           gh release upload console-web console-web.tar.gz --clobber
-      - name: Rebuild the site on Cloudflare
-        env:
-          DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
-        run: |
-          if [[ -z "$DEPLOY_HOOK" ]]; then
-            echo "No Cloudflare deploy hook yet; the site picks the console up on its next build." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          curl -fsS -X POST "$DEPLOY_HOOK" > /dev/null
+          gh release view console-web --json assets \
+            --jq '.assets | map(select(.name | startswith("console-web-"))) | sort_by(.createdAt) | reverse | .[20:][].name' \
+            | while read -r name; do gh release delete-asset console-web "$name" --yes; done
