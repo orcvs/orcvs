@@ -705,9 +705,8 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// Plays a stopped Playback and stops a playing one: what Space and the
-    /// console's Play control do. A stopped engine holds its Tick, and the
-    /// next start resumes at the Tick after it.
+    /// Plays a stopped Playback and stops a playing one. A stopped engine
+    /// holds its Tick, and the next start resumes at the Tick after it.
     ///
     pub fn toggle_playback(&mut self) {
         if self.playback_requested {
@@ -718,17 +717,7 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// Whether the reader has asked Playback to play: what the next
-    /// [`Self::toggle_playback`] stops. A press decides from this, not from
-    /// the engine's last publication, which lags a press by up to a Tick.
-    ///
-    pub fn playback_requested(&self) -> bool {
-        self.playback_requested
-    }
-
-    ///
-    /// Makes Tick `0` the next Tick Playback executes (ADR 0076): what
-    /// Command Shift R and the console's Rewind control do.
+    /// Makes Tick `0` the next Tick Playback executes (ADR 0076).
     ///
     pub fn rewind(&mut self) {
         self.playback.rewind();
