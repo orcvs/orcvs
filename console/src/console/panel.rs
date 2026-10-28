@@ -51,8 +51,8 @@ pub(super) const BEAT_MARKER: &str = "**";
 /// Marker next to BPM while Playback is stopped.
 const REST_MARKER: &str = "//";
 ///
-/// The Play control's glyphs: Play while Playback is stopped, Stop while it
-/// plays. Each must be in the console's one font
+/// The Play control's glyphs: Play while Playback is not requested, Stop
+/// while it is. Each must be in the console's one font
 /// (`kittest_tests::the_mode_and_play_glyphs_are_in_the_console_font`).
 ///
 pub(super) const PLAY_GLYPHS: [&str; 2] = ["▶", "⏸"];
@@ -167,18 +167,25 @@ pub(super) const BPM_FIELD_MARGIN: egui::Margin = egui::Margin::symmetric(8, 4);
 const PANEL_BPM_MIN: usize = 1;
 const PANEL_BPM_MAX: usize = 999;
 
+/// The smallest a Panel control is drawn: WCAG 2.5.8's 24 CSS pixel
+/// target, so a finger on a phone can hit it.
+pub(super) const CONTROL_MIN_SIZE: f32 = 24.0;
+
 ///
-/// The Play control: Play while Playback is stopped and Stop while it plays,
-/// a glyph named for accessibility and explained on hover. A press does what
-/// Space does, so a reader with no keyboard can play.
+/// The Play control: Play while Playback is not requested and Stop while it
+/// is, a glyph named for accessibility and explained on hover. It shows the
+/// request a press toggles rather than the engine's last publication, so a
+/// second tap before the engine answers stops what it shows. A press does
+/// what Space does, so a reader with no keyboard can play.
 ///
-fn play_control(ui: &mut egui::Ui, state: PlaybackState) -> egui::Response {
+fn play_control(ui: &mut egui::Ui, requested: bool) -> egui::Response {
     let [play, stop] = PLAY_GLYPHS;
-    let (glyph, name) = match state {
-        PlaybackState::Stopped => (play, "Play"),
-        PlaybackState::Playing => (stop, "Stop"),
+    let (glyph, name) = if requested {
+        (stop, "Stop")
+    } else {
+        (play, "Play")
     };
-    let response = ui.selectable_label(state == PlaybackState::Playing, glyph);
+    let response = ui.add(egui::Button::new(glyph).min_size(Vec2::splat(CONTROL_MIN_SIZE)));
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
     response.on_hover_text(format!("{name} (Space)"))
 }
@@ -188,7 +195,7 @@ fn play_control(ui: &mut egui::Ui, state: PlaybackState) -> egui::Response {
 /// on native. The web binds no chord for it, so this is the web's one Rewind.
 ///
 fn rewind_control(ui: &mut egui::Ui) -> egui::Response {
-    let response = ui.button(REWIND_GLYPH);
+    let response = ui.add(egui::Button::new(REWIND_GLYPH).min_size(Vec2::splat(CONTROL_MIN_SIZE)));
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Rewind"));
     #[cfg(not(target_arch = "wasm32"))]
     let hover = format!(
@@ -425,7 +432,8 @@ impl Console {
                     if rewind_control(ui).clicked() {
                         self.orcvs.rewind();
                     }
-                    if play_control(ui, observation.state).clicked() {
+                    ui.add_space(label_value_gap);
+                    if play_control(ui, self.orcvs.playback_requested()).clicked() {
                         self.orcvs.toggle_playback();
                     }
                     ui.add_space(entry_gap);

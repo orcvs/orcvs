@@ -42,15 +42,18 @@
   })();
   ready.catch((reason) => console.warn("The Built-in Synth cannot play:", reason));
 
-  // iOS silences Web Audio under the ring/silent switch unless the page says it plays media.
-  if (navigator.audioSession) navigator.audioSession.type = "playback";
-
   // Safari resumes a context only inside the reader's gesture, and the message a console posts
   // after handling a tap arrives outside it. So every gesture, on this page or in a console's
   // frame, resumes the context while it is still the gesture. Capturing listeners run before the
-  // console's own, which stop a touch from propagating.
+  // console's own, which stop a touch from propagating. A gesture that is not an activation, such
+  // as the end of a scroll, gets a refused resume and nothing else. Adding the same listener to a
+  // target twice adds it once, so a console that says it is ready again adds nothing.
   function resume() {
-    if (context && context.state !== "running") context.resume().catch(() => {});
+    if (!context || context.state === "running") return;
+    // iOS silences Web Audio under the ring/silent switch unless the page says it plays media. It
+    // is said only once the reader acts, as it takes the device's audio from other apps.
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+    context.resume().catch(() => {});
   }
   function resumeOnGestures(target) {
     for (const type of ["pointerdown", "touchend", "keydown"]) {

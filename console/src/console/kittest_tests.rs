@@ -3720,6 +3720,31 @@ async fn the_play_control_plays_and_stops_playback_as_space_does() {
 }
 
 ///
+/// The Play control shows the request a press made, not the engine's last
+/// publication, so a second tap before the engine answers stops the run the
+/// first started rather than starting it again.
+///
+#[tokio::test]
+async fn the_play_control_shows_stop_from_the_frame_after_its_press() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    harness.get_by_label("Play").click();
+    harness.run_steps(2);
+    assert!(
+        harness.state().orcvs.playback_requested(),
+        "the press did not request Playback"
+    );
+    harness.get_by_label("Stop").click();
+    harness.run_steps(2);
+    assert!(
+        !harness.state().orcvs.playback_requested(),
+        "a second press did not stop the run the first started"
+    );
+    harness.get_by_label("Play");
+}
+
+///
 /// The Panel's Rewind control makes Tick `0` the next Tick, as Command Shift R
 /// does on native: a paused Playback shows Tick `0` and stays stopped.
 ///

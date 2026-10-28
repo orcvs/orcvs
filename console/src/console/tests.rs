@@ -2482,15 +2482,16 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
         "groups are as tight as a label and its value: group {beat_to_t} pair {t_to_v}"
     );
 
-    // The Panel opens with the Rewind control, whose glyph its button pads.
+    // The Panel opens with the Rewind control, its glyph centred in a button
+    // the control's minimum wide.
     let style = crate::style::style(&default_theme(Appearance::Dark));
-    let expected_left = egui::Frame::side_top_panel(&style).inner_margin.leftf()
+    let expected_centre = egui::Frame::side_top_panel(&style).inner_margin.leftf()
         + f32::from(BOTTOM_PANEL_LEFT_PAD)
-        + style.spacing.button_padding.x;
+        + super::panel::CONTROL_MIN_SIZE / 2.0;
+    let centre = (rewind.1 + rewind.2) / 2.0;
     assert!(
-        (rewind.1 - expected_left).abs() < 1.0,
-        "the Rewind control starts at {} rather than {expected_left} in {spans:?}",
-        rewind.1
+        (centre - expected_centre).abs() < 1.0,
+        "the Rewind control is centred at {centre} rather than {expected_centre} in {spans:?}"
     );
 }
 
