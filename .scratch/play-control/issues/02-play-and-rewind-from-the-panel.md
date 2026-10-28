@@ -1,6 +1,6 @@
 # 02 — Play and rewind from the Panel
 
-Status: resolved
+Status: ready-for-human
 Type: task
 Blocked by: 01
 

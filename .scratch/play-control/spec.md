@@ -1,6 +1,6 @@
 # An explicit Play control
 
-Status: resolved
+Status: ready-for-human
 
 ## The question
 

@@ -140,13 +140,19 @@ test("a tap in the console's frame starts the page's audio before any note", asy
         (window as any).tapped = this;
       }
     };
+    (window as any).notes = 0;
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "orcvs.midi") (window as any).notes++;
+    });
   });
   await page.goto("/");
   const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
   await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
   await expect.poll(() => page.evaluate(() => (window as any).tapped?.state)).toBe("suspended");
 
+  // A Cell of the Grid, well above the Panel and its Play control.
   await frame.tap({ position: { x: 200, y: 200 } });
   await expect.poll(() => page.evaluate(() => (window as any).tapped?.state)).toBe("running");
+  expect(await page.evaluate(() => (window as any).notes), "the tap started Playback").toBe(0);
   await context.close();
 });

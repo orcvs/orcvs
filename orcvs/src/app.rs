@@ -718,6 +718,15 @@ impl<S> Orcvs<S> {
     }
 
     ///
+    /// Whether the reader has asked Playback to play: what the next
+    /// [`Self::toggle_playback`] stops. A press decides from this, not from
+    /// the engine's last publication, which lags a press by up to a Tick.
+    ///
+    pub fn playback_requested(&self) -> bool {
+        self.playback_requested
+    }
+
+    ///
     /// Makes Tick `0` the next Tick Playback executes (ADR 0076): what
     /// Command Shift R and the console's Rewind control do.
     ///
