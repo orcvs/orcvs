@@ -12,8 +12,10 @@ phone at all, and the web had no Rewind because the browser reserves Command Shi
 
 **The Panel opens with two Cells, `P` then `R`, before **B**.** Each is one Source Cell, with one
 Cell between them, on the window's Cell columns, so the Panel continues the Grid and each is as easy
-to tap as a Cell is to type into. Both are drawn in the Function role, and `P` in the Bang role
-while Playback plays. `P` does what Space does, and `R` does what Command Shift R does on native;
+to tap as a Cell is to type into. Both draw in the Theme's own `button` role, and `P` in its
+`button.pressed` role while Playback plays: each a glyph, fill and border colour, with one
+`button.border.width`. The built-ins draw a button as a Function Cell and a pressed one filled and
+bordered in the Bang ink under a glyph that reads over it. `P` does what Space does, and `R` does what Command Shift R does on native;
 Space and the chord are unchanged. Every console shows the Panel, the small console included
 (ADR 0086), so an embedded example plays without a key.
 

@@ -133,6 +133,17 @@ A lock marks nothing but a Function's own spelling, so unlike the Portals
 Locked paints a bound Function and a Bang too; the contrast validator measures
 it only over those two facts, the only ones it can land on.
 
+### Buttons
+
+The Panel's Play and Rewind controls are Cells, `P` and `R`, drawn in the
+`button` role: `button.foreground`, `.background`, `.border` and
+`.border.width`. A pressed button, as `P` is while Playback plays, draws in
+`button.pressed.foreground`, `.background` and `.border` at the same width.
+The contrast validator holds both glyphs to the floor over their fills. Both
+built-ins draw a button as a Function Cell, and a pressed one filled and
+bordered in the Bang ink, under a black glyph in Grayscale Dark and a white
+one in Grayscale Light.
+
 ### The grayscale built-in Themes
 
 `grayscale-dark` and `grayscale-light` are each appearance's default and
@@ -172,17 +183,17 @@ property out.
 | Property | Grayscale Dark |
 |---|---|
 | `cursor.background`, `region.cursor.foreground` | none |
-| `cursor.foreground`, `source.function`, `cursor.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#E6E6E6` |
+| `cursor.foreground`, `source.function`, `cursor.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning`, `button.foreground` | `#E6E6E6` |
 | `region.cursor.background`, `output_portal.foreground`, `input_portal.foreground`, `selection.background` | `#333333` |
-| `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background` | `#000000` |
+| `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background`, `button.pressed.foreground` | `#000000` |
 | `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
 | `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
 | `source.comment` | `#555555` |
 | `source.number` | `#898989` |
 | `source.note`, `output_portal.background`, `input_portal.background`, `locked.border` | `#CCCCCC` |
-| `source.bang`, `source.bang.border` | `#00FF00` |
+| `source.bang`, `source.bang.border`, `button.pressed.background`, `button.pressed.border` | `#00FF00` |
 | `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
-| `source.function.background`, `source.function.border` | `#444444` |
+| `source.function.background`, `source.function.border`, `button.background`, `button.border` | `#444444` |
 | `source.bang.background` | `#111111` |
 | `diagnostic.foreground` | `#FF3B3B` |
 | `output_portal.border`, `input_portal.border` | `#FFFFFF66` |
@@ -196,7 +207,7 @@ property out.
 | `text.muted` | `#C8C8C899` |
 | `grid.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
-| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
 | `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
 | `overview.source_view` | `#FFFFFF` |
@@ -214,17 +225,17 @@ property out.
 | Property | Grayscale Light |
 |---|---|
 | `cursor.background`, `region.cursor.foreground` | none |
-| `cursor.foreground`, `source.function`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning` | `#191919` |
+| `cursor.foreground`, `source.function`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning`, `button.foreground` | `#191919` |
 | `region.cursor.background`, `selection.background` | `#CCCCCC` |
-| `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `diagnostic.background`, `locked.background`, `input.background` | `#FFFFFF` |
+| `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `diagnostic.background`, `locked.background`, `input.background`, `button.pressed.foreground` | `#FFFFFF` |
 | `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `locked.foreground` | `#00000000` |
 | `source.ordinary`, `text` | `#373737` |
 | `source.comment` | `#ADADAD` |
 | `source.number` | `#616161` |
 | `source.note`, `locked.border` | `#333333` |
-| `source.bang` | `#D100D1` |
+| `source.bang`, `button.pressed.background`, `button.pressed.border` | `#D100D1` |
 | `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
-| `source.function.background`, `source.function.border` | `#BBBBBB` |
+| `source.function.background`, `source.function.border`, `button.background`, `button.border` | `#BBBBBB` |
 | `source.bang.border` | `#FF00FF` |
 | `diagnostic.foreground`, `diagnostic.border` | `#C70000` |
 | `output_portal.foreground`, `input_portal.foreground` | `#E4E4E4` |
@@ -238,7 +249,7 @@ property out.
 | `text.muted` | `#373737AF` |
 | `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
-| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width` | 1 |
+| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
 | `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
 | `overview.source_view` | `#000000` |

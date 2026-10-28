@@ -3750,20 +3750,20 @@ async fn play_and_rewind_are_source_cells_one_cell_apart() {
 }
 
 ///
-/// P is drawn in the Function role while Playback is stopped and in the
-/// Bang role while it plays, as a Function Cell is drawn when it is banged.
+/// P is drawn in the Theme's `button` role while Playback is stopped and in
+/// its `button.pressed` role while it plays.
 ///
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test]
-async fn the_play_cell_takes_the_bang_role_while_playback_plays() {
+async fn the_play_cell_is_pressed_while_playback_plays() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let theme = harness.state().themes.presented(Appearance::Dark).clone();
     let play = harness.get_by_label("Play").rect();
     assert_eq!(
         painted_fill_at(&harness, play.center()),
-        Some(theme.source_function_background),
-        "a stopped P is not in the Function role"
+        Some(theme.button_background),
+        "a stopped P is not in the button role"
     );
 
     let mut engine = harness.state().orcvs.playback_observation_watch();
@@ -3778,8 +3778,8 @@ async fn the_play_cell_takes_the_bang_role_while_playback_plays() {
     harness.run_steps(1);
     assert_eq!(
         painted_fill_at(&harness, play.center()),
-        Some(theme.source_bang_background),
-        "a playing P is not in the Bang role"
+        Some(theme.button_pressed_background),
+        "a playing P is not in the pressed button role"
     );
 }
 

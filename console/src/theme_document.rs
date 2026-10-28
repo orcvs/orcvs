@@ -2125,7 +2125,7 @@ mod tests {
         // rather than taken from `style_catalogue!`, so a key routed to the
         // wrong field fails even though the macro's reader and writer agree.
         // The catalogue's count is what says the list is complete.
-        let fields: [(ColorKey, Field<Color32>); 55] = [
+        let fields: [(ColorKey, Field<Color32>); 61] = [
             (ColorKey::WindowBackground, |theme| theme.window_background),
             (ColorKey::PanelBackground, |theme| theme.panel_background),
             (ColorKey::GridBackground, |theme| theme.grid_background),
@@ -2225,6 +2225,18 @@ mod tests {
             (ColorKey::OverviewSourceView, |theme| {
                 theme.overview_source_view
             }),
+            (ColorKey::ButtonForeground, |theme| theme.button_foreground),
+            (ColorKey::ButtonBackground, |theme| theme.button_background),
+            (ColorKey::ButtonBorder, |theme| theme.button_border),
+            (ColorKey::ButtonPressedForeground, |theme| {
+                theme.button_pressed_foreground
+            }),
+            (ColorKey::ButtonPressedBackground, |theme| {
+                theme.button_pressed_background
+            }),
+            (ColorKey::ButtonPressedBorder, |theme| {
+                theme.button_pressed_border
+            }),
         ];
         assert_eq!(fields.len(), CATALOGUE_COUNTS.colors);
 
@@ -2267,7 +2279,7 @@ mod tests {
         let built_ins = [default_theme(Appearance::Dark)];
         // Each key beside the field a reader addresses by name, as in
         // `every_color_key_can_be_independently_overridden`.
-        let grid_fields: [(GridWidthKey, Field<f32>); 15] = [
+        let grid_fields: [(GridWidthKey, Field<f32>); 16] = [
             (GridWidthKey::GridBorder, |theme| {
                 theme.grid_border_width.points()
             }),
@@ -2312,6 +2324,9 @@ mod tests {
             }),
             (GridWidthKey::SourceBangBorder, |theme| {
                 theme.source_bang_border_width.points()
+            }),
+            (GridWidthKey::ButtonBorder, |theme| {
+                theme.button_border_width.points()
             }),
         ];
         let chrome_fields: [(ChromeWidthKey, Field<f32>); 7] = [

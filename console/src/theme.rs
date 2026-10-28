@@ -189,6 +189,12 @@ macro_rules! style_catalogue {
                 Error(error) => "error",
                 Warning(warning) => "warning",
                 OverviewSourceView(overview_source_view) => "overview.source_view",
+                ButtonForeground(button_foreground) => "button.foreground",
+                ButtonBackground(button_background) => "button.background",
+                ButtonBorder(button_border) => "button.border",
+                ButtonPressedForeground(button_pressed_foreground) => "button.pressed.foreground",
+                ButtonPressedBackground(button_pressed_background) => "button.pressed.background",
+                ButtonPressedBorder(button_pressed_border) => "button.pressed.border",
             }
             GridWidthKey {
                 GridBorder(grid_border_width) => "grid.border.width",
@@ -206,6 +212,7 @@ macro_rules! style_catalogue {
                 SourceNoteBorder(source_note_border_width) => "source.note.border.width",
                 SourceFunctionBorder(source_function_border_width) => "source.function.border.width",
                 SourceBangBorder(source_bang_border_width) => "source.bang.border.width",
+                ButtonBorder(button_border_width) => "button.border.width",
             }
             ChromeWidthKey {
                 PanelBorder(panel_border_width) => "panel.border.width",
@@ -312,6 +319,14 @@ pub struct Theme {
     pub(crate) warning: Color32,
     /// The Source View's outline on the Overview.
     pub(crate) overview_source_view: Color32,
+    /// The Panel's Cell buttons, P and R: the glyph, fill and border of one
+    /// at rest, and of one pressed, as P is while Playback plays.
+    pub(crate) button_foreground: Color32,
+    pub(crate) button_background: Color32,
+    pub(crate) button_border: Color32,
+    pub(crate) button_pressed_foreground: Color32,
+    pub(crate) button_pressed_background: Color32,
+    pub(crate) button_pressed_border: Color32,
 
     /// Omitted in a document: inherit the parent's value. `None` here: the
     /// optional colour is cleared, enabling its fallback. `Some`: an
@@ -339,6 +354,7 @@ pub struct Theme {
     pub(crate) source_note_border_width: GridWidth,
     pub(crate) source_function_border_width: GridWidth,
     pub(crate) source_bang_border_width: GridWidth,
+    pub(crate) button_border_width: GridWidth,
 
     pub(crate) panel_border_width: ChromeWidth,
     pub(crate) panel_separator_width: ChromeWidth,
@@ -531,6 +547,12 @@ pub fn grayscale_dark() -> Theme {
         error: straight_rgba(0xE6_E6_E6_FF),
         warning: straight_rgba(0xE6_E6_E6_FF),
         overview_source_view: straight_rgba(0xFF_FF_FF_FF),
+        button_foreground: straight_rgba(0xE6_E6_E6_FF),
+        button_background: straight_rgba(0x44_44_44_FF),
+        button_border: straight_rgba(0x44_44_44_FF),
+        button_pressed_foreground: straight_rgba(0x00_00_00_FF),
+        button_pressed_background: straight_rgba(0x00_FF_00_FF),
+        button_pressed_border: straight_rgba(0x00_FF_00_FF),
 
         cursor_background: None,
         cursor_foreground: Some(straight_rgba(0xE6_E6_E6_FF)),
@@ -552,6 +574,7 @@ pub fn grayscale_dark() -> Theme {
         source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_bang_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        button_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         panel_separator_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
@@ -645,6 +668,12 @@ pub fn grayscale_light() -> Theme {
         error: straight_rgba(0x19_19_19_FF),
         warning: straight_rgba(0x19_19_19_FF),
         overview_source_view: straight_rgba(0x00_00_00_FF),
+        button_foreground: straight_rgba(0x19_19_19_FF),
+        button_background: straight_rgba(0xBB_BB_BB_FF),
+        button_border: straight_rgba(0xBB_BB_BB_FF),
+        button_pressed_foreground: straight_rgba(0xFF_FF_FF_FF),
+        button_pressed_background: straight_rgba(0xD1_00_D1_FF),
+        button_pressed_border: straight_rgba(0xD1_00_D1_FF),
 
         cursor_background: None,
         cursor_foreground: Some(straight_rgba(0x19_19_19_FF)),
@@ -666,6 +695,7 @@ pub fn grayscale_light() -> Theme {
         source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_bang_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        button_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
 
         panel_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         panel_separator_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
@@ -785,10 +815,32 @@ pub(crate) mod record {
 mod tests {
     use egui::Color32;
 
-    use super::{Appearance, ChromeWidth, GridWidth, ThemeIdentity};
+    use super::{
+        Appearance, ChromeWidth, GridWidth, ThemeIdentity, grayscale_dark, grayscale_light,
+    };
     use crate::contrast::colour_vision::seen_apart;
     use crate::theme_registry::ThemeRegistry;
     use crate::theme_registry::tests_support::built_ins;
+
+    ///
+    /// Each built-in draws a pressed button in its Bang ink, fill and border
+    /// alike; `contrast::validate` holds its glyph to the floor over that.
+    ///
+    #[test]
+    fn a_built_in_pressed_button_is_its_bang_ink() {
+        for theme in [grayscale_dark(), grayscale_light()] {
+            assert_eq!(
+                theme.button_pressed_background, theme.source_bang,
+                "{}",
+                theme.identity
+            );
+            assert_eq!(
+                theme.button_pressed_border, theme.source_bang,
+                "{}",
+                theme.identity
+            );
+        }
+    }
 
     ///
     /// Each appearance's default is a built-in of that appearance.

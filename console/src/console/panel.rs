@@ -146,10 +146,10 @@ pub(super) fn reserved_monospace(ui: &mut egui::Ui, text: &str, width: f32) -> e
 }
 
 ///
-/// One Source Cell that acts when clicked, holding `glyph` in the Function
-/// role, or in the Bang role while `banged`, as the Grid draws a Function
-/// Cell. It starts on the next of the window's Cell columns, so the Panel
-/// continues the Grid's lattice.
+/// One Source Cell that acts when clicked, holding `glyph` in the Theme's
+/// `button` role, or its `button.pressed` role while `pressed`. It starts on
+/// the next of the window's Cell columns, so the Panel continues the Grid's
+/// lattice.
 ///
 fn cell_button(
     ui: &mut egui::Ui,
@@ -158,24 +158,22 @@ fn cell_button(
     theme: &Theme,
     glyph: &str,
     name: &str,
-    banged: bool,
+    pressed: bool,
 ) -> egui::Response {
     let left = ui.cursor().min.x;
     ui.add_space((left / cell.x).ceil() * cell.x - left);
     let (rect, response) = ui.allocate_exact_size(cell, egui::Sense::click());
-    let (foreground, background, border, border_width) = if banged {
+    let (foreground, background, border) = if pressed {
         (
-            theme.source_bang,
-            theme.source_bang_background,
-            theme.source_bang_border,
-            theme.source_bang_border_width,
+            theme.button_pressed_foreground,
+            theme.button_pressed_background,
+            theme.button_pressed_border,
         )
     } else {
         (
-            theme.source_function,
-            theme.source_function_background,
-            theme.source_function_border,
-            theme.source_function_border_width,
+            theme.button_foreground,
+            theme.button_background,
+            theme.button_border,
         )
     };
     let painter = ui.painter();
@@ -183,7 +181,7 @@ fn cell_button(
         rect,
         0.0,
         background,
-        egui::Stroke::new(border_width.points(), border),
+        egui::Stroke::new(theme.button_border_width.points(), border),
         egui::StrokeKind::Inside,
     );
     painter.text(
@@ -433,8 +431,8 @@ impl Console {
                     let cell = snapped_cell(self.source_view.cell, ui.ctx().pixels_per_point());
                     let theme = self.themes.presented(appearance);
                     let playing = observation.state == PlaybackState::Playing;
-                    let cell_button = |ui: &mut egui::Ui, glyph, name, banged| {
-                        cell_button(ui, cell, &self.font_family, theme, glyph, name, banged)
+                    let cell_button = |ui: &mut egui::Ui, glyph, name, pressed| {
+                        cell_button(ui, cell, &self.font_family, theme, glyph, name, pressed)
                     };
                     if cell_button(ui, "P", "Play", playing).clicked() {
                         self.orcvs.toggle_playback();

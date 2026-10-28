@@ -23,7 +23,8 @@
 //!
 //! Its chrome states are `text`, `text.muted`, `text.active`, selected
 //! text, `error`, `warning` and `link`, each on the surfaces egui paints it
-//! on (see [`State`]). Five chrome cases are left out, each for a reason:
+//! on (see [`State`]), and a Panel button's glyph over its own fill, at rest
+//! and pressed. Five chrome cases are left out, each for a reason:
 //!
 //! - A disabled widget: egui fades it to half opacity, and WCAG 2.1 SC 1.4.3
 //!   exempts the text of an inactive user-interface component.
@@ -105,6 +106,10 @@ pub(crate) enum Role {
     Error,
     Warning,
     Link,
+    /// A Panel button's glyph at rest, `button.foreground`.
+    Button,
+    /// A pressed Panel button's glyph, `button.pressed.foreground`.
+    ButtonPressed,
 }
 
 impl Role {
@@ -149,7 +154,9 @@ impl Role {
             | Self::SelectionBorder
             | Self::Error
             | Self::Warning
-            | Self::Link => None,
+            | Self::Link
+            | Self::Button
+            | Self::ButtonPressed => None,
         }
     }
 }
@@ -176,6 +183,8 @@ impl fmt::Display for Role {
             Self::Error => "error",
             Self::Warning => "warning",
             Self::Link => "link",
+            Self::Button => "button.foreground",
+            Self::ButtonPressed => "button.pressed.foreground",
         })
     }
 }
@@ -334,7 +343,7 @@ fn painted(
 }
 
 /// How many console-chrome states [`chrome`] measures.
-const CHROME_STATES: usize = 15;
+const CHROME_STATES: usize = 17;
 
 ///
 /// Every console-chrome text state, as the effective foreground and opaque
@@ -437,6 +446,18 @@ fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
         (Role::Error, State::Panel, visuals.error_fg_color, panel),
         (Role::Warning, State::Panel, visuals.warn_fg_color, panel),
         (Role::Link, State::Panel, visuals.hyperlink_color, panel),
+        (
+            Role::Button,
+            State::Panel,
+            theme.button_foreground,
+            panel.blend(theme.button_background),
+        ),
+        (
+            Role::ButtonPressed,
+            State::Panel,
+            theme.button_pressed_foreground,
+            panel.blend(theme.button_pressed_background),
+        ),
     ]
 }
 
@@ -662,20 +683,21 @@ mod tests {
     }
 
     #[test]
-    fn validate_reports_one_result_per_role_cursor_placement_and_portal_role_set_plus_fifteen_chrome_states()
+    fn validate_reports_one_result_per_role_cursor_placement_and_portal_role_set_plus_seventeen_chrome_states()
      {
         let report = validate(&default_theme(Appearance::Dark));
         // 8 Source Grid roles x 4 CursorPlacements x 4 Portal role sets
         // = 128, the Function and Bang roles x 4 CursorPlacements x the 4
-        // sets holding Locked = 32, plus 15 chrome states: text on panel, input and the
+        // sets holding Locked = 32, plus 17 chrome states: text on panel, input and the
         // inactive and open fills (4); text.muted on panel and input (2);
         // text.active on the hovered and active fills, framed and frameless
         // (4); selected text on selection.background over panel and input
-        // (2); error, warning and link on panel (3). Stated as one literal
+        // (2); error, warning and link on panel (3); a Panel button's glyph
+        // at rest and pressed (2). Stated as one literal
         // rather than recomputed from the same lengths `validate` sizes its
         // `Vec` from, so a change to either count is caught by an
         // independent number.
-        assert_eq!(report.results.len(), 175);
+        assert_eq!(report.results.len(), 177);
     }
 
     ///
@@ -854,6 +876,34 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    ///
+    /// A Panel button's glyph is measured over its own fill on the panel, at
+    /// rest and pressed, and fails where it matches that fill.
+    ///
+    #[test]
+    fn a_button_glyph_matching_its_fill_fails() {
+        let base = default_theme(Appearance::Dark);
+        for (role, theme) in [
+            (
+                Role::Button,
+                Theme {
+                    button_foreground: base.button_background,
+                    ..base.clone()
+                },
+            ),
+            (
+                Role::ButtonPressed,
+                Theme {
+                    button_pressed_foreground: base.button_pressed_background,
+                    ..base.clone()
+                },
+            ),
+        ] {
+            let report = validate(&theme);
+            fails_only_in_an_added_state(&report, &find(&report, role, State::Panel));
         }
     }
 

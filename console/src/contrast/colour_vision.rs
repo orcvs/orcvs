@@ -472,7 +472,9 @@ impl Role {
                 | Self::SelectionBorder
                 | Self::Error
                 | Self::Warning
-                | Self::Link,
+                | Self::Link
+                | Self::Button
+                | Self::ButtonPressed,
             ) => unreachable!("a chrome role has no Source Paint fact"),
         })
     }
