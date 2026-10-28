@@ -16,7 +16,7 @@ pub fn canvas_or_report(
 }
 
 ///
-/// The `config.toml` text the page's `orcvs_config` element holds (ADR 0090),
+/// The `config.toml` text the page's `orcvs_config` element holds (ADR 0091),
 /// or `None` when it holds none or its `data-media` query does not match.
 ///
 pub(crate) fn page_settings() -> Option<String> {

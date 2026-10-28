@@ -1,6 +1,6 @@
 # 02 — Read the web console's settings from its page
 
-**What to build:** ADR 0090's page settings. The web console reads `config.toml` text from the
+**What to build:** ADR 0091's page settings. The web console reads `config.toml` text from the
 `orcvs_config` element in `console/index.html`, through the same reader as native, when its
 `data-media` query matches or it has none. The shipped page starts a phone, `(max-width: 600px)`,
 with 24 by 36 point Cells and the Overview closed.

@@ -1,6 +1,6 @@
 # 01 — Open the Overview and the Diagnostics from settings
 
-**What to build:** ADR 0090's `[overview] open` and `[diagnostics] open`. Each is a boolean in
+**What to build:** ADR 0091's `[overview] open` and `[diagnostics] open`. Each is a boolean in
 `config.toml` saying whether that view is open when the console starts. Absent, the Overview is
 open and the Diagnostics closed, as today. A mistyped value is a notice and falls back alone.
 

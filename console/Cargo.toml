@@ -202,7 +202,7 @@ wasm-bindgen-futures = "0.4"
 # 0086) and the Built-in Synth's announcement (`built_in_synth.rs`);
 # `Performance` is the shared clock each message posted to the synth is stamped
 # by. `MediaQueryList` answers whether the page's settings apply to its
-# viewport (`web_startup.rs`, ADR 0090). All are generated bindings that add no
+# viewport (`web_startup.rs`, ADR 0091). All are generated bindings that add no
 # dependency.
 web-sys = { version = "0.3", features = [
     "Document",

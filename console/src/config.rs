@@ -28,7 +28,7 @@
 //!
 //! There is no settings UI and no reload: the file is read once, before the
 //! console is built. The web reads the same text from its page instead
-//! (ADR 0090): the `orcvs_config` element `console/index.html` holds, while
+//! (ADR 0091): the `orcvs_config` element `console/index.html` holds, while
 //! the element's `data-media` query matches.
 //!
 
@@ -81,7 +81,7 @@ impl Config {
         })
     }
 
-    /// The web console's settings: the page's own (ADR 0090).
+    /// The web console's settings: the page's own (ADR 0091).
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn start() -> Self {
         Self::from_page(crate::web_startup::page_settings().as_deref())
