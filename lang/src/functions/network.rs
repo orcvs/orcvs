@@ -2,7 +2,7 @@
 //! Turn hands over as working Source, and states one send of it.
 
 use crate::{
-    Error, Interpretation, InterpretationError, OscArgument, OscMessage, PlayCommand,
+    Error, Interpretation, InterpretationError, NetworkSend, OscArgument, OscMessage,
     interpreter::Context,
 };
 
@@ -22,7 +22,7 @@ pub fn udp(ctx: &mut Context) -> Interpretation {
     if payload.is_empty() {
         return Interpretation::EmptyPayload;
     }
-    Interpretation::Play(PlayCommand::Udp(payload.as_bytes().into()))
+    Interpretation::Send(Box::new(NetworkSend::Udp(payload.as_bytes().into())))
 }
 
 /// OSC: `!o` followed by its Payload of space-separated words.
@@ -67,7 +67,7 @@ pub fn osc(ctx: &mut Context) -> Result<Interpretation, Error> {
                 .collect::<Result<_, _>>()?
         }
     };
-    Ok(Interpretation::Play(PlayCommand::Osc(Box::new(
+    Ok(Interpretation::Send(Box::new(NetworkSend::Osc(
         OscMessage {
             address: address.to_owned(),
             arguments,
@@ -129,7 +129,7 @@ fn float(word: &str) -> Option<OscArgument> {
 mod test {
     use crate::{
         Anchor, Error, Function, FunctionInputs, Interpretation, InterpretationError, Interpreter,
-        OscArgument, OscMessage, PlayCommand, PortalSource, Tick, TickInputs,
+        NetworkSend, OscArgument, OscMessage, PortalSource, Tick, TickInputs,
     };
 
     /// `function`'s answer for a Turn that read `payload`.
@@ -152,7 +152,7 @@ mod test {
     }
 
     fn message(address: &str, arguments: Vec<OscArgument>) -> Interpretation {
-        Interpretation::Play(PlayCommand::Osc(Box::new(OscMessage {
+        Interpretation::Send(Box::new(NetworkSend::Osc(OscMessage {
             address: address.to_owned(),
             arguments,
         })))
@@ -177,7 +177,7 @@ mod test {
     fn udp_sends_each_cell_as_one_byte_and_an_empty_payload_rests() {
         assert_eq!(
             send(Function::Udp, "hi there ").unwrap(),
-            Interpretation::Play(PlayCommand::Udp(b"hi there ".as_slice().into()))
+            Interpretation::Send(Box::new(NetworkSend::Udp(b"hi there ".as_slice().into())))
         );
         assert_eq!(
             send(Function::Udp, "").unwrap(),

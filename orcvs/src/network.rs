@@ -10,7 +10,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use lang::{OscArgument, OscMessage, PlayCommand};
+use lang::{NetworkSend, OscArgument, OscMessage};
 use tokio::sync::watch;
 
 use crate::playback::OutputAdapterError;
@@ -60,26 +60,24 @@ impl NetworkOutput {
     }
 
     ///
-    /// Sends every network command among `commands`, in their order, and
-    /// answers one failure per send that failed, or `None` when there was
-    /// nothing to send. A failure stops nothing: the sends after it are still
+    /// Makes every one of `sends`, in their order, and answers one failure per
+    /// send that failed. A failure stops nothing: the sends after it are still
     /// made.
     ///
-    pub(crate) fn deliver(&mut self, commands: &[PlayCommand]) -> Option<Vec<OutputAdapterError>> {
+    pub(crate) fn deliver(&mut self, sends: &[NetworkSend]) -> Vec<OutputAdapterError> {
         let destination = *self.destination.borrow();
         let mut attempted = false;
         let mut failures = Vec::new();
-        for command in commands {
-            let result = match command {
-                PlayCommand::Udp(bytes) => self.send(
+        for send in sends {
+            let sent = match send {
+                NetworkSend::Udp(bytes) => self.send(
                     bytes,
                     SocketAddr::new(destination.host, destination.udp_port),
                 ),
-                PlayCommand::Osc(message) => self.send(
+                NetworkSend::Osc(message) => self.send(
                     &encode(message),
                     SocketAddr::new(destination.host, destination.osc_port),
                 ),
-                _ => continue,
             };
             attempted = true;
             failures.extend(result.err());
@@ -262,7 +260,7 @@ mod tests {
     mod native {
         use super::super::{NetworkDestination, NetworkOutput, encode, reported};
         use super::message;
-        use lang::{OscArgument, PlayCommand};
+        use lang::{NetworkSend, OscArgument};
         use std::net::UdpSocket;
         use std::time::Duration;
         use tokio::sync::watch;
@@ -292,8 +290,8 @@ mod tests {
         #[test]
         fn a_udp_send_arrives_as_its_exact_bytes() {
             let (listener, mut output, _sender) = listening();
-            let failures = output.deliver(&[PlayCommand::Udp(b"hi there ".as_slice().into())]);
-            assert_eq!(failures, Some(Vec::new()));
+            let failures = output.deliver(&[NetworkSend::Udp(b"hi there ".as_slice().into())]);
+            assert!(failures.is_empty(), "{failures:?}");
             assert_eq!(received(&listener), b"hi there ");
         }
 
@@ -302,8 +300,8 @@ mod tests {
             let (listener, mut output, _sender) = listening();
             let osc = message("/amp", vec![OscArgument::Float(0.5)]);
             let failures = output.deliver(&[
-                PlayCommand::Udp(b"first".as_slice().into()),
-                PlayCommand::Osc(Box::new(osc.clone())),
+                NetworkSend::Udp(b"first".as_slice().into()),
+                NetworkSend::Osc(osc.clone()),
             ]);
             assert_eq!(failures, Some(Vec::new()));
             assert_eq!(received(&listener), b"first");
@@ -321,9 +319,9 @@ mod tests {
             let (first, mut output, sender) = listening();
             let (second, _, _) = listening();
             let port = second.local_addr().unwrap().port();
-            output.deliver(&[PlayCommand::Udp(b"one".as_slice().into())]);
+            output.deliver(&[NetworkSend::Udp(b"one".as_slice().into())]);
             sender.send_modify(|destination| destination.udp_port = port);
-            output.deliver(&[PlayCommand::Udp(b"two".as_slice().into())]);
+            output.deliver(&[NetworkSend::Udp(b"two".as_slice().into())]);
             assert_eq!(received(&first), b"one");
             assert_eq!(received(&second), b"two");
         }
@@ -341,12 +339,10 @@ mod tests {
             let port = listener.local_addr().unwrap().port();
             // Port zero is no destination, so the send is refused.
             sender.send_modify(|destination| destination.osc_port = 0);
-            let failures = output
-                .deliver(&[
-                    PlayCommand::Osc(Box::new(message("/x", vec![]))),
-                    PlayCommand::Udp(b"still".as_slice().into()),
-                ])
-                .expect("two sends were made");
+            let failures = output.deliver(&[
+                NetworkSend::Osc(message("/x", vec![])),
+                NetworkSend::Udp(b"still".as_slice().into()),
+            ]);
             assert_eq!(failures.len(), 1, "{failures:?}");
             assert!(
                 failures[0]

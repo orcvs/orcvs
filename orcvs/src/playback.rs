@@ -968,11 +968,13 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         }
         // Each failed send is its own report, unlatched, so every activation
         // that could not send says so, and the performance goes on.
-        if let Some(failures) = self.network.deliver(&plan.play_commands) {
-            let failed = !failures.is_empty();
-            for failure in failures {
-                self.report(Report::NetworkFailure(failure));
-            }
+        let failures = self.network.deliver(&plan.network_sends);
+        let sent = !plan.network_sends.is_empty();
+        let failed = !failures.is_empty();
+        for failure in failures {
+            self.report(Report::NetworkFailure(failure));
+        }
+        if sent {
             self.observation.send_if_modified(|observation| {
                 std::mem::replace(&mut observation.network_failed, failed) != failed
             });
