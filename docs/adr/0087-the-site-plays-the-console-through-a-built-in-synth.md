@@ -3,6 +3,7 @@
 Status: accepted; when the audio context resumes is amended by [ADR 0089](0089-the-panel-plays-and-rewinds.md), which resumes it inside the reader's gesture. Settled with Toby on 2026-10-26 in `.scratch/orcvs-site/` (tickets 07 and 08).
 The research is `docs/research/tone-generation.md`. [ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)
 amends it: Control Change 1 to 8 set the synth's eight effects, which the sound module shows.
+Ticket 16 amended when the audio context starts (2026-10-28).
 
 The site shows Orcvs running, and an example nobody hears teaches half of what it shows. Most
 readers have no MIDI device, and the console only sends MIDI. Learn Orca makes sound by patching
@@ -47,10 +48,13 @@ port. The web build ships first. Native gets the same core later, through cpal, 
   every other message are ignored.
 - **Sixteen voices sound at once.** A Note On past that takes the oldest voice.
 
-**The audio context starts or resumes on the message that follows the reader's gesture.** Playback
-starts only from the reader's action (ticket 01), and a user activation in the console's frame
-activates the page that frames it, so the page resumes its audio context when the first
-`orcvs.midi` of a run arrives.
+**The audio context starts on the reader's first gesture in a console, and Tick 0 waits for it.** A
+user activation in the console's frame activates the page that frames it. The console posts
+`{ type: "orcvs.wake" }` on each click and key, and the page resumes its audio context on it, or on
+the first `orcvs.midi` of a run if none came first. Starting takes a device over 100 ms, so the
+page tells every console `{ type: "orcvs.audio", running }` as its context starts and stops, and a
+console holds a start on the Built-in Synth until the audio runs, for at most 500 ms. Otherwise
+Tick 0 would sound late and the Ticks after it on time (ticket 16).
 
 **A page that cannot make sound still announces the synth,** with `available: false` and a reason.
 The console lists it, and choosing it answers the reason as a connect failure, the way a MIDI

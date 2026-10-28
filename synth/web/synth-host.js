@@ -7,7 +7,11 @@
 // `{ type: "orcvs.synth", available, reason }`, and plays each
 // `{ type: "orcvs.midi", bytes, time }` a console posts a fixed delay after
 // `time`, the message's planned instant as `performance.timeOrigin` plus
-// `performance.now()`. Only frames of the page's own origin are answered.
+// `performance.now()`. A console's `{ type: "orcvs.wake" }`, posted on the
+// reader's click or key, starts the audio context, and every console is told
+// `{ type: "orcvs.audio", running }` whenever the context starts or stops, so
+// a console can hold its first Tick until the audio runs. Only frames of the
+// page's own origin are answered.
 (() => {
   // How long after its planned instant a message sounds. A message that
   // reaches the synth later than this sounds at once.
@@ -81,13 +85,22 @@
     (reason) => ({ type: "orcvs.synth", available: false, reason: String(reason.message ?? reason) }),
   );
 
-  // A console that said it was ready before this script listened is told too. Frames of another
-  // origin are not: the target origin keeps the message from them.
-  announcement.then((answer) => {
+  // Tells every frame of this origin `message`. Frames of another origin are not told: the target
+  // origin keeps the message from them.
+  function tell(message) {
     for (let index = 0; index < window.frames.length; index++) {
-      window.frames[index].postMessage(answer, window.location.origin);
+      window.frames[index].postMessage(message, window.location.origin);
     }
-  });
+  }
+
+  // A console that said it was ready before this script listened is told too.
+  announcement.then(tell);
+
+  const audio = () => ({ type: "orcvs.audio", running: context.state === "running" });
+  ready.then(() => {
+    context.addEventListener("statechange", () => tell(audio()));
+    tell(audio());
+  }, () => {});
 
   // The messages that arrived while the context starts.
   let starting;
@@ -101,6 +114,22 @@
     node.port.postMessage({ bytes: message.bytes, when: contextTime(message.time) });
   }
 
+  // Starts the audio context, then plays the messages that arrived meanwhile and are still due.
+  function start() {
+    if (starting) return;
+    starting = [];
+    context.resume().then(
+      () => {
+        for (const message of starting.filter(due)) play(message);
+        starting = undefined;
+      },
+      (reason) => {
+        starting = undefined;
+        console.warn("The Built-in Synth cannot start:", reason);
+      },
+    );
+  }
+
   window.addEventListener("message", async (event) => {
     if (event.origin !== window.location.origin || !event.source) return;
     const { data } = event;
@@ -108,6 +137,10 @@
       // The console's frame is of this origin, so its gestures can be heard here.
       resumeOnGestures(event.source);
       event.source.postMessage(await announcement, event.origin);
+      if (node) event.source.postMessage(audio(), event.origin);
+    } else if (data?.type === "orcvs.wake" && node && context.state !== "running") {
+      // The reader's gesture in the console activates this page too, so it can start the context.
+      start();
     } else if (data?.type === "orcvs.midi" && node && Array.isArray(data.bytes) && typeof data.time === "number") {
       // Where no gesture has resumed the context yet, the first message of a
       // run does. Messages that arrive while it starts wait for it, and those
@@ -116,21 +149,8 @@
         play(data);
         return;
       }
-      if (starting) {
-        starting.push(data);
-        return;
-      }
-      starting = [data];
-      context.resume().then(
-        () => {
-          for (const message of starting.filter(due)) play(message);
-          starting = undefined;
-        },
-        (reason) => {
-          starting = undefined;
-          console.warn("The Built-in Synth cannot start:", reason);
-        },
-      );
+      start();
+      starting.push(data);
     }
   });
 })();

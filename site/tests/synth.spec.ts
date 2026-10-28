@@ -15,6 +15,8 @@ declare global {
       context?: AudioContext;
       /** The planned instant of the `orcvs.midi` the page is handling. */
       planned?: number;
+      /** The audio context's state when the page's first `orcvs.midi` reached it. */
+      firstMessageFound?: AudioContextState;
       /** Each message the page passes the worklet: its planned instant, when the synth plays it on
        * the page's clock, how long after its planned instant it reached the page, and its MIDI
        * status byte. */
@@ -49,7 +51,9 @@ test.beforeEach(async ({ page }) => {
     // Registered before the page's own listener, which passes the message on to the worklet before
     // the event is done, so each post below pairs with the message that caused it.
     window.addEventListener("message", (event) => {
-      if (event.data?.type === "orcvs.midi") spy.planned = event.data.time;
+      if (event.data?.type !== "orcvs.midi") return;
+      spy.planned = event.data.time;
+      spy.firstMessageFound ??= spy.context?.state;
     });
     const post = MessagePort.prototype.postMessage;
     MessagePort.prototype.postMessage = function (message: any, ...rest: any[]) {
@@ -89,15 +93,33 @@ test("the site's console sounds the first note of a run while the page's audio s
   await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x90);
 });
 
-test("a first visit opens the 808 beat, and Space plays it on the kit", async ({ page }) => {
+test("a first visit opens the 808 beat, and its first Tick sounds on time", async ({ page }) => {
   await page.goto("/");
   const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
   await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
 
-  // Nothing is stored, so the console opens `examples/808.orcvs`: the kick and hat on Tick 0.
-  await frame.click({ position: { x: 300, y: 200 } });
+  // Nothing is stored, so the console opens `examples/808.orcvs`: the kick and hat on Tick 0. Space
+  // is the reader's first gesture, so Tick 0 waits for the page's audio to start.
+  await frame.focus();
   await page.keyboard.press("Space");
-  await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x98);
+  await expect.poll(() => page.evaluate(() => window.synthSpy.sounds.length)).toBeGreaterThan(0);
+
+  // Tick 0 waited for the audio, so its messages found it running and sound when they were planned
+  // to, rather than wait behind its start-up.
+  expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
+  expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
+});
+
+test("a click in the console starts the page's audio before Space", async ({ page }) => {
+  await page.goto("/");
+  const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
+  await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
+
+  await frame.click({ position: { x: 300, y: 200 } });
+
+  await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("running");
 });
 
 test("a framed console plays the page's synth at a constant offset from its Ticks", async ({ page }) => {

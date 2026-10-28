@@ -22,4 +22,14 @@ on either the tones or the drums.
 
 **Blocked by:** 08
 
-**Status:** needs-triage
+**Status:** resolved
+
+## Comments
+
+Toby chose both (2026-10-28), after hearing the 808 beat's first Tick land late. The console posts
+`{ type: "orcvs.wake" }` to its page on each click and key, and the host starts the audio context
+on it: the wake is a message rather than a note, so it sounds nothing and takes no voice. The host
+tells every console `{ type: "orcvs.audio", running }` whenever the context starts or stops, and a
+Space that would start Playback on the Built-in Synth while the audio is asleep is held until it
+runs, or for at most 500 ms. `site/tests/synth.spec.ts` checks that a first visit's Tick 0 finds
+the audio running when Space is the reader's first gesture, and that a click alone starts it.
