@@ -1736,6 +1736,7 @@ mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
 
+    mod shipped_knobs;
     mod shipped_trackers;
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

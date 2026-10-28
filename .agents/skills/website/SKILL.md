@@ -46,10 +46,10 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
   small console, `/play/?small`, and posts it `{ type: "orcvs.open", source }` (`small.ts`, ADR
   0086). Nothing opens a new tab or window.
 - **Links.** `/play/?example=<link-name>` opens a shipped example (`cell-tracker`,
-  `orca-tracker`); `/play/#source=<percent-encoded Source File>` opens text, up to 16 KiB of
-  fragment; `/play/?small` opens the small console. Each opens stopped, none reads or writes saved
-  work, and none registers the service worker (`console/src/linked_source.rs`,
-  `console/index.html`).
+  `orca-tracker`, `orca-sequencer`, `orca-knobs`); `/play/#source=<percent-encoded Source File>`
+  opens text, up to 16 KiB of fragment; `/play/?small` opens the small console. Each opens
+  stopped, none reads or writes saved work, and none registers the service worker
+  (`console/src/linked_source.rs`, `console/index.html`).
 - **Started.** The canvas has no DOM. eframe gives `#the_canvas_id` a `width` attribute when it
   starts, which is what a test waits on; the small console also posts `{ type: "orcvs.ready" }` to
   its page once it listens for Sources, which is what `small.ts` waits on. What the console shows is compared as frame

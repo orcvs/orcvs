@@ -252,6 +252,61 @@ fn the_cell_tracker_plays_two_loops_with_its_empty_pairs_resting() {
 }
 
 ///
+/// A Learn Orca patch's voices as Orca plays them: every voice steps once a
+/// Tick and holds its note for one, at velocity `77`, the byte Orca's default
+/// `f` sends, and a nested Read fills each note slot.
+///
+fn orca_patch(voices: &[Voice]) -> Tracker<'_> {
+    Tracker {
+        step_ticks: 1,
+        length: 1,
+        velocity: 0x77,
+        slot_written: false,
+        voices,
+    }
+}
+
+/// `count` steps for `channel`, holding each of `notes` placed on it.
+fn steps(notes: &[(u8, usize, u8)], channel: u8, count: usize) -> Vec<Option<u8>> {
+    let mut steps = vec![None; count];
+    for &(on, step, note) in notes {
+        if on == channel {
+            steps[step] = Some(note);
+        }
+    }
+    steps
+}
+
+/// `note` spelled as the Source writes it: its pitch letter, lowercase for a
+/// sharp, then its octave, from MIDI note 12 upward.
+fn spelling(note: u8) -> String {
+    let letter =
+        ["C", "c", "D", "d", "E", "F", "f", "G", "g", "A", "a", "B"][usize::from(note % 12)];
+    format!("{letter}{}", note / 12 - 1)
+}
+
+///
+/// Each Comment the Language Map finds in `source` from `row` down, as its
+/// anchor's column and row and its last Cell's column.
+///
+fn comments_from(source: &SourceCommander, row: usize) -> Vec<(usize, usize, usize)> {
+    let mut comments = Vec::new();
+    source.read_source(|source| {
+        comments = source
+            .language_map()
+            .units()
+            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
+            .filter(|unit| unit.anchor().y() >= row)
+            .map(|unit| {
+                let end = unit.span().positions().last().expect("a Span holds a Cell");
+                (unit.anchor().x(), unit.anchor().y(), end.x())
+            })
+            .collect();
+    });
+    comments
+}
+
+///
 /// The Learn Orca tracker's voices in Source order: two staircases of four,
 /// voice `v` of group `g` on channel `4g + v` with its Timed Play anchored at
 /// column `2 + 28g + 7v + 2` on row `12 - 3v`. `notes` places a Note at a
@@ -262,19 +317,13 @@ fn orca_tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     for v in (0..4).rev() {
         for group in 0..2 {
             let channel = 4 * group + v;
-            let mut steps = vec![None; 16];
-            for &(on, step, note) in notes {
-                if on == channel {
-                    steps[step] = Some(note);
-                }
-            }
             voices.push(Voice {
                 channel,
                 play: (
                     4 + 28 * usize::from(group) + 7 * usize::from(v),
                     12 - 3 * usize::from(v),
                 ),
-                steps,
+                steps: steps(notes, channel, 16),
             });
         }
     }
@@ -288,13 +337,7 @@ fn the_orca_tracker_plays_two_bars_of_its_one_note() {
     // velocity `77`, the byte Orca's default `f` sends.
     assert_two_loops(
         include_bytes!("../../../../examples/tracker.orcvs"),
-        &Tracker {
-            step_ticks: 1,
-            length: 1,
-            velocity: 0x77,
-            slot_written: false,
-            voices: &orca_tracker_voices(&[(1, 0, 60)]),
-        },
+        &orca_patch(&orca_tracker_voices(&[(1, 0, 60)])),
     );
 }
 
@@ -308,18 +351,12 @@ fn the_orca_tracker_frames_its_pattern_rows_in_comments() {
         file::read(include_bytes!("../../../../examples/tracker.orcvs"))
             .expect("the shipped file is a Source File"),
     );
+    assert_eq!(
+        comments_from(&source, 14),
+        (14..30).map(|row| (8, row, 66)).collect::<Vec<_>>()
+    );
     source.read_source(|source| {
         let map = source.language_map();
-        let framed: Vec<_> = map
-            .units()
-            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
-            .filter(|unit| unit.anchor().y() >= 14)
-            .map(|unit| {
-                let end = unit.span().positions().last().expect("a Span holds a Cell");
-                (unit.anchor().x(), unit.anchor().y(), end.x())
-            })
-            .collect();
-        assert_eq!(framed, (14..30).map(|row| (8, row, 66)).collect::<Vec<_>>());
         // The Reads' operands wait on their Adds, and nothing in the pattern
         // is diagnosed.
         assert_eq!(map.lexical_diagnostics().count(), 0);
@@ -349,22 +386,13 @@ fn every_orca_tracker_voice_plays_its_own_column_on_its_own_channel() {
             "|  |",
             "step {step} is marked"
         );
-        row.replace_range(column..column + 2, NATURALS[usize::from(note - 60)]);
+        row.replace_range(column..column + 2, &spelling(note));
     }
     assert_two_loops(
         rows.join("\n").as_bytes(),
-        &Tracker {
-            step_ticks: 1,
-            length: 1,
-            velocity: 0x77,
-            slot_written: false,
-            voices: &orca_tracker_voices(&notes),
-        },
+        &orca_patch(&orca_tracker_voices(&notes)),
     );
 }
-
-/// The Notes `00` to `07` above C4, spelled as the Source writes them.
-const NATURALS: [&str; 8] = ["C4", "c4", "D4", "d4", "E4", "F4", "f4", "G4"];
 
 #[test]
 fn a_half_typed_step_silences_only_its_own_voice() {
@@ -399,4 +427,69 @@ fn a_half_typed_step_silences_only_its_own_voice() {
     );
     assert_eq!(plan.diagnostics.len(), 2, "{:?}", plan.diagnostics);
     assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+}
+
+///
+/// The Learn Orca sequencer's ten voices in Source order: voice `v` on
+/// channel `v`, its Timed Play anchored at column 4 on row `3 + 3v`, reading
+/// thirty-two steps along its own row. `notes` places a Note at a channel's
+/// step; every other step is empty.
+///
+fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
+    (0..10)
+        .map(|channel| Voice {
+            channel,
+            play: (4, 3 + 3 * usize::from(channel)),
+            steps: steps(notes, channel, 32),
+        })
+        .collect()
+}
+
+#[test]
+fn the_sequencer_ships_with_every_step_resting() {
+    // Learn Orca's sequencer ships with no notes, so every voice rests on
+    // every step, silently.
+    assert_two_loops(
+        include_bytes!("../../../../examples/sequencer.orcvs"),
+        &orca_patch(&sequencer_voices(&[])),
+    );
+}
+
+#[test]
+fn every_sequencer_voice_plays_its_own_row_on_its_own_channel() {
+    // One Note per voice, each on a different step, and channel 0's first
+    // and last steps, so a voice that read another's row, played on another's
+    // channel or read past either end of its steps, is caught.
+    let mut notes: Vec<(u8, usize, u8)> = (0..10)
+        .map(|channel| (channel, 3 * usize::from(channel) + 1, 60 + channel))
+        .collect();
+    notes.extend([(0, 0, 72), (0, 31, 48)]);
+    let text = include_str!("../../../../examples/sequencer.orcvs");
+    let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
+    for &(channel, step, note) in &notes {
+        let row = &mut rows[3 + 3 * usize::from(channel)];
+        let column = 20 + 2 * step;
+        assert_eq!(&row[column..column + 2], "  ", "step {step} is empty");
+        row.replace_range(column..column + 2, &spelling(note));
+    }
+    assert_two_loops(
+        rows.join("\n").as_bytes(),
+        &orca_patch(&sequencer_voices(&notes)),
+    );
+}
+
+#[test]
+fn the_sequencer_frames_each_voices_steps_in_a_comment() {
+    // Each voice's steps are one closed Comment from column 18 to 85, so the
+    // Notes typed into them are text its Read selects rather than standalone
+    // units the Language Map diagnoses.
+    let source = SourceCommander::with_source(
+        file::read(include_bytes!("../../../../examples/sequencer.orcvs"))
+            .expect("the shipped file is a Source File"),
+    );
+    assert_eq!(
+        comments_from(&source, 3),
+        (0..10).map(|v| (18, 3 + 3 * v, 85)).collect::<Vec<_>>()
+    );
+    source.read_source(|source| assert_eq!(source.language_map().lexical_diagnostics().count(), 0));
 }

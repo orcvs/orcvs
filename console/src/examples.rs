@@ -13,7 +13,7 @@ pub(crate) struct Example {
 }
 
 /// Every shipped example, in the order `Help → Examples` lists them.
-pub(crate) const EXAMPLES: [Example; 2] = [
+pub(crate) const EXAMPLES: [Example; 4] = [
     Example {
         name: "Cell Tracker",
         text: include_bytes!("../../examples/cell-tracker.orcvs"),
@@ -21,6 +21,14 @@ pub(crate) const EXAMPLES: [Example; 2] = [
     Example {
         name: "Orca Tracker",
         text: include_bytes!("../../examples/tracker.orcvs"),
+    },
+    Example {
+        name: "Orca Sequencer",
+        text: include_bytes!("../../examples/sequencer.orcvs"),
+    },
+    Example {
+        name: "Orca Knobs",
+        text: include_bytes!("../../examples/knobs.orcvs"),
     },
 ];
 
