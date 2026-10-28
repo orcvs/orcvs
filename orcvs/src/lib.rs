@@ -5,6 +5,7 @@ pub mod cursor;
 pub mod grid;
 pub mod midi;
 pub mod native_midi;
+pub mod network;
 pub mod opts;
 pub mod playback;
 pub mod region;

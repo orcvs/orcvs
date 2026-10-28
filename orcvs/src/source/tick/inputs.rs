@@ -20,7 +20,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use lang::{Atom, Expression, Function};
+use lang::{Atom, Expression, Function, Token};
 
 use crate::grid::{Grid, Position};
 use crate::source::language_map::{DerivedRow, LanguageUnit, Span};
@@ -134,12 +134,24 @@ impl<'a> ScheduledExpression<'a> {
         self.span
     }
 
-    /// Every positioned entry, in Parser preorder.
+    /// Every positioned entry, in Parser preorder. A Payload's Cells are its
+    /// text, without the closer.
     pub(super) fn entries(self) -> impl Iterator<Item = ScheduledEntry> + 'a {
-        self.expression.positioned().map(|entry| ScheduledEntry {
-            cells: entry.cells.clone(),
-            parent: entry.parent,
-            parsed: Parsed::of(entry.atom.as_ref()),
+        let expression = self.expression;
+        expression.positioned().map(move |entry| match entry.token {
+            Token::Payload => ScheduledEntry {
+                cells: expression
+                    .payload_of(entry)
+                    .expect("a Payload entry has its text")
+                    .range(),
+                parent: entry.parent,
+                parsed: Parsed::Payload,
+            },
+            _ => ScheduledEntry {
+                cells: entry.cells.clone(),
+                parent: entry.parent,
+                parsed: Parsed::of(entry.atom.as_ref()),
+            },
         })
     }
 
@@ -202,6 +214,9 @@ pub(super) enum Parsed {
     Value,
     /// It bound this Function.
     Function(Function),
+    /// It is the Payload of the Function that is its parent: text that binds
+    /// nothing and is read at that Function's Turn.
+    Payload,
 }
 
 impl Parsed {

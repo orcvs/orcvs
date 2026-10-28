@@ -11,22 +11,24 @@ for event in pull_request merge_group push workflow_dispatch unknown; do
       for linux in "${outcomes[@]}"; do
         for wasm in "${outcomes[@]}"; do
           for macos in "${outcomes[@]}"; do
-            expected=1
-            if [[ "$changes" == success && "$linux" == success ]]; then
-              case "$event:$compile:$wasm:$macos" in
-                pull_request:true:success:skipped | pull_request:false:skipped:skipped | \
-                  merge_group:true:success:success | push:true:success:success | \
-                  workflow_dispatch:true:success:success) expected=0 ;;
-              esac
-            fi
-            actual=0
-            CI_EVENT="$event" COMPILE="$compile" CHANGES_RESULT="$changes" LINUX_RESULT="$linux" \
-              WASM_RESULT="$wasm" MACOS_RESULT="$macos" \
-              bash "$repo_root/scripts/check-ci-results.sh" >/dev/null 2>&1 || actual=$?
-            if [[ "$actual" != "$expected" ]]; then
-              echo "Unexpected result for $event: compile=$compile changes=$changes Linux=$linux WASM=$wasm macOS=$macos" >&2
-              exit 1
-            fi
+            for windows in "${outcomes[@]}"; do
+              expected=1
+              if [[ "$changes" == success && "$linux" == success ]]; then
+                case "$event:$compile:$wasm:$macos:$windows" in
+                  pull_request:true:success:skipped:skipped | pull_request:false:skipped:skipped:skipped | \
+                    merge_group:true:success:success:success | push:true:success:success:success | \
+                    workflow_dispatch:true:success:success:success) expected=0 ;;
+                esac
+              fi
+              actual=0
+              CI_EVENT="$event" COMPILE="$compile" CHANGES_RESULT="$changes" LINUX_RESULT="$linux" \
+                WASM_RESULT="$wasm" MACOS_RESULT="$macos" WINDOWS_RESULT="$windows" \
+                bash "$repo_root/scripts/check-ci-results.sh" >/dev/null 2>&1 || actual=$?
+              if [[ "$actual" != "$expected" ]]; then
+                echo "Unexpected result for $event: compile=$compile changes=$changes Linux=$linux WASM=$wasm macOS=$macos Windows=$windows" >&2
+                exit 1
+              fi
+            done
           done
         done
       done

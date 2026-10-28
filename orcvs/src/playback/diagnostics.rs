@@ -66,6 +66,7 @@ pub struct OmittedDiagnostics {
     pub start_failures: OmissionCount,
     pub retune_failures: OmissionCount,
     pub output_failures: OmissionCount,
+    pub network_failures: OmissionCount,
     pub clock_failures: OmissionCount,
 }
 
@@ -84,6 +85,7 @@ impl OmittedDiagnostics {
             Class::StartFailure => &mut self.start_failures,
             Class::RetuneFailure => &mut self.retune_failures,
             Class::OutputFailure => &mut self.output_failures,
+            Class::NetworkFailure => &mut self.network_failures,
             Class::ClockFailure => &mut self.clock_failures,
         }
     }
@@ -95,9 +97,12 @@ impl OmittedDiagnostics {
 ///
 /// An Overrun carries no user-facing message and only says a Tick was late.
 /// A refused start or retune leaves the engine as it was, so the play state
-/// and BPM a user is shown already say it did not happen. An output failure is
-/// the only word a user gets that their device refused a Tick. A clock failure
-/// says the run has ended by itself, and `Orcvs` withdraws its request to play
+/// and BPM a user is shown already say it did not happen. A network failure
+/// says one UDP or OSC send did not leave, and comes with every activation
+/// while the destination refuses, so it ranks below an output failure, which
+/// a flood of network failures therefore never displaces. An output failure
+/// is the only word a user gets that their device refused a Tick. A clock
+/// failure says the run has ended by itself, and `Orcvs` withdraws its request to play
 /// only on finding one, so it is the last to go.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +110,7 @@ enum Class {
     Overrun,
     StartFailure,
     RetuneFailure,
+    NetworkFailure,
     OutputFailure,
     ClockFailure,
 }
@@ -118,8 +124,9 @@ impl Class {
         match self {
             Class::Overrun => 0,
             Class::StartFailure | Class::RetuneFailure => 1,
-            Class::OutputFailure => 2,
-            Class::ClockFailure => 3,
+            Class::NetworkFailure => 2,
+            Class::OutputFailure => 3,
+            Class::ClockFailure => 4,
         }
     }
 }
@@ -139,6 +146,7 @@ pub(super) enum Report {
         observed_at: Duration,
     },
     OutputFailure(OutputAdapterError),
+    NetworkFailure(OutputAdapterError),
     ClockFailure {
         message: String,
     },
@@ -157,6 +165,7 @@ impl Report {
             Report::StartFailure { .. } => Class::StartFailure,
             Report::RetuneFailure { .. } => Class::RetuneFailure,
             Report::OutputFailure(_) => Class::OutputFailure,
+            Report::NetworkFailure(_) => Class::NetworkFailure,
             Report::ClockFailure { .. } => Class::ClockFailure,
         }
     }
@@ -164,7 +173,9 @@ impl Report {
     fn message_mut(&mut self) -> Option<&mut String> {
         match self {
             Report::Overrun { .. } => None,
-            Report::OutputFailure(error) => Some(&mut error.message),
+            Report::OutputFailure(error) | Report::NetworkFailure(error) => {
+                Some(&mut error.message)
+            }
             Report::ClockFailure { message }
             | Report::StartFailure { message }
             | Report::RetuneFailure { message } => Some(message),
@@ -183,6 +194,7 @@ impl From<Report> for PlaybackDiagnostic {
                 observed_at,
             },
             Report::OutputFailure(error) => PlaybackDiagnostic::OutputFailure(error),
+            Report::NetworkFailure(error) => PlaybackDiagnostic::NetworkFailure(error),
             Report::ClockFailure { message } => PlaybackDiagnostic::ClockFailure { message },
             Report::StartFailure { message } => PlaybackDiagnostic::StartFailure { message },
             Report::RetuneFailure { message } => PlaybackDiagnostic::RetuneFailure { message },
@@ -444,6 +456,34 @@ mod tests {
             "a lower class than everything held is omitted"
         );
         assert_eq!(omitted.start_failures.get(), 1);
+    }
+
+    #[test]
+    fn a_flood_of_network_failures_never_displaces_an_output_failure() {
+        let log = DiagnosticLog::new();
+        log.report(Report::OutputFailure(OutputAdapterError::new(
+            "device lost",
+        )));
+        for index in 0..MAX_RETAINED_DIAGNOSTICS + 10 {
+            log.report(Report::NetworkFailure(OutputAdapterError::new(format!(
+                "send {index}"
+            ))));
+        }
+
+        let drained = log.drain();
+        assert_eq!(
+            drained[0],
+            PlaybackDiagnostic::OutputFailure(OutputAdapterError::new("device lost"))
+        );
+        assert_eq!(
+            drained[MAX_RETAINED_DIAGNOSTICS - 1],
+            PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(format!(
+                "send {}",
+                MAX_RETAINED_DIAGNOSTICS + 9
+            ))),
+            "the newest network failure is retained"
+        );
+        assert_eq!(omitted(&drained).network_failures.get(), 11);
     }
 
     #[test]

@@ -3,7 +3,7 @@ use crate::{Atom, Atoms, Function};
 // A provisional balance for short and nested Expressions; revisit with usage data.
 const INLINE_RECORD_CAPACITY: usize = 8;
 
-/// The Cells one Language Unit other than a Comment occupies.
+/// The Cells one Language Unit other than a Comment or a Payload occupies.
 pub(crate) const DEFAULT_TOKEN_LEN: usize = 2;
 const DEFAULT_CHAR_TOKEN_LEN: usize = 1;
 
@@ -13,6 +13,9 @@ pub type Tokens = Vec<Token>;
 pub struct Expression {
     records: RecordStore,
     comment: Option<CommentText>,
+    /// Every Payload's text, in entry order. Empty, and so unallocated, for
+    /// an Expression holding no UDP or OSC Function.
+    payloads: Vec<PayloadText>,
 }
 
 ///
@@ -40,6 +43,29 @@ impl CommentText {
         }
     }
 
+    /// The text's Cells, in the address space supplied to the Parser.
+    pub fn range(self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
+}
+
+///
+/// The Cells of a Payload after the UDP or OSC Function at entry `function`:
+/// after its spelling, and before the `!` that closes it or the end of the
+/// Source. Empty for `!u!`.
+///
+/// The Parser decides it with the claim, as it decides a [`CommentText`], so
+/// whether a Payload is closed is asked of the Expression rather than read off
+/// its Cells. It is in the address space supplied to the Parser.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PayloadText {
+    function: usize,
+    start: usize,
+    end: usize,
+}
+
+impl PayloadText {
     /// The text's Cells, in the address space supplied to the Parser.
     pub fn range(self) -> std::ops::Range<usize> {
         self.start..self.end
@@ -77,6 +103,11 @@ pub enum Token {
     /// records this and no Atom, which is what lets it carry text:
     /// an Atom is a fixed-width value and cannot hold a run of text.
     Comment,
+    /// The Cells a UDP or OSC Function sends: from the end of its spelling
+    /// through the next `!`, or through the end of the Source where none
+    /// follows, and never decoded. It records no Atom, as a Comment does, and
+    /// its parent is the Function that sends it.
+    Payload,
     Function,
     Note,
     Number,
@@ -96,6 +127,7 @@ impl Expression {
         Self {
             records: RecordStore::new(),
             comment: None,
+            payloads: Vec::new(),
         }
     }
 
@@ -114,6 +146,10 @@ impl Expression {
         assert!(
             token != Token::Comment,
             "a Comment enters an Expression only with its text"
+        );
+        assert!(
+            token != Token::Payload,
+            "a Payload enters an Expression only with its text"
         );
         self.push(token, atom, cells, parent);
     }
@@ -141,6 +177,27 @@ impl Expression {
         self.push(Token::Comment, None, cells, parent);
     }
 
+    ///
+    /// Records the Payload of the Function at entry `function`, claiming
+    /// `cells`, whose text is `text`.
+    ///
+    /// As [`Self::add_comment`] is for a Comment, this is the only way a
+    /// `Token::Payload` entry enters an Expression, so each one has its text.
+    ///
+    pub(crate) fn add_payload(
+        &mut self,
+        cells: std::ops::Range<usize>,
+        text: std::ops::Range<usize>,
+        function: usize,
+    ) {
+        self.payloads.push(PayloadText {
+            function,
+            start: text.start,
+            end: text.end,
+        });
+        self.push(Token::Payload, None, cells, Some(function));
+    }
+
     fn push(
         &mut self,
         token: Token,
@@ -165,6 +222,22 @@ impl Expression {
         self.comment
     }
 
+    /// The text of the Payload the Function at entry `function` sends, when
+    /// it is a UDP or OSC Function.
+    pub fn payload(&self, function: usize) -> Option<PayloadText> {
+        self.payloads
+            .iter()
+            .find(|payload| payload.function == function)
+            .copied()
+    }
+
+    /// The text of the Payload `entry` is, when it is a Payload entry.
+    pub fn payload_of(&self, entry: &PositionedEntry) -> Option<PayloadText> {
+        (entry.token == Token::Payload)
+            .then(|| entry.parent.and_then(|function| self.payload(function)))
+            .flatten()
+    }
+
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
         self.records.iter()
     }
@@ -174,12 +247,22 @@ impl Expression {
         self.records.iter().filter_map(|record| record.entry())
     }
 
+    /// Every entry's Atom, or `None` when an entry bound none. A Payload is
+    /// part of its Function's claim rather than a value, so it is skipped.
     pub fn atoms(&self) -> Option<Atoms> {
-        self.records.iter().map(Record::atom).collect()
+        self.records
+            .iter()
+            .filter(|record| record.token != Token::Payload)
+            .map(Record::atom)
+            .collect()
     }
 
     pub fn take_atoms(self) -> Option<Atoms> {
-        self.records.into_iter().map(|record| record.atom).collect()
+        self.records
+            .into_iter()
+            .filter(|record| record.token != Token::Payload)
+            .map(|record| record.atom)
+            .collect()
     }
 
     pub fn tokens(&self) -> impl DoubleEndedIterator<Item = Token> + '_ {
@@ -234,6 +317,8 @@ impl Token {
             // text rather than a fixed-width value,
             // and nothing asks it to decode one.
             Self::Comment => Err(crate::SyntaxError::ExpectedToken.into()),
+            // A Payload is a run of text for the same reason.
+            Self::Payload => Err(crate::SyntaxError::ExpectedToken.into()),
             // Leftover content is a Cell no Language Unit claims, so it has
             // no Atom to decode to.
             Self::Char => Err(crate::SyntaxError::ExpectedToken.into()),
@@ -253,7 +338,8 @@ impl Token {
     /// decision each `Token` makes, not one it inherits.
     pub fn len(&self) -> usize {
         match self {
-            Token::Char => DEFAULT_CHAR_TOKEN_LEN,
+            // A Payload names no operand either, and its closer is one Cell.
+            Token::Char | Token::Payload => DEFAULT_CHAR_TOKEN_LEN,
             // Two Cells is what an operand position occupies whatever fills it.
             // Every Atom spelling is two Cells wide, and a nested Function —
             // the only other thing that can stand at an operand position — is

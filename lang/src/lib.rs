@@ -15,7 +15,7 @@ pub use atom::{
     to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
-pub use expression::{CommentText, Expression, PositionedEntry, Token, Tokens};
+pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
@@ -25,8 +25,8 @@ pub use tick::{Anchor, Tick, TickInputs};
 #[cfg(test)]
 use std::sync::Once;
 
-/// One interpreted MIDI instruction a Terminal Output Function emits for
-/// delivery during a Tick.
+/// One interpreted instruction a Terminal Output Function emits for delivery
+/// during a Tick: a MIDI message's validated values, or one network send.
 ///
 /// This is a tagged variant set rather than one note triple because the
 /// Terminal Output family is wider than Raw Play: Timed and Monophonic Play,
@@ -37,7 +37,7 @@ use std::sync::Once;
 /// assembling a MIDI message belongs to the output adapter and Source
 /// interpretation never learns the protocol encoding. A field whose domain is
 /// carried by a type also cannot be transposed with a field of another domain.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlayCommand {
     /// Raw Play. Velocity `00` is not an absent note but the Source's
     /// explicit stop, which the Playback Engine delivers as a Note Off.
@@ -101,6 +101,29 @@ pub enum PlayCommand {
         lsb: BendLsb,
         msb: BendMsb,
     },
+    /// UDP `!u`: its Payload's bytes, one per Cell, sent as one datagram.
+    Udp(Box<[u8]>),
+    /// OSC `!o`: one message, which the network output adapter encodes.
+    Osc(Box<OscMessage>),
+}
+
+/// One OSC message an OSC Function sends: its address and typed arguments, in
+/// Payload order. Encoding it is the network output adapter's.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OscMessage {
+    pub address: String,
+    pub arguments: Vec<OscArgument>,
+}
+
+/// One OSC argument: an int32, a float32 or a string.
+#[derive(Clone, Debug, PartialEq)]
+pub enum OscArgument {
+    /// `i`: a 32-bit integer.
+    Int(i32),
+    /// `f`: a 32-bit float.
+    Float(f32),
+    /// `s`: a string.
+    String(String),
 }
 
 /// One Source-writing effect a Function performs, stated relative to the
@@ -462,16 +485,15 @@ mod test {
         use super::{Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
-        // measures the answer seam. The widest answer is a Source effect: two
-        // `i16` displacements, a three-byte `Option<Spelling>` and its bundle.
-        // No field holds a pointer or `usize`, so `Interpretation` reads 8 at
-        // every pointer width, wasm32 included.
+        // measures the answer seam. The widest answer is a UDP datagram's
+        // boxed bytes, a pointer and a length, beside the tag, so both read
+        // three words at every pointer width: 24 natively and 12 on wasm32.
         //
         // A failure here is notice rather than a defect: the answer seam has
         // changed shape, and `execute_function` is the measurement to take
         // again.
-        assert_eq!(size_of::<PlayCommand>(), 5);
-        assert_eq!(size_of::<Interpretation>(), 8);
+        assert_eq!(size_of::<PlayCommand>(), 3 * size_of::<usize>());
+        assert_eq!(size_of::<Interpretation>(), 3 * size_of::<usize>());
     }
 
     #[test]

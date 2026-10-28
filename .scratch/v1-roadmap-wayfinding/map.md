@@ -32,7 +32,8 @@ evidence-backed, and ready for implementation sessions to execute.
 - The FRC ships the complete accepted numeric, Sequence, Tick, spatial, and five-Function MIDI
   slices. Bangs may occur in Sequences with compatibility checked by consuming Functions. General
   Source addressing, UDP, OSC, Application Command encoding, compatibility, and unrelated
-  Improvement work are explicit deferrals. See
+  Improvement work are explicit deferrals. ADR 0085 has since settled UDP and OSC, which send a
+  Payload of Cells, and they stay deferred from v1. See
   [01 — Name the shipped language inventory](issues/01-name-the-shipped-language-inventory.md).
 - Expression/runtime pairing is limited to successfully parsed evaluable entries; incomplete,
   invalid, comment, diagnostic, and future non-evaluable syntax remain explicit non-value records
@@ -70,7 +71,8 @@ evidence-backed, and ready for implementation sessions to execute.
 ## Out of scope
 
 - Implementing production Rust, UI, persistence, MIDI, or WASM behavior.
-- Designing concrete Source Read/Write addressing or UDP, OSC, and Application Command transports.
+- Designing concrete Source Read/Write addressing or an Application Command transport. ADR 0085
+  settles UDP and OSC.
 - Promising Source, persistence-format, or Rust-API compatibility across pre-release versions.
 - Reopening accepted language semantics without a concrete contradiction.
 - Pulling independent cleanup into the release solely because it is inexpensive.

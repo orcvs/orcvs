@@ -708,6 +708,12 @@ macro_rules! define_functions {
                 self.signature().is_empty()
             }
 
+            /// Whether this Function sends a Payload: the Cells after its
+            /// spelling through the next `!` on its row.
+            pub const fn takes_payload(self) -> bool {
+                matches!(self, Self::Udp | Self::Osc)
+            }
+
             /// The Portal input resolved at Turn, after cell operand validation.
             pub const fn portal_input(self) -> Option<crate::PortalInput> {
                 match self {
@@ -896,6 +902,7 @@ define_functions! {
     Modulo => (".%", Value, Intrinsic, Never, [left: Number, right: Number]),
     MonophonicPlay => ("!%", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Multiply => (".x", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Osc => ("!o", TerminalOutput, Bang, Never, []),
     PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
@@ -911,6 +918,7 @@ define_functions! {
     Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
     TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
+    Udp => ("!u", TerminalOutput, Bang, Never, []),
     WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output East n),
     WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output North n),
     WriteSouth => ("@v", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output South n),
@@ -1787,7 +1795,9 @@ mod test {
                 | Function::TimedPlay
                 | Function::MonophonicPlay
                 | Function::ControlChange
-                | Function::PitchBend => assert_eq!(output, Output::Terminal, "{function:?}"),
+                | Function::PitchBend
+                | Function::Udp
+                | Function::Osc => assert_eq!(output, Output::Terminal, "{function:?}"),
                 Function::SelfBangingEast
                 | Function::SelfBangingNorth
                 | Function::SelfBangingSouth
@@ -2191,7 +2201,9 @@ mod test {
                 | Function::MonophonicPlay
                 | Function::PitchBend
                 | Function::RawPlay
-                | Function::TimedPlay => (false, true, false),
+                | Function::TimedPlay
+                | Function::Udp
+                | Function::Osc => (false, true, false),
                 // An effect that is not Terminal Output, taken without a Bang.
                 // These four rows are the whole reason the three predicates are
                 // asked separately.

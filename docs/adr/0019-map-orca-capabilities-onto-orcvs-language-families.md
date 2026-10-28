@@ -1,6 +1,6 @@
 # Map Orca capabilities onto Orcvs language families
 
-Status: the Sequence mappings are superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). The capability audit stands. Its rows for Jump, Track, Push, Read and Query, Write, Generator and Konkat are amended by [ADR 0070](0070-read-write-and-copy-are-separate-families.md) (2026-10-10 amendment below).
+Status: the Sequence mappings are superseded by [ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md). The capability audit stands. Its rows for Jump, Track, Push, Read and Query, Write, Generator and Konkat are amended by [ADR 0070](0070-read-write-and-copy-are-separate-families.md) (2026-10-10 amendment below), and its UDP and OSC rows by [ADR 0085](0085-udp-and-osc-send-the-cells-up-to-their-closer.md) (2026-10-26 amendment below).
 
 Orcvs preserves Orca's performative capabilities without preserving its one-letter Operator encoding or its uppercase/lowercase scheduling convention. Capabilities are expressed through two-character, behavior-first Function families over the character Source and derived Language Map; the detailed contracts remain in the focused ADRs linked below, while this ADR is the authoritative audit index. Tick-wide effect ordering is defined by ADR 0020.
 
@@ -43,8 +43,8 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Monophonic MIDI note | `%` | Retain with one owned voice per MIDI channel | `!%` | ADRs 0008 and 0016 |
 | MIDI Control Change | `!` | Retain with direct hexadecimal MIDI bytes | `!c` | ADRs 0008 and 0016 |
 | MIDI Pitch Bend | `?` | Retain as direct LSB and MSB bytes | `!b` | ADRs 0008 and 0016 |
-| UDP | `;` | Defer until Orcvs has a text or message value | `!u` reserved | ADRs 0008 and 0016 |
-| OSC | `=` | Defer until Orcvs has a text or message value | `!o` reserved | ADRs 0008 and 0016 |
+| UDP | `;` | Send the Cells after the spelling, up to the next `!`, as one datagram | `!u` Payload `!` | ADRs 0008, 0016 and 0085 |
+| OSC | `=` | Send the Cells after the spelling, up to the next `!`, as one OSC message with a full address and typed arguments | `!o` Payload `!` | ADRs 0008, 0016 and 0085 |
 | Orca self command | `$` | Retain as an Orcvs Application Command with no shell or process execution | `!$`; value encoding deferred | ADR 0008 |
 | Identity Test | prior Orcvs `id` | Retire; use Equality or ordinary value flow | — | ADR 0015 |
 
@@ -55,3 +55,7 @@ This audit deferred two design boundaries intentionally rather than leaving them
 ## Amendment, 2026-10-10: Read, Write and Copy families
 
 [ADR 0070](0070-read-write-and-copy-are-separate-families.md) splits the address family `&` and the Source family `@` into Read `&`, Write `@` and Copy `=`, and the table above states the result. Seven rows changed. Jump `J Y` was `&^ &v &< &>` and is now the Copy Functions `=^ =v =< =>`, with behaviour unchanged. Track `T` still named the retired Sequence Select `:?`; it maps to `&t index count`, as ADR 0067 built it at `@t`. Push `P` was Sequence Replace followed by Source Write `:=` then `@>`; it is now `@t index count value`. Read and Query `O Q` and Konkat `K` were the relative two-axis Read `@< column row`; they are now the directional Reads and the absolute Read `&$`. Write `X` was `@>` with operands deferred; it is now the directional Writes and the absolute Write `@$`. Generator `G` stays a Read nested in a Write, and `=$` copies between two Positions in one Function. In the paragraph after the table, read the address family `&` as the Read family, the Source family `@` as the Write family, and add the Copy family `=`.
+
+## Amendment, 2026-10-26: UDP and OSC
+
+[ADR 0085](0085-udp-and-osc-send-the-cells-up-to-their-closer.md) settles the UDP `;` and OSC `=` rows. `;` maps to `!u` and `=` to `!o`, and each sends the Cells after its spelling, up to the next `!` on its row, rather than waiting for a text or message value. OSC takes a full address and typed arguments instead of Orca's one-glyph path and base-36 integers. Application Command keeps its deferral.

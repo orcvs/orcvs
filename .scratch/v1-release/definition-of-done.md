@@ -84,7 +84,8 @@ implementation and this evidence agree; glossary presence alone does not make a 
 
 ## Accepted deferrals
 
-- UDP `!u`, OSC `!o`, and their text/message values and transports.
+- UDP `!u` and OSC `!o`. ADR 0085 settles their design, sending a Payload of Cells rather than a
+  text or message value, but they stay out of the v1 release.
 - Application Command `!$` and its command value encoding.
 - Cross-version Source, persistence-format, and Rust-interface compatibility while Orcvs remains
   pre-release.

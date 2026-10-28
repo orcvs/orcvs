@@ -15,6 +15,7 @@ mod mailbox;
 mod schedule;
 
 use crate::midi::MidiSelectionHandle;
+use crate::network::{NetworkDestination, NetworkOutput};
 use crate::opts::Bpm;
 use crate::source::{
     BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
@@ -137,6 +138,9 @@ pub enum PlaybackDiagnostic {
         observed_at: Duration,
     },
     OutputFailure(OutputAdapterError),
+    /// A UDP or OSC send that did not leave. Each one is reported: a send is
+    /// one activation, so nothing is latched.
+    NetworkFailure(OutputAdapterError),
     ClockFailure {
         message: String,
     },
@@ -527,6 +531,12 @@ struct PlaybackInner<A: OutputAdapter> {
     /// a scheduled stop belongs to one Playback run.
     ///
     owned: OwnedNotes,
+    ///
+    /// Where UDP `!u` and OSC `!o` send, beside the MIDI adapter. It holds no
+    /// receiver state Orcvs could reset, so stopping, rewinding and the safety
+    /// action send it nothing.
+    ///
+    network: NetworkOutput,
 }
 
 ///
@@ -642,6 +652,8 @@ pub struct PlaybackEngine {
     /// recorded first.
     ///
     diagnostics: DiagnosticLog,
+    /// Where the engine's network output sends, which it reads at each send.
+    network_destination: Arc<watch::Sender<NetworkDestination>>,
 }
 
 impl Clone for PlaybackEngine {
@@ -651,6 +663,7 @@ impl Clone for PlaybackEngine {
             tick_gate: Arc::clone(&self.tick_gate),
             observation: self.observation.clone(),
             diagnostics: self.diagnostics.clone(),
+            network_destination: Arc::clone(&self.network_destination),
         }
     }
 }
@@ -665,6 +678,8 @@ struct PlaybackChannels {
     /// its own refusals into.
     ///
     diagnostics: DiagnosticLog,
+    /// The writing end of where the network output sends, for the handle.
+    network_destination: watch::Sender<NetworkDestination>,
 }
 
 impl<A: OutputAdapter> PlaybackInner<A> {
@@ -677,6 +692,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     ///
     fn new(source: SourceCommander, adapter: A) -> (Self, PlaybackChannels) {
         let observation = watch::Sender::new(PlaybackObservation::default());
+        let (network_destination, network) = watch::channel(NetworkDestination::default());
         let observed = observation.subscribe();
         let diagnostics = DiagnosticLog::new();
         let drained = diagnostics.clone();
@@ -691,10 +707,12 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 last_tick_at: None,
                 tick: Tick::ZERO,
                 owned: OwnedNotes::default(),
+                network: NetworkOutput::new(network),
             },
             PlaybackChannels {
                 observation: observed,
                 diagnostics: drained,
+                network_destination,
             },
         )
     }
@@ -938,6 +956,11 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 Err(error) => self.record_output_failure(error),
             }
         }
+        // Each failed send is its own report, unlatched, so every activation
+        // that could not send says so, and the performance goes on.
+        for failure in self.network.deliver(&plan.play_commands) {
+            self.report(Report::NetworkFailure(failure));
+        }
         Some(plan)
     }
 }
@@ -1112,6 +1135,13 @@ impl PlaybackEngine {
     pub fn disconnect(&self) {
         self.requests.disconnect();
     }
+
+    ///
+    /// Sends UDP and OSC to `destination` from the next send on.
+    ///
+    pub fn set_network_destination(&self, destination: NetworkDestination) {
+        self.network_destination.send_replace(destination);
+    }
 }
 
 impl PlaybackInner<crate::midi::MidiOutputAdapter> {
@@ -1232,6 +1262,7 @@ impl PlaybackEngine {
                 tick_gate,
                 observation: channels.observation,
                 diagnostics: channels.diagnostics,
+                network_destination: Arc::new(channels.network_destination),
             },
             output_requests,
         ))
@@ -1843,6 +1874,9 @@ mod tests {
         inner: PlaybackInner<A>,
         observation: watch::Receiver<PlaybackObservation>,
         diagnostics: DiagnosticLog,
+        /// Where the run's network output sends. Only a native test sends.
+        #[cfg(not(target_arch = "wasm32"))]
+        network_destination: watch::Sender<NetworkDestination>,
     }
 
     impl<A: OutputAdapter> HandDrivenRun<A> {
@@ -1852,6 +1886,8 @@ mod tests {
                 inner,
                 observation: channels.observation,
                 diagnostics: channels.diagnostics,
+                #[cfg(not(target_arch = "wasm32"))]
+                network_destination: channels.network_destination,
             }
         }
 
@@ -4210,6 +4246,63 @@ mod tests {
         assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_banged_udp_function_sends_its_payload_to_the_destination() {
+        let listener = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        listener
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let source = SourceCommander::new(Grid::with_shape(10, 6));
+        write(&source, 0, ".=0101");
+        write(&source, 12, "!uhi!");
+        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
+        run.network_destination.send_modify(|destination| {
+            destination.udp_port = listener.local_addr().unwrap().port();
+        });
+        run.begin_run();
+
+        run.run_tick(0);
+
+        let mut buffer = [0; 16];
+        let (length, _) = listener.recv_from(&mut buffer).unwrap();
+        assert_eq!(&buffer[..length], b"hi");
+        assert!(run.drain_diagnostics().is_empty());
+
+        // Stopping, with its safety action, and rewinding send nothing.
+        run.inner.stop();
+        run.inner.rewind();
+        listener
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        assert!(listener.recv_from(&mut buffer).is_err());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_failed_network_send_is_reported_each_time_and_playback_goes_on() {
+        let source = SourceCommander::new(Grid::with_shape(10, 6));
+        write(&source, 0, ".=0101");
+        write(&source, 12, "!o/go!");
+        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
+        // Port zero is no destination, so every send is refused.
+        run.network_destination
+            .send_modify(|destination| destination.osc_port = 0);
+        run.begin_run();
+
+        run.run_tick(0);
+        run.run_tick(1);
+
+        let diagnostics = run.drain_diagnostics();
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        assert!(diagnostics.iter().all(|diagnostic| matches!(
+            diagnostic,
+            PlaybackDiagnostic::NetworkFailure(error)
+                if error.message.starts_with("network send to 127.0.0.1:0 failed")
+        )));
+        assert_eq!(run.state(), PlaybackState::Playing);
+    }
+
     #[test]
     fn a_run_that_begins_after_a_failed_run_reports_the_failure_again() {
         let source = SourceCommander::new(Grid::with_shape(10, 6));
@@ -4545,7 +4638,8 @@ mod tests {
         }
         for diagnostic in drained {
             let message = match diagnostic {
-                PlaybackDiagnostic::OutputFailure(error) => &error.message,
+                PlaybackDiagnostic::OutputFailure(error)
+                | PlaybackDiagnostic::NetworkFailure(error) => &error.message,
                 PlaybackDiagnostic::ClockFailure { message }
                 | PlaybackDiagnostic::StartFailure { message }
                 | PlaybackDiagnostic::RetuneFailure { message } => message,
@@ -4847,6 +4941,7 @@ mod tests {
             tick_gate: Arc::clone(&tick_gate),
             observation: channels.observation,
             diagnostics: channels.diagnostics,
+            network_destination: Arc::new(channels.network_destination),
         };
 
         requests.start(Duration::from_secs(1)).unwrap();

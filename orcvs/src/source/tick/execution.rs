@@ -354,12 +354,19 @@ impl<'a> Execution<'a> {
         } else {
             Delivery::Reserved
         };
-        let inputs = FunctionInputs::with_portal_source(tick, self.portal_source(function, portal));
+        // A Payload is read from working Source here, after every writer of
+        // its Cells, which the schedule ordered before this Turn.
+        let portal_source = match &node.payload {
+            Some(payload) => PortalSource::from_cells(Some(self.working.text(payload.clone()))),
+            None => self.portal_source(function, portal),
+        };
+        let inputs = FunctionInputs::with_portal_source(tick, portal_source);
         match Interpreter::execute_function(function, operands, inputs) {
             Err(error) => self
                 .effects
                 .push(Effect::Diagnose(diagnose(node, error.to_string()))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
+            Ok(Interpretation::EmptyPayload) => {}
             Ok(Interpretation::Cell(atom)) => {
                 self.deliver_value(index, Answer::Unit(atom), destination, delivery);
             }

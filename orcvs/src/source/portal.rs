@@ -584,6 +584,17 @@ impl PortalAccess {
     }
 
     ///
+    /// Reads `payload` too: the Cells of the Payload a UDP or OSC root sends,
+    /// which its Turn reads from working Source as an Input Portal's are.
+    /// An empty Payload reads nothing.
+    ///
+    pub(super) fn read_payload(&mut self, payload: Range<usize>) {
+        if !payload.is_empty() {
+            self.reads.push(payload);
+        }
+    }
+
+    ///
     /// Restates write sites a test named, only when this value already demanded
     /// some.
     ///

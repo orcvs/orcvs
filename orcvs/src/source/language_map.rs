@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(test)]
 use lang::Atoms;
-use lang::{Atom, CommentText, Expression, Function, Parser, SourceAnalysis, Token};
+use lang::{Atom, CommentText, Expression, Function, Parser, PayloadText, SourceAnalysis, Token};
 
 use crate::grid::{CellIndex, Grid, Position};
 
@@ -76,6 +76,11 @@ pub enum LanguageUnitKind {
     /// scheduled. It carries the Cells of its text as the Parser claimed
     /// them.
     Comment(CommentText),
+    /// The Payload a UDP or OSC Function sends, and the `!` that closes it
+    /// where one does. Like a Comment's, its text is ordinary Cells: only the
+    /// closer is occupied. It is never scheduled as a unit; its Function
+    /// reads the text at its Turn.
+    Payload(PayloadText),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -109,6 +114,8 @@ impl LanguageUnit {
     /// occupies its whole Span as one run, so a pair inside it is wholly
     /// covered rather than split across two delimiters.
     ///
+    /// A Payload occupies only its closer, and an unclosed one nothing.
+    ///
     /// Every coverage question asks this rather than the Span, which stays
     /// the Comment's whole claim for paint, Tokens and scheduling.
     ///
@@ -119,9 +126,12 @@ impl LanguageUnit {
                 let text = text.range();
                 (span.start..text.start, Some(text.end..span.end))
             }
+            LanguageUnitKind::Payload(text) => (text.range().end..span.end, None),
             _ => (span, None),
         };
-        std::iter::once(first).chain(closer.filter(|closer| !closer.is_empty()))
+        std::iter::once(first)
+            .chain(closer)
+            .filter(|cells| !cells.is_empty())
     }
 }
 
@@ -780,6 +790,12 @@ fn name_units(
                 analysis.expression().comment().expect(
                     "an Expression holds a Comment entry exactly when it answers a Comment",
                 ),
+            )),
+            (Token::Payload, _) => Some(LanguageUnitKind::Payload(
+                analysis
+                    .expression()
+                    .payload_of(entry)
+                    .expect("a Payload entry has its text"),
             )),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
@@ -2028,6 +2044,27 @@ mod property {
                     for idx in span.indices() {
                         commented[idx.get()] = true;
                     }
+                } else if let LanguageUnitKind::Payload(text) = unit.kind() {
+                    // A Payload follows its Function's spelling and claims
+                    // through the first `!` after it, or to the last column
+                    // of its row, as a Comment claims through its closer.
+                    let start = span.start().get();
+                    let row_end = (start / cols + 1) * cols;
+                    prop_assert!(
+                        matches!(&bytes[start - 2..start], b"!u" | b"!o"),
+                        "{:?}",
+                        source
+                    );
+                    let text_end = bytes[start..row_end]
+                        .iter()
+                        .position(|&byte| byte == b'!')
+                        .map_or(row_end, |closer| start + closer);
+                    let end = if text_end == row_end { row_end } else { text_end + 1 };
+                    prop_assert_eq!(span.end().get(), end - 1, "{:?}", source);
+                    prop_assert_eq!(text.range(), start..text_end, "{:?}", source);
+                    for idx in span.indices() {
+                        commented[idx.get()] = true;
+                    }
                 } else {
                     prop_assert_eq!(span.end().get(), span.start().get() + 1);
                 }
@@ -2169,6 +2206,11 @@ mod property {
                 let comment = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Comment);
+                // A Payload is text its Function sends, never decoded, so its
+                // Expression's Atoms are its Function's and do not spell it.
+                let payload = expression
+                    .positioned()
+                    .any(|entry| entry.token == Token::Payload);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
                     expression.diagnostic().is_none() && !comment,
@@ -2180,7 +2222,7 @@ mod property {
                 // reads without operands, so this is the one check that an
                 // Expression's Atoms spell the Source they claim rather than
                 // merely being present.
-                if let Some(atoms) = expression.atoms() {
+                if let Some(atoms) = expression.atoms().filter(|_| !payload) {
                     let rendered: String = atoms.iter().map(|atom| atom.to_string()).collect();
                     prop_assert_eq!(
                         rendered.as_str(),

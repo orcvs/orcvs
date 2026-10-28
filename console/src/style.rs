@@ -308,7 +308,11 @@ fn fact_index(paint: SourcePaint) -> usize {
             let token = match token {
                 Token::Number => 0,
                 Token::Note => 1,
-                Token::Comment | Token::Function | Token::Char | Token::Untyped => {
+                Token::Comment
+                | Token::Payload
+                | Token::Function
+                | Token::Char
+                | Token::Untyped => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
             };
@@ -767,7 +771,11 @@ impl RoleChannels {
                     theme.source_note_border,
                     theme.source_note_border_width,
                 ),
-                Token::Comment | Token::Function | Token::Char | Token::Untyped => {
+                Token::Comment
+                | Token::Payload
+                | Token::Function
+                | Token::Char
+                | Token::Untyped => {
                     unreachable!("SourcePaint::Operand carries only a declared operand Token")
                 }
             },

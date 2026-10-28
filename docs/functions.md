@@ -937,3 +937,88 @@ After Tick `0`:
 
 !b000040
 ```
+
+## Network output
+
+These perform an effect: each sends one message over the network when a Bang reaches it, and
+writes nothing into the Source. Each is inert until a Bang reaches it. Neither takes operands.
+What each sends is its Payload: the Cells after its spelling through the next `!` on the row, which
+closes it, or through the end of the row when no `!` follows. The Payload is never parsed, so it
+can hold any character but `!`, and a Write into it changes what the next send carries.
+
+Sends go to the host and ports set at the foot of the list under the Panel's **O**, which default
+to `127.0.0.1`, UDP port `49161` and OSC port `49162`. A send that fails is reported and playback
+goes on. The web build cannot send UDP or OSC, so there each activation is reported instead.
+
+### `!u` UDP
+
+`!u` sends its Payload as one UDP datagram: one byte per Cell, a space for an empty Cell, and no
+terminator. `!uhello!` sends `hello`. An empty Payload, `!u!`, sends nothing.
+
+```orcvs
+**
+!uhello!
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 1
+
+!uhello!
+```
+
+### `!o` OSC
+
+`!o` sends its Payload as one OSC message. The Payload's words are separated by spaces. The first
+is the address and starts with `/`. Without a type string, each later word is an argument whose
+type comes from its shape:
+
+| Word | Sends | Examples |
+|---|---|---|
+| One to eight uppercase hexadecimal digits | The int32 whose bits they spell | `40` sends 64, `1B8` sends 440, `FFFFFFFF` sends -1 |
+| A decimal with a digit on each side of the point | A float32 | `0.5`, `-0.5`, `440.0` |
+| Any other word | A string | `hi`, `ab`, `.5`, `1e3` |
+
+`!o/synth/freq 40 7F!` sends `/synth/freq` with the int32s 64 and 127.
+
+```orcvs
+**
+!o/synth/freq 40 7F!
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 1
+
+!o/synth/freq 40 7F!
+```
+
+A word after the address that starts with `,` is a type string, one letter per argument: `i` for an
+int32, `f` for a float32 and `s` for a string. `!o/synth/freq ,fs 64.0 hi!` sends the float32 64.0
+and the string `hi`.
+
+```orcvs
+**
+!o/synth/freq ,fs 64.0 hi!
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 1
+
+!o/synth/freq ,fs 64.0 hi!
+```
+
+An address that does not start with `/`, a type letter other than `i`, `f` or `s`, a type string
+whose length differs from the argument count, or a word that does not fit its type diagnoses and
+sends nothing:
+
+```orcvs
+**
+!osynth 40!
+```
+
+```orcvs tick 0 diagnoses
+
+!osynth 40!
+```
