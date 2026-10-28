@@ -222,8 +222,8 @@ pub struct PlaybackObservation {
     pub network_failed: bool,
     ///
     /// Whether the latest MIDI delivery failed. Held while the engine is
-    /// stopped, so it clears once a delivery succeeds, a destination is
-    /// installed, or a run begins. The failure's message is a
+    /// stopped and into the next run, so it clears once a delivery succeeds
+    /// or a destination is installed. The failure's message is a
     /// [`PlaybackDiagnostic::OutputFailure`].
     ///
     pub midi_failed: bool,
@@ -4284,17 +4284,21 @@ mod tests {
         run.run_tick(0);
         assert!(run.observation().midi_failed);
 
-        // A stopped engine delivers nothing, so the failure stands until a
-        // new run begins.
+        // Only a delivery answers whether the device recovered, so the
+        // failure stands through a stop and into the next run: a rewind while
+        // playing stops and begins in one step, and clearing it there would
+        // hide a refused safety action the console has not yet drawn.
         run.inner.stop();
         assert!(run.observation().midi_failed);
         run.begin_run();
+        assert!(run.observation().midi_failed);
+        run.run_tick(1);
         assert!(!run.observation().midi_failed);
 
         adapter.fail_next_submission("device lost");
-        run.run_tick(1);
-        assert!(run.observation().midi_failed);
         run.run_tick(2);
+        assert!(run.observation().midi_failed);
+        run.run_tick(3);
         assert!(!run.observation().midi_failed);
     }
 

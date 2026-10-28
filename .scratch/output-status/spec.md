@@ -15,7 +15,8 @@ The console routes each frame's Playback diagnostics in one Playback status modu
   clock, start or retune failure the engine's. An Overrun or an omission summary is no failure.
 - **Own messages.** MIDI selection keeps a refused discovery, a refused connect and "Opening …";
   the network setting keeps the value it refused. Neither reads Playback diagnostics.
-- **MIDI.** Shown until the observation's `midi_failed` clears.
+- **MIDI.** Shown until the observation's `midi_failed` clears, which a successful delivery or an
+  installed destination does. A new run does not, so a rewind cannot hide a refused safety action.
 - **Network.** Shown until the observation's `network_failed` clears or the destination changes,
   and each failure is reported to the developer console.
 - **Engine.** The latest is shown until the next run begins, read from the observation's

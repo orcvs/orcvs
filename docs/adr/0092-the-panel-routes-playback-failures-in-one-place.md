@@ -23,9 +23,12 @@ the MIDI and network statuses, drawn the same way. They are events, not states: 
 until the next run begins, and a newer one replaces it. A retune failure therefore stays for the
 rest of its run.
 
-**The observation publishes the MIDI latch beside the network one.** `midi_failed` clears once a
-delivery succeeds, a destination is installed, or a run begins, so the MIDI status clears on
-recovery as the network status does.
+**The observation publishes whether the latest MIDI delivery failed, beside the network flag.**
+`midi_failed` clears once a delivery succeeds or a destination is installed, so the MIDI status
+clears on recovery. It is not the latch: a new run clears the latch so that the next failure is
+reported again, but only a delivery says whether the device recovered. A rewind while playing stops
+and begins a run in one engine step, so a flag that cleared with the latch would hide a refused
+safety action before the console drew it.
 
 **No build branches on whether it has MIDI.** Without a MIDI backend no connection is ever
 installed, and an adapter with no connection delivers nothing, so no MIDI failure can occur there;

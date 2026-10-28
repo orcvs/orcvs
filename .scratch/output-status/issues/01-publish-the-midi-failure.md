@@ -7,5 +7,6 @@ Type: task
 beside `network_failed` ([spec](../spec.md), ADR 0092).
 
 - [x] Set when a MIDI delivery or safety action fails.
-- [x] Cleared by a successful delivery, an installed destination and the start of a run.
+- [x] Cleared by a successful delivery and an installed destination, not by the start of a run,
+      which clears only the reporting latch.
 - [x] Published after every step that can change either latch.
