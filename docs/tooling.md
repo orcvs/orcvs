@@ -13,7 +13,7 @@ Verification has two trigger tiers:
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
   the application twice, once under each. Pull requests run the first on Linux and the second on the
   WASM job. macOS runs the native tier only during merge queue verification, pushes to `main`, and
-  manual dispatch.
+  manual dispatch, and Windows runs the network loopback on the same events.
 - `mise run check_merge` runs the browser regression suite, the persistence
   tier at proptest's full case count, and a compile of the release captures. CI distributes these gates across the existing Linux and WASM
   jobs on `merge_group`, after a push to `main`, or on manual dispatch.
@@ -176,7 +176,7 @@ the same reason: there is nothing to run. `scripts/check-tooling-contract.sh` pi
 presence in `check_pull_request`, because deleting it is invisible — no test fails when a feature
 stops being compiled.
 
-No CI job runs on Windows, so `mise run check_windows` is the one place that compiles for it: `cargo
+No CI job builds the console for Windows, so `mise run check_windows` is the one place that compiles it there: `cargo
 clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked`, with default features and
 with `--no-default-features`. It reaches the `cfg(windows)` code in the console's dependencies —
 midir's WinMM backend, rfd's COM dialogs, winit's Win32 window and eframe's known-folder storage
@@ -185,8 +185,9 @@ clippy is a check build, so it neither links nor needs the MSVC linker or Window
 `rust-toolchain.toml` declares the target so rustup installs it with the pinned channel, the way the
 WASM job gets `wasm32-unknown-unknown`. It is scoped to the shipped crates because the test and bench
 targets pull in criterion, whose `alloca` build script compiles C for the target and needs `lib.exe`
-or `clang-cl`. It proves that Windows compiles, not that it runs; `docs/research/windows-support.md`
-covers what running it would take. `scripts/check-tooling-contract.sh` pins the task, its call in
+or `clang-cl`. It proves that Windows compiles, not that it runs; the merge tier's `windows` job
+runs only the network loopback below, and `docs/research/windows-support.md` covers what running
+the rest would take. `scripts/check-tooling-contract.sh` pins the task, its call in
 `check_pull_request`, and the toolchain target.
 
 `mise run inspect` is the launcher, and two things about it are load-bearing rather than
@@ -294,8 +295,8 @@ push, so a manual dispatch — the obvious way to re-verify a commit — runs th
 reporting green having run only the pull-request tier.
 
 The `ci` aggregate runs with `always()` and requires Linux and WASM success on every supported
-event. It requires macOS to be skipped on pull requests and successful on merge groups, pushes,
-and manual dispatches. Failure, cancellation, and unexpected skipping fail the aggregate.
+event. It requires macOS and Windows to be skipped on pull requests and successful on merge
+groups, pushes, and manual dispatches. Failure, cancellation, and unexpected skipping fail the aggregate.
 `scripts/tests/check-ci-results.sh` exercises every combination of these job results.
 
 To activate the queue, first land this workflow and confirm the `ci` check reports successfully.
@@ -637,6 +638,23 @@ compiled there. A host without the service cannot run those tests, so the ordina
 them and `mise run test_midi_loopback` runs them. CI runs the task in the merge tier's `macos` job, where
 CoreMIDI needs no setup; the hosted Ubuntu runner's Azure kernel ships no ALSA sequencer module, and
 a container shares that kernel.
+
+## Network loopback
+
+`orcvs/tests/network_loopback.rs` plays a Source of `!u` and `!o` rows through a running Orcvs to
+two listeners on loopback UDP ports. A Clock writes the Tick into each Payload, so every datagram
+names the Tick that sent it, and the test asserts each Tick's UDP and OSC sends arrive once, in
+order, with nothing after the stop and no diagnostic. The listener reads OSC 1.0 with its own
+decoder rather than the output adapter's encoder, so a wrong byte shows up as a difference.
+
+A second test sends one Tick where nothing listens and the next to the listeners. Windows reports
+the first datagram as `ConnectionReset` on the socket's next send, which ADR 0085 ignores; the
+test asserts that send is still made and reports nothing.
+
+Loopback sockets need no platform service, so both run in the ordinary suite. `mise run
+test_network_loopback` runs them alone, which is how the merge tier's `windows` job runs them:
+it is the only job that tests on Windows, and it runs on the same events as `macos`. Its mise
+step sets `install: false`, since the task calls no tool `mise.toml` pins.
 
 ## Worktrees each need their own target directory
 
