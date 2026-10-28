@@ -1,6 +1,6 @@
 # 02 — Put the network behind a seam
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01
 
@@ -8,7 +8,7 @@ Blocked by: 01
 destination, with a native socket adapter, a web refusal adapter and a recording adapter behind
 `test-output-adapter` ([spec](../spec.md)).
 
-- [ ] The OSC encoder is a pure function the native adapter calls; the web adapter never encodes.
-- [ ] No `cfg` chooses behaviour inside the send itself; each target supplies its adapter.
-- [ ] Engine tests that bind loopback sockets record Network Sends instead.
-- [ ] `orcvs/tests/network_loopback.rs` still passes.
+- [x] The OSC encoder is a pure function the native adapter calls; the web adapter never encodes.
+- [x] No `cfg` chooses behaviour inside the send itself; each target supplies its adapter.
+- [x] Engine tests that bind loopback sockets record Network Sends instead.
+- [x] `orcvs/tests/network_loopback.rs` still passes.

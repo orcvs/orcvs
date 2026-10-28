@@ -715,7 +715,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 last_tick_at: None,
                 tick: Tick::ZERO,
                 owned: OwnedNotes::default(),
-                network: NetworkOutput::new(network),
+                network: NetworkOutput::new(network, crate::network::platform_adapter()),
             },
             PlaybackChannels {
                 observation: observed,
@@ -1893,8 +1893,7 @@ mod tests {
         inner: PlaybackInner<A>,
         observation: watch::Receiver<PlaybackObservation>,
         diagnostics: DiagnosticLog,
-        /// Where the run's network output sends. Only a native test sends.
-        #[cfg(not(target_arch = "wasm32"))]
+        /// Where the run's network output sends.
         network_destination: watch::Sender<NetworkDestination>,
     }
 
@@ -1905,9 +1904,25 @@ mod tests {
                 inner,
                 observation: channels.observation,
                 diagnostics: channels.diagnostics,
-                #[cfg(not(target_arch = "wasm32"))]
                 network_destination: channels.network_destination,
             }
+        }
+
+        ///
+        /// A run whose network output sends to `network`, recording each
+        /// send, rather than to this build's own adapter.
+        ///
+        fn with_network(
+            source: SourceCommander,
+            adapter: A,
+            network: &crate::network::RecordingAdapter,
+        ) -> Self {
+            let mut run = Self::new(source, adapter);
+            run.inner.network = NetworkOutput::new(
+                run.network_destination.subscribe(),
+                Box::new(network.clone()),
+            );
+            run
         }
 
         ///
@@ -4265,90 +4280,70 @@ mod tests {
         assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn a_banged_udp_function_sends_its_payload_to_the_destination() {
-        let listener = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        listener
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+        let network = crate::network::RecordingAdapter::default();
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 0, ".=0101");
         write(&source, 12, "!uhi!");
-        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
-        run.network_destination.send_modify(|destination| {
-            destination.udp_port = listener.local_addr().unwrap().port();
-        });
+        let mut run =
+            HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
+        run.network_destination
+            .send_modify(|destination| destination.udp_port = 9000);
         run.begin_run();
 
         run.run_tick(0);
 
-        let mut buffer = [0; 16];
-        let (length, _) = listener.recv_from(&mut buffer).unwrap();
-        assert_eq!(&buffer[..length], b"hi");
+        let sent = network.sends();
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(sent[0].0, lang::NetworkSend::Udp(b"hi".as_slice().into()));
+        assert_eq!(sent[0].1.udp_port, 9000);
         assert!(run.drain_diagnostics().is_empty());
 
         // Stopping, with its safety action, and rewinding send nothing.
         run.inner.stop();
         run.inner.rewind();
-        listener
-            .set_read_timeout(Some(Duration::from_millis(100)))
-            .unwrap();
-        assert!(listener.recv_from(&mut buffer).is_err());
+        assert_eq!(network.sends().len(), 1);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn a_failed_network_send_is_reported_each_time_and_playback_goes_on() {
+        let network = crate::network::RecordingAdapter::default();
+        network.refuse(Some("refused"));
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 0, ".=0101");
         write(&source, 12, "!o/go!");
-        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
-        // Port zero is no destination, so every send is refused.
-        run.network_destination
-            .send_modify(|destination| destination.osc_port = 0);
+        let mut run =
+            HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
         run.begin_run();
 
         run.run_tick(0);
         run.run_tick(1);
 
-        let diagnostics = run.drain_diagnostics();
-        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        assert!(diagnostics.iter().all(|diagnostic| matches!(
-            diagnostic,
-            PlaybackDiagnostic::NetworkFailure(error)
-                if error.message.starts_with("network send to 127.0.0.1:0 failed")
-        )));
+        assert_eq!(
+            run.drain_diagnostics(),
+            vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new("refused")); 2]
+        );
         assert_eq!(run.state(), PlaybackState::Playing);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn the_observation_says_whether_the_last_network_sends_failed() {
-        let listener = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let network = crate::network::RecordingAdapter::default();
+        network.refuse(Some("refused"));
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 0, ".=0101");
         write(&source, 12, "!o/go!");
-        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
-        run.network_destination
-            .send_modify(|destination| destination.osc_port = 0);
+        let mut run =
+            HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
         run.begin_run();
         assert!(!run.observation().network_failed);
 
         run.run_tick(0);
         assert!(run.observation().network_failed);
 
-        // A new run, which a rewind while playing also begins, starts clear.
-        run.inner.stop();
-        run.begin_run();
-        assert!(!run.observation().network_failed);
+        network.refuse(None);
         run.run_tick(1);
-        assert!(run.observation().network_failed);
-
-        run.network_destination.send_modify(|destination| {
-            destination.osc_port = listener.local_addr().unwrap().port();
-        });
-        run.run_tick(2);
         assert!(!run.observation().network_failed);
     }
 
