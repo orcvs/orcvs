@@ -5,7 +5,6 @@
 //!
 
 use orcvs::network::NetworkDestination;
-use orcvs::playback::PlaybackDiagnostic;
 
 ///
 /// The Storage key the destination lives under.
@@ -48,14 +47,11 @@ pub(crate) enum NetworkField {
 }
 
 ///
-/// The destination the console sends to, the last value it refused, and the
-/// last send that failed. A failure is shown until sends leave again or the
-/// destination changes.
+/// The destination the console sends to, and the last value it refused.
 ///
 pub(crate) struct NetworkSetting {
     destination: NetworkDestination,
     refused: Option<String>,
-    failed: Option<String>,
 }
 
 impl NetworkSetting {
@@ -63,7 +59,6 @@ impl NetworkSetting {
         Self {
             destination,
             refused: None,
-            failed: None,
         }
     }
 
@@ -98,39 +93,12 @@ impl NetworkSetting {
             NetworkField::OscPort => port(text).map(|port| self.destination.osc_port = port),
         };
         self.refused = committed.as_ref().err().cloned();
-        if committed.is_ok() {
-            self.failed = None;
-        }
         committed.is_ok()
     }
 
-    ///
-    /// Takes every network failure out of `diagnostics`, reporting each, and
-    /// shows the last of them. With
-    /// none, the failure shown stays only while `sends_failed`, which
-    /// [`orcvs::playback::PlaybackObservation::network_failed`] answers.
-    ///
-    pub(crate) fn observe_diagnostics(
-        &mut self,
-        diagnostics: &mut Vec<PlaybackDiagnostic>,
-        sends_failed: bool,
-    ) {
-        if !sends_failed {
-            self.failed = None;
-        }
-        diagnostics.retain(|diagnostic| {
-            let PlaybackDiagnostic::NetworkFailure(error) = diagnostic else {
-                return true;
-            };
-            crate::report::error!("Playback failure: {}", error.message);
-            self.failed = Some(error.message.clone());
-            false
-        });
-    }
-
-    /// What the Panel shows: the refused value, else the failed send.
+    /// What the Panel shows: the value it refused.
     pub(crate) fn status(&self) -> Option<&str> {
-        self.refused.as_deref().or(self.failed.as_deref())
+        self.refused.as_deref()
     }
 }
 
@@ -146,7 +114,6 @@ fn port(text: &str) -> Result<u16, String> {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use orcvs::network::NetworkDestination;
-    use orcvs::playback::{OutputAdapterError, PlaybackDiagnostic};
 
     use super::{NetworkField, NetworkSetting};
 
@@ -200,68 +167,6 @@ mod tests {
         }
         assert!(setting.commit(NetworkField::UdpPort, "49161"));
         assert_eq!(setting.status(), None, "a valid value clears the report");
-    }
-
-    #[test]
-    fn a_failed_send_is_shown_and_the_other_diagnostics_pass_on() {
-        let mut setting = NetworkSetting::new(NetworkDestination::default());
-        let midi = PlaybackDiagnostic::OutputFailure(OutputAdapterError::new("device lost"));
-        let mut diagnostics = vec![
-            PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new("first")),
-            midi.clone(),
-            PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new("second")),
-        ];
-        setting.observe_diagnostics(&mut diagnostics, true);
-        assert_eq!(diagnostics, [midi]);
-        assert_eq!(setting.status(), Some("second"));
-    }
-
-    #[test]
-    fn a_failed_send_is_shown_until_sends_succeed_again() {
-        let mut setting = NetworkSetting::new(NetworkDestination::default());
-        setting.observe_diagnostics(
-            &mut vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
-                "send failed",
-            ))],
-            true,
-        );
-        setting.observe_diagnostics(&mut Vec::new(), true);
-        assert_eq!(setting.status(), Some("send failed"), "sends still fail");
-        setting.observe_diagnostics(&mut Vec::new(), false);
-        assert_eq!(setting.status(), None, "the last sends left");
-    }
-
-    #[test]
-    fn a_refused_value_and_a_failed_send_keep_their_own_reports() {
-        let mut setting = NetworkSetting::new(NetworkDestination::default());
-        setting.observe_diagnostics(
-            &mut vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
-                "send failed",
-            ))],
-            true,
-        );
-        assert!(!setting.commit(NetworkField::UdpPort, "0"));
-        assert_eq!(
-            setting.status(),
-            Some("port \"0\" is not a number from 1 to 65535")
-        );
-        setting.observe_diagnostics(
-            &mut vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
-                "send failed again",
-            ))],
-            true,
-        );
-        assert_eq!(
-            setting.status(),
-            Some("port \"0\" is not a number from 1 to 65535"),
-            "a later failure does not overwrite the refusal"
-        );
-        assert!(setting.commit(NetworkField::UdpPort, "49161"));
-        assert_eq!(
-            setting.status(),
-            None,
-            "a valid value clears the refusal and the failure with it"
-        );
     }
 
     #[cfg(feature = "persistence")]

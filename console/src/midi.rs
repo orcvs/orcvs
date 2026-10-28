@@ -4,9 +4,6 @@ use orcvs::midi::{
     MidiBackend, MidiConnection, MidiConnectionRequest, MidiDestination, MidiDestinationId,
     MidiSelectionHandle,
 };
-use orcvs::playback::PlaybackDiagnostic;
-
-use crate::diagnostics::failure_message;
 
 ///
 /// Output readout copy when nothing is selected or the last discovery returned
@@ -107,7 +104,6 @@ pub(crate) struct MidiDeviceSelection {
     backend: Box<dyn MidiBackend>,
     destinations: Vec<MidiDestination>,
     status: Option<String>,
-    engine_status: Option<String>,
     ///
     /// Whether automatic destination selection has already been tried without
     /// an explicit user action. A refused connect leaves the selection empty,
@@ -144,7 +140,6 @@ impl MidiDeviceSelection {
             backend,
             destinations: Vec::new(),
             status: None,
-            engine_status: None,
             auto_select_attempted: false,
             discovery_pending: false,
             opening: None,
@@ -287,7 +282,6 @@ impl MidiDeviceSelection {
                 let message = opened_later.then(|| self.opening_message(destination_id));
                 self.installing = Some((destination_id.clone(), message));
                 self.status = None;
-                self.engine_status = None;
             }
             Err(error) => self.status = Some(error.message),
         }
@@ -339,12 +333,9 @@ impl MidiDeviceSelection {
     }
 
     pub(crate) fn status(&self) -> Option<&str> {
-        self.status
-            .as_deref()
-            .or(self
-                .unpublished_install()
-                .and_then(|(_, message)| message.as_deref()))
-            .or(self.engine_status.as_deref())
+        self.status.as_deref().or(self
+            .unpublished_install()
+            .and_then(|(_, message)| message.as_deref()))
     }
 
     ///
@@ -366,16 +357,6 @@ impl MidiDeviceSelection {
         let published = self.selection.selected_destination_id().ok()?;
         (published.as_ref() != Some(&installing.0)).then_some(installing)
     }
-
-    pub(crate) fn observe_diagnostics(&mut self, diagnostics: Vec<PlaybackDiagnostic>) {
-        for diagnostic in diagnostics {
-            if let Some(message) = failure_message(&diagnostic) {
-                self.engine_status = Some(message);
-                self.status = None;
-                self.installing = None;
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -385,7 +366,6 @@ mod tests {
         MidiBackend, MidiConnection, MidiDestination, MidiDestinationId, MidiError,
         MidiOutputAdapter,
     };
-    use orcvs::playback::{OutputAdapterError, PlaybackDiagnostic};
 
     use super::{MidiDeviceSelection, destination_presentation_for, destination_selected_text};
 
@@ -407,23 +387,6 @@ mod tests {
     impl MidiBackend for FakeBackend {
         fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
             Ok(vec![MidiDestination::new("one", "Studio Synth")])
-        }
-
-        fn connect(
-            &mut self,
-            _destination_id: &MidiDestinationId,
-        ) -> Result<orcvs::midi::MidiConnectionRequest, MidiError> {
-            Ok(orcvs::midi::MidiConnectionRequest::Ready(Box::new(
-                FakeConnection,
-            )))
-        }
-    }
-
-    struct FailingDiscoveryBackend;
-
-    impl MidiBackend for FailingDiscoveryBackend {
-        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
-            Err(MidiError::new("device discovery failed"))
         }
 
         fn connect(
@@ -559,19 +522,15 @@ mod tests {
     ///
     #[tokio::test]
     async fn a_failed_automatic_selection_is_not_retried_until_refresh() {
-        let (mut orcvs, mut midi) = selection_for(RefusingConnectBackend);
+        let (_orcvs, mut midi) = selection_for(RefusingConnectBackend);
         midi.refresh_destinations();
         settle_until!(!midi.destinations().is_empty());
 
         midi.auto_select_first_if_unselected();
-        settle_until!({
-            midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
-            midi.status() == Some("device connection failed")
-        });
+        settle_until!({ midi.status() == Some("device connection failed") });
 
         for _ in 0..5 {
             midi.auto_select_first_if_unselected();
-            midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
         }
 
         assert_eq!(midi.selected_destination_id(), None);
@@ -580,10 +539,7 @@ mod tests {
         midi.refresh_destinations();
         settle_until!(!midi.destinations().is_empty());
         midi.auto_select_first_if_unselected();
-        settle_until!({
-            midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
-            midi.status() == Some("device connection failed")
-        });
+        settle_until!({ midi.status() == Some("device connection failed") });
     }
 
     #[tokio::test]
@@ -734,35 +690,6 @@ mod tests {
         assert!(presentation.enabled);
         assert!(presentation.show_refresh);
         assert_eq!(presentation.selected_text, super::OUTPUT_NONE);
-    }
-
-    ///
-    /// Drawing the menu does not overwrite the failure the engine just
-    /// reported.
-    ///
-    /// The published discovery outcome persists until a later discovery
-    /// replaces it, and the menu reads it on every frame it is open — twice
-    /// per frame, in fact. A read that writes the status line therefore
-    /// restates a discovery error the user has already seen, in the same frame
-    /// that an output failure was put there, and in every frame after it. The
-    /// status line belongs to whatever happened last, not to whatever was read
-    /// last.
-    ///
-    #[tokio::test]
-    async fn drawing_the_menu_does_not_hide_an_output_failure_behind_a_stale_discovery_error() {
-        let (_orcvs, mut midi) = selection_for(FailingDiscoveryBackend);
-        midi.refresh_destinations();
-        assert_eq!(midi.destinations(), &[] as &[MidiDestination]);
-        assert_eq!(midi.status(), Some("device discovery failed"));
-
-        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
-            OutputAdapterError::new("device lost"),
-        )]);
-
-        let _ = midi.destinations();
-        let _ = midi.destinations();
-
-        assert_eq!(midi.status(), Some("device lost"));
     }
 
     #[tokio::test]
@@ -999,31 +926,13 @@ mod tests {
 
     #[tokio::test]
     async fn backend_errors_are_exposed_as_status() {
-        let (mut orcvs, mut midi) = selection_for(FailingBackend);
+        let (_orcvs, mut midi) = selection_for(FailingBackend);
 
         midi.refresh_destinations();
         assert_eq!(midi.status(), Some("device discovery failed"));
 
         midi.select_destination(&MidiDestinationId::new("missing"));
         assert_eq!(midi.status(), Some("device connection failed"));
-
-        tokio::task::yield_now().await;
-        midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
-        assert_eq!(midi.status(), Some("device connection failed"));
-    }
-
-    #[tokio::test]
-    async fn a_refused_start_reaches_the_status_line() {
-        let (_orcvs, mut midi) = selection_for(FakeBackend);
-
-        midi.observe_diagnostics(vec![PlaybackDiagnostic::StartFailure {
-            message: "Tick period is too long to schedule a deadline for".to_owned(),
-        }]);
-
-        assert_eq!(
-            midi.status(),
-            Some("Tick period is too long to schedule a deadline for")
-        );
     }
 
     #[tokio::test]
@@ -1067,58 +976,6 @@ mod tests {
                 FakeConnection,
             )))
         }
-    }
-
-    #[tokio::test]
-    async fn unavailability_replaces_a_stale_engine_diagnostic() {
-        let (orcvs, mut midi) = selection_for(FakeBackend);
-        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
-            OutputAdapterError::new("device lost"),
-        )]);
-
-        drop(orcvs);
-
-        let _ = midi.selected_destination_id();
-
-        assert_eq!(midi.status(), Some("running Orcvs is no longer available"));
-    }
-
-    #[tokio::test]
-    async fn a_successful_selection_clears_a_stale_engine_diagnostic() {
-        let (_orcvs, mut midi) = selection_for(FakeBackend);
-        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
-            OutputAdapterError::new("device lost"),
-        )]);
-        assert_eq!(midi.status(), Some("device lost"));
-
-        midi.select_destination(&MidiDestinationId::new("one"));
-        tokio::task::yield_now().await;
-
-        assert_eq!(midi.status(), None);
-    }
-
-    #[tokio::test]
-    async fn a_connect_error_reaches_the_status_line_after_an_engine_failure() {
-        let (_orcvs, mut midi) = selection_for(FailingBackend);
-        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
-            OutputAdapterError::new("device lost"),
-        )]);
-
-        midi.select_destination(&MidiDestinationId::new("missing"));
-
-        assert_eq!(midi.status(), Some("device connection failed"));
-    }
-
-    #[tokio::test]
-    async fn refreshing_destinations_does_not_hide_an_active_output_failure() {
-        let (_orcvs, mut midi) = selection_for(FakeBackend);
-        midi.observe_diagnostics(vec![PlaybackDiagnostic::OutputFailure(
-            OutputAdapterError::new("device lost"),
-        )]);
-
-        midi.refresh_destinations();
-
-        assert_eq!(midi.status(), Some("device lost"));
     }
 
     #[tokio::test]

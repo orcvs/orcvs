@@ -800,7 +800,7 @@ pub(crate) mod tests {
     /// opened is the one Playback delivers to, byte for byte; changing
     /// destination sends the outgoing output the safety action and the
     /// incoming one the next run's notes; and an output that disconnects
-    /// refuses delivery, which reaches the status line.
+    /// refuses delivery, which reaches the Playback status.
     ///
     #[tokio::test(start_paused = true)]
     async fn playback_delivers_exact_bytes_to_the_output_the_console_opened() {
@@ -841,9 +841,13 @@ pub(crate) mod tests {
         toggle_playback(&mut orcvs).await;
         fake.disconnect("b");
         toggle_playback(&mut orcvs).await;
-        midi.observe_diagnostics(orcvs.drain_playback_diagnostics());
+        let mut status = crate::playback_status::PlaybackStatus::default();
+        status.observe(
+            orcvs.drain_playback_diagnostics(),
+            &orcvs.playback_observation(),
+        );
 
-        assert_eq!(midi.status(), Some(DESTINATION_GONE));
+        assert_eq!(status.midi(), Some(DESTINATION_GONE));
         assert_eq!(midi.selected_destination_id(), None);
     }
 

@@ -13,10 +13,10 @@ pub mod console_midi;
 // native loads one: the web has the built-ins alone.
 #[cfg(any(not(target_arch = "wasm32"), test))]
 mod contrast;
-pub mod diagnostics;
 mod examples;
 mod function_reference;
 mod grid_viewport;
+pub mod playback_status;
 // Whether a console opens a Source its URL names, and which.
 mod linked_source;
 mod marks;

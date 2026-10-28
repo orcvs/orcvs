@@ -1,6 +1,6 @@
 # Playback status
 
-Status: ready-for-agent
+Status: resolved
 
 ## The decision
 
