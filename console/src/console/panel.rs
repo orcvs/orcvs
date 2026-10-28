@@ -354,16 +354,23 @@ impl Console {
                 |ui| {
                     let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    let [rewind, play, stop] = TRANSPORT_GLYPHS;
-                    if ui.button(rewind).clicked() {
-                        self.orcvs.rewind();
-                    }
-                    ui.add_space(label_value_gap);
                     let playing = observation.state == PlaybackState::Playing;
-                    if ui.button(if playing { stop } else { play }).clicked() {
+                    let scale = if super::play_prototype::variant() == 'F' {
+                        2.0
+                    } else {
+                        1.0
+                    };
+                    let cell = self.source_view.cell;
+                    let theme = self.themes.presented(appearance).clone();
+                    if super::play_prototype::cell_button(ui, 'P', cell, scale, &theme, playing) {
                         self.orcvs.toggle_playback();
                     }
+                    ui.add_space(label_value_gap);
+                    if super::play_prototype::cell_button(ui, 'R', cell, scale, &theme, false) {
+                        self.orcvs.rewind();
+                    }
                     ui.add_space(entry_gap);
+                    let _ = TRANSPORT_GLYPHS;
                     panel_label(ui, "B");
                     ui.add_space(label_value_gap);
                     let mut bpm = self.orcvs.bpm().beats_per_minute();

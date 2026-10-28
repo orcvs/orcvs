@@ -19,6 +19,7 @@ mod input;
 mod menu_bar;
 pub(crate) mod overview;
 mod panel;
+mod play_prototype;
 mod repaint;
 pub(crate) mod shapes;
 mod source_view;
