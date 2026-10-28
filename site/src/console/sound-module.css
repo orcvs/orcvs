@@ -1,6 +1,7 @@
 /* The Sound Module (`sound-module.ts`): Cells as `grid.css` draws a Source's. A channel is dim
    until a Note On sounds it, then takes the Function role's colours. A magnitude fills with the
-   magnitude colour at its `--level`, from 0 to 1. */
+   magnitude colour at its `--level`, from 0 to 1. The Cursor outlines the value Cell typing writes,
+   as the console's Cursor does. */
 .orcvs-sound-module {
   margin: 0;
   user-select: none;
@@ -19,6 +20,12 @@
 .orcvs-sound-module .magnitude {
   background: color-mix(in srgb, var(--orcvs-sound-magnitude) calc(var(--level, 0) * 100%), transparent);
   box-shadow: inset 0 0 0 1px var(--orcvs-sound-magnitude);
+}
+.orcvs-sound-module:focus {
+  outline: none;
+}
+.orcvs-sound-module .cursor {
+  box-shadow: inset 0 0 0 1px var(--orcvs-cursor-border);
 }
 .orcvs-sound-module [data-effect] {
   cursor: ns-resize;

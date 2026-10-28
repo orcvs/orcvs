@@ -130,3 +130,33 @@ test("a drag keeps its effect across the console above it, and ends on release t
   await page.mouse.move(x, y, { steps: 10 });
   expect(await valueOf(page, 0)).toBe("7F");
 });
+
+test("typing on a value writes it as the Grid does, and sends its Control Change", async ({ page }) => {
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => window.soundSpy.node)).toBe(true);
+
+  // `MD`'s first digit takes the Cursor.
+  const first = page.locator('.orcvs-sound-module .number[data-effect="0"]').first();
+  await first.click();
+  await expect(first).toHaveClass(/cursor/);
+
+  // `6` then `4` write `64` and step east; `8` would make `84`, past `7F`, and is refused.
+  await page.keyboard.type("6");
+  await expect.poll(() => valueOf(page, 0)).toBe("60");
+  await page.keyboard.type("4");
+  await expect.poll(() => valueOf(page, 0)).toBe("64");
+  await expect.poll(() => page.evaluate(() => window.soundSpy.played.at(-1))).toEqual([0xb0, 1, 0x64]);
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.type("8");
+  expect(await valueOf(page, 0)).toBe("64");
+
+  // Past `MD`'s last digit, the Cursor steps onto `OF`'s first.
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.type("2");
+  await expect.poll(() => valueOf(page, 1)).toBe("20");
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".orcvs-sound-module .cursor")).toHaveCount(0);
+});

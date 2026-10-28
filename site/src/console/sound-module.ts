@@ -111,13 +111,52 @@ export function soundModule(module: HTMLElement) {
     return index === undefined ? undefined : Number(index);
   };
 
+  // The Cursor: one of the value Cells, which typing writes as the Grid's Cursor does. It shows
+  // while the Sound Module has the keyboard; Escape, or a click on the console, gives it back.
+  const digits = effects.flatMap((effect) => effect.digits);
+  let cursor = 0;
+  grid.tabIndex = -1;
+  const place = (at: number) => {
+    digits[cursor].classList.remove("cursor");
+    cursor = Math.max(0, Math.min(digits.length - 1, at));
+    digits[cursor].classList.add("cursor");
+  };
+  grid.addEventListener("focus", () => place(cursor));
+  grid.addEventListener("blur", () => digits[cursor].classList.remove("cursor"));
+  grid.addEventListener("keydown", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "Escape") grid.blur();
+    else if (event.key === "ArrowLeft") place(cursor - 1);
+    else if (event.key === "ArrowRight") place(cursor + 1);
+    else if (/^[0-9a-f]$/i.test(event.key)) {
+      // A hex digit replaces the one under the Cursor, which steps east. A value past `7F`, which no
+      // Control Change carries, is refused.
+      const index = Math.floor(cursor / 2);
+      const pair = [...hex(effects[index].value)];
+      pair[cursor % 2] = event.key.toUpperCase();
+      const value = parseInt(pair.join(""), 16);
+      if (value > 0x7f) return;
+      // Shown at once as well as on the round trip, so the next digit typed reads this one.
+      send(index, value);
+      show(effects[index], value);
+      place(cursor + 1);
+    } else return;
+    event.preventDefault();
+  });
+
   // Dragging up raises a value and dragging down lowers it. The grid captures the pointer, so a
   // drag that crosses the console's frame keeps its events, and the capture ends with the drag.
   grid.addEventListener("pointerdown", (event) => {
     const index = effectOf(event.target);
     if (index === undefined) return;
-    // The console keeps the keyboard.
+    // A press on a value takes the keyboard and puts the Cursor there; anywhere else on an effect
+    // the console keeps it.
     event.preventDefault();
+    const digit = digits.indexOf(event.target as HTMLSpanElement);
+    if (digit >= 0) {
+      place(digit);
+      grid.focus();
+    }
     const from = { y: event.clientY, value: effects[index].value };
     const move = (moved: PointerEvent) => {
       if (moved.pointerId !== event.pointerId) return;

@@ -16,7 +16,8 @@ effects' sounds are tickets 17 to 23.
       channel sets `MD`, and at `7F` a steady tone's pitch wavers while at `00` it does not; CC 2 to
       8 change no sound yet.
 - [x] Site tests: a Note On fills its channel's light; a CC from the console shows as the effect's
-      value and magnitude; dragging on an effect sends its CC to the synth.
+      value and magnitude; dragging on an effect, or typing a value at the
+      Cursor, sends its CC to the synth.
 - [x] The magnitude colour is `--orcvs-sound-magnitude`, defaulting to each Theme's Bang colour.
 - [x] Screenshots in the light and dark Themes and at 390 px wide.
 
