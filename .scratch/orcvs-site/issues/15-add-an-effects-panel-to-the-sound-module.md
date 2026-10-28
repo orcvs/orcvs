@@ -3,8 +3,8 @@
 **What to build:** The Sound Module as ADR 0088 decides it, in the row below the console on `/`:
 sixteen channels and the Built-in Synth's eight effects, drawn as Cells in the console's font
 and the Grayscale Theme colours. A Note On shows its channel as sounding. Control
-Change 1 to 8 on any channel sets an effect, whether a Source sends it or the reader drags or
-scrolls on the effect, and the Sound Module shows the value. Every value resets on load (`LN`
+Change 1 to 8 on any channel sets an effect, whether a Source sends it or the reader types a
+value at the Cursor, and the Sound Module shows the value. Every value resets on load (`LN`
 `7F`, `EQ` `40`, the rest `00`). The synth core plays `MD`, vibrato on the whole mix. The other
 effects' sounds are tickets 17 to 23.
 
@@ -16,8 +16,7 @@ effects' sounds are tickets 17 to 23.
       channel sets `MD`, and at `7F` a steady tone's pitch wavers while at `00` it does not; CC 2 to
       8 change no sound yet.
 - [x] Site tests: a Note On fills its channel's light; a CC from the console shows as the effect's
-      value and magnitude; dragging on an effect, or typing a value at the
-      Cursor, sends its CC to the synth.
+      value and magnitude; typing a value at the Cursor sends its CC to the synth.
 - [x] The magnitude colour is `--orcvs-sound-magnitude`, defaulting to each Theme's Bang colour.
 - [x] Screenshots in the light and dark Themes and at 390 px wide.
 

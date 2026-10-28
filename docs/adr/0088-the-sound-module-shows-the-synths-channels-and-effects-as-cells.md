@@ -50,12 +50,13 @@ picks nothing. A Source sets them with `!c`. The synth applies each change at it
 like any other message. ADR 0087's other rules stand: All Sound Off and All Notes Off still release
 a channel's tones, and every other Control Change is still ignored.
 
-**The reader changes a value by dragging up or down on its effect, by scrolling, or by typing.**
-Clicking a value's digit puts the Cursor on it, as on the Grid: a hex digit overwrites it and the
-Cursor steps east, the arrow keys move it across the values, and Escape gives the keys back. A digit
-that would take the value past `7F` is refused. The sound module sends each change to the synth as a Control Change message on its own page
-(`{ type: "orcvs.midi", bytes, time }`), the message a console posts. The synth hears one stream,
-and the sound module shows each value from that same stream, whoever sent it.
+**The reader changes a value by typing, as on the Grid.** No drag or scroll changes a value, so
+neither gets in the way of the page. Clicking a value's digit puts the Cursor on it, as on the Grid:
+a hex digit overwrites it and the Cursor steps east, the arrow keys move it across the values, and
+Escape gives the keys back. A digit that would take the value past `7F` is refused. The sound module
+sends each change to the synth as a Control Change message on its own page (`{ type: "orcvs.midi",
+bytes, time }`), the message a console posts. The synth hears one stream, and the sound module shows
+each value from that same stream, whoever sent it.
 
 **Values reset on every load.** Nothing persists across page loads. A Source that needs an effect
 sets it.

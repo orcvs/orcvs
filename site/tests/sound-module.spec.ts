@@ -95,42 +95,6 @@ test("a Control Change from the console shows as its effect's value", async ({ p
   expect(await magnitudeOf(page, 0)).toBe("1");
 });
 
-test("dragging up on an effect sends its Control Change to the synth", async ({ page }) => {
-  await page.goto("/");
-  await expect.poll(() => page.evaluate(() => window.soundSpy.node)).toBe(true);
-
-  const magnitude = await page.locator('.orcvs-sound-module .magnitude[data-effect="0"]').first().boundingBox();
-  const x = magnitude!.x + magnitude!.width / 2;
-  const y = magnitude!.y + magnitude!.height / 2;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  // Two pixels a step: twenty steps up.
-  await page.mouse.move(x, y - 40, { steps: 8 });
-  await page.mouse.up();
-
-  await expect.poll(() => valueOf(page, 0)).toBe("14");
-  await expect.poll(() => page.evaluate(() => window.soundSpy.played.at(-1))).toEqual([0xb0, 1, 0x14]);
-});
-
-test("a drag keeps its effect across the console above it, and ends on release there", async ({ page }) => {
-  await page.goto("/");
-  await expect.poll(() => page.evaluate(() => window.soundSpy.node)).toBe(true);
-
-  const magnitude = await page.locator('.orcvs-sound-module .magnitude[data-effect="0"]').first().boundingBox();
-  const x = magnitude!.x + magnitude!.width / 2;
-  const y = magnitude!.y + magnitude!.height / 2;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  // `7F` steps at two pixels a step is 254 pixels: past the Sound Module, over the console's frame.
-  await page.mouse.move(x, y - 300, { steps: 30 });
-  await expect.poll(() => valueOf(page, 0)).toBe("7F");
-  await page.mouse.up();
-
-  // Released over the console, the drag is over: moving back down changes nothing.
-  await page.mouse.move(x, y, { steps: 10 });
-  expect(await valueOf(page, 0)).toBe("7F");
-});
-
 test("typing on a value writes it as the Grid does, and sends its Control Change", async ({ page }) => {
   await page.goto("/");
   await expect.poll(() => page.evaluate(() => window.soundSpy.node)).toBe(true);

@@ -5,8 +5,6 @@
 
 /** How long a channel shows as sounding after a Note On. */
 const SOUNDING_MS = 150;
-/** How far the pointer moves, in pixels, to change a value by one. */
-const DRAG_STEP = 2;
 
 /** Each effect's two-Cell name and load value, in Control Change order from CC 1. */
 const EFFECTS: [string, number][] = [
@@ -100,16 +98,10 @@ export function soundModule(module: HTMLElement) {
   // The display follows that round trip, so it relies on `synth-host.js` and the listener above both
   // taking `orcvs.midi` that this window posts to itself, as well as a console's.
   function send(index: number, value: number) {
-    const clamped = Math.max(0, Math.min(0x7f, value));
-    if (clamped === effects[index].value) return;
-    const message = { type: "orcvs.midi", bytes: [0xb0, index + 1, clamped], time: performance.timeOrigin + performance.now() };
+    if (value === effects[index].value) return;
+    const message = { type: "orcvs.midi", bytes: [0xb0, index + 1, value], time: performance.timeOrigin + performance.now() };
     window.postMessage(message, location.origin);
   }
-
-  const effectOf = (target: EventTarget | null) => {
-    const index = (target as HTMLElement | null)?.closest<HTMLElement>("[data-effect]")?.dataset.effect;
-    return index === undefined ? undefined : Number(index);
-  };
 
   // The Cursor: one of the value Cells, which typing writes as the Grid's Cursor does. It shows
   // while the Sound Module has the keyboard; Escape, or a click on the console, gives it back.
@@ -144,43 +136,15 @@ export function soundModule(module: HTMLElement) {
     event.preventDefault();
   });
 
-  // Dragging up raises a value and dragging down lowers it. The grid captures the pointer, so a
-  // drag that crosses the console's frame keeps its events, and the capture ends with the drag.
+  // A press on a value takes the keyboard and puts the Cursor there; anywhere else the console
+  // keeps it.
   grid.addEventListener("pointerdown", (event) => {
-    const index = effectOf(event.target);
-    if (index === undefined) return;
-    // A press on a value takes the keyboard and puts the Cursor there; anywhere else on an effect
-    // the console keeps it.
-    event.preventDefault();
     const digit = digits.indexOf(event.target as HTMLSpanElement);
-    if (digit >= 0) {
-      place(digit);
-      grid.focus();
-    }
-    const from = { y: event.clientY, value: effects[index].value };
-    const move = (moved: PointerEvent) => {
-      if (moved.pointerId !== event.pointerId) return;
-      send(index, from.value + Math.round((from.y - moved.clientY) / DRAG_STEP));
-    };
-    const end = () => {
-      grid.removeEventListener("pointermove", move);
-      grid.removeEventListener("lostpointercapture", end);
-    };
-    grid.addEventListener("pointermove", move);
-    grid.addEventListener("lostpointercapture", end);
-    grid.setPointerCapture(event.pointerId);
+    if (digit < 0) return;
+    event.preventDefault();
+    place(digit);
+    grid.focus();
   });
-
-  grid.addEventListener(
-    "wheel",
-    (event) => {
-      const index = effectOf(event.target);
-      if (index === undefined) return;
-      event.preventDefault();
-      send(index, effects[index].value + (event.deltaY < 0 ? 1 : -1));
-    },
-    { passive: false },
-  );
 
   module.append(grid);
 }
