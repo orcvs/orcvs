@@ -296,9 +296,9 @@ impl Console {
             ),
             font_family: egui::FontFamily::Monospace,
             source_view: SourceView::new(config.cell),
-            diagnostics_open: false,
+            diagnostics_open: config.diagnostics_open,
             diagnostics_timing: TimingReadouts::default(),
-            overview_open: true,
+            overview_open: config.overview_open,
             overview: Overview::default(),
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),

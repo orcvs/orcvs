@@ -332,6 +332,38 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
 }
 
 ///
+/// A console started with `[overview] open = false` and
+/// `[diagnostics] open = true` shows the Diagnostics and no Overview, and the
+/// View menu still opens the Overview.
+///
+#[tokio::test]
+async fn a_console_starts_with_the_overview_and_the_diagnostics_its_settings_open() {
+    let config = crate::config::Config {
+        overview_open: false,
+        diagnostics_open: true,
+        ..crate::config::Config::default()
+    };
+    let mut harness = console_harness(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        None,
+        ThemeRegistry::built_in(),
+        config,
+    );
+    harness.run_steps(2);
+    assert!(
+        harness.query_by_label("Source overview").is_none(),
+        "the Overview showed though its setting closed it"
+    );
+    assert!(
+        harness.query_by_label("Visible Source region").is_some(),
+        "the Diagnostics did not show though their setting opened them"
+    );
+
+    toggle_overview(&mut harness);
+    assert!(harness.query_by_label("Source overview").is_some());
+}
+
+///
 /// Ticks or unticks the View menu's "Overview" checkbox.
 ///
 fn toggle_overview(harness: &mut Harness<'_, Console>) {

@@ -10,6 +10,12 @@
 //! [cell]
 //! width = 12              # points, 8–64
 //! height = 18             # points, 8–64
+//!
+//! [overview]
+//! open = true             # whether the Overview is open at startup
+//!
+//! [diagnostics]
+//! open = false            # whether the Diagnostics are open at startup
 //! ```
 //!
 //! Every key is optional, and an absent key is the built-in default. A
@@ -39,6 +45,10 @@ pub(crate) struct Config {
     pub(crate) theme_selection: ThemeSelection,
     /// The Source Cell's width and height in points, before snapping.
     pub(crate) cell: Vec2,
+    /// Whether the Overview is open when the console starts.
+    pub(crate) overview_open: bool,
+    /// Whether the Diagnostics are open when the console starts.
+    pub(crate) diagnostics_open: bool,
     /// One message per problem, in the order found, for the Theme notice
     /// channel, which reports them.
     pub(crate) notices: Vec<String>,
@@ -49,6 +59,8 @@ impl Default for Config {
         Self {
             theme_selection: ThemeSelection::default(),
             cell: CELL_SIZE,
+            overview_open: true,
+            diagnostics_open: false,
             notices: Vec::new(),
         }
     }
@@ -159,9 +171,14 @@ mod native {
         let mut light = None;
         let mut width = None;
         let mut height = None;
+        let mut overview_open = None;
+        let mut diagnostics_open = None;
         for (section, value) in &table {
             let Some(keys) = value.as_table() else {
-                if matches!(section.as_str(), "theme" | "cell") {
+                if matches!(
+                    section.as_str(),
+                    "theme" | "cell" | "overview" | "diagnostics"
+                ) {
                     notice(format!(
                         "`{section}` must be a table; its keys use their defaults"
                     ));
@@ -177,6 +194,10 @@ mod native {
                     ("theme", "light") => light = identity(&name, value, &mut notice),
                     ("cell", "width") => width = points(&name, value, &mut notice),
                     ("cell", "height") => height = points(&name, value, &mut notice),
+                    ("overview", "open") => overview_open = open(&name, value, &mut notice),
+                    ("diagnostics", "open") => {
+                        diagnostics_open = open(&name, value, &mut notice);
+                    }
                     _ => notice(format!("unknown key `{name}` is ignored")),
                 }
             }
@@ -190,6 +211,12 @@ mod native {
         }
         if let Some(height) = height {
             config.cell.y = height;
+        }
+        if let Some(open) = overview_open {
+            config.overview_open = open;
+        }
+        if let Some(open) = diagnostics_open {
+            config.diagnostics_open = open;
         }
         config
     }
@@ -212,6 +239,17 @@ mod native {
                 None
             }
         }
+    }
+
+    /// Whether a view is open at startup: a boolean.
+    fn open(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<bool> {
+        let open = value.as_bool();
+        if open.is_none() {
+            notice(format!(
+                "`{name}` must be `true` or `false`; the default is used"
+            ));
+        }
+        open
     }
 
     /// A Cell's width or height: a number of points within [`CELL_POINTS`].
@@ -250,6 +288,8 @@ mod native {
         fn assert_defaults(config: &Config) {
             assert_eq!(config.theme_selection, ThemeSelection::default());
             assert_eq!(config.cell, CELL_SIZE);
+            assert!(config.overview_open);
+            assert!(!config.diagnostics_open);
         }
 
         fn mentions(config: &Config, needle: &str) -> bool {
@@ -282,6 +322,23 @@ mod native {
                 ThemeSelection::new(id("my-dark"), id("my-light"))
             );
             assert_eq!(config.cell, Vec2::new(10.0, 15.5));
+        }
+
+        #[test]
+        fn the_overview_and_the_diagnostics_open_as_the_file_says() {
+            let config = read("[overview]\nopen = false\n[diagnostics]\nopen = true\n");
+            assert!(config.notices.is_empty(), "{:?}", config.notices);
+            assert!(!config.overview_open);
+            assert!(config.diagnostics_open);
+
+            let config = read("[overview]\nopen = \"no\"\n[diagnostics]\nopen = 1\n");
+            assert!(mentions(&config, "`overview.open`"), "{:?}", config.notices);
+            assert!(
+                mentions(&config, "`diagnostics.open`"),
+                "{:?}",
+                config.notices
+            );
+            assert_defaults(&config);
         }
 
         #[test]
