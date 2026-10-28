@@ -41,8 +41,9 @@ has run.
 
 ## Start Playback
 
-Press **Space**. Playback starts at Tick `0`, the Panel's **T** begins counting, and that first
-Tick writes the answer into the two Cells directly below `.+`:
+Press **Space**, or the **P** Cell at the start of the Panel. Playback starts at Tick `0`, the
+Panel's **T** begins counting, and that first Tick writes the answer into the two Cells directly
+below `.+`:
 
 ```text
 .+0102
@@ -92,15 +93,15 @@ For example, part way through:
 
 ## Stop and rewind
 
-Press **Space** again. Playback stops and holds its Tick: **T** and the Clock keep their last
-values, and the next **Space** carries on from the following Tick. To begin again from Tick `0`,
-press **Command Shift R** on macOS, or **Ctrl Shift R** on Linux and Windows, before you press
-**Space**.
+Press **Space** or **P** again. Playback stops and holds its Tick: **T** and the Clock keep their
+last values, and the next **Space** carries on from the following Tick. To begin again from Tick
+`0`, press **R**, or **Command Shift R** on macOS and **Ctrl Shift R** on Linux and Windows, before
+you press **Space**.
 
 ## If the result differs
 
-- **Nothing appears below the Expression.** Check that **T** is counting: **Space** starts and
-  stops Playback. Then check each operand is two Cells from `00` to `FF`, with uppercase letters.
+- **Nothing appears below the Expression.** Check that **T** is counting: **Space** or **P** starts
+  and stops Playback. Then check each operand is two Cells from `00` to `FF`, with uppercase letters.
   In `.+010a` the second operand is not a Number, so the console draws those Cells in its
   diagnostic colour and the Addition writes nothing.
 - **An old answer stays after an edit.** A Function that is invalid writes nothing, so the answer

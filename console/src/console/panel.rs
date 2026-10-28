@@ -1,6 +1,7 @@
-//! The bottom Panel: the typed BPM field, the beat marker, the Tick and Run
-//! Clock Readouts, the Output destinations — MIDI, and in its list UDP and
-//! OSC — and their status, and optional Diagnostics beneath them.
+//! The bottom Panel: the Play and Rewind Cells, the typed BPM field, the beat
+//! marker, the Tick and Run Clock Readouts, the Output destinations — MIDI, and
+//! in its list UDP and OSC — and their status, and optional Diagnostics beneath
+//! them.
 
 use std::time::Duration;
 
@@ -11,9 +12,9 @@ use orcvs::playback::{PlaybackObservation, PlaybackState};
 use super::Console;
 use super::diagnostics_panel::summary_height;
 use crate::console_midi;
-use crate::grid_viewport::snapped_cell;
+use crate::grid_viewport::{glyph_size, snapped_cell};
 use crate::midi::destination_presentation;
-use crate::theme::Appearance;
+use crate::theme::{Appearance, Theme};
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
@@ -144,6 +145,56 @@ pub(super) fn reserved_monospace(ui: &mut egui::Ui, text: &str, width: f32) -> e
     response
 }
 
+///
+/// One Source Cell that acts when clicked, holding `glyph` in the Theme's
+/// `button` role, or its `button.pressed` role while `pressed`. It starts on
+/// the next of the window's Cell columns, so the Panel continues the Grid's
+/// lattice.
+///
+fn cell_button(
+    ui: &mut egui::Ui,
+    cell: Vec2,
+    font_family: &egui::FontFamily,
+    theme: &Theme,
+    glyph: &str,
+    name: &str,
+    pressed: bool,
+) -> egui::Response {
+    let left = ui.cursor().min.x;
+    ui.add_space((left / cell.x).ceil() * cell.x - left);
+    let (rect, response) = ui.allocate_exact_size(cell, egui::Sense::click());
+    let (foreground, background, border) = if pressed {
+        (
+            theme.button_pressed_foreground,
+            theme.button_pressed_background,
+            theme.button_pressed_border,
+        )
+    } else {
+        (
+            theme.button_foreground,
+            theme.button_background,
+            theme.button_border,
+        )
+    };
+    let painter = ui.painter();
+    painter.rect(
+        rect,
+        0.0,
+        background,
+        egui::Stroke::new(theme.button_border_width.points(), border),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        FontId::new(glyph_size(cell), font_family.clone()),
+        foreground,
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+    response
+}
+
 fn panel_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
     ui.add(
         egui::Label::new(egui::RichText::new(text).text_style(egui::TextStyle::Monospace))
@@ -256,7 +307,7 @@ fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
     (response, committed)
 }
 
-fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
+pub(super) fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     let mut frame = egui::Frame::side_top_panel(style);
     frame.inner_margin.left += BOTTOM_PANEL_LEFT_PAD;
     frame
@@ -335,7 +386,8 @@ impl Console {
     /// `run_clock`: the one sample of it this Render Frame paints and times its
     /// next repaint by.
     ///
-    /// Static: no resize handle, no drag. BPM is a TextEdit: click to type;
+    /// Static: no resize handle, no drag. P and R do what Space and Command
+    /// Shift R do. BPM is a TextEdit: click to type;
     /// Enter or leaving the field commits. `**` is the beat, `//` while
     /// Playback is stopped. Tick and Run Clock are the engine's published
     /// Readouts. Destination is chosen from the ComboBox; Scan asks the engine
@@ -376,6 +428,18 @@ impl Console {
                 |ui| {
                     let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    let cell = snapped_cell(self.source_view.cell, ui.ctx().pixels_per_point());
+                    let theme = self.themes.presented(appearance);
+                    let playing = observation.state == PlaybackState::Playing;
+                    let font = &self.font_family;
+                    if cell_button(ui, cell, font, theme, "P", "Play", playing).clicked() {
+                        self.orcvs.toggle_playback();
+                    }
+                    ui.add_space(cell.x);
+                    if cell_button(ui, cell, font, theme, "R", "Rewind", false).clicked() {
+                        self.orcvs.rewind();
+                    }
+                    ui.add_space(entry_gap);
                     panel_label(ui, "B");
                     ui.add_space(label_value_gap);
                     let mut bpm = self.orcvs.bpm().beats_per_minute();

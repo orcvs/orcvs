@@ -42,6 +42,26 @@
   })();
   ready.catch((reason) => console.warn("The Built-in Synth cannot play:", reason));
 
+  // Safari resumes a context only inside the reader's gesture, and the message a console posts
+  // after handling a tap arrives outside it. So every gesture, on this page or in a console's
+  // frame, resumes the context while it is still the gesture. Capturing listeners run before the
+  // console's own, which stop a touch from propagating. A gesture that is not an activation, such
+  // as the end of a scroll, gets a refused resume and nothing else. Adding the same listener to a
+  // target twice adds it once, so a console that says it is ready again adds nothing.
+  function resume() {
+    if (!context || context.state === "running") return;
+    // iOS silences Web Audio under the ring/silent switch unless the page says it plays media. It
+    // is said only once the reader acts, as it takes the device's audio from other apps.
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+    context.resume().catch(() => {});
+  }
+  function resumeOnGestures(target) {
+    for (const type of ["pointerdown", "touchend", "keydown"]) {
+      target.addEventListener(type, resume, { capture: true });
+    }
+  }
+  resumeOnGestures(window);
+
   // The AudioContext time a page instant `time` falls at, from the context's
   // latest pairing of a time it is playing with the page's clock.
   function contextTime(time) {
@@ -85,12 +105,13 @@
     if (event.origin !== window.location.origin || !event.source) return;
     const { data } = event;
     if (data?.type === "orcvs.ready") {
+      // The console's frame is of this origin, so its gestures can be heard here.
+      resumeOnGestures(event.source);
       event.source.postMessage(await announcement, event.origin);
     } else if (data?.type === "orcvs.midi" && node && Array.isArray(data.bytes) && typeof data.time === "number") {
-      // The reader's gesture that started Playback activates this page too,
-      // so the first message of a run can resume the context. Messages that
-      // arrive while it starts wait for it, and those still due sound as soon
-      // as it runs.
+      // Where no gesture has resumed the context yet, the first message of a
+      // run does. Messages that arrive while it starts wait for it, and those
+      // still due sound as soon as it runs.
       if (context.state === "running") {
         play(data);
         return;

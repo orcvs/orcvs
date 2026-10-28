@@ -1,6 +1,6 @@
 # The site plays the console through a Built-in Synth
 
-Status: accepted. Settled with Toby on 2026-10-26 in `.scratch/orcvs-site/` (tickets 07 and 08).
+Status: accepted; when the audio context resumes is amended by [ADR 0089](0089-the-panel-plays-and-rewinds.md), which resumes it inside the reader's gesture. Settled with Toby on 2026-10-26 in `.scratch/orcvs-site/` (tickets 07 and 08).
 The research is `docs/research/tone-generation.md`.
 
 The site shows Orcvs running, and an example nobody hears teaches half of what it shows. Most

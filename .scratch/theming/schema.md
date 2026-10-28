@@ -113,6 +113,12 @@ written against. `.scratch/theme-independence/issues/07` retired that Theme;
 | `error` | `#CC79A7` |
 | `warning` | `#CC79A7` |
 | `overview.source_view` | `#FFFFFF` |
+| `button.foreground` | `#E6E6E6` |
+| `button.background` | `#444444` |
+| `button.border` | `#444444` |
+| `button.pressed.foreground` | `#000000` |
+| `button.pressed.background` | `#00FF00` |
+| `button.pressed.border` | `#00FF00` |
 
 | Width property | Default, display points | Inclusive range |
 |---|---:|---|
@@ -131,6 +137,7 @@ written against. `.scratch/theme-independence/issues/07` retired that Theme;
 | `source.note.border.width` | 0.5 | 0–1 |
 | `source.function.border.width` | 0.5 | 0–1 |
 | `source.bang.border.width` | 0.5 | 0–1 |
+| `button.border.width` | 1 | 0–1 |
 | `panel.border.width` | 1 | 0–2 |
 | `panel.separator.width` | 1 | 0–2 |
 | `selection.border.width` | 1 | 0–2 |
@@ -189,6 +196,7 @@ built-in colours but no longer borrow the live Bang property.
 | Links; text egui marks as code (`RichText::code`, `Ui::code`), which the console does not show | `link`; `code.background` |
 | Error/warning messages | `error`; `warning` |
 | The Source View's outline on the Overview | `overview.source_view`, `overview.source_view.width` |
+| The Panel's Play and Rewind Cells, at rest and pressed | `button.foreground`, `.background`, `.border`, `.border.width`; `button.pressed.foreground`, `.background`, `.border` |
 
 Disabled widget opacity remains the existing 0.5 toolkit operation applied to
 Theme-derived colours. Icon/foreground stroke geometry, corner radii, layout,

@@ -125,3 +125,21 @@ test("a framed console plays the page's synth at a constant offset from its Tick
   // renders further ahead than a reader's.
   expect(steady.filter(({ late }) => late >= DELAY_MS)).toEqual([]);
 });
+
+// Safari resumes audio only inside the reader's gesture, so a tap in the console's frame resumes
+// the page's audio itself rather than leaving it to the first note the tap leads to.
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 390, height: 664 }, hasTouch: true });
+
+  test("a tap in the console's frame starts the page's audio before any note", async ({ page }) => {
+    await page.goto("/");
+    const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
+    await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+    await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
+
+    // A Cell of the Grid, well above the Panel and its Play control.
+    await frame.tap({ position: { x: 200, y: 200 } });
+    await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("running");
+    expect(await page.evaluate(() => window.synthSpy.sounds.length), "the tap started Playback").toBe(0);
+  });
+});
