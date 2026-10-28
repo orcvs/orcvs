@@ -16,7 +16,7 @@ mod outputs;
 mod schedule;
 
 use crate::midi::MidiSelectionHandle;
-use crate::network::{NetworkDestination, NetworkOutput};
+use crate::network::NetworkDestination;
 use crate::opts::Bpm;
 use crate::source::{
     BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
@@ -139,8 +139,9 @@ pub enum PlaybackDiagnostic {
         observed_at: Duration,
     },
     OutputFailure(OutputAdapterError),
-    /// A UDP or OSC send that did not leave. Each one is reported: a send is
-    /// one activation, so nothing is latched.
+    /// A UDP or OSC send that did not leave. A native failure is reported
+    /// once until it changes; the web build, which can never send, reports
+    /// every activation.
     NetworkFailure(OutputAdapterError),
     ClockFailure {
         message: String,
@@ -214,10 +215,9 @@ pub struct PlaybackObservation {
     /// rewind.
     pub frozen_run_clock: Duration,
     ///
-    /// Whether a UDP or OSC send failed in the last Tick that made any. Held
-    /// through Ticks that send nothing, so it clears only once sends leave
-    /// again. Each failure's message is a
-    /// [`PlaybackDiagnostic::NetworkFailure`].
+    /// Whether the latest UDP or OSC send failed. Held through Ticks that
+    /// send nothing, so it clears once a send leaves again, or a run begins.
+    /// The failure's message is a [`PlaybackDiagnostic::NetworkFailure`].
     ///
     pub network_failed: bool,
 }
@@ -696,7 +696,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 observation,
                 outputs: Outputs::new(
                     adapter,
-                    NetworkOutput::new(network, crate::network::platform_adapter()),
+                    network,
+                    crate::network::platform_adapter(),
                     diagnostics.clone(),
                 ),
                 diagnostics,
@@ -827,6 +828,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             observation.network_failed = false;
         });
         self.outputs.begin_run();
+        self.publish_network_failed();
     }
 
     ///
@@ -857,6 +859,14 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// them only while a run is live, so reaching here at all is what says a
     /// run is in progress.
     ///
+    /// Publishes whether the latest Network Send failed, when that changed.
+    fn publish_network_failed(&self) {
+        let failed = self.outputs.network_failed();
+        self.observation.send_if_modified(|observation| {
+            std::mem::replace(&mut observation.network_failed, failed) != failed
+        });
+    }
+
     fn execute_tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
         if timing.is_overrun() {
             self.report(Report::Overrun {
@@ -882,11 +892,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // lit a Tick ahead would flash before the beat and go dark on it.
         self.observation
             .send_modify(|observation| observation.set_tick(tick));
-        if let Some(failed) = self.outputs.deliver(tick, &plan, timing.deadline()) {
-            self.observation.send_if_modified(|observation| {
-                std::mem::replace(&mut observation.network_failed, failed) != failed
-            });
-        }
+        self.outputs.deliver(tick, &plan, timing.deadline());
+        self.publish_network_failed();
         Some(plan)
     }
 }
@@ -1810,10 +1817,7 @@ mod tests {
             network: &crate::network::RecordingAdapter,
         ) -> Self {
             let mut run = Self::new(source, adapter);
-            run.inner.outputs.set_network(NetworkOutput::new(
-                run.network_destination.subscribe(),
-                Box::new(network.clone()),
-            ));
+            run.inner.outputs.set_network(Box::new(network.clone()));
             run
         }
 
@@ -4202,7 +4206,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_network_send_is_reported_each_time_and_playback_goes_on() {
+    fn a_repeated_network_failure_is_reported_once_and_playback_goes_on() {
         let network = crate::network::RecordingAdapter::default();
         network.refuse(Some("refused"));
         let source = SourceCommander::new(Grid::with_shape(10, 6));
@@ -4217,7 +4221,9 @@ mod tests {
 
         assert_eq!(
             run.drain_diagnostics(),
-            vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new("refused")); 2]
+            vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
+                "refused"
+            ))]
         );
         assert_eq!(run.state(), PlaybackState::Playing);
     }

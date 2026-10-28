@@ -1,6 +1,6 @@
 # Outputs
 
-Status: ready-for-agent
+Status: resolved
 
 ## The decision
 
@@ -29,8 +29,9 @@ replace them.
   failed" field of the Playback observation, so the console sees recovery as it clearing.
 - **Web.** Every activated `!u` and `!o` still diagnoses (ADR 0085), with no encoding.
 - **Seam.** One trait takes a Network Send and the destination. Adapters: native socket (encodes,
-  sends, ignores Windows' `ConnectionReset`), web refusal, and a recording adapter behind the
-  `test-output-adapter` feature. Outputs holds it boxed, so the engine gains no generic.
+  sends, ignores Windows' `ConnectionReset`), web refusal, and a `cfg(test)` recording adapter.
+  Outputs holds it boxed, so the engine gains no generic, and holds the destination's `watch`
+  itself: the old `NetworkOutput` only read it and looped, so it went.
 - **Destination changes.** The network destination stays on its `watch`; MIDI keeps the mailbox.
 
 ## Tests

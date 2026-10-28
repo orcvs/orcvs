@@ -7,13 +7,18 @@
 //! destination is connected, and stopping, rewinding and disconnecting send it
 //! nothing. Within a Tick, MIDI is delivered before the Network Sends.
 //!
+//! Each destination latches its failure: one is reported once until it
+//! changes, and a delivery that succeeds clears it. The web build, which can
+//! never send, reports every refused Network Send instead.
+//!
 
 use super::diagnostics::{DiagnosticLog, Report};
 use super::schedule::OwnedNotes;
 use super::{ClockInstant, OutputAdapter, OutputAdapterError};
-use crate::network::NetworkOutput;
+use crate::network::{NetworkAdapter, NetworkDestination};
 use crate::source::TickPlan;
 use lang::Tick;
+use tokio::sync::watch;
 
 pub(super) struct Outputs<A: OutputAdapter> {
     pub(super) midi: A,
@@ -28,35 +33,37 @@ pub(super) struct Outputs<A: OutputAdapter> {
     ///
     pub(super) owned: OwnedNotes,
     midi_failure: Option<OutputAdapterError>,
-    network: NetworkOutput,
+    /// Where the Network Sends go, read at each Tick that makes one.
+    destination: watch::Receiver<NetworkDestination>,
+    network: Box<dyn NetworkAdapter>,
+    network_failure: Option<OutputAdapterError>,
     diagnostics: DiagnosticLog,
 }
 
 impl<A: OutputAdapter> Outputs<A> {
-    pub(super) fn new(midi: A, network: NetworkOutput, diagnostics: DiagnosticLog) -> Self {
+    pub(super) fn new(
+        midi: A,
+        destination: watch::Receiver<NetworkDestination>,
+        network: Box<dyn NetworkAdapter>,
+        diagnostics: DiagnosticLog,
+    ) -> Self {
         Self {
             midi,
             connected: true,
             owned: OwnedNotes::default(),
             midi_failure: None,
+            destination,
             network,
+            network_failure: None,
             diagnostics,
         }
     }
 
     ///
     /// Delivers `plan`, the Tick Plan of `tick`, which was due at `deadline`:
-    /// its MIDI first, then its Network Sends.
+    /// its MIDI first, then its Network Sends, in their order.
     ///
-    /// Answers whether the Tick's Network Sends failed, or `None` when it made
-    /// none.
-    ///
-    pub(super) fn deliver(
-        &mut self,
-        tick: Tick,
-        plan: &TickPlan,
-        deadline: ClockInstant,
-    ) -> Option<bool> {
+    pub(super) fn deliver(&mut self, tick: Tick, plan: &TickPlan, deadline: ClockInstant) {
         if self.connected {
             // Nothing is delivered while disconnected, so nothing is owned
             // while disconnected either: resolving the Tick Plan here keeps a
@@ -87,16 +94,26 @@ impl<A: OutputAdapter> Outputs<A> {
             }
         }
         if plan.network_sends.is_empty() {
-            return None;
+            return;
         }
-        // Each failed send is its own report, unlatched, so every activation
-        // that could not send says so, and the performance goes on.
-        let failures = self.network.deliver(&plan.network_sends);
-        let failed = !failures.is_empty();
-        for failure in failures {
-            self.diagnostics.report(Report::NetworkFailure(failure));
+        // A new destination is owed its own answer, as a new MIDI connection
+        // is. A closed channel keeps the last destination it published.
+        if self.destination.has_changed().unwrap_or(false) {
+            self.network_failure = None;
         }
-        Some(failed)
+        let destination = *self.destination.borrow_and_update();
+        // A failure stops nothing: the sends after it are still made.
+        for send in &plan.network_sends {
+            match self.network.send(send, &destination) {
+                Ok(()) => self.network_failure = None,
+                Err(error) => self.record_network_failure(error),
+            }
+        }
+    }
+
+    /// Whether the latest Network Send failed.
+    pub(super) fn network_failed(&self) -> bool {
+        self.network_failure.is_some()
     }
 
     /// Sends MIDI the safety action, when it has a destination to send it to.
@@ -149,6 +166,7 @@ impl<A: OutputAdapter> Outputs<A> {
         // fault twice. A stopped engine submits nothing, so a latch left
         // standing after `stop` suppresses nothing until this line clears it.
         self.midi_failure = None;
+        self.network_failure = None;
     }
 
     fn send_safety_reset(&mut self) {
@@ -165,9 +183,17 @@ impl<A: OutputAdapter> Outputs<A> {
         }
     }
 
-    /// Sends the Tick's network output through `network` instead.
+    fn record_network_failure(&mut self, error: OutputAdapterError) {
+        if self.network.reports_every_failure() || self.network_failure.as_ref() != Some(&error) {
+            self.diagnostics
+                .report(Report::NetworkFailure(error.clone()));
+        }
+        self.network_failure = Some(error);
+    }
+
+    /// Sends the Network Sends through `network` instead.
     #[cfg(test)]
-    pub(super) fn set_network(&mut self, network: NetworkOutput) {
+    pub(super) fn set_network(&mut self, network: Box<dyn NetworkAdapter>) {
         self.network = network;
     }
 }
@@ -205,7 +231,7 @@ impl Outputs<crate::midi::MidiOutputAdapter> {
 #[cfg(test)]
 mod tests {
     use super::Outputs;
-    use crate::network::{NetworkDestination, NetworkOutput, RecordingAdapter, RefusingAdapter};
+    use crate::network::{NetworkDestination, RecordingAdapter, RefusingAdapter};
     use crate::playback::diagnostics::DiagnosticLog;
     use crate::playback::{
         ClockInstant, InMemoryOutputAdapter, OutputAdapter, OutputAdapterError, OutputCommand,
@@ -234,20 +260,19 @@ mod tests {
     fn outputs<A: OutputAdapter>(
         midi: A,
         network: Box<dyn crate::network::NetworkAdapter>,
-    ) -> (Outputs<A>, DiagnosticLog) {
-        // The sender is dropped: the receiver keeps the last destination.
-        let (_, destination) = watch::channel(NetworkDestination::default());
+    ) -> (Outputs<A>, DiagnosticLog, watch::Sender<NetworkDestination>) {
+        let (sender, destination) = watch::channel(NetworkDestination::default());
         let diagnostics = DiagnosticLog::new();
-        let outputs = Outputs::new(
-            midi,
-            NetworkOutput::new(destination, network),
-            diagnostics.clone(),
-        );
-        (outputs, diagnostics)
+        let outputs = Outputs::new(midi, destination, network, diagnostics.clone());
+        (outputs, diagnostics, sender)
     }
 
-    fn deliver<A: OutputAdapter>(outputs: &mut Outputs<A>, tick: u64) -> Option<bool> {
-        outputs.deliver(Tick::new(tick), &plan(), ClockInstant::now())
+    fn deliver<A: OutputAdapter>(outputs: &mut Outputs<A>, tick: u64) {
+        outputs.deliver(Tick::new(tick), &plan(), ClockInstant::now());
+    }
+
+    fn refused(message: &str) -> PlaybackDiagnostic {
+        PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(message))
     }
 
     /// A MIDI adapter that notes, at each submission, how many Network Sends
@@ -279,8 +304,8 @@ mod tests {
             network: network.clone(),
             seen: vec![],
         };
-        let (mut outputs, _) = outputs(midi, Box::new(network.clone()));
-        assert_eq!(deliver(&mut outputs, 0), Some(false));
+        let (mut outputs, _, _) = outputs(midi, Box::new(network.clone()));
+        deliver(&mut outputs, 0);
         assert_eq!(outputs.midi.seen, [0]);
         assert_eq!(network.sends().len(), 1);
     }
@@ -289,7 +314,7 @@ mod tests {
     fn network_sends_go_on_while_midi_is_disconnected() {
         let midi = InMemoryOutputAdapter::default();
         let network = RecordingAdapter::default();
-        let (mut outputs, _) = outputs(midi.clone(), Box::new(network.clone()));
+        let (mut outputs, _, _) = outputs(midi.clone(), Box::new(network.clone()));
         outputs.disconnect();
         deliver(&mut outputs, 0);
         assert!(midi.command_lists().is_empty());
@@ -300,7 +325,7 @@ mod tests {
     fn stopping_and_disconnecting_send_the_network_nothing() {
         let midi = InMemoryOutputAdapter::default();
         let network = RecordingAdapter::default();
-        let (mut outputs, _) = outputs(midi.clone(), Box::new(network.clone()));
+        let (mut outputs, _, _) = outputs(midi.clone(), Box::new(network.clone()));
         outputs.silence();
         outputs.release();
         outputs.disconnect();
@@ -310,28 +335,96 @@ mod tests {
     }
 
     #[test]
-    fn a_tick_with_no_network_sends_answers_none() {
-        let (mut outputs, _) = outputs(
-            InMemoryOutputAdapter::default(),
-            Box::new(RecordingAdapter::default()),
-        );
+    fn a_tick_with_no_network_sends_leaves_the_network_failure_standing() {
+        let network = RecordingAdapter::default();
+        network.refuse(Some("refused"));
+        let (mut outputs, _, _) =
+            outputs(InMemoryOutputAdapter::default(), Box::new(network.clone()));
+        deliver(&mut outputs, 0);
         let mut plan = plan();
         plan.network_sends.clear();
+        outputs.deliver(Tick::new(1), &plan, ClockInstant::now());
+        assert!(outputs.network_failed());
+    }
+
+    #[test]
+    fn a_native_network_failure_is_reported_once_until_it_changes() {
+        let network = RecordingAdapter::default();
+        let (mut outputs, diagnostics, _) =
+            outputs(InMemoryOutputAdapter::default(), Box::new(network.clone()));
+        network.refuse(Some("refused"));
+        deliver(&mut outputs, 0);
+        deliver(&mut outputs, 1);
+        network.refuse(Some("refused again"));
+        deliver(&mut outputs, 2);
         assert_eq!(
-            outputs.deliver(Tick::ZERO, &plan, ClockInstant::now()),
-            None
+            diagnostics.drain(),
+            [refused("refused"), refused("refused again")]
+        );
+        assert!(outputs.network_failed());
+    }
+
+    #[test]
+    fn a_send_that_leaves_clears_the_network_failure() {
+        let network = RecordingAdapter::default();
+        let (mut outputs, diagnostics, _) =
+            outputs(InMemoryOutputAdapter::default(), Box::new(network.clone()));
+        network.refuse(Some("refused"));
+        deliver(&mut outputs, 0);
+        network.refuse(None);
+        deliver(&mut outputs, 1);
+        assert!(!outputs.network_failed());
+        network.refuse(Some("refused"));
+        deliver(&mut outputs, 2);
+        assert_eq!(
+            diagnostics.drain(),
+            [refused("refused"), refused("refused")]
         );
     }
 
     #[test]
+    fn a_new_destination_and_a_new_run_each_report_the_failure_again() {
+        let network = RecordingAdapter::default();
+        let (mut outputs, diagnostics, destination) =
+            outputs(InMemoryOutputAdapter::default(), Box::new(network.clone()));
+        network.refuse(Some("refused"));
+        deliver(&mut outputs, 0);
+        destination.send_modify(|destination| destination.udp_port = 9000);
+        deliver(&mut outputs, 1);
+        outputs.begin_run();
+        deliver(&mut outputs, 2);
+        assert_eq!(diagnostics.drain(), vec![refused("refused"); 3]);
+    }
+
+    #[test]
     fn the_web_build_reports_every_refused_send() {
-        let (mut outputs, diagnostics) =
+        let (mut outputs, diagnostics, _) =
             outputs(InMemoryOutputAdapter::default(), Box::new(RefusingAdapter));
-        assert_eq!(deliver(&mut outputs, 0), Some(true));
-        assert_eq!(deliver(&mut outputs, 1), Some(true));
-        let refused = PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
-            "this build cannot send UDP or OSC",
-        ));
+        deliver(&mut outputs, 0);
+        deliver(&mut outputs, 1);
+        assert!(outputs.network_failed());
+        let refused = refused("this build cannot send UDP or OSC");
         assert_eq!(diagnostics.drain(), [refused.clone(), refused]);
+    }
+
+    #[test]
+    fn sends_keep_their_order_and_go_to_the_latest_destination() {
+        let network = RecordingAdapter::default();
+        let (mut outputs, _, destination) =
+            outputs(InMemoryOutputAdapter::default(), Box::new(network.clone()));
+        let mut plan = plan();
+        let osc = NetworkSend::Osc(lang::OscMessage {
+            address: "/amp".to_owned(),
+            arguments: vec![],
+        });
+        plan.network_sends.push(osc.clone());
+        outputs.deliver(Tick::ZERO, &plan, ClockInstant::now());
+        destination.send_modify(|destination| destination.udp_port = 9000);
+        deliver(&mut outputs, 1);
+        let sends = network.sends();
+        let sent: Vec<&NetworkSend> = sends.iter().map(|(send, _)| send).collect();
+        assert_eq!(sent, [&plan.network_sends[0], &osc, &plan.network_sends[0]]);
+        let ports: Vec<u16> = sends.iter().map(|(_, to)| to.udp_port).collect();
+        assert_eq!(ports, [49161, 49161, 9000]);
     }
 }

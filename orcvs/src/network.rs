@@ -2,7 +2,7 @@
 //! The network output adapter: where UDP `!u` and OSC `!o` send, and the bytes
 //! each sends.
 //!
-//! The Playback Engine hands it every network send of a Tick in Tick Plan
+//! The Playback Engine hands it every Network Send of a Tick in Tick Plan
 //! order. A native build sends each as one datagram from one
 //! `std::net::UdpSocket`; a browser cannot open one, so the web build reports
 //! every send as a failure instead. Orcvs only sends: nothing here receives.
@@ -11,7 +11,6 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use lang::{NetworkSend, OscArgument, OscMessage};
-use tokio::sync::watch;
 
 use crate::playback::OutputAdapterError;
 
@@ -56,6 +55,15 @@ pub(crate) trait NetworkAdapter: Send {
         send: &NetworkSend,
         destination: &NetworkDestination,
     ) -> Result<(), OutputAdapterError>;
+
+    ///
+    /// Whether every refused send is reported, rather than once until the
+    /// failure changes. A build that can never send reports every activation
+    /// (ADR 0085).
+    ///
+    fn reports_every_failure(&self) -> bool {
+        false
+    }
 }
 
 /// The network adapter this build sends through.
@@ -64,41 +72,6 @@ pub(crate) fn platform_adapter() -> Box<dyn NetworkAdapter> {
     return Box::new(SocketAdapter::default());
     #[cfg(target_arch = "wasm32")]
     return Box::new(RefusingAdapter);
-}
-
-///
-/// Sends what `!u` and `!o` ask for to the destination last published on its
-/// channel, which it reads at each send, so a change takes effect at the next
-/// one.
-///
-pub(crate) struct NetworkOutput {
-    destination: watch::Receiver<NetworkDestination>,
-    adapter: Box<dyn NetworkAdapter>,
-}
-
-impl NetworkOutput {
-    pub(crate) fn new(
-        destination: watch::Receiver<NetworkDestination>,
-        adapter: Box<dyn NetworkAdapter>,
-    ) -> Self {
-        Self {
-            destination,
-            adapter,
-        }
-    }
-
-    ///
-    /// Makes every one of `sends`, in their order, and answers one failure per
-    /// send that failed. A failure stops nothing: the sends after it are still
-    /// made.
-    ///
-    pub(crate) fn deliver(&mut self, sends: &[NetworkSend]) -> Vec<OutputAdapterError> {
-        let destination = *self.destination.borrow();
-        sends
-            .iter()
-            .filter_map(|send| self.adapter.send(send, &destination).err())
-            .collect()
-    }
 }
 
 ///
@@ -177,6 +150,10 @@ impl NetworkAdapter for RefusingAdapter {
         _destination: &NetworkDestination,
     ) -> Result<(), OutputAdapterError> {
         Err(OutputAdapterError::new("this build cannot send UDP or OSC"))
+    }
+
+    fn reports_every_failure(&self) -> bool {
+        true
     }
 }
 
@@ -353,71 +330,6 @@ mod tests {
     #[test]
     fn a_message_with_no_arguments_still_sends_its_type_tag_string() {
         assert_eq!(encode(&message("/go", vec![])), b"/go\0,\0\0\0");
-    }
-
-    mod output {
-        use super::super::{NetworkDestination, NetworkOutput, RecordingAdapter, RefusingAdapter};
-        use super::message;
-        use lang::NetworkSend;
-        use tokio::sync::watch;
-
-        fn udp(bytes: &[u8]) -> NetworkSend {
-            NetworkSend::Udp(bytes.into())
-        }
-
-        fn recording() -> (
-            RecordingAdapter,
-            NetworkOutput,
-            watch::Sender<NetworkDestination>,
-        ) {
-            let adapter = RecordingAdapter::default();
-            let (sender, receiver) = watch::channel(NetworkDestination::default());
-            let output = NetworkOutput::new(receiver, Box::new(adapter.clone()));
-            (adapter, output, sender)
-        }
-
-        #[test]
-        fn sends_keep_their_order() {
-            let (adapter, mut output, _sender) = recording();
-            let osc = NetworkSend::Osc(message("/amp", vec![]));
-            assert!(output.deliver(&[udp(b"first"), osc.clone()]).is_empty());
-            let sent: Vec<NetworkSend> =
-                adapter.sends().into_iter().map(|(send, _)| send).collect();
-            assert_eq!(sent, [udp(b"first"), osc]);
-        }
-
-        #[test]
-        fn a_destination_change_takes_effect_at_the_next_send() {
-            let (adapter, mut output, sender) = recording();
-            output.deliver(&[udp(b"one")]);
-            sender.send_modify(|destination| destination.udp_port = 9000);
-            output.deliver(&[udp(b"two")]);
-            let ports: Vec<u16> = adapter.sends().iter().map(|(_, to)| to.udp_port).collect();
-            assert_eq!(ports, [49161, 9000]);
-        }
-
-        #[test]
-        fn each_failed_send_is_answered_and_the_sends_after_it_are_made() {
-            let (adapter, mut output, _sender) = recording();
-            adapter.refuse(Some("refused"));
-            assert_eq!(output.deliver(&[udp(b"a"), udp(b"b")]).len(), 2);
-            adapter.refuse(None);
-            assert!(output.deliver(&[udp(b"c")]).is_empty());
-            assert_eq!(adapter.sends().len(), 1);
-        }
-
-        #[test]
-        fn the_web_adapter_refuses_every_send() {
-            let (_sender, receiver) = watch::channel(NetworkDestination::default());
-            let mut output = NetworkOutput::new(receiver, Box::new(RefusingAdapter));
-            let failures = output.deliver(&[udp(b"hi"), NetworkSend::Osc(message("/x", vec![]))]);
-            assert_eq!(failures.len(), 2);
-            assert!(
-                failures
-                    .iter()
-                    .all(|failure| failure.message == "this build cannot send UDP or OSC")
-            );
-        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
