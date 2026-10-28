@@ -1,8 +1,8 @@
 # 15 — Show the Sound Module, with modulation
 
 **What to build:** The Sound Module as ADR 0088 decides it, in the row below the console on `/`:
-sixteen channel lights and the Built-in Synth's eight effects, drawn as Cells in the console's font
-and the Grayscale Theme colours. A Note On fills its channel's light at its velocity. Control
+sixteen channels and the Built-in Synth's eight effects, drawn as Cells in the console's font
+and the Grayscale Theme colours. A Note On shows its channel as sounding. Control
 Change 1 to 8 on any channel sets an effect, whether a Source sends it or the reader drags or
 scrolls on the effect, and the Sound Module shows the value. Every value resets on load (`LN`
 `7F`, `EQ` `40`, the rest `00`). The synth core plays `MD`, vibrato on the whole mix. The other

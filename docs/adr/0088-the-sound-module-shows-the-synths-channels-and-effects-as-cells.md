@@ -13,21 +13,22 @@ shows the reference: eight global effects on CC 1 to 8 beside the console.
 **The sound module is a Grid of Cells in the row below the console on `/`.** It is drawn the way
 the site draws a Source (`site/src/console/grid.css`): Cells 2 wide by 3 tall, in the console's
 font and the Grayscale Theme colours. It reads as part of the console rather than a control panel
-beside it. It holds two things, sixteen channel lights and eight effects.
+beside it. It holds two things, sixteen channels and eight effects.
 
-**A channel light shows that a channel sounded.** Each of the sixteen channels has two Cells, the
-first holding its hex digit. A Note On fills them with the magnitude colour at its velocity's
-fraction of `7F`, and they clear 150 ms later.
+**A channel shows that it sounded.** The sixteen channels run across one row, each a single Cell
+holding its hex digit with a spacer Cell after it. A channel is dim until a Note On sounds it, then
+takes the Function role's colours, and goes dim again 150 ms later. A channel shows no level.
 
-**Each effect is a name, a value and a magnitude, two Cells each, then two spacer Cells.** A
-blank row separates the channel lights from the effects.
+**Each effect is a column two Cells wide: its magnitude, then its value, then its name, a row
+each.** Two spacer Cells separate one effect's column from the next, and a blank row separates the
+channels from the effects.
 
-- The name is two Cells in the Function role's colours.
-- The value is the effect's `00`–`7F` as two hex digits in the Number role's colours.
 - The magnitude is two Cells with a solid border in the magnitude colour, filled with that colour
   at the value's fraction of `7F`. It has no glyphs.
+- The value is the effect's `00`–`7F` as two hex digits in the Number role's colours.
+- The name is two Cells in the Function role's colours.
 
-The effects run in CC order, four to a row:
+The effects run in CC order, eight across:
 
 | CC | Name | Effect | At load |
 |---|---|---|---|
@@ -57,15 +58,11 @@ and the sound module shows each value from that same stream, whoever sent it.
 **Values reset on every load.** Nothing persists across page loads. A Source that needs an effect
 sets it.
 
-**The Sound Module takes two Theme colours, `sound.magnitude` and `sound.channel`.**
-`sound.magnitude` fills the channel lights and the magnitudes, and draws the magnitude's border.
-Each built-in Theme sets it to its `source.bang` colour, so it can differ from Bang without
-changing Bang. `sound.channel` draws a lit channel's digit; both built-ins set it to `#000000`. A
-digit takes whichever of `sound.channel` and `source.ordinary` contrasts more with its fill at that
-moment, so it stays legible from a faint fill to a full one, with no threshold tied to a particular
-Theme. The site carries them as `--orcvs-sound-magnitude` and `--orcvs-sound-channel`. The
-console's Theme format gains both keys when the console draws the Sound Module (ticket 14), since
-nothing in the console reads them until then.
+**The Sound Module takes one Theme colour, `sound.magnitude`.** It draws each magnitude's border
+and fill. Each built-in Theme sets it to its `source.bang` colour, so it can differ from Bang
+without changing Bang. The site carries it as `--orcvs-sound-magnitude`. The console's Theme format
+gains the key when the console draws the Sound Module (ticket 14), since nothing in the console
+reads it until then.
 
 **The effects land one at a time.** The sound module ships with all eight effects drawn and
 taking values, plus `MD`'s sound. Each other effect's sound is its own ticket. Until it lands, an
@@ -82,6 +79,10 @@ an effect is not Source.
 
 **A bar of glyphs, such as `▮▮··`, for the magnitude.** Filling the Cells shows the level without
 glyphs to read.
+
+**Channel lights that fill with the magnitude colour at a Note On's velocity.** A filled channel
+beside filled magnitudes reads as one of the effects, and a lit digit needs a second Theme colour to
+stay legible on its fill. A channel stacked over an effect's column reads as that effect's channel.
 
 **Effects per channel, or Control Change on one channel only.** The synth has one mix, and ADR
 0087 keeps velocity as a channel's only level.

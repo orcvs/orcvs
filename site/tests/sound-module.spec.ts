@@ -10,8 +10,8 @@ declare global {
       node: boolean;
       /** Each MIDI message the page passes the synth's worklet. */
       played: number[][];
-      /** Each `--level` a channel light took. */
-      levels: string[];
+      /** Whether channel `00` showed as sounding, each time its class changed. */
+      sounding: boolean[];
     };
   }
 }
@@ -19,7 +19,7 @@ declare global {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     if (window !== window.top) return;
-    const spy: Window["soundSpy"] = { node: false, played: [], levels: [] };
+    const spy: Window["soundSpy"] = { node: false, played: [], sounding: [] };
     window.soundSpy = spy;
     const Node = window.AudioWorkletNode;
     window.AudioWorkletNode = class extends Node {
@@ -63,7 +63,7 @@ const magnitudeOf = (page: Page, index: number) =>
 test("the Sound Module draws its lights and effects at their load values", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.locator(".orcvs-sound-module .light")).toHaveCount(32);
+  await expect(page.locator(".orcvs-sound-module .channel")).toHaveText([..."0123456789ABCDEF"]);
   await expect(page.locator(".orcvs-sound-module .function")).toHaveText(
     [..."MDOFLNDLCHEQR1R2"],
   );
@@ -71,20 +71,18 @@ test("the Sound Module draws its lights and effects at their load values", async
   expect(values).toEqual(["00", "00", "7F", "00", "00", "40", "00", "00"]);
 });
 
-test("a Note On from the console fills its channel's light at its velocity", async ({ page }) => {
+test("a Note On from the console shows its channel as sounding, then idle", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
-    const observer = new MutationObserver((records) => {
-      for (const { target } of records) window.soundSpy.levels.push((target as HTMLElement).style.getPropertyValue("--level"));
-    });
-    const light = document.querySelectorAll(".orcvs-sound-module .light")[0];
-    observer.observe(light, { attributes: true, attributeFilter: ["style"] });
+    const channel = document.querySelectorAll(".orcvs-sound-module .channel")[0];
+    const observer = new MutationObserver(() => window.soundSpy.sounding.push(channel.classList.contains("sounding")));
+    observer.observe(channel, { attributes: true, attributeFilter: ["class"] });
   });
 
-  // Channel `00`, velocity `64`.
+  // Channel `00`.
   await play(page, "!~0064C404");
 
-  await expect.poll(() => page.evaluate(() => window.soundSpy.levels)).toContain(String(0x64 / 0x7f));
+  await expect.poll(() => page.evaluate(() => window.soundSpy.sounding.slice(0, 2))).toEqual([true, false]);
 });
 
 test("a Control Change from the console shows as its effect's value", async ({ page }) => {
@@ -131,21 +129,4 @@ test("a drag keeps its effect across the console above it, and ends on release t
   // Released over the console, the drag is over: moving back down changes nothing.
   await page.mouse.move(x, y, { steps: 10 });
   expect(await valueOf(page, 0)).toBe("7F");
-});
-
-test("a lit channel's digit takes the Theme colour that reads on its fill", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/");
-
-  const digits = await page.evaluate(async () => {
-    const lights = document.querySelectorAll<HTMLElement>(".orcvs-sound-module .light");
-    const time = performance.timeOrigin + performance.now();
-    window.postMessage({ type: "orcvs.midi", bytes: [0x93, 60, 0x7f], time }, location.origin);
-    window.postMessage({ type: "orcvs.midi", bytes: [0x94, 60, 0x01], time }, location.origin);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    return [lights[6].style.color, lights[8].style.color];
-  });
-
-  // A full fill of Bang green takes `sound.channel`; a faint one keeps the ordinary colour.
-  expect(digits).toEqual(["var(--orcvs-sound-channel)", ""]);
 });
