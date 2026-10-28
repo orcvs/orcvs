@@ -23,3 +23,5 @@ The prototype lives on the throwaway branch `prototype/play-control`.
 2026-10-27: Built as `?variant=A`–`D` on `prototype/play-control`, with captures in its
 `.scratch/play-control/prototype/`. All four fit at 390 px; an emulated touch tap on A plays.
 Toby chose **A with ⏮ Rewind**: Rewind and Play/Stop glyphs at the start of the Panel (ADR 0089).
+Seeing them, he found them too small and chose the Cells `P` and `R` instead, one Source Cell each
+and one Cell apart (`prototype/play-control-cells`, variant E).

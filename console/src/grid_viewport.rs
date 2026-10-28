@@ -171,7 +171,7 @@ impl GridViewport {
     /// zoom, and one size per zoom factor keeps epaint's galley cache hitting.
     ///
     pub(crate) fn glyph_size(&self) -> f32 {
-        (GLYPH_PER_HEIGHT * self.cell_size.y).min(self.cell_size.x / GLYPH_ADVANCE)
+        glyph_size(self.cell_size)
     }
 
     ///
@@ -302,6 +302,14 @@ pub(crate) fn snapped_cell_side(side: f32, pixels_per_point: f32) -> f32 {
         Some(scale) if side.is_finite() && side > 0.0 => (side * scale).floor().max(1.0) / scale,
         _ => 0.0,
     }
+}
+
+///
+/// The size in points a Glyph is laid out at in `cell`: three quarters of its
+/// height, or what its width fits where that is less.
+///
+pub(crate) fn glyph_size(cell: Vec2) -> f32 {
+    (GLYPH_PER_HEIGHT * cell.y).min(cell.x / GLYPH_ADVANCE)
 }
 
 ///

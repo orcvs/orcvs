@@ -1389,11 +1389,11 @@ async fn each_mode_button_explains_itself_on_hover() {
 }
 
 ///
-/// Each mode and transport glyph has a glyph of its own in the console's one font, which
+/// Each mode glyph has a glyph of its own in the console's one font, which
 /// otherwise draws its replacement glyph.
 ///
 #[tokio::test]
-async fn the_mode_and_transport_glyphs_are_in_the_console_font() {
+async fn the_mode_glyphs_are_in_the_console_font() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let font = egui::FontId::proportional(14.0);
@@ -1414,10 +1414,7 @@ async fn the_mode_and_transport_glyphs_are_in_the_console_font() {
         replacement,
         "the probe no longer tells a missing glyph from a present one"
     );
-    for glyph in super::menu_bar::MODE_GLYPHS
-        .into_iter()
-        .chain(super::panel::TRANSPORT_GLYPHS)
-    {
+    for glyph in super::menu_bar::MODE_GLYPHS {
         assert_ne!(
             uv(glyph),
             replacement,
@@ -3676,33 +3673,33 @@ async fn space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it() {
 }
 
 ///
-/// The Panel's Play button plays and stops Playback as Space does, and a
-/// press of it leaves Space as it was: one Space after it toggles once.
+/// The Panel's Play Cell plays and stops Playback as Space does, and a press
+/// of it leaves Space as it was: one Space after it toggles once.
 ///
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test]
-async fn the_play_button_plays_and_stops_playback_as_space_does() {
+async fn the_play_cell_plays_and_stops_playback_as_space_does() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let mut engine = harness.state().orcvs.playback_observation_watch();
 
-    harness.get_by_label("▶").click();
+    harness.get_by_label("Play").click();
     harness.step();
     assert!(
         engine_reaches(&mut engine, |observed| observed.state
             == PlaybackState::Playing)
         .await,
-        "Play did not start Playback"
+        "P did not start Playback"
     );
     harness.run_steps(1);
 
-    harness.get_by_label("⏸").click();
+    harness.get_by_label("Play").click();
     harness.step();
     assert!(
         engine_reaches(&mut engine, |observed| observed.state
             == PlaybackState::Stopped)
         .await,
-        "Stop did not stop Playback"
+        "P did not stop Playback"
     );
     harness.run_steps(1);
 
@@ -3712,47 +3709,139 @@ async fn the_play_button_plays_and_stops_playback_as_space_does() {
         engine_reaches(&mut engine, |observed| observed.state
             == PlaybackState::Playing)
         .await,
-        "Space after Stop did not start Playback"
+        "Space after P did not start Playback"
     );
-    harness.run_steps(1);
-    harness.get_by_label("⏸");
 }
 
 ///
-/// The Panel's Rewind button makes Tick `0` the next Tick, as Command Shift R
-/// does on native: a paused Playback shows Tick `0` and stays stopped.
+/// P and R are each one Source Cell, one Cell apart, on the window's Cell
+/// columns: the Panel continues the Grid.
+///
+#[tokio::test]
+async fn play_and_rewind_are_source_cells_one_cell_apart() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let cell = presented_source(&harness).cell_size;
+    let play = harness.get_by_label("Play").rect();
+    let rewind = harness.get_by_label("Rewind").rect();
+
+    assert_eq!(play.size(), cell, "P is not one Source Cell");
+    assert_eq!(rewind.size(), cell, "R is not one Source Cell");
+    assert_eq!(
+        rewind.min.x - play.max.x,
+        cell.x,
+        "P and R are not one Cell apart"
+    );
+    let column = play.min.x / cell.x;
+    assert_eq!(
+        column,
+        column.round(),
+        "P is off the Cell columns at {}",
+        play.min.x
+    );
+    let style = crate::style::style(&default_theme(Appearance::Dark));
+    let inset = egui::Frame::side_top_panel(&style).inner_margin.leftf()
+        + f32::from(super::panel::BOTTOM_PANEL_LEFT_PAD);
+    assert!(
+        (inset..inset + cell.x).contains(&play.min.x),
+        "P is not on the first Cell column past the Panel's inset {inset}: {}",
+        play.min.x
+    );
+}
+
+///
+/// P is drawn in the Function role while Playback is stopped and in the
+/// Bang role while it plays, as a Function Cell is drawn when it is banged.
 ///
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test]
-async fn the_rewind_button_rewinds_a_paused_playback_to_tick_zero() {
+async fn the_play_cell_takes_the_bang_role_while_playback_plays() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let theme = harness.state().themes.presented(Appearance::Dark).clone();
+    let play = harness.get_by_label("Play").rect();
+    assert_eq!(
+        painted_fill_at(&harness, play.center()),
+        Some(theme.source_function_background),
+        "a stopped P is not in the Function role"
+    );
+
+    let mut engine = harness.state().orcvs.playback_observation_watch();
+    harness.get_by_label("Play").click();
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing)
+        .await,
+        "P did not start Playback"
+    );
+    harness.run_steps(1);
+    assert_eq!(
+        painted_fill_at(&harness, play.center()),
+        Some(theme.source_bang_background),
+        "a playing P is not in the Bang role"
+    );
+}
+
+///
+/// The fill of the last filled rectangle the last frame painted over
+/// `point`, on any layer.
+///
+fn painted_fill_at(harness: &Harness<'_, Console>, point: Pos2) -> Option<egui::Color32> {
+    fn collect(shape: &egui::Shape, point: Pos2, fill: &mut Option<egui::Color32>) {
+        match shape {
+            egui::Shape::Rect(rect) if rect.rect.contains(point) => *fill = Some(rect.fill),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, point, fill);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut fill = None;
+    for clipped in &harness.output().shapes {
+        collect(&clipped.shape, point, &mut fill);
+    }
+    fill
+}
+
+///
+/// The Panel's R Cell makes Tick `0` the next Tick, as Command Shift R does
+/// on native: a paused Playback shows Tick `0` and stays stopped.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_rewind_cell_rewinds_a_paused_playback_to_tick_zero() {
     use orcvs::source::Tick;
 
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let mut engine = harness.state().orcvs.playback_observation_watch();
 
-    harness.get_by_label("▶").click();
+    harness.get_by_label("Play").click();
     harness.step();
     assert!(
         engine_reaches(&mut engine, |observed| observed.state
             == PlaybackState::Playing
             && observed.tick >= Tick::new(1))
         .await,
-        "Play did not start Playback"
+        "P did not start Playback"
     );
     harness.run_steps(1);
-    harness.get_by_label("⏸").click();
+    harness.get_by_label("Play").click();
     harness.step();
     harness.run_steps(1);
 
-    harness.get_by_label("⏮").click();
+    harness.get_by_label("Rewind").click();
     harness.step();
     assert!(
         engine_reaches(&mut engine, |observed| observed.state
             == PlaybackState::Stopped
             && observed.tick == Tick::ZERO)
         .await,
-        "Rewind did not rewind the paused Playback"
+        "R did not rewind the paused Playback"
     );
 }
 
@@ -3761,14 +3850,14 @@ async fn the_rewind_button_rewinds_a_paused_playback_to_tick_zero() {
 /// embedded example can be played and rewound without a key.
 ///
 #[tokio::test]
-async fn a_small_console_shows_the_play_and_rewind_buttons() {
+async fn a_small_console_shows_play_and_rewind() {
     let mut harness = Harness::builder()
         .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
         .with_pixels_per_point(1.0)
         .build_eframe(|cc| super::tests::start_linked_console(cc, "?small", ""));
     harness.run_steps(2);
-    harness.get_by_label("▶");
-    harness.get_by_label("⏮");
+    harness.get_by_label("Play");
+    harness.get_by_label("Rewind");
 }
 
 ///

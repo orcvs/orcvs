@@ -1,4 +1,4 @@
-//! The bottom Panel: the Rewind and Play buttons, the typed BPM field, the beat
+//! The bottom Panel: the Play and Rewind Cells, the typed BPM field, the beat
 //! marker, the Tick and Run Clock Readouts, the Output destinations — MIDI, and
 //! in its list UDP and OSC — and their status, and optional Diagnostics beneath
 //! them.
@@ -12,9 +12,9 @@ use orcvs::playback::{PlaybackObservation, PlaybackState};
 use super::Console;
 use super::diagnostics_panel::summary_height;
 use crate::console_midi;
-use crate::grid_viewport::snapped_cell;
+use crate::grid_viewport::{glyph_size, snapped_cell};
 use crate::midi::destination_presentation;
-use crate::theme::Appearance;
+use crate::theme::{Appearance, Theme};
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
@@ -50,11 +50,6 @@ const TICK_DIGITS: usize = 5;
 pub(super) const BEAT_MARKER: &str = "**";
 /// Marker next to BPM while Playback is stopped.
 const REST_MARKER: &str = "//";
-///
-/// The Rewind, Play and Stop buttons' glyphs. Each must be in the console's
-/// one font (`kittest_tests::the_mode_and_transport_glyphs_are_in_the_console_font`).
-///
-pub(super) const TRANSPORT_GLYPHS: [&str; 3] = ["⏮", "▶", "⏸"];
 /// How many points to pull each label toward its value, relative to one monospace cell.
 const LABEL_VALUE_TIGHTEN: f32 = 2.0;
 /// Monospace cells between Readout groups, so C is not as close to T's value as to its own.
@@ -147,6 +142,58 @@ pub(super) fn reserved_monospace(ui: &mut egui::Ui, text: &str, width: f32) -> e
     // the Label it reads as.
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), text));
+    response
+}
+
+///
+/// One Source Cell that acts when clicked, holding `glyph` in the Function
+/// role, or in the Bang role while `banged`, as the Grid draws a Function
+/// Cell. It starts on the next of the window's Cell columns, so the Panel
+/// continues the Grid's lattice.
+///
+fn cell_button(
+    ui: &mut egui::Ui,
+    cell: Vec2,
+    font_family: &egui::FontFamily,
+    theme: &Theme,
+    glyph: &str,
+    name: &str,
+    banged: bool,
+) -> egui::Response {
+    let left = ui.cursor().min.x;
+    ui.add_space((left / cell.x).ceil() * cell.x - left);
+    let (rect, response) = ui.allocate_exact_size(cell, egui::Sense::click());
+    let (foreground, background, border, border_width) = if banged {
+        (
+            theme.source_bang,
+            theme.source_bang_background,
+            theme.source_bang_border,
+            theme.source_bang_border_width,
+        )
+    } else {
+        (
+            theme.source_function,
+            theme.source_function_background,
+            theme.source_function_border,
+            theme.source_function_border_width,
+        )
+    };
+    let painter = ui.painter();
+    painter.rect(
+        rect,
+        0.0,
+        background,
+        egui::Stroke::new(border_width.points(), border),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        FontId::new(glyph_size(cell), font_family.clone()),
+        foreground,
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
     response
 }
 
@@ -341,8 +388,8 @@ impl Console {
     /// `run_clock`: the one sample of it this Render Frame paints and times its
     /// next repaint by.
     ///
-    /// Static: no resize handle, no drag. Rewind and Play do what Command
-    /// Shift R and Space do. BPM is a TextEdit: click to type;
+    /// Static: no resize handle, no drag. P and R do what Space and Command
+    /// Shift R do. BPM is a TextEdit: click to type;
     /// Enter or leaving the field commits. `**` is the beat, `//` while
     /// Playback is stopped. Tick and Run Clock are the engine's published
     /// Readouts. Destination is chosen from the ComboBox; Scan asks the engine
@@ -383,14 +430,18 @@ impl Console {
                 |ui| {
                     let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    let [rewind, play, stop] = TRANSPORT_GLYPHS;
-                    if ui.button(rewind).clicked() {
-                        self.orcvs.rewind();
-                    }
-                    ui.add_space(label_value_gap);
+                    let cell = snapped_cell(self.source_view.cell, ui.ctx().pixels_per_point());
+                    let theme = self.themes.presented(appearance);
                     let playing = observation.state == PlaybackState::Playing;
-                    if ui.button(if playing { stop } else { play }).clicked() {
+                    let cell_button = |ui: &mut egui::Ui, glyph, name, banged| {
+                        cell_button(ui, cell, &self.font_family, theme, glyph, name, banged)
+                    };
+                    if cell_button(ui, "P", "Play", playing).clicked() {
                         self.orcvs.toggle_playback();
+                    }
+                    ui.add_space(cell.x);
+                    if cell_button(ui, "R", "Rewind", false).clicked() {
+                        self.orcvs.rewind();
                     }
                     ui.add_space(entry_gap);
                     panel_label(ui, "B");

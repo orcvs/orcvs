@@ -24,7 +24,7 @@ use super::diagnostics_panel::{
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
 use super::input::translate_event;
 use super::menu_bar::TOP_PANEL_HEIGHT;
-use super::panel::{BOTTOM_PANEL_HEIGHT, BOTTOM_PANEL_LEFT_PAD, BPM_FIELD_MARGIN};
+use super::panel::{BOTTOM_PANEL_HEIGHT, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
 use super::source_view::{
     ShownSourceView, SourceView, clamp_pan, extent, is_presentable, show_source_scene,
@@ -2457,7 +2457,6 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
             .unwrap_or_else(|| panic!("the Panel is missing {text:?} in {spans:?}"))
     }
 
-    let rewind = span(&spans, "⏮");
     let rest = span(&spans, "//");
     let t = span(&spans, "T");
     let tick = span(&spans, "00000");
@@ -2480,17 +2479,6 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
     assert!(
         beat_to_t > t_to_v + 0.5,
         "groups are as tight as a label and its value: group {beat_to_t} pair {t_to_v}"
-    );
-
-    // The Panel opens with the Rewind button, whose glyph its button pads.
-    let style = crate::style::style(&default_theme(Appearance::Dark));
-    let expected_left = egui::Frame::side_top_panel(&style).inner_margin.leftf()
-        + f32::from(BOTTOM_PANEL_LEFT_PAD)
-        + style.spacing.button_padding.x;
-    assert!(
-        (rewind.1 - expected_left).abs() < 1.0,
-        "Rewind starts at {} rather than {expected_left} in {spans:?}",
-        rewind.1
     );
 }
 
