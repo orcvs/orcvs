@@ -716,7 +716,10 @@ mod tests {
         let destinations = [MidiDestination::new("one", "Studio Synth")];
         let selected = MidiDestinationId::new("one");
         let presentation = destination_presentation_for(false, &destinations, Some(&selected));
-        assert_eq!(presentation.enabled, cfg!(not(target_arch = "wasm32")));
+        #[cfg(not(target_arch = "wasm32"))]
+        assert!(presentation.enabled);
+        #[cfg(target_arch = "wasm32")]
+        assert!(!presentation.enabled);
         assert!(!presentation.show_refresh);
         assert_eq!(presentation.selected_text, super::OUTPUT_NONE);
     }
