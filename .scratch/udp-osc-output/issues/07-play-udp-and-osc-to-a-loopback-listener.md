@@ -22,3 +22,13 @@ ordinary suite on every native platform.
       refuses a packet that is not a complete, padded message.
 - [x] Each Tick's UDP datagram and OSC message arrive once, in Tick Plan order.
 - [x] Stopping sends nothing more, and the run reports no diagnostic.
+
+## Answer
+
+`orcvs/tests/network_loopback.rs` plays a three-row program through a running Orcvs to one
+loopback listener that both the UDP and OSC ports name, so the order between a Tick's two sends is
+observable. Two Clocks write the Tick into the Payloads, and Tick 0 must carry `00`, so a Write
+that landed a Tick late would fail. The listener decodes OSC 1.0 itself and refuses unpadded or
+incomplete packets, with its own tests including the specification's example. The run stops half
+a period after Tick 7 and waits four more periods, then asserts exactly eight Ticks of sends and no
+diagnostic. `mise run test_network_loopback` runs it alone.

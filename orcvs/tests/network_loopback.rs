@@ -11,17 +11,17 @@
 //!
 
 use std::net::{Ipv4Addr, UdpSocket};
+use std::time::Duration;
 
 use orcvs::app::{InputEvent, InputKey, Orcvs};
-use orcvs::grid::Grid;
 use orcvs::network::NetworkDestination;
-use orcvs::source::Source;
+use orcvs::source::{Source, file};
 
 ///
 /// One OSC argument as the listener reads it off the wire. Orcvs sends only
 /// these three types.
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Heard {
     Int(i32),
     Float(f32),
@@ -37,7 +37,7 @@ enum Heard {
 /// tag string that does not start with `,`, a tag Orcvs never sends, a
 /// truncated argument, or bytes left over after the last argument.
 ///
-fn decode(packet: &[u8]) -> Result<(String, Vec<Heard>), String> {
+fn decode(packet: &[u8]) -> Result<Message, String> {
     if !packet.len().is_multiple_of(4) {
         return Err(format!("a packet of {} bytes is not padded", packet.len()));
     }
@@ -150,46 +150,28 @@ fn the_listener_refuses_what_is_not_a_complete_padded_message() {
 
 ///
 /// The program the loopback plays. Each `.=0101` bangs the Function two rows
-/// below it on every Tick. Each Clock `~.0140` answers the Tick, under 40, and
+/// below it on every Tick. Each Clock `~.0140` answers the Tick modulo `40` (64) and
 /// writes it into a Payload, so every send carries the Tick that sent it.
 ///
-const PROGRAM: [&str; 3] = [
-    ".=0101    .=0101",
-    "    ~.0140     ~.0140",
-    "!ut   !   !o/t   !",
-];
-
-const PROGRAM_WIDTH: usize = 24;
+const PROGRAM: &str = "\
+.=0101    .=0101
+    ~.0140     ~.0140
+!ut   !   !o/t   !
+";
 
 fn program() -> Source {
-    let grid = Grid::with_shape(PROGRAM_WIDTH, PROGRAM.len());
-    let mut source = Source::new(grid);
-    for (y, row) in PROGRAM.iter().enumerate() {
-        for (x, content) in row.chars().enumerate().filter(|(_, c)| *c != ' ') {
-            let cell = grid
-                .cell_index(y * PROGRAM_WIDTH + x)
-                .expect("the program fits its Grid");
-            source
-                .set(cell, &content.to_string())
-                .expect("the program is valid Source");
-        }
-    }
-    source
+    file::read(PROGRAM.as_bytes()).expect("the program is a Source File")
 }
 
-/// One datagram as the listener reads it.
-#[derive(Debug, PartialEq)]
-enum Received {
-    Udp(Vec<u8>),
-    Osc(String, Vec<Heard>),
-}
+/// One OSC message as the listener reads it: its address and arguments.
+type Message = (String, Vec<Heard>);
 
-/// What Tick `tick` of the program sends: its UDP datagram, then its OSC
-/// message.
-fn tick_sends(tick: u8) -> (Received, Received) {
+/// What Tick `tick` of the program sends, in Tick Plan order: its UDP
+/// datagram, then its OSC message.
+fn tick_sends(tick: u8) -> (Vec<u8>, Message) {
     (
-        Received::Udp(format!("t {tick:02X}").into_bytes()),
-        Received::Osc("/t".to_owned(), vec![Heard::Int(i32::from(tick))]),
+        format!("t {tick:02X}").into_bytes(),
+        ("/t".to_owned(), vec![Heard::Int(i32::from(tick))]),
     )
 }
 
@@ -198,58 +180,48 @@ fn space(orcvs: &mut Orcvs) {
 }
 
 ///
-/// A UDP and an OSC listener on loopback ports.
+/// A socket on a loopback port that both the UDP and the OSC port name, so the
+/// order between a Tick's two sends is the order they arrive in.
 ///
-struct Listeners {
-    udp: UdpSocket,
-    osc: UdpSocket,
-}
-
-impl Listeners {
-    fn bind() -> Self {
-        Self {
-            udp: listener(),
-            osc: listener(),
-        }
-    }
-
-    fn destination(&self) -> NetworkDestination {
-        NetworkDestination {
-            host: Ipv4Addr::LOCALHOST.into(),
-            udp_port: self.udp.local_addr().unwrap().port(),
-            osc_port: self.osc.local_addr().unwrap().port(),
-        }
-    }
-
-    /// Every datagram waiting, as each port's sends in the order they arrived.
-    fn received(&self) -> (Vec<Received>, Vec<Received>) {
-        let udp = drain(&self.udp).into_iter().map(Received::Udp).collect();
-        let osc = drain(&self.osc)
-            .iter()
-            .map(|packet| {
-                let (address, arguments) = decode(packet).expect("a well-formed OSC message");
-                Received::Osc(address, arguments)
-            })
-            .collect();
-        (udp, osc)
-    }
-}
-
 fn listener() -> UdpSocket {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("a loopback port");
+    // Long enough for a datagram still crossing loopback on a slow runner.
     socket
-        .set_nonblocking(true)
-        .expect("a non-blocking listener");
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .expect("a read timeout");
     socket
 }
 
-fn drain(socket: &UdpSocket) -> Vec<Vec<u8>> {
+fn destination(listener: &UdpSocket) -> NetworkDestination {
+    let port = listener.local_addr().unwrap().port();
+    NetworkDestination {
+        host: Ipv4Addr::LOCALHOST.into(),
+        udp_port: port,
+        osc_port: port,
+    }
+}
+
+///
+/// Every datagram `listener` holds, read as one UDP datagram then one OSC
+/// message per Tick.
+///
+fn received(listener: &UdpSocket) -> Vec<(Vec<u8>, Message)> {
     let mut packets = Vec::new();
     let mut buffer = [0; 512];
-    while let Ok(length) = socket.recv(&mut buffer) {
+    while let Ok(length) = listener.recv(&mut buffer) {
         packets.push(buffer[..length].to_vec());
     }
+    assert!(
+        packets.len().is_multiple_of(2),
+        "a Tick sent one datagram: {packets:?}"
+    );
     packets
+        .chunks(2)
+        .map(|pair| {
+            let osc = decode(&pair[1]).expect("a well-formed OSC message");
+            (pair[0].clone(), osc)
+        })
+        .collect()
 }
 
 const TICKS: u8 = 8;
@@ -257,13 +229,13 @@ const TICKS: u8 = 8;
 ///
 /// Plays the program for `TICKS` Ticks, stops half a period after the last,
 /// and waits four more periods, so a send after the stop would arrive as one
-/// datagram too many on either port.
+/// datagram too many.
 ///
 #[tokio::test(start_paused = true)]
 async fn udp_and_osc_loopback_through_a_running_orcvs() {
-    let listeners = Listeners::bind();
+    let socket = listener();
     let mut orcvs = Orcvs::with_source(program()).expect("the test runtime");
-    orcvs.set_network_destination(listeners.destination());
+    orcvs.set_network_destination(destination(&socket));
     let tick_period = orcvs.bpm().tick_period();
 
     space(&mut orcvs);
@@ -271,33 +243,33 @@ async fn udp_and_osc_loopback_through_a_running_orcvs() {
     space(&mut orcvs);
     tokio::time::sleep(tick_period * 4).await;
 
-    let sent: (Vec<Received>, Vec<Received>) = (0..TICKS).map(tick_sends).unzip();
-    assert_eq!(listeners.received(), sent);
+    let sent: Vec<_> = (0..TICKS).map(tick_sends).collect();
+    assert_eq!(received(&socket), sent);
     assert_eq!(orcvs.drain_playback_diagnostics(), vec![]);
 }
 
 ///
-/// Tick 0 goes to ports nothing listens on and Tick 1 to the listeners. On
-/// Windows the first Tick's datagrams come back as `ConnectionReset` on the
-/// second Tick's sends, which are still made and report nothing.
+/// Tick 0 goes to a port nothing listens on and Tick 1 to the listener. On
+/// Windows Tick 0's last datagram comes back as `ConnectionReset` on the
+/// socket's next send, Tick 1's first, which is still made and reports
+/// nothing.
 ///
 #[tokio::test(start_paused = true)]
 async fn a_send_after_one_nothing_heard_is_made_and_reports_nothing() {
-    let listeners = Listeners::bind();
-    // Bound and dropped at once, so nothing listens on these ports.
-    let unheard = Listeners::bind().destination();
+    let socket = listener();
+    // Bound and dropped at once, so nothing listens on this port.
+    let unheard = destination(&listener());
     let mut orcvs = Orcvs::with_source(program()).expect("the test runtime");
     orcvs.set_network_destination(unheard);
     let tick_period = orcvs.bpm().tick_period();
 
     space(&mut orcvs);
     tokio::time::sleep(tick_period / 2).await;
-    orcvs.set_network_destination(listeners.destination());
+    orcvs.set_network_destination(destination(&socket));
     tokio::time::sleep(tick_period).await;
     space(&mut orcvs);
     tokio::time::sleep(tick_period * 4).await;
 
-    let (udp, osc) = tick_sends(1);
-    assert_eq!(listeners.received(), (vec![udp], vec![osc]));
+    assert_eq!(received(&socket), [tick_sends(1)]);
     assert_eq!(orcvs.drain_playback_diagnostics(), vec![]);
 }

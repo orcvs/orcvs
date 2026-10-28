@@ -19,3 +19,17 @@ stays small; widening it is the Windows-support effort's job.
 - [x] The `windows` job runs on merge-group, push to `main` and manual dispatch, never on a pull
       request, and `ci` treats it as `macos` is treated.
 - [ ] `scripts/check-tooling-contract.sh`, `actionlint` and `zizmor` pass.
+
+## Answer
+
+`a_send_after_one_nothing_heard_is_made_and_reports_nothing` sends Tick 0 to a port nothing
+listens on and Tick 1 to the listener, then asserts Tick 1 arrived and nothing was reported. On
+Linux and macOS no reset occurs, so only the Windows job exercises the `ConnectionReset` path.
+
+The merge tier's `windows` job (`windows-2025`, 40 minutes) runs `mise run test_network_loopback`
+with `install: false`, since the task needs only cargo. It follows the research's option B scoped
+to this test: `if: github.event_name != 'pull_request'`, and `ci` requires it skipped on pull
+requests and successful otherwise, as it does `macos`. `scripts/tests/check-ci-results.sh` covers
+every outcome. The contract script pins the task, the job's runner and its step. actionlint and
+zizmor were not available locally and run in the tooling workflow; the job's wall time is measured
+on its first manual dispatch.

@@ -642,9 +642,9 @@ a container shares that kernel.
 ## Network loopback
 
 `orcvs/tests/network_loopback.rs` plays a Source of `!u` and `!o` rows through a running Orcvs to
-two listeners on loopback UDP ports. A Clock writes the Tick into each Payload, so every datagram
-names the Tick that sent it, and the test asserts each Tick's UDP and OSC sends arrive once, in
-order, with nothing after the stop and no diagnostic. The listener reads OSC 1.0 with its own
+one listener that both ports name. A Clock writes the Tick into each Payload, so every datagram
+names the Tick that sent it, and the test asserts each Tick's UDP datagram and OSC message arrive
+once, in Tick Plan order, with nothing after the stop and no diagnostic. The listener reads OSC 1.0 with its own
 decoder rather than the output adapter's encoder, so a wrong byte shows up as a difference.
 
 A second test sends one Tick where nothing listens and the next to the listeners. Windows reports
