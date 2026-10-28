@@ -1,7 +1,7 @@
-//! The bottom Panel: the Rewind and Play controls, the typed BPM field, the
-//! beat marker, the Tick and Run Clock Readouts, the Output destinations —
-//! MIDI, and in its list UDP and OSC — and their status, and optional
-//! Diagnostics beneath them.
+//! The bottom Panel: the Rewind and Play buttons, the typed BPM field, the beat
+//! marker, the Tick and Run Clock Readouts, the Output destinations — MIDI, and
+//! in its list UDP and OSC — and their status, and optional Diagnostics beneath
+//! them.
 
 use std::time::Duration;
 
@@ -51,13 +51,10 @@ pub(super) const BEAT_MARKER: &str = "**";
 /// Marker next to BPM while Playback is stopped.
 const REST_MARKER: &str = "//";
 ///
-/// The Play control's glyphs: Play while Playback is not requested, Stop
-/// while it is. Each must be in the console's one font
-/// (`kittest_tests::the_mode_and_play_glyphs_are_in_the_console_font`).
+/// The Rewind, Play and Stop buttons' glyphs. Each must be in the console's
+/// one font (`kittest_tests::the_mode_and_transport_glyphs_are_in_the_console_font`).
 ///
-pub(super) const PLAY_GLYPHS: [&str; 2] = ["▶", "⏸"];
-/// The Rewind control's glyph, held to the same font as [`PLAY_GLYPHS`].
-pub(super) const REWIND_GLYPH: &str = "⏮";
+pub(super) const TRANSPORT_GLYPHS: [&str; 3] = ["⏮", "▶", "⏸"];
 /// How many points to pull each label toward its value, relative to one monospace cell.
 const LABEL_VALUE_TIGHTEN: f32 = 2.0;
 /// Monospace cells between Readout groups, so C is not as close to T's value as to its own.
@@ -166,49 +163,6 @@ pub(super) const BPM_FIELD_MARGIN: egui::Margin = egui::Margin::symmetric(8, 4);
 /// The Panel BPM range is 1..=999.
 const PANEL_BPM_MIN: usize = 1;
 const PANEL_BPM_MAX: usize = 999;
-
-/// The smallest a Panel control is drawn: WCAG 2.5.8's 24 CSS pixel
-/// target, so a finger on a phone can hit it.
-pub(super) const CONTROL_MIN_SIZE: f32 = 24.0;
-
-///
-/// The Play control: Play while Playback is not requested and Stop while it
-/// is, a glyph named for accessibility and explained on hover. It shows the
-/// request a press toggles rather than the engine's last publication, so a
-/// second tap before the engine answers stops what it shows. A press does
-/// what Space does, so a reader with no keyboard can play.
-///
-fn play_control(ui: &mut egui::Ui, requested: bool) -> egui::Response {
-    let [play, stop] = PLAY_GLYPHS;
-    let (glyph, name) = if requested {
-        (stop, "Stop")
-    } else {
-        (play, "Play")
-    };
-    let response = ui.add(egui::Button::new(glyph).min_size(Vec2::splat(CONTROL_MIN_SIZE)));
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
-    response.on_hover_text(format!("{name} (Space)"))
-}
-
-///
-/// The Rewind control: makes Tick `0` the next Tick, as Command Shift R does
-/// on native. The web binds no chord for it, so this is the web's one Rewind.
-///
-fn rewind_control(ui: &mut egui::Ui) -> egui::Response {
-    let response = ui.add(egui::Button::new(REWIND_GLYPH).min_size(Vec2::splat(CONTROL_MIN_SIZE)));
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Rewind"));
-    #[cfg(not(target_arch = "wasm32"))]
-    let hover = format!(
-        "Rewind ({})",
-        ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(
-            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-            Key::R,
-        ))
-    );
-    #[cfg(target_arch = "wasm32")]
-    let hover = "Rewind";
-    response.on_hover_text(hover)
-}
 
 fn parse_panel_bpm(text: &str) -> Option<usize> {
     if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
@@ -387,8 +341,8 @@ impl Console {
     /// `run_clock`: the one sample of it this Render Frame paints and times its
     /// next repaint by.
     ///
-    /// Static: no resize handle, no drag. The Rewind and Play controls do
-    /// what Command Shift R and Space do. BPM is a TextEdit: click to type;
+    /// Static: no resize handle, no drag. Rewind and Play do what Command
+    /// Shift R and Space do. BPM is a TextEdit: click to type;
     /// Enter or leaving the field commits. `**` is the beat, `//` while
     /// Playback is stopped. Tick and Run Clock are the engine's published
     /// Readouts. Destination is chosen from the ComboBox; Scan asks the engine
@@ -429,11 +383,13 @@ impl Console {
                 |ui| {
                     let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    if rewind_control(ui).clicked() {
+                    let [rewind, play, stop] = TRANSPORT_GLYPHS;
+                    if ui.button(rewind).clicked() {
                         self.orcvs.rewind();
                     }
                     ui.add_space(label_value_gap);
-                    if play_control(ui, self.orcvs.playback_requested()).clicked() {
+                    let playing = observation.state == PlaybackState::Playing;
+                    if ui.button(if playing { stop } else { play }).clicked() {
                         self.orcvs.toggle_playback();
                     }
                     ui.add_space(entry_gap);
