@@ -6,7 +6,7 @@ Cloudflare's build starts, which races `.github/workflows/console-web.yml` publi
 #323 shipped the 808 beat at 22:25 on 2026-10-28, the console was published at 22:26:54, and
 orcvs.com kept the previous console. The deploy-hook step that was meant to close the race needs a
 `CLOUDFLARE_DEPLOY_HOOK` secret that was never set, and skips silently without it. See
-[ADR 0092](../../../docs/adr/0092-the-site-deploys-only-the-console-its-commit-builds.md).
+[ADR 0093](../../../docs/adr/0093-the-site-deploys-only-the-console-its-commit-builds.md).
 
 **Blocked by:** none
 

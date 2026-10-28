@@ -50,7 +50,7 @@ the root directory and its default build command, `npm run build`. The build's `
 `site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
 the directory `CONSOLE_WEB` names, relative to `site/`, and Astro builds the site around it into
 `site/dist/`; nothing in the site build compiles the console. The production build waits up to 15
-minutes for the console keyed to its own commit and fails without it (ADR 0092); any other build
+minutes for the console keyed to its own commit and fails without it (ADR 0093); any other build
 takes the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
 release, and the site workflow runs it. A push to `main` deploys, and a pull
 request gets Cloudflare's preview URL. `site/.node-version` is the Node pin Cloudflare's build

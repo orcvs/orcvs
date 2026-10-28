@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests `site/scripts/console.sh` and `scripts/console-key.sh` as Cloudflare's build runs them
-# (ADR 0092), without the network. Each case is a throwaway repository holding the two scripts and
+# (ADR 0093), without the network. Each case is a throwaway repository holding the two scripts and
 # the real `console-web.yml`, whose path filter decides the key. `curl` and `sleep` are stubbed on
 # `PATH`: `curl` serves files from a directory standing in for the `console-web` release, and
 # `sleep` counts the waits and can publish a console partway through them.

@@ -3,7 +3,7 @@
 # of the paths in `.github/workflows/console-web.yml`'s path filter, which are the paths the console
 # is built from. Two commits share a key exactly when they build the same console. The workflow
 # publishes each console under its key, and the site's production build waits for its own
-# (ADR 0092).
+# (ADR 0093).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mapfile -t paths < <(grep -oE "^      - '[^']+'$" .github/workflows/console-web.yml \
