@@ -61,14 +61,16 @@ impl NetworkOutput {
 
     ///
     /// Sends every network command among `commands`, in their order, and
-    /// answers one failure per send that failed. A failure stops nothing: the
-    /// sends after it are still made.
+    /// answers one failure per send that failed, or `None` when there was
+    /// nothing to send. A failure stops nothing: the sends after it are still
+    /// made.
     ///
-    pub(crate) fn deliver(&mut self, commands: &[PlayCommand]) -> Vec<OutputAdapterError> {
+    pub(crate) fn deliver(&mut self, commands: &[PlayCommand]) -> Option<Vec<OutputAdapterError>> {
         let destination = *self.destination.borrow();
+        let mut attempted = false;
         let mut failures = Vec::new();
         for command in commands {
-            let sent = match command {
+            let result = match command {
                 PlayCommand::Udp(bytes) => self.send(
                     bytes,
                     SocketAddr::new(destination.host, destination.udp_port),
@@ -79,9 +81,10 @@ impl NetworkOutput {
                 ),
                 _ => continue,
             };
-            failures.extend(sent.err());
+            attempted = true;
+            failures.extend(result.err());
         }
-        failures
+        attempted.then_some(failures)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -290,7 +293,7 @@ mod tests {
         fn a_udp_send_arrives_as_its_exact_bytes() {
             let (listener, mut output, _sender) = listening();
             let failures = output.deliver(&[PlayCommand::Udp(b"hi there ".as_slice().into())]);
-            assert!(failures.is_empty(), "{failures:?}");
+            assert_eq!(failures, Some(Vec::new()));
             assert_eq!(received(&listener), b"hi there ");
         }
 
@@ -302,9 +305,15 @@ mod tests {
                 PlayCommand::Udp(b"first".as_slice().into()),
                 PlayCommand::Osc(Box::new(osc.clone())),
             ]);
-            assert!(failures.is_empty(), "{failures:?}");
+            assert_eq!(failures, Some(Vec::new()));
             assert_eq!(received(&listener), b"first");
             assert_eq!(received(&listener), encode(&osc));
+        }
+
+        #[test]
+        fn commands_with_no_network_send_send_nothing() {
+            let (_listener, mut output, _sender) = listening();
+            assert_eq!(output.deliver(&[]), None);
         }
 
         #[test]
@@ -332,10 +341,12 @@ mod tests {
             let port = listener.local_addr().unwrap().port();
             // Port zero is no destination, so the send is refused.
             sender.send_modify(|destination| destination.osc_port = 0);
-            let failures = output.deliver(&[
-                PlayCommand::Osc(Box::new(message("/x", vec![]))),
-                PlayCommand::Udp(b"still".as_slice().into()),
-            ]);
+            let failures = output
+                .deliver(&[
+                    PlayCommand::Osc(Box::new(message("/x", vec![]))),
+                    PlayCommand::Udp(b"still".as_slice().into()),
+                ])
+                .expect("two sends were made");
             assert_eq!(failures.len(), 1, "{failures:?}");
             assert!(
                 failures[0]

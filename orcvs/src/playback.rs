@@ -18,8 +18,8 @@ use crate::midi::MidiSelectionHandle;
 use crate::network::{NetworkDestination, NetworkOutput};
 use crate::opts::Bpm;
 use crate::source::{
-    BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, PlayCommand, SourceCommander,
-    Tick, TickPlan, Velocity,
+    BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
+    Velocity,
 };
 use diagnostics::{DiagnosticLog, Report};
 pub use diagnostics::{
@@ -859,6 +859,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // a platform clock that says otherwise.
             observation.run_started_at = Some(now.checked_sub(spent).unwrap_or(now));
             observation.frozen_run_clock = Duration::ZERO;
+            // No send of this run has failed yet.
+            observation.network_failed = false;
         });
         // The stop that ended the last run sent the safety action and
         // discarded the schedule, so a run never begins owning a note. This
@@ -966,16 +968,11 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         }
         // Each failed send is its own report, unlatched, so every activation
         // that could not send says so, and the performance goes on.
-        let failures = self.network.deliver(&plan.play_commands);
-        let sent = plan
-            .play_commands
-            .iter()
-            .any(|command| matches!(command, PlayCommand::Udp(_) | PlayCommand::Osc(_)));
-        let failed = !failures.is_empty();
-        for failure in failures {
-            self.report(Report::NetworkFailure(failure));
-        }
-        if sent {
+        if let Some(failures) = self.network.deliver(&plan.play_commands) {
+            let failed = !failures.is_empty();
+            for failure in failures {
+                self.report(Report::NetworkFailure(failure));
+            }
             self.observation.send_if_modified(|observation| {
                 std::mem::replace(&mut observation.network_failed, failed) != failed
             });
@@ -4338,10 +4335,17 @@ mod tests {
         run.run_tick(0);
         assert!(run.observation().network_failed);
 
+        // A new run, which a rewind while playing also begins, starts clear.
+        run.inner.stop();
+        run.begin_run();
+        assert!(!run.observation().network_failed);
+        run.run_tick(1);
+        assert!(run.observation().network_failed);
+
         run.network_destination.send_modify(|destination| {
             destination.osc_port = listener.local_addr().unwrap().port();
         });
-        run.run_tick(1);
+        run.run_tick(2);
         assert!(!run.observation().network_failed);
     }
 
