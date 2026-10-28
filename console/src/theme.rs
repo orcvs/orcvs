@@ -409,11 +409,9 @@ impl ThemeIdentity {
     }
 
     ///
-    /// The identity a setting names, as written in `~/.orcvs/config.toml`.
-    /// Unchecked: `SelectedThemes` reports one no Theme of its appearance
-    /// answers to.
+    /// The identity a setting names, as written in `config.toml`. Unchecked:
+    /// `SelectedThemes` reports one no Theme of its appearance answers to.
     ///
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn configured(identity: String) -> Self {
         Self(Cow::Owned(identity))
     }

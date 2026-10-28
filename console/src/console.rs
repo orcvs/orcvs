@@ -172,7 +172,7 @@ impl Console {
         // discovers Themes; `new` takes the registry, so a test builds the
         // one it needs and never reads the machine's own Theme directory.
         // Settings are read here for the same reason: native reads
-        // `~/.orcvs/config.toml` and the web runs on the defaults.
+        // `~/.orcvs/config.toml` and the web reads its page (ADR 0090).
         let console = Self::new(
             cc,
             ThemeRegistry::start(cc.storage),
