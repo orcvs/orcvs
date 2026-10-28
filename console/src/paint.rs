@@ -814,10 +814,6 @@ mod tests {
             (theme.source_function, theme.source_function_background),
             (theme.source_number, theme.source_number_background),
             (theme.source_note, theme.source_note_background),
-            (
-                theme.output_portal_foreground,
-                theme.output_portal_background,
-            ),
         ] {
             if foreground == colour {
                 return background;
@@ -2698,12 +2694,30 @@ mod tests {
     ///
     mod output_portal_paint {
         use super::{
-            Appearance, PortalRole, default_theme, running_orcvs, tinted, whole, write_row,
+            Appearance, Color32, FramePaint, Paint, PortalRole, Theme, default_theme,
+            running_orcvs, tinted, whole, write_row,
         };
+        use orcvs::render_frame::RenderFrame;
+
+        ///
+        /// The dark default with an opaque Output Portal fill of its own, so a
+        /// Cell's fill names whether the Output Portal painted it: the dark
+        /// default frames the Output Portal without filling it.
+        ///
+        fn filled_portal_theme() -> Theme {
+            Theme {
+                output_portal_background: Color32::from_rgb(0xFF, 0x80, 0x00),
+                ..default_theme(Appearance::Dark)
+            }
+        }
+
+        fn painted_with(frame: &RenderFrame, theme: &Theme) -> Paint {
+            Paint::derive_with_theme(FramePaint::whole(frame), theme)
+        }
 
         ///
         /// A scalar answer south of a Function draws in the Output Portal
-        /// colour on the Output Portal tint: `07` left south of `.+0304` re-
+        /// colour on the Output Portal fill: `07` left south of `.+0304` re-
         /// parses as two one-Cell unbound Function claims, and the Output
         /// Portal fact paints over that Diagnostic-shaped claim rather than
         /// leaving it Diagnostic.
@@ -2716,9 +2730,8 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let theme = filled_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2735,7 +2748,11 @@ mod tests {
                     painted.foreground, theme.output_portal_foreground,
                     "column {x}"
                 );
-                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(
+                    painted.background,
+                    Some(theme.output_portal_background),
+                    "column {x}"
+                );
             }
             // Past the scalar Reservation's pair: an ordinary, untinted blank
             // Cell, the same as if `.+0304` were not there.
@@ -2766,9 +2783,8 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let theme = filled_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2778,7 +2794,11 @@ mod tests {
                     painted.foreground, theme.output_portal_foreground,
                     "column {x}"
                 );
-                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(
+                    painted.background,
+                    Some(theme.output_portal_background),
+                    "column {x}"
+                );
             }
         }
 
@@ -2838,21 +2858,20 @@ mod tests {
         }
 
         ///
-        /// An empty Output Portal Cell shows the Output Portal tint and no
+        /// An empty Output Portal Cell shows the Output Portal fill and no
         /// glyph, including before the first Tick: nothing ever runs a Tick
         /// in this test, so the highlight can only have come from the
         /// current Source revision.
         ///
         #[tokio::test]
-        async fn an_empty_output_portal_cell_shows_the_tint_and_no_glyph_before_any_tick() {
+        async fn an_empty_output_portal_cell_shows_the_fill_and_no_glyph_before_any_tick() {
             let mut orcvs = running_orcvs(6, 3);
             write_row(&mut orcvs, 0, ".+0102");
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let theme = filled_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2867,7 +2886,11 @@ mod tests {
                 assert_eq!(frame.at(position).content(), None, "column {x}");
                 let painted = paint.at(position);
                 assert_eq!(painted.character, ' ', "column {x}");
-                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(
+                    painted.background,
+                    Some(theme.output_portal_background),
+                    "column {x}"
+                );
             }
             for x in 2..6 {
                 let position = grid.position(x, 1).expect("inside the grid");
@@ -3004,10 +3027,10 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
+            let theme = filled_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let function_tinted = tinted(&theme, theme.source_function);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let output_tinted = theme.output_portal_background;
             let grid = orcvs.grid();
 
             for x in 0..8 {

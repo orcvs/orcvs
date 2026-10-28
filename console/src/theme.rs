@@ -474,8 +474,10 @@ pub(crate) const GRAYSCALE_DARK_IDENTITY: ThemeIdentity = ThemeIdentity::reserve
 /// The Grayscale Dark built-in Theme: light grey text and Cells on black, at
 /// the reserved identity `GRAYSCALE_DARK_IDENTITY`. Source roles are told
 /// apart by grey level and by filled and bordered Number, Note, Function and
-/// Bang Cells; hue marks only a green Bang and a red Diagnostic glyph. Both
-/// Portals fill their Cells light grey under a dark glyph, and the Region
+/// Bang Cells; hue marks only a green Bang and a red Diagnostic glyph. The
+/// Output Portal frames its Cells unfilled in the Function fill under the
+/// Function glyph colour, the
+/// Input Portal fills its Cells light grey under a dark glyph, and the Region
 /// fills opaque. Every field is spelled out explicitly (see [`Theme`]).
 ///
 /// This is the dark Theme selection's default and fallback
@@ -514,9 +516,9 @@ pub fn grayscale_dark() -> Theme {
         diagnostic_foreground: straight_rgba(0xFF_3B_3B_FF),
         diagnostic_background: straight_rgba(0x00_00_00_00),
         diagnostic_border: straight_rgba(0xC8_C8_C8_FF),
-        output_portal_foreground: straight_rgba(0x33_33_33_FF),
-        output_portal_background: straight_rgba(0xCC_CC_CC_FF),
-        output_portal_border: straight_rgba(0xFF_FF_FF_66),
+        output_portal_foreground: straight_rgba(0xE6_E6_E6_FF),
+        output_portal_background: straight_rgba(0x00_00_00_00),
+        output_portal_border: straight_rgba(0x44_44_44_FF),
         input_portal_foreground: straight_rgba(0x33_33_33_FF),
         input_portal_background: straight_rgba(0xCC_CC_CC_FF),
         input_portal_border: straight_rgba(0xFF_FF_FF_66),
@@ -565,7 +567,7 @@ pub fn grayscale_dark() -> Theme {
         cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         diagnostic_border_width: GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
-        output_portal_border_width: GridWidth::from_points(0.0).expect("0.0 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         locked_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_ordinary_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
@@ -595,7 +597,8 @@ pub(crate) const GRAYSCALE_LIGHT_IDENTITY: ThemeIdentity =
 /// The Grayscale Light built-in Theme: dark grey text and Cells on white, at
 /// the reserved identity `GRAYSCALE_LIGHT_IDENTITY`, with [`grayscale_dark`]'s
 /// filled and bordered Source roles. Hue marks only a magenta Bang and a red,
-/// red-framed Diagnostic. Both Portals draw a light glyph on a mid-grey fill,
+/// red-framed Diagnostic. The Output Portal frames its Cells unfilled in the
+/// Function fill under the Function glyph colour, the Input Portal draws a light glyph on a mid-grey fill,
 /// and the Region fills opaque. Every field is spelled out explicitly (see
 /// [`Theme`]).
 ///
@@ -635,9 +638,9 @@ pub fn grayscale_light() -> Theme {
         diagnostic_foreground: straight_rgba(0xC7_00_00_FF),
         diagnostic_background: straight_rgba(0xFF_FF_FF_FF),
         diagnostic_border: straight_rgba(0xC7_00_00_FF),
-        output_portal_foreground: straight_rgba(0xE4_E4_E4_FF),
-        output_portal_background: straight_rgba(0x66_66_66_FF),
-        output_portal_border: straight_rgba(0x66_66_66_FF),
+        output_portal_foreground: straight_rgba(0x19_19_19_FF),
+        output_portal_background: straight_rgba(0x00_00_00_00),
+        output_portal_border: straight_rgba(0xBB_BB_BB_FF),
         input_portal_foreground: straight_rgba(0xE4_E4_E4_FF),
         input_portal_background: straight_rgba(0x66_66_66_FF),
         input_portal_border: straight_rgba(0x66_66_66_FF),
@@ -686,7 +689,7 @@ pub fn grayscale_light() -> Theme {
         cursor_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         region_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         diagnostic_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
-        output_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
+        output_portal_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         input_portal_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         locked_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_ordinary_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),

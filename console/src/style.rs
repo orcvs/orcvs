@@ -2220,7 +2220,13 @@ mod tests {
     ///
     #[test]
     fn output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell() {
-        let theme = default_theme(Appearance::Dark);
+        // A translucent Output Portal fill of its own: the dark default frames
+        // the Output Portal without filling it, which would leave nothing for
+        // the composite to show.
+        let theme = Theme {
+            output_portal_background: Color32::from_rgba_unmultiplied(0xFF, 0x80, 0x00, 0x80),
+            ..default_theme(Appearance::Dark)
+        };
 
         // The Output Portal channel composites *over* each fact's own raw
         // role background, not in place of it (`role_and_portal`'s
