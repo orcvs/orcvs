@@ -824,8 +824,6 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // a platform clock that says otherwise.
             observation.run_started_at = Some(now.checked_sub(spent).unwrap_or(now));
             observation.frozen_run_clock = Duration::ZERO;
-            // No send of this run has failed yet.
-            observation.network_failed = false;
         });
         self.outputs.begin_run();
         self.publish_network_failed();
@@ -4243,8 +4241,15 @@ mod tests {
         run.run_tick(0);
         assert!(run.observation().network_failed);
 
-        network.refuse(None);
+        // A new run, which a rewind while playing also begins, starts clear.
+        run.inner.stop();
+        run.begin_run();
+        assert!(!run.observation().network_failed);
         run.run_tick(1);
+        assert!(run.observation().network_failed);
+
+        network.refuse(None);
+        run.run_tick(2);
         assert!(!run.observation().network_failed);
     }
 
