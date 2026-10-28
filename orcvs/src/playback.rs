@@ -18,8 +18,8 @@ use crate::midi::MidiSelectionHandle;
 use crate::network::{NetworkDestination, NetworkOutput};
 use crate::opts::Bpm;
 use crate::source::{
-    BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
-    Velocity,
+    BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, PlayCommand, SourceCommander,
+    Tick, TickPlan, Velocity,
 };
 use diagnostics::{DiagnosticLog, Report};
 pub use diagnostics::{
@@ -212,6 +212,13 @@ pub struct PlaybackObservation {
     /// Frozen Run Clock while Stopped. Zero before the first run and after a
     /// rewind.
     pub frozen_run_clock: Duration,
+    ///
+    /// Whether a UDP or OSC send failed in the last Tick that made any. Held
+    /// through Ticks that send nothing, so it clears only once sends leave
+    /// again. Each failure's message is a
+    /// [`PlaybackDiagnostic::NetworkFailure`].
+    ///
+    pub network_failed: bool,
 }
 
 impl Default for PlaybackObservation {
@@ -226,6 +233,7 @@ impl Default for PlaybackObservation {
             on_beat: Bpm::on_beat(Tick::ZERO),
             run_started_at: None,
             frozen_run_clock: Duration::ZERO,
+            network_failed: false,
         }
     }
 }
@@ -958,8 +966,19 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         }
         // Each failed send is its own report, unlatched, so every activation
         // that could not send says so, and the performance goes on.
-        for failure in self.network.deliver(&plan.play_commands) {
+        let failures = self.network.deliver(&plan.play_commands);
+        let sent = plan
+            .play_commands
+            .iter()
+            .any(|command| matches!(command, PlayCommand::Udp(_) | PlayCommand::Osc(_)));
+        let failed = !failures.is_empty();
+        for failure in failures {
             self.report(Report::NetworkFailure(failure));
+        }
+        if sent {
+            self.observation.send_if_modified(|observation| {
+                std::mem::replace(&mut observation.network_failed, failed) != failed
+            });
         }
         Some(plan)
     }
@@ -4301,6 +4320,29 @@ mod tests {
                 if error.message.starts_with("network send to 127.0.0.1:0 failed")
         )));
         assert_eq!(run.state(), PlaybackState::Playing);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_observation_says_whether_the_last_network_sends_failed() {
+        let listener = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let source = SourceCommander::new(Grid::with_shape(10, 6));
+        write(&source, 0, ".=0101");
+        write(&source, 12, "!o/go!");
+        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
+        run.network_destination
+            .send_modify(|destination| destination.osc_port = 0);
+        run.begin_run();
+        assert!(!run.observation().network_failed);
+
+        run.run_tick(0);
+        assert!(run.observation().network_failed);
+
+        run.network_destination.send_modify(|destination| {
+            destination.osc_port = listener.local_addr().unwrap().port();
+        });
+        run.run_tick(1);
+        assert!(!run.observation().network_failed);
     }
 
     #[test]
