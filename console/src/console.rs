@@ -176,7 +176,7 @@ impl Console {
         // discovers Themes; `new` takes the registry, so a test builds the
         // one it needs and never reads the machine's own Theme directory.
         // Settings are read here for the same reason: native reads
-        // `~/.orcvs/config.toml` and the web runs on the defaults.
+        // `~/.orcvs/config.toml` and the web reads its page (ADR 0091).
         let console = Self::new(
             cc,
             ThemeRegistry::start(cc.storage),
@@ -302,9 +302,9 @@ impl Console {
             ),
             font_family: egui::FontFamily::Monospace,
             source_view: SourceView::new(config.cell),
-            diagnostics_open: false,
+            diagnostics_open: config.diagnostics_open,
             diagnostics_timing: TimingReadouts::default(),
-            overview_open: true,
+            overview_open: config.overview_open,
             overview: Overview::default(),
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),

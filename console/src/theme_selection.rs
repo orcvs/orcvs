@@ -69,9 +69,8 @@ impl Default for ThemeSelection {
 impl ThemeSelection {
     ///
     /// A configured selection, holding whatever identities the settings
-    /// file named.
+    /// named.
     ///
-    #[cfg(any(not(target_arch = "wasm32"), test))]
     pub(crate) fn new(dark: ThemeIdentity, light: ThemeIdentity) -> Self {
         Self(ByAppearance { dark, light })
     }

@@ -10,6 +10,12 @@
 //! [cell]
 //! width = 12              # points, 8–64
 //! height = 18             # points, 8–64
+//!
+//! [overview]
+//! open = true             # whether the Overview is open at startup
+//!
+//! [diagnostics]
+//! open = false            # whether the Diagnostics are open at startup
 //! ```
 //!
 //! Every key is optional, and an absent key is the built-in default. A
@@ -21,12 +27,15 @@
 //! reported.
 //!
 //! There is no settings UI and no reload: the file is read once, before the
-//! console is built. The web reads no file and runs on the defaults.
+//! console is built. The web reads the same text from its page instead
+//! (ADR 0091): the `orcvs_config` element `console/index.html` holds, while
+//! the element's `data-media` query matches.
 //!
 
 use egui::Vec2;
 
 use crate::grid_viewport::CELL_SIZE;
+use crate::theme::{Appearance, ThemeIdentity};
 use crate::theme_selection::ThemeSelection;
 
 ///
@@ -39,6 +48,10 @@ pub(crate) struct Config {
     pub(crate) theme_selection: ThemeSelection,
     /// The Source Cell's width and height in points, before snapping.
     pub(crate) cell: Vec2,
+    /// Whether the Overview is open when the console starts.
+    pub(crate) overview_open: bool,
+    /// Whether the Diagnostics are open when the console starts.
+    pub(crate) diagnostics_open: bool,
     /// One message per problem, in the order found, for the Theme notice
     /// channel, which reports them.
     pub(crate) notices: Vec<String>,
@@ -49,6 +62,8 @@ impl Default for Config {
         Self {
             theme_selection: ThemeSelection::default(),
             cell: CELL_SIZE,
+            overview_open: true,
+            diagnostics_open: false,
             notices: Vec::new(),
         }
     }
@@ -66,10 +81,178 @@ impl Config {
         })
     }
 
-    /// The web reads no config file and shows no config notice.
+    /// The web console's settings: the page's own (ADR 0091).
     #[cfg(target_arch = "wasm32")]
     pub(crate) fn start() -> Self {
-        Self::default()
+        Self::from_page(crate::web_startup::page_settings().as_deref())
+    }
+
+    ///
+    /// The settings a page holds as `config.toml` text, read as the file is,
+    /// or the defaults when it holds none.
+    ///
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn from_page(text: Option<&str>) -> Self {
+        text.map_or_else(Self::default, |text| {
+            parse(text, "the page's `orcvs_config` element")
+        })
+    }
+}
+
+/// The points a Cell's width or height may be. The smallest Cell gives a
+/// Glyph of 6 points at a 1× scale.
+const CELL_POINTS: std::ops::RangeInclusive<f64> = 8.0..=64.0;
+
+///
+/// The settings `text` holds. `origin` names where they were read in a
+/// notice.
+///
+fn parse(text: &str, origin: &str) -> Config {
+    let mut config = Config::default();
+    let table = match toml::from_str::<toml::Table>(text) {
+        Ok(table) => table,
+        Err(error) => {
+            config.notices.push(format!(
+                "The settings in {origin} are not valid TOML, so the default settings are \
+                 used: {}",
+                error.to_string().trim_end()
+            ));
+            return config;
+        }
+    };
+    let mut notice = |message: String| config.notices.push(format!("{origin}: {message}"));
+    let mut dark = None;
+    let mut light = None;
+    let mut width = None;
+    let mut height = None;
+    let mut overview_open = None;
+    let mut diagnostics_open = None;
+    for (section, value) in &table {
+        let Some(keys) = value.as_table() else {
+            if matches!(
+                section.as_str(),
+                "theme" | "cell" | "overview" | "diagnostics"
+            ) {
+                notice(format!(
+                    "`{section}` must be a table; its keys use their defaults"
+                ));
+            } else {
+                notice(format!("unknown key `{section}` is ignored"));
+            }
+            continue;
+        };
+        for (key, value) in keys {
+            let name = format!("{section}.{key}");
+            match (section.as_str(), key.as_str()) {
+                ("theme", "dark") => dark = identity(&name, value, &mut notice),
+                ("theme", "light") => light = identity(&name, value, &mut notice),
+                ("cell", "width") => width = points(&name, value, &mut notice),
+                ("cell", "height") => height = points(&name, value, &mut notice),
+                ("overview", "open") => overview_open = open(&name, value, &mut notice),
+                ("diagnostics", "open") => {
+                    diagnostics_open = open(&name, value, &mut notice);
+                }
+                _ => notice(format!("unknown key `{name}` is ignored")),
+            }
+        }
+    }
+    config.theme_selection = ThemeSelection::new(
+        dark.unwrap_or(ThemeIdentity::default_for(Appearance::Dark)),
+        light.unwrap_or(ThemeIdentity::default_for(Appearance::Light)),
+    );
+    if let Some(width) = width {
+        config.cell.x = width;
+    }
+    if let Some(height) = height {
+        config.cell.y = height;
+    }
+    if let Some(open) = overview_open {
+        config.overview_open = open;
+    }
+    if let Some(open) = diagnostics_open {
+        config.diagnostics_open = open;
+    }
+    config
+}
+
+/// A Theme identity: any non-empty string. Whether a Theme answers to it
+/// is `SelectedThemes`' to report.
+fn identity(
+    name: &str,
+    value: &toml::Value,
+    notice: &mut impl FnMut(String),
+) -> Option<ThemeIdentity> {
+    match value.as_str() {
+        Some(identity) if !identity.is_empty() => {
+            Some(ThemeIdentity::configured(identity.to_owned()))
+        }
+        _ => {
+            notice(format!(
+                "`{name}` must be a Theme identity, a non-empty string; the default is used"
+            ));
+            None
+        }
+    }
+}
+
+/// Whether a view is open at startup: a boolean.
+fn open(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<bool> {
+    let open = value.as_bool();
+    if open.is_none() {
+        notice(format!(
+            "`{name}` must be `true` or `false`; the default is used"
+        ));
+    }
+    open
+}
+
+/// A Cell's width or height: a number of points within [`CELL_POINTS`].
+fn points(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<f32> {
+    let points = value
+        .as_float()
+        .or_else(|| value.as_integer().map(|number| number as f64))
+        .filter(|number| CELL_POINTS.contains(number));
+    if points.is_none() {
+        notice(format!(
+            "`{name}` must be a number of points from {} to {}; the default is used",
+            CELL_POINTS.start(),
+            CELL_POINTS.end()
+        ));
+    }
+    points.map(|number| number as f32)
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::Vec2;
+
+    use super::Config;
+    use crate::grid_viewport::CELL_SIZE;
+
+    #[test]
+    fn the_page_settings_are_read_as_the_file_is_and_named_in_a_notice() {
+        let config = Config::from_page(Some(
+            "[cell]\nwidth = 24\nheight = 36\n[overview]\nopen = false\n",
+        ));
+        assert!(config.notices.is_empty(), "{:?}", config.notices);
+        assert_eq!(config.cell, Vec2::new(24.0, 36.0));
+        assert!(!config.overview_open);
+
+        let config = Config::from_page(Some("[cell]\nwidth = 99\n"));
+        assert_eq!(config.cell, CELL_SIZE);
+        assert!(
+            config
+                .notices
+                .iter()
+                .any(|notice| notice.contains("orcvs_config") && notice.contains("`cell.width`")),
+            "{:?}",
+            config.notices
+        );
+
+        let config = Config::from_page(None);
+        assert_eq!(config.cell, CELL_SIZE);
+        assert!(config.overview_open);
+        assert!(config.notices.is_empty(), "{:?}", config.notices);
     }
 }
 
@@ -81,19 +264,13 @@ mod native {
     use std::io::Read as _;
     use std::path::Path;
 
-    use super::Config;
-    use crate::theme::{Appearance, ThemeIdentity};
-    use crate::theme_selection::ThemeSelection;
+    use super::{Config, parse};
 
     /// The settings file's name in `~/.orcvs/`.
     pub(crate) const CONFIG_FILE: &str = "config.toml";
 
     /// The most a settings file may hold. A file this size is not settings.
     const MAX_CONFIG_BYTES: u64 = 64 * 1024;
-
-    /// The points a Cell's width or height may be. The smallest Cell gives a
-    /// Glyph of 6 points at a 1× scale.
-    const CELL_POINTS: std::ops::RangeInclusive<f64> = 8.0..=64.0;
 
     impl Config {
         ///
@@ -138,98 +315,6 @@ mod native {
             .map_err(|_| "it is not UTF-8 text".to_owned())
     }
 
-    ///
-    /// The settings `text` holds. `origin` names the file in a notice.
-    ///
-    fn parse(text: &str, origin: &str) -> Config {
-        let mut config = Config::default();
-        let table = match toml::from_str::<toml::Table>(text) {
-            Ok(table) => table,
-            Err(error) => {
-                config.notices.push(format!(
-                    "The settings file {origin} is not valid TOML, so the default settings are \
-                     used: {}",
-                    error.to_string().trim_end()
-                ));
-                return config;
-            }
-        };
-        let mut notice = |message: String| config.notices.push(format!("{origin}: {message}"));
-        let mut dark = None;
-        let mut light = None;
-        let mut width = None;
-        let mut height = None;
-        for (section, value) in &table {
-            let Some(keys) = value.as_table() else {
-                if matches!(section.as_str(), "theme" | "cell") {
-                    notice(format!(
-                        "`{section}` must be a table; its keys use their defaults"
-                    ));
-                } else {
-                    notice(format!("unknown key `{section}` is ignored"));
-                }
-                continue;
-            };
-            for (key, value) in keys {
-                let name = format!("{section}.{key}");
-                match (section.as_str(), key.as_str()) {
-                    ("theme", "dark") => dark = identity(&name, value, &mut notice),
-                    ("theme", "light") => light = identity(&name, value, &mut notice),
-                    ("cell", "width") => width = points(&name, value, &mut notice),
-                    ("cell", "height") => height = points(&name, value, &mut notice),
-                    _ => notice(format!("unknown key `{name}` is ignored")),
-                }
-            }
-        }
-        config.theme_selection = ThemeSelection::new(
-            dark.unwrap_or(ThemeIdentity::default_for(Appearance::Dark)),
-            light.unwrap_or(ThemeIdentity::default_for(Appearance::Light)),
-        );
-        if let Some(width) = width {
-            config.cell.x = width;
-        }
-        if let Some(height) = height {
-            config.cell.y = height;
-        }
-        config
-    }
-
-    /// A Theme identity: any non-empty string. Whether a Theme answers to it
-    /// is `SelectedThemes`' to report.
-    fn identity(
-        name: &str,
-        value: &toml::Value,
-        notice: &mut impl FnMut(String),
-    ) -> Option<ThemeIdentity> {
-        match value.as_str() {
-            Some(identity) if !identity.is_empty() => {
-                Some(ThemeIdentity::configured(identity.to_owned()))
-            }
-            _ => {
-                notice(format!(
-                    "`{name}` must be a Theme identity, a non-empty string; the default is used"
-                ));
-                None
-            }
-        }
-    }
-
-    /// A Cell's width or height: a number of points within [`CELL_POINTS`].
-    fn points(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<f32> {
-        let points = value
-            .as_float()
-            .or_else(|| value.as_integer().map(|number| number as f64))
-            .filter(|number| CELL_POINTS.contains(number));
-        if points.is_none() {
-            notice(format!(
-                "`{name}` must be a number of points from {} to {}; the default is used",
-                CELL_POINTS.start(),
-                CELL_POINTS.end()
-            ));
-        }
-        points.map(|number| number as f32)
-    }
-
     #[cfg(test)]
     mod tests {
         use egui::Vec2;
@@ -250,6 +335,8 @@ mod native {
         fn assert_defaults(config: &Config) {
             assert_eq!(config.theme_selection, ThemeSelection::default());
             assert_eq!(config.cell, CELL_SIZE);
+            assert!(config.overview_open);
+            assert!(!config.diagnostics_open);
         }
 
         fn mentions(config: &Config, needle: &str) -> bool {
@@ -282,6 +369,23 @@ mod native {
                 ThemeSelection::new(id("my-dark"), id("my-light"))
             );
             assert_eq!(config.cell, Vec2::new(10.0, 15.5));
+        }
+
+        #[test]
+        fn the_overview_and_the_diagnostics_open_as_the_file_says() {
+            let config = read("[overview]\nopen = false\n[diagnostics]\nopen = true\n");
+            assert!(config.notices.is_empty(), "{:?}", config.notices);
+            assert!(!config.overview_open);
+            assert!(config.diagnostics_open);
+
+            let config = read("[overview]\nopen = \"no\"\n[diagnostics]\nopen = 1\n");
+            assert!(mentions(&config, "`overview.open`"), "{:?}", config.notices);
+            assert!(
+                mentions(&config, "`diagnostics.open`"),
+                "{:?}",
+                config.notices
+            );
+            assert_defaults(&config);
         }
 
         #[test]

@@ -16,6 +16,26 @@ pub fn canvas_or_report(
 }
 
 ///
+/// The `config.toml` text the page's `orcvs_config` element holds (ADR 0091),
+/// or `None` when it holds none or its `data-media` query does not match.
+///
+pub(crate) fn page_settings() -> Option<String> {
+    let window = web_sys::window()?;
+    let element = window.document()?.get_element_by_id("orcvs_config")?;
+    if let Some(media) = element.get_attribute("data-media") {
+        let matches = window
+            .match_media(&media)
+            .ok()
+            .flatten()
+            .is_some_and(|list| list.matches());
+        if !matches {
+            return None;
+        }
+    }
+    element.text_content()
+}
+
+///
 /// This console's window, the page that frames it, and the console's own
 /// origin, or `None` when no page frames it.
 ///
