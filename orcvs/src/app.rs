@@ -385,6 +385,15 @@ impl<S> Orcvs<S> {
         self.opts.bpm
     }
 
+    ///
+    /// Sends UDP and OSC to `destination` from the next send on. It is the
+    /// console's setting, never the Source's, so a Source File plays the same
+    /// wherever it is opened.
+    ///
+    pub fn set_network_destination(&self, destination: crate::network::NetworkDestination) {
+        self.playback.set_network_destination(destination);
+    }
+
     pub fn set_bpm(&mut self, bpm: Bpm) {
         if self.playback_requested
             && let Err(error) = self.playback.retune(bpm.tick_period())

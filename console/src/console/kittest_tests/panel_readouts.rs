@@ -111,3 +111,101 @@ async fn the_midi_status_does_not_touch_the_destination_field() {
         "the status sits {gap}pt from the destination field"
     );
 }
+
+///
+/// The UDP and OSC destination fields in the Output list take a typed value on
+/// Enter, and report one that is not a destination without taking it.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_network_destination_fields_take_a_valid_value_and_report_an_invalid_one() {
+    use orcvs::network::NetworkDestination;
+
+    let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("First"))]);
+    let mut harness = console_over(&fake, "a").await;
+    harness.get_by_value("First").click();
+    harness.run_steps(2);
+
+    field(&harness, "49161").click();
+    harness.run_steps(1);
+    field(&harness, "49161").type_text("9000");
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(harness.state().network.destination().udp_port, 9000);
+
+    field(&harness, "127.0.0.1").click();
+    harness.run_steps(1);
+    field(&harness, "127.0.0.1").type_text("nowhere");
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().network.destination(),
+        NetworkDestination {
+            udp_port: 9000,
+            ..NetworkDestination::default()
+        }
+    );
+    assert!(
+        harness
+            .query_by(|node| node.role() == Role::Label
+                && node.value().as_deref() == Some("host \"nowhere\" is not an IP address"))
+            .is_some(),
+        "the refused host is not reported on the Panel"
+    );
+    assert!(
+        harness
+            .query_by(|node| is_field(node, "127.0.0.1"))
+            .is_some(),
+        "the refused host stayed in its field"
+    );
+}
+
+///
+/// Escape cancels a typed port, and a click outside the Output list closes it
+/// and keeps the port typed before it.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn escape_cancels_a_typed_port_and_a_click_outside_keeps_one() {
+    let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("First"))]);
+    let mut harness = console_over(&fake, "a").await;
+    harness.get_by_value("First").click();
+    harness.run_steps(2);
+
+    field(&harness, "49162").click();
+    harness.run_steps(1);
+    field(&harness, "49162").type_text("7000");
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(2);
+    assert_eq!(harness.state().network.destination().osc_port, 49162);
+
+    if harness.query_by(|node| is_field(node, "49162")).is_none() {
+        harness.get_by_value("First").click();
+        harness.run_steps(2);
+    }
+    field(&harness, "49162").click();
+    harness.run_steps(1);
+    field(&harness, "49162").type_text("7001");
+    harness.run_steps(1);
+    harness.get_by_value("T").click();
+    harness.run_steps(3);
+    assert!(
+        harness.query_by(|node| is_field(node, "7001")).is_none(),
+        "the Output list stayed open"
+    );
+    assert_eq!(harness.state().network.destination().osc_port, 7001);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_field(node: &egui_kittest::kittest::AccessKitNode<'_>, value: &str) -> bool {
+    node.role() == Role::TextInput && node.value().as_deref() == Some(value)
+}
+
+/// The Panel text field showing `value`.
+#[cfg(not(target_arch = "wasm32"))]
+fn field<'tree>(
+    harness: &'tree Harness<'static, Console>,
+    value: &'tree str,
+) -> egui_kittest::Node<'tree> {
+    harness.get_by(|node| is_field(node, value))
+}

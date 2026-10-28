@@ -24,7 +24,7 @@ impl Console {
     fn open(&mut self, source: Source) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         let saved = source.snapshot();
-        match environment(&self.ctx, source) {
+        match environment(&self.ctx, source, &self.network) {
             Ok((orcvs, midi)) => {
                 self.orcvs = orcvs;
                 self.midi = midi;

@@ -41,6 +41,7 @@ use crate::config::Config;
 use crate::console_midi::ConsoleMidiBackend;
 use crate::linked_source::Opening;
 use crate::midi::MidiDeviceSelection;
+use crate::network::NetworkSetting;
 use crate::persistence::starting_source;
 use crate::theme::Appearance;
 use crate::theme_registry::ThemeRegistry;
@@ -83,6 +84,9 @@ pub struct Console {
     /// `console_midi::AVAILABLE` says whether the ComboBox is enabled and
     /// whether Scan is shown.
     midi: MidiDeviceSelection,
+    /// Where UDP and OSC send. The Panel sets it on native, and storage keeps
+    /// it.
+    network: NetworkSetting,
     /// The framing page's Built-in Synth announcements, which list the synth
     /// under **O** and, in a Linked console, pick it.
     #[cfg(target_arch = "wasm32")]
@@ -285,10 +289,12 @@ impl Console {
         let source_file = crate::source_file::OpenSourceFile::untitled(
             crate::persistence::default_source().snapshot(),
         );
-        let (orcvs, midi) = environment(&cc.egui_ctx, source)?;
+        let network = NetworkSetting::new(crate::network::stored(cc.storage));
+        let (orcvs, midi) = environment(&cc.egui_ctx, source, &network)?;
         Ok(Self {
             orcvs,
             midi,
+            network,
             #[cfg(target_arch = "wasm32")]
             synth: crate::built_in_synth::SynthAnnouncements::new(
                 crate::built_in_synth::BrowserPage,
@@ -330,14 +336,16 @@ impl Console {
 
 ///
 /// A running Orcvs over `source` that wakes the Panel when its Playback Engine
-/// publishes, and MIDI device selection over its handle. Shared by
-/// [`Console::new`] and [`Console::open`].
+/// publishes and sends UDP and OSC where `network` says, and MIDI device
+/// selection over its handle. Shared by [`Console::new`] and [`Console::open`].
 ///
 fn environment(
     ctx: &egui::Context,
     source: Source,
+    network: &NetworkSetting,
 ) -> Result<(Orcvs, MidiDeviceSelection), PlaybackStartError> {
     let orcvs = Orcvs::with_source(source)?;
+    orcvs.set_network_destination(network.destination());
     wake_panel_when_playback_publishes(ctx.clone(), orcvs.playback_observation_watch());
     let mut midi = MidiDeviceSelection::new(
         orcvs.midi_selection_handle(),
@@ -369,14 +377,16 @@ impl Console {
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
-    /// intervals while running. This stores the current Source revision and,
-    /// natively, the window's geometry; settings are never saved.
+    /// intervals while running. This stores the current Source revision, the
+    /// UDP and OSC destination and, natively, the window's geometry; the
+    /// settings file is never written.
     ///
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if self.stores_source {
             crate::persistence::save(storage, self.orcvs.source());
         }
+        crate::network::store(storage, &self.network.destination());
         // While the splash shows, the window is the splash's, so the save
         // stores the geometry it grows to, or nothing when that is the default.
         #[cfg(not(target_arch = "wasm32"))]

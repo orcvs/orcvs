@@ -375,3 +375,29 @@ async fn a_save_stores_the_window_geometry() {
         Some(WindowGeometry::of(&console.ctx))
     );
 }
+
+///
+/// The UDP and OSC destination a console saves is the one the next console
+/// starts on and sends to.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_network_destination_round_trips_through_the_console_save() {
+    use crate::network::NetworkField;
+
+    let mut storage = InMemoryStorage::default();
+    let mut console = console_over(&storage);
+    assert!(console.network.commit(NetworkField::Host, "10.0.0.2"));
+    assert!(console.network.commit(NetworkField::OscPort, "7001"));
+    console.save(&mut storage);
+
+    let restored = console_over(&storage);
+    assert_eq!(
+        restored.network.destination(),
+        orcvs::network::NetworkDestination {
+            host: "10.0.0.2".parse().unwrap(),
+            osc_port: 7001,
+            ..Default::default()
+        }
+    );
+}

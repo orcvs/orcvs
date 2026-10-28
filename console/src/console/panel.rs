@@ -1,6 +1,6 @@
 //! The bottom Panel: the typed BPM field, the beat marker, the Tick and Run
-//! Clock Readouts, the MIDI Output destination and its status, and optional
-//! Diagnostics beneath them.
+//! Clock Readouts, the Output destinations — MIDI, and in its list UDP and
+//! OSC — and their status, and optional Diagnostics beneath them.
 
 use std::time::Duration;
 
@@ -34,6 +34,12 @@ pub(super) const BOTTOM_PANEL_LEFT_PAD: i8 = 10;
 /// rectangle it occupied and so focus is the same id the field is shown under.
 pub(super) const BPM_FIELD_ID: &str = "bpm";
 
+/// Ids of the UDP and OSC destination fields in the Output list, and of the
+/// grid that lines them up.
+#[cfg(not(target_arch = "wasm32"))]
+const NETWORK_GRID_ID: &str = "network";
+#[cfg(not(target_arch = "wasm32"))]
+const NETWORK_FIELD_IDS: [&str; 3] = ["network_host", "network_udp_port", "network_osc_port"];
 /// Widget id of the Panel's destination ComboBox, so focus is the same id the
 /// ComboBox is shown under and `event_handler` can skip keys while it has it.
 const DESTINATION_COMBO_ID: &str = "destination";
@@ -161,7 +167,7 @@ fn parse_panel_bpm(text: &str) -> Option<usize> {
         .filter(|value| (PANEL_BPM_MIN..=PANEL_BPM_MAX).contains(value))
 }
 
-fn select_all_bpm_text(ctx: &egui::Context, id: egui::Id, text: &str) {
+fn select_all_text(ctx: &egui::Context, id: egui::Id, text: &str) {
     let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
     state
         .cursor
@@ -185,20 +191,28 @@ fn apply_panel_field_spacing(ui: &mut egui::Ui) {
 }
 
 ///
-/// Typed BPM only: commits on Enter or when focus leaves, not while dragging.
+/// A typed field `width_text` wide that commits on Enter or when focus leaves,
+/// not while typing. `commit` is handed the text when it differs from
+/// `current` and answers whether it took it; text it did not take, and Escape,
+/// put `current` back.
 ///
-fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
-    let id = egui::Id::new(BPM_FIELD_ID);
+fn add_committed_field(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    width_text: &str,
+    current: &str,
+    commit: impl FnOnce(&str) -> bool,
+) -> egui::Response {
     let size = egui::vec2(
-        monospace_width(ui, "000") + BPM_FIELD_MARGIN.sum().x,
+        monospace_width(ui, width_text) + BPM_FIELD_MARGIN.sum().x,
         panel_field_height(ui),
     );
     let ctx = ui.ctx().clone();
     let mut text = ctx
         .data(|data| data.get_temp::<String>(id))
-        .unwrap_or_else(|| bpm.to_string());
+        .unwrap_or_else(|| current.to_owned());
     if !ctx.memory(|memory| memory.has_focus(id)) {
-        text = bpm.to_string();
+        text = current.to_owned();
     }
     let response = ui.add_sized(
         size,
@@ -208,28 +222,37 @@ fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
             .margin(BPM_FIELD_MARGIN),
     );
     if response.clicked() {
-        select_all_bpm_text(&ctx, id, &text);
+        select_all_text(&ctx, id, &text);
     }
     ctx.data_mut(|data| data.insert_temp(id, text.clone()));
     let escape = ctx.input(|input| input.key_pressed(Key::Escape));
     let enter = response.has_focus() && ctx.input(|input| input.key_pressed(Key::Enter));
-    let mut committed = false;
-    if escape {
-        text = bpm.to_string();
-        ctx.data_mut(|data| data.insert_temp(id, text));
-    } else if response.lost_focus() || enter {
-        match parse_panel_bpm(&text) {
-            Some(parsed) if parsed != *bpm => {
-                *bpm = parsed;
-                committed = true;
-            }
-            Some(_) => {}
-            None => {
-                text = bpm.to_string();
-                ctx.data_mut(|data| data.insert_temp(id, text));
-            }
-        }
+    let refused = (response.lost_focus() || enter) && text != current && !commit(&text);
+    if escape || refused {
+        ctx.data_mut(|data| data.insert_temp(id, current.to_owned()));
     }
+    response
+}
+
+///
+/// Typed BPM only: commits on Enter or when focus leaves, not while dragging.
+///
+fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
+    let mut committed = false;
+    let response = add_committed_field(
+        ui,
+        egui::Id::new(BPM_FIELD_ID),
+        "000",
+        &bpm.to_string(),
+        |text| match parse_panel_bpm(text) {
+            Some(parsed) => {
+                committed = parsed != *bpm;
+                *bpm = parsed;
+                true
+            }
+            None => false,
+        },
+    );
     (response, committed)
 }
 
@@ -286,11 +309,13 @@ pub(super) fn show_bar<R>(
 
 impl Console {
     ///
-    /// Hands this frame's Playback diagnostics to the Panel's MIDI status, or,
+    /// Hands this frame's network failures to the Panel's network status, and
+    /// the rest of its Playback diagnostics to the Panel's MIDI status, or,
     /// without a MIDI backend, to the developer console.
     ///
     pub(super) fn observe_playback_diagnostics(&mut self) {
-        let playback_diagnostics = self.orcvs.drain_playback_diagnostics();
+        let mut playback_diagnostics = self.orcvs.drain_playback_diagnostics();
+        self.network.observe_diagnostics(&mut playback_diagnostics);
         if console_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {
@@ -408,7 +433,7 @@ impl Console {
         let selected_id = self.midi.selected_destination_id();
         let destinations = self.midi.destinations();
         let presentation = destination_presentation(destinations, selected_id.as_ref());
-        let (scan, selected) = ui
+        let (scan, selected, network_changed) = ui
             .add_enabled_ui(presentation.enabled, |ui| {
                 apply_panel_field_spacing(ui);
                 // The field draws no arrow, so it reserves no icon slot. The
@@ -418,6 +443,14 @@ impl Console {
                 ui.spacing_mut().icon_spacing = 0.0;
                 let mut selected = None;
                 let mut scan = false;
+                #[cfg_attr(
+                    target_arch = "wasm32",
+                    expect(
+                        unused_mut,
+                        reason = "the web build cannot send, so its list holds no network fields to change"
+                    )
+                )]
+                let mut network_changed = false;
                 let combo_response = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
                     .selected_text(
                         egui::RichText::new(presentation.selected_text)
@@ -425,9 +458,16 @@ impl Console {
                     )
                     .width(OUTPUT_READOUT_WIDTH)
                     .icon(|_ui, _rect, _visuals, _is_open| {})
+                    // The UDP and OSC fields in the list are typed into, so a
+                    // click closes it only outside them, or on Scan or a
+                    // destination, which close it themselves.
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show_ui(ui, |ui| {
                         if presentation.show_refresh {
-                            scan |= ui.button(OUTPUT_SCAN).clicked();
+                            if ui.button(OUTPUT_SCAN).clicked() {
+                                scan = true;
+                                ui.close();
+                            }
                             ui.separator();
                         }
                         if destinations.is_empty() {
@@ -451,16 +491,26 @@ impl Console {
                                     .inner
                                 {
                                     selected = Some(destination.id.clone());
+                                    ui.close();
                                 }
                             }
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            ui.separator();
+                            network_changed = network_fields(ui, &mut self.network);
                         }
                     });
                 scan |= combo_response.response.clicked()
                     && presentation.show_refresh
                     && destinations.is_empty();
-                (scan, selected)
+                (scan, selected, network_changed)
             })
             .inner;
+        if network_changed {
+            self.orcvs
+                .set_network_destination(self.network.destination());
+        }
         if scan {
             self.midi.refresh_destinations();
         }
@@ -471,9 +521,43 @@ impl Console {
         if self.midi.awaiting_install() {
             ui.ctx().request_repaint();
         }
-        if let Some(status) = self.midi.status() {
+        for status in [self.midi.status(), self.network.status()]
+            .into_iter()
+            .flatten()
+        {
             ui.add_space(readout_group_gap(ui));
             ui.colored_label(ui.visuals().error_fg_color, status);
         }
     }
+}
+
+///
+/// The UDP and OSC destination as the Output list shows it beneath the MIDI
+/// destinations: a field for the host and one for each port, each taking what
+/// is typed into it on Enter or when focus leaves. Answers whether the
+/// destination changed.
+///
+#[cfg(not(target_arch = "wasm32"))]
+fn network_fields(ui: &mut egui::Ui, network: &mut crate::network::NetworkSetting) -> bool {
+    use crate::network::NetworkField;
+
+    let fields = [
+        ("Host", NetworkField::Host, "000.000.000.000"),
+        ("UDP", NetworkField::UdpPort, "00000"),
+        ("OSC", NetworkField::OscPort, "00000"),
+    ];
+    let mut changed = false;
+    egui::Grid::new(NETWORK_GRID_ID).show(ui, |ui| {
+        for ((label, field, width_text), id) in fields.into_iter().zip(NETWORK_FIELD_IDS) {
+            panel_label(ui, label);
+            let current = network.text(field);
+            add_committed_field(ui, egui::Id::new(id), width_text, &current, |text| {
+                let committed = network.commit(field, text);
+                changed |= committed;
+                committed
+            });
+            ui.end_row();
+        }
+    });
+    changed
 }

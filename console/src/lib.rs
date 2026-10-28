@@ -21,6 +21,8 @@ mod grid_viewport;
 mod linked_source;
 mod marks;
 mod midi;
+// Where UDP and OSC send, which the Panel sets and storage keeps.
+mod network;
 mod paint;
 pub mod persistence;
 mod readout_deadline;
