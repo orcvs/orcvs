@@ -9,7 +9,7 @@ use orcvs::grid::Grid;
 use orcvs::midi::{MidiBackend, MidiDestinationId};
 use orcvs::playback::{
     InMemoryOutputAdapter, OutputAdapter, OutputAdapterError, OutputCommand, OutputOnlyAdapter,
-    PlaybackEngine, PlaybackState,
+    PlaybackDiagnostic, PlaybackEngine, PlaybackState,
 };
 use orcvs::source::{Source, SourceCommander, Tick};
 use std::sync::Arc;
@@ -219,6 +219,33 @@ async fn web_playback_dispatches_raw_play_through_the_terminal_output_spelling()
             note: Note::try_from(60).unwrap()
         }]));
     engine.stop();
+}
+
+#[wasm_bindgen_test(async)]
+async fn web_playback_diagnoses_each_udp_send_it_cannot_make_and_plays_on() {
+    let source = SourceCommander::new(Grid::with_shape(10, 3));
+    // The Equality's Bang activates the UDP Function below it on every Tick.
+    write(&source, ".=0101              !uhi!");
+    let engine = PlaybackEngine::new(source, InMemoryOutputAdapter::default())
+        .expect("browser playback does not require a Tokio runtime");
+
+    engine.start(Duration::from_millis(10)).unwrap();
+    TimeoutFuture::new(35).await;
+    assert_eq!(engine.state(), PlaybackState::Playing);
+    engine.stop();
+
+    let diagnostics = engine.drain_diagnostics();
+    let failures = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            matches!(diagnostic, PlaybackDiagnostic::NetworkFailure(error)
+                if error.message == "this build cannot send UDP or OSC")
+        })
+        .count();
+    assert!(
+        failures >= 2,
+        "one diagnostic per activation: {diagnostics:?}"
+    );
 }
 
 // A browser timer would let the clock run during a stall. A synchronous wait
