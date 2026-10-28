@@ -242,6 +242,9 @@ impl OwnedNotes {
                 PlayCommand::PitchBend { channel, lsb, msb } => {
                     delivery.push(OutputCommand::PitchBend { channel, lsb, msb })
                 }
+                // A network send is no MIDI message: the network output
+                // delivers it, beside this delivery.
+                PlayCommand::Udp(_) | PlayCommand::Osc(_) => {}
             }
         }
 

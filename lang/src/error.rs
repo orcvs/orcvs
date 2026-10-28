@@ -158,6 +158,26 @@ pub enum InterpretationError {
     /// Control Change controller or value, a Pitch Bend LSB or MSB.
     #[error("MIDI {role} {value:02X} is outside the range 00–7F")]
     MidiDataByte { role: &'static str, value: u8 },
+
+    /// An OSC Payload whose first word, the address, does not start with
+    /// `/`. An empty Payload has an empty address.
+    #[error("OSC address {0:?} does not start with \"/\"")]
+    OscAddress(String),
+
+    /// A type string letter other than `i`, `f` and `s`.
+    #[error("OSC type {0:?} is not one of i, f and s")]
+    OscTypeLetter(char),
+
+    /// A type string naming a different number of arguments than follow it.
+    #[error("OSC type string names {types} arguments, and {arguments} follow it")]
+    OscArgumentCount { types: usize, arguments: usize },
+
+    /// A word that does not fit the type its type string letter names.
+    #[error(
+        "OSC argument {word:?} is not {}",
+        if *letter == 'i' { "an int32" } else { "a float32" }
+    )]
+    OscArgument { word: String, letter: char },
 }
 
 #[derive(Error, Debug)]
@@ -202,6 +222,12 @@ pub enum SyntaxError {
     /// yields Atoms, has nothing to yield.
     #[error("a Comment is a Language Unit rather than a value")]
     CommentIsNotAValue,
+
+    /// A UDP or OSC Function's Payload where values were required. Its Cells
+    /// are text the Function sends, which no Atom can hold, so strict parsing
+    /// has nothing to yield for them.
+    #[error("a Payload is text rather than a value")]
+    PayloadIsNotAValue,
 }
 
 #[derive(Error, Debug)]

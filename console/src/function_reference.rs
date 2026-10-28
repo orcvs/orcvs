@@ -24,7 +24,7 @@
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                        |
 //! | `48..64`  | Copies and Halt: `=^ =v =< => =$`, `*!`; from row 23, Reads: `&t &^ &v &< &> &$` |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`                 |
-//! | `80..96`  | MIDI: `!> !~ !% !c !b`                                                           |
+//! | `80..96`  | MIDI: `!> !~ !% !c !b`; from row 24, Network: `!u !o`                            |
 //!
 //! The absolute Copy, `=$`, stands on row 18, below Halt, with the pair it
 //! copies on the row below its operands and the pair it writes directly
@@ -114,8 +114,13 @@
 //! since a Terminal Output Function's own row replaces a result row rather
 //! than sitting beside one.
 //!
+//! From row 24 the same band holds UDP `!u` and OSC `!o` under a
+//! `|| Network` header, each gated the same way. Each sends its Payload, the
+//! Cells after its spelling through the closing `!`, and writes no Cell
+//! either.
+//!
 //! The Function table's only other Terminal Output Function, Application
-//! Command `!$`, is not among these five: ADR 0008 and ADR 0019 defer it
+//! Command `!$`, is not among these seven: ADR 0008 and ADR 0019 defer it
 //! until Orcvs settles a command value encoding, so it has no variant in
 //! `lang::Function` and nothing to write an example of.
 //!
@@ -180,6 +185,7 @@ fn source_from_reference_text(text: &str) -> Source {
 #[cfg(test)]
 mod tests {
     use super::{function_reference, source_from_reference_text};
+    use lang::{OscArgument, OscMessage};
     use orcvs::grid::{CellIndex, Grid};
     use orcvs::source::{
         BendLsb, BendMsb, CellContent, CellWrite, ControlValue, Controller, LanguageUnitKind,
@@ -665,11 +671,11 @@ mod tests {
             .collect()
     }
 
-    /// The column the MIDI group's band starts at.
+    /// The column the MIDI and Network groups' band starts at.
     const MIDI_BAND_COLUMN: usize = 80;
 
-    /// The MIDI group's own five Bang Cells, one pair per Terminal
-    /// Output example — column `80..82`, one row south of that example's
+    /// The MIDI and Network groups' own seven Bang Cells, one pair per
+    /// Terminal Output example — column `80..82`, one row south of that example's
     /// Euclidean root, exactly the default output Portal every Value
     /// Function that can emit Bang uses. `~% 01 04` Bangs on the "X..."
     /// pattern (`euclidean_places_its_hits_where_the_adr_formula_does`
@@ -677,13 +683,13 @@ mod tests {
     /// Euclidean examples use), so each of these Cells reads `**` on every
     /// fourth Tick starting at Tick 0 and clears to blank on the three Ticks
     /// between — the same clearing behaviour Tick's own Delay and Euclidean
-    /// examples already rely on — which is why these five Cells, and no
-    /// others in the MIDI group, are excluded from "no Cell outside an
+    /// examples already rely on — which is why these seven Cells, and no
+    /// others in the band, are excluded from "no Cell outside an
     /// example's own area changes" below. Every Terminal Output Function's
     /// own Expression is stable forever after being written once: it
     /// performs an effect and never receives a Cell write of its own.
     fn midi_bang_result_areas() -> Vec<Area> {
-        [2, 6, 10, 14, 18]
+        [2, 6, 10, 14, 18, 26, 30]
             .into_iter()
             .map(|row| Area {
                 columns: MIDI_BAND_COLUMN..MIDI_BAND_COLUMN + 2,
@@ -862,9 +868,10 @@ mod tests {
         }
     }
 
-    /// The five expected [`PlayCommand`]s the MIDI examples emit when their
-    /// own Euclidean Bang source Bangs, in the group's own row order (Raw
-    /// Play, Timed Play, Monophonic Play, Control Change, Pitch Bend) — the
+    /// The seven expected [`PlayCommand`]s the MIDI and Network examples
+    /// emit when their own Euclidean Bang source Bangs, in the band's own row
+    /// order (Raw Play, Timed Play, Monophonic Play, Control Change, Pitch
+    /// Bend, UDP, OSC) — the
     /// operands `console/assets/function_reference.orcvs` checks in for
     /// each, read as the domain types the Function table binds them to.
     /// Channel, velocity, note, controller, value, and bend operands were
@@ -875,7 +882,7 @@ mod tests {
     /// `lang`. Timed Play's and Monophonic Play's lengths (`04` Ticks each)
     /// match their own Euclidean's four-Tick period, so neither note is
     /// asked to sound again before the one before it has ended.
-    fn expected_midi_commands() -> [PlayCommand; 5] {
+    fn expected_play_commands() -> [PlayCommand; 7] {
         [
             // !>0064C4 — Raw Play: channel 00, velocity 64 (100), note C4.
             PlayCommand::Raw {
@@ -913,18 +920,25 @@ mod tests {
                 lsb: BendLsb::try_from(0x00).unwrap(),
                 msb: BendMsb::try_from(0x50).unwrap(),
             },
+            // !uhello! — UDP: the Payload's five bytes.
+            PlayCommand::Udp(b"hello".as_slice().into()),
+            // !o/amp 0.5! — OSC: the address /amp and the float32 0.5.
+            PlayCommand::Osc(Box::new(OscMessage {
+                address: "/amp".to_owned(),
+                arguments: vec![OscArgument::Float(0.5)],
+            })),
         ]
     }
 
     ///
-    /// The MIDI group: five Terminal Output Functions (`!>`, `!~`, `!%`,
-    /// `!c`, `!b` — every Terminal Output Function `lang::Function` has; the
-    /// module doc says why `!$` is not among them), each gated by its own
-    /// Euclidean Bang source, `~%0104`.
+    /// The MIDI and Network groups: seven Terminal Output Functions (`!>`,
+    /// `!~`, `!%`, `!c`, `!b`, `!u`, `!o` — every Terminal Output Function
+    /// `lang::Function` has; the module doc says why `!$` is not among them),
+    /// each gated by its own Euclidean Bang source, `~%0104`.
     ///
     /// Every Terminal Output Function "never writes a Cell result"
     /// (CONTEXT.md's Terminal Output Function entry), so no row is set aside
-    /// south of any of these five Expressions — unlike every value-answering
+    /// south of any of these seven Expressions — unlike every value-answering
     /// group's own result row — and the only Cells that ever change while
     /// ticking this group are the Euclidean sources' own Bang Cells,
     /// [`midi_bang_result_areas`], which this test names explicitly and
@@ -934,9 +948,9 @@ mod tests {
     /// This ticks the reference across two full Euclidean cycles (Ticks `0`
     /// through `8`) and asserts, at every Tick: no diagnostic; no
     /// [`orcvs::source::CellWrite`] whose Position falls inside the MIDI
-    /// band outside the five Bang Cells; and no Cell inside the
-    /// MIDI band changes except those same five Cells. Across the whole run
-    /// it also asserts every one of the five expected [`PlayCommand`]s was
+    /// band outside the seven Bang Cells; and no Cell inside the
+    /// band changes except those same seven Cells. Across the whole run
+    /// it also asserts every one of the seven expected [`PlayCommand`]s was
     /// emitted on at least one Tick — proof the group plays, not merely
     /// that it declines to write.
     ///
@@ -959,8 +973,8 @@ mod tests {
             .map(|&(x, y)| read_cell(&source, grid, x, y))
             .collect();
 
-        let expected = expected_midi_commands();
-        let mut emitted = [false; 5];
+        let expected = expected_play_commands();
+        let mut emitted = [false; 7];
 
         for tick in 0..9u64 {
             let plan = source.execute(Tick::new(tick));

@@ -212,11 +212,11 @@ fn test_play_commands_and_diagnostics_keep_producer_and_emission_order() {
     let later = diagnostic(grid, 20, 25, "later producer");
 
     let plan = resolve(vec![
-        Effect::Play(first),
-        Effect::Play(second),
+        Effect::Play(first.clone()),
+        Effect::Play(second.clone()),
         earlier.clone(),
         write(grid, 10, "0"),
-        Effect::Play(third),
+        Effect::Play(third.clone()),
         later.clone(),
     ]);
 

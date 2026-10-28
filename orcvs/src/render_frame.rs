@@ -115,6 +115,11 @@ impl RenderCell {
                 SourcePaint::Bang
             }
             Token::Comment => SourcePaint::Comment,
+            // A Payload's text is ordinary Source text, and the `!` that
+            // closes it is part of its Function. The claim was parsed from
+            // these Cells, so a `!` in it is the closer.
+            Token::Payload if self.content == Some('!') => SourcePaint::Function,
+            Token::Payload => SourcePaint::Unclaimed,
             Token::Function if claim.atom.is_some() => SourcePaint::Function,
             Token::Function => SourcePaint::Unclaimed,
             Token::Char => unreachable!("the Parser never creates a positioned Char claim"),
@@ -980,6 +985,31 @@ mod tests {
                 "column {column}"
             );
         }
+    }
+
+    #[test]
+    fn a_payload_paints_its_spelling_and_closer_as_the_function_and_its_text_as_text() {
+        let grid = Grid::with_shape(10, 1);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, "!uhi!c0001");
+        let frame = derive_frame(&source, grid.origin());
+        let paint = |column| frame.at(grid.position(column, 0).unwrap()).source_paint();
+
+        assert_eq!(paint(0), SourcePaint::Function);
+        assert_eq!(paint(1), SourcePaint::Function);
+        assert_eq!(paint(2), SourcePaint::Unclaimed);
+        assert_eq!(paint(3), SourcePaint::Unclaimed);
+        assert_eq!(paint(4), SourcePaint::Function);
+        // The Cells after the closer are Source again, and `c0` spells no
+        // Function.
+        assert_eq!(paint(5), SourcePaint::Unclaimed);
+        assert_eq!(
+            frame
+                .at(grid.position(5, 0).unwrap())
+                .claim()
+                .map(|claim| claim.token),
+            Some(Token::Function)
+        );
     }
 
     #[test]

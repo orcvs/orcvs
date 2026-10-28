@@ -23,6 +23,9 @@ pub enum Interpretation {
     /// A chord is several Terminal Output roots that one Bang activates, each
     /// answering its own command.
     Play(PlayCommand),
+    /// What an active UDP Function answers for an empty Payload, `!u!`: it
+    /// sends nothing and reports nothing.
+    EmptyPayload,
     /// The lock one active locking Function root places on the Expression
     /// root at its Output Portal.
     ///
@@ -191,6 +194,8 @@ impl Interpreter {
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
             Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
+            Function::Udp => functions::network::udp(&mut ctx),
+            Function::Osc => functions::network::osc(&mut ctx)?,
             Function::Halt
             | Function::Bang
             | Function::DirectionalBangEast

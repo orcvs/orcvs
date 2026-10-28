@@ -131,6 +131,15 @@ impl<'a> Parser<'a> {
         if self.expression.comment().is_some() {
             return Err(SyntaxError::CommentIsNotAValue.into());
         }
+        // A Payload is the same: text a UDP or OSC Function sends, which no
+        // Atom can hold.
+        if self
+            .expression
+            .tokens()
+            .any(|token| token == Token::Payload)
+        {
+            return Err(SyntaxError::PayloadIsNotAValue.into());
+        }
         Ok(self
             .expression
             .take_atoms()
@@ -264,6 +273,27 @@ impl<'a> Parser<'a> {
                         if parent.is_some() && !function.answers_value() {
                             error.get_or_insert(SyntaxError::NestedEffectFunction.into());
                         }
+                        // A Payload claims through the next `!`, which closes
+                        // it, or every remaining Cell when none does, and is
+                        // never decoded. It is claimed wherever its Function
+                        // stands, so a refused nesting keeps the layout an
+                        // accepted one would have.
+                        if function.takes_payload() {
+                            let text_start = self.start + self.consumed();
+                            let (text, rest) = match self.source.find('!') {
+                                Some(closer) => {
+                                    (&self.source[..closer], &self.source[closer + 1..])
+                                }
+                                None => (self.source, ""),
+                            };
+                            let text = text_start..text_start + text.len();
+                            self.source = rest;
+                            self.expression.add_payload(
+                                text_start..self.start + self.consumed(),
+                                text,
+                                index,
+                            );
+                        }
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
                         for token in function.signature().iter().rev() {
@@ -356,7 +386,7 @@ fn is_function(s: Option<&str>) -> bool {
 mod test {
 
     use crate::{
-        Atom, Atoms, CommentText, Error, Function, SyntaxError, Token, TypeError,
+        Atom, Atoms, CommentText, Error, Function, PayloadText, SyntaxError, Token, TypeError,
         parser::{Parser, SourceAnalysis},
         trace,
     };
@@ -546,6 +576,104 @@ mod test {
         // it holds carries one, so a Comment withholds them without an error.
         assert!(analysis.expression().atoms().is_none());
         assert!(analysis.expression().entries().next().is_none());
+    }
+
+    /// The Cells an entry covers and how it lexed.
+    type Claim = (std::ops::Range<usize>, Token);
+
+    /// The Payload's text and the Cells of every entry.
+    fn payload_claim(source: &str) -> (Option<std::ops::Range<usize>>, Vec<Claim>) {
+        let analysis = Parser::at(source, 10).analyze();
+        let expression = analysis.expression();
+        (
+            expression.payload(0).map(PayloadText::range),
+            expression
+                .positioned()
+                .map(|entry| (entry.cells.clone(), entry.token))
+                .collect(),
+        )
+    }
+
+    ///
+    /// A UDP or OSC Function's Payload runs through the next `!`, which
+    /// closes it, or to the end of the Source, and its Cells are never
+    /// decoded. `!u!` has an empty Payload.
+    ///
+    #[test]
+    fn a_payload_claims_through_the_next_bang_or_the_end_of_the_source() {
+        let function = (10..12, Token::Function);
+        assert_eq!(
+            payload_claim("!uhello!.+0102"),
+            (
+                Some(12..17),
+                vec![function.clone(), (12..18, Token::Payload)]
+            )
+        );
+        assert_eq!(
+            payload_claim("!o/a 40 .+"),
+            (
+                Some(12..20),
+                vec![function.clone(), (12..20, Token::Payload)]
+            )
+        );
+        assert_eq!(
+            payload_claim("!u!"),
+            (
+                Some(12..12),
+                vec![function.clone(), (12..13, Token::Payload)]
+            )
+        );
+        assert_eq!(
+            payload_claim("!u"),
+            (Some(12..12), vec![function, (12..12, Token::Payload)])
+        );
+        let analysis = Parser::from("!uhello!.+0102").analyze();
+        assert!(analysis.is_complete());
+        assert_eq!(analysis.cells(), 0..8);
+        assert_eq!(
+            analysis.expression().atoms().unwrap().as_slice(),
+            &[Atom::Function(Function::Udp)]
+        );
+    }
+
+    ///
+    /// The first `!` closes the Payload whatever follows it, so the Cells
+    /// after an early closer are left for the next Expression: `!uhi!c000140`
+    /// sends `hi` and leaves `c000140` to be read as Source.
+    ///
+    #[test]
+    fn an_early_closer_leaves_the_rest_for_the_next_expression() {
+        let analysis = Parser::from("!uhi!c000140").analyze();
+        assert!(analysis.is_complete());
+        assert_eq!(analysis.cells(), 0..5);
+        assert!(!Parser::from("c000140").analyze().is_complete());
+    }
+
+    ///
+    /// A nested UDP or OSC Function is refused as every effect Function is,
+    /// and still claims its Payload, so the layout is the one it would have
+    /// at a root.
+    ///
+    #[test]
+    fn a_nested_payload_function_is_refused_and_keeps_its_claim() {
+        let analysis = Parser::from(".+!uab!03").analyze();
+        assert!(matches!(
+            analysis.error(),
+            Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+        ));
+        assert_eq!(analysis.cells(), 0..9);
+        assert_eq!(
+            analysis.expression().payload(1).map(PayloadText::range),
+            Some(4..6)
+        );
+    }
+
+    #[test]
+    fn strict_parsing_refuses_a_payload() {
+        assert!(matches!(
+            try_parse("!uhello!"),
+            Err(Error::Syntax(SyntaxError::PayloadIsNotAValue))
+        ));
     }
 
     ///
@@ -1263,7 +1391,7 @@ mod test {
         for atom in Function::ALL
             .iter()
             .copied()
-            .filter(|function| function.takes_no_operand())
+            .filter(|function| function.takes_no_operand() && !function.takes_payload())
             .map(Atom::Function)
         {
             let source = atom.to_string();
@@ -1565,9 +1693,13 @@ mod property {
             // it holds is a complete entry, so an incomplete or invalid Token
             // withholds the whole Expression rather than contributing a
             // placeholder to it.
+            // A Payload is part of its Function's claim and holds no Atom, so
+            // it neither counts as an entry nor withholds them.
+            let payload = expression.tokens().any(|token| token == Token::Payload);
+            let records = expression.tokens().filter(|&token| token != Token::Payload).count();
             prop_assert_eq!(
                 expression.atoms().is_some(),
-                entries.len() == expression.len(),
+                entries.len() == records,
                 "{:?}",
                 spelled,
             );
@@ -1590,6 +1722,9 @@ mod property {
                     // A complete Expression spells exactly the Cells it
                     // consumed. Anything after them is the next Expression's
                     // Source and is neither read nor held against this one.
+                    // A Payload's text was never decoded, so there is
+                    // nothing to render it back from.
+                    Some(_) if payload => {}
                     Some(atoms) => {
                         prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end])
                     }
@@ -1684,8 +1819,14 @@ mod property {
                 .expression()
                 .tokens()
                 .any(|token| token == Token::Comment);
-            let complete =
-                analysis.is_complete() && analysis.cells().end == source.len() && !comment;
+            let payload = analysis
+                .expression()
+                .tokens()
+                .any(|token| token == Token::Payload);
+            let complete = analysis.is_complete()
+                && analysis.cells().end == source.len()
+                && !comment
+                && !payload;
             prop_assert_eq!(parsed.is_ok(), complete, "{:?}", source);
 
             if let Ok(atoms) = parsed {

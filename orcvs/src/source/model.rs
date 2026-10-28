@@ -976,6 +976,7 @@ mod test {
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
         let encoding = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
+            Interpretation::EmptyPayload => return resolve(vec![]),
             // The rule for what an answer becomes in Cells is production's,
             // called here rather than restated: these tests state an answer,
             // and what they exercise is the commit, not a second encoding.

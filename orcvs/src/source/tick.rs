@@ -42,6 +42,8 @@ mod ordering;
 #[cfg(test)]
 mod outputs;
 #[cfg(test)]
+mod payload;
+#[cfg(test)]
 mod play_order;
 pub(super) mod portals;
 #[cfg(test)]
@@ -352,6 +354,10 @@ struct Computation {
     operands: Vec<Operand>,
     syntax_valid: bool,
     portal_access: PortalAccess,
+    /// The Cells of the Payload a UDP or OSC root sends, which its Turn reads
+    /// from working Source. Its Portal access reads them too, so every writer
+    /// of them is ordered first.
+    payload: Option<Range<usize>>,
 }
 
 impl Computation {
@@ -822,6 +828,20 @@ fn computations(
     for expression in inputs.expressions() {
         entry_nodes.clear();
         for entry in expression.entries() {
+            if entry.parsed == Parsed::Payload {
+                entry_nodes.push(None);
+                let parent = entry.parent.map(|parent| {
+                    entry_nodes[parent].expect("a Payload follows the Function that sends it")
+                });
+                // Only a root sends its Payload. A nested UDP or OSC Function
+                // is refused and never takes a Turn.
+                if let Some(parent) = parent.filter(|&parent| nodes[parent].is_root()) {
+                    let parent = &mut nodes[parent];
+                    parent.portal_access.read_payload(entry.cells.clone());
+                    parent.payload = Some(entry.cells);
+                }
+                continue;
+            }
             let parent = entry.parent.map(|parent| {
                 entry_nodes[parent].expect("the Parser binds a Function at every parent entry")
             });
@@ -849,6 +869,7 @@ fn computations(
                     operands: vec![],
                     syntax_valid: true,
                     portal_access,
+                    payload: None,
                 });
                 id
             });

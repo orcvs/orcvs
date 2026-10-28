@@ -293,9 +293,15 @@ mod nested_property {
     }
 
     /// One whole Expression, including terminal and effect roots, that fits a
-    /// row of the widest Grid.
+    /// row of the widest Grid. A UDP or OSC Function's Payload is text, which
+    /// strict parsing refuses, so neither is drawn.
     fn expression_source() -> BoxedStrategy<String> {
-        select(Function::ALL)
+        let functions: Vec<Function> = Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| !function.takes_payload())
+            .collect();
+        select(functions)
             .prop_flat_map(|function| {
                 let operands: Vec<BoxedStrategy<String>> = Tokens::from(&function)
                     .into_iter()

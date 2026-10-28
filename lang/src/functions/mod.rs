@@ -1,5 +1,6 @@
 pub(crate) mod copy;
 pub(crate) mod math;
+pub(crate) mod network;
 pub(crate) mod numeric_conversion;
 pub(crate) mod read;
 pub(crate) mod tick;
@@ -228,7 +229,7 @@ mod test {
 
         assert_eq!(
             evaluate(Function::RawPlay, &operands).unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
 
         // The same claim from Source text, which adds the parse and the
@@ -236,7 +237,7 @@ mod test {
         // `!>` reads channel, then velocity, then note, left to right.
         assert_eq!(
             interpret("!>0102C4").unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
     }
 
@@ -264,7 +265,7 @@ mod test {
 
         assert_eq!(
             evaluate(Function::TimedPlay, &operands).unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
 
         // And the same claim from Source text, which adds the parse and the
@@ -272,7 +273,7 @@ mod test {
         // left to right in the Cells.
         assert_eq!(
             interpret("!~0102C404").unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
     }
 
@@ -298,14 +299,14 @@ mod test {
 
         assert_eq!(
             evaluate(Function::MonophonicPlay, &operands).unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
 
         // And the same claim from Source text: `!%` reads channel, velocity,
         // note, then length, left to right in the Cells.
         assert_eq!(
             interpret("!%0102C404").unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
     }
 
@@ -463,7 +464,7 @@ mod test {
 
         assert_eq!(
             evaluate(Function::ControlChange, &operands).unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
 
         // The same claim from Source text, which adds the parse and the
@@ -471,7 +472,7 @@ mod test {
         // `!c` reads channel, then controller, then value, left to right.
         assert_eq!(
             interpret("!c010203").unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
     }
 
@@ -491,14 +492,14 @@ mod test {
 
         assert_eq!(
             evaluate(Function::PitchBend, &operands).unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
 
         // And from Source text: `!b` reads channel, then LSB, then MSB, left
         // to right in the Cells, which is also the order they go out on.
         assert_eq!(
             interpret("!b010203").unwrap(),
-            Interpretation::Play(expected)
+            Interpretation::Play(expected.clone())
         );
     }
 
