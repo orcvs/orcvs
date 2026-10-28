@@ -355,15 +355,18 @@ impl Console {
                     let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let [rewind, play, stop] = TRANSPORT_GLYPHS;
-                    if ui.button(rewind).clicked() {
-                        self.orcvs.rewind();
-                    }
-                    ui.add_space(label_value_gap);
                     let playing = observation.state == PlaybackState::Playing;
-                    if ui.button(if playing { stop } else { play }).clicked() {
-                        self.orcvs.toggle_playback();
+                    let variant = super::play_prototype::variant();
+                    if variant == 'B' {
+                        if super::play_prototype::big(ui, rewind) {
+                            self.orcvs.rewind();
+                        }
+                        ui.add_space(label_value_gap);
+                        if super::play_prototype::big(ui, if playing { stop } else { play }) {
+                            self.orcvs.toggle_playback();
+                        }
+                        ui.add_space(entry_gap);
                     }
-                    ui.add_space(entry_gap);
                     panel_label(ui, "B");
                     ui.add_space(label_value_gap);
                     let mut bpm = self.orcvs.bpm().beats_per_minute();
@@ -397,6 +400,17 @@ impl Console {
                     panel_label(ui, "O");
                     ui.add_space(label_value_gap);
                     self.show_destination(ui);
+                    if variant == 'A' {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if super::play_prototype::big(ui, if playing { stop } else { play }) {
+                                self.orcvs.toggle_playback();
+                            }
+                            ui.add_space(label_value_gap);
+                            if super::play_prototype::big(ui, rewind) {
+                                self.orcvs.rewind();
+                            }
+                        });
+                    }
                 },
             );
             diagnostics_height.map(|height| {

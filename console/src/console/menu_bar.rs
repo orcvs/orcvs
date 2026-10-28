@@ -231,7 +231,10 @@ fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
         let mut change = None;
         for ((preference, name, explanation), glyph) in choices.into_iter().zip(MODE_GLYPHS).rev() {
             let selected = mode == preference;
-            let response = ui.selectable_label(selected, glyph);
+            let response = ui.selectable_label(
+                selected,
+                egui::RichText::new(glyph).size(super::play_prototype::GLYPH_SIZE),
+            );
             response.widget_info(|| {
                 egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, name)
             });
@@ -382,12 +385,45 @@ impl Console {
                         }
                     }
                 });
+                let playing = super::play_prototype::playing(&self.orcvs);
+                if super::play_prototype::variant() == 'D' {
+                    let [rewind, play, stop] = super::panel::TRANSPORT_GLYPHS;
+                    let bar = ui.max_rect();
+                    let side = super::play_prototype::BUTTON_SIDE;
+                    let width = 2.0 * side + menu_bar_gap(ui);
+                    let rect =
+                        egui::Rect::from_center_size(bar.center(), egui::vec2(width, bar.height()));
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(rect)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        |ui| {
+                            if super::play_prototype::big(ui, rewind) {
+                                super::play_prototype::rewind(&mut self.orcvs);
+                            }
+                            if super::play_prototype::big(ui, if playing { stop } else { play }) {
+                                super::play_prototype::toggle(&mut self.orcvs);
+                            }
+                        },
+                    );
+                }
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Rightmost: the mode, which is a control rather than a
                     // menu, and applied once the frame is done.
                     choice.appearance_change = mode_control(ui);
+                    if super::play_prototype::variant() == 'C' {
+                        let [rewind, play, stop] = super::panel::TRANSPORT_GLYPHS;
+                        let playing = super::play_prototype::playing(&self.orcvs);
+                        ui.add_space(menu_bar_gap(ui));
+                        if super::play_prototype::big(ui, if playing { stop } else { play }) {
+                            super::play_prototype::toggle(&mut self.orcvs);
+                        }
+                        if super::play_prototype::big(ui, rewind) {
+                            super::play_prototype::rewind(&mut self.orcvs);
+                        }
+                    }
                     // Theme, settings and Source File notices sit
                     // in the bar until dismissed; `report` has already sent
                     // each to the developer console.
