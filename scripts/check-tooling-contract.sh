@@ -287,10 +287,15 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^RUSTDOCFL
 # file compiles the feature and no test fails when it stops being compiled.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_inspection$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_inspection' '^run = .cargo clippy --package console --all-targets --features inspection --locked -- -D warnings.$'
-# No CI job runs on Windows, so this is the only compilation of the `cfg(windows)`
+# No CI job builds the console on Windows, so this is the only compilation of the `cfg(windows)`
 # paths in midir, rfd, winit and eframe. Pinned for the reason `check_inspection`
 # is: deleting it is invisible.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_pull_request' '^mise run check_windows$'
+# The merge tier's `windows` job is the only one that runs tests on Windows, and
+# it runs the network loopback, where `ConnectionReset` is a Windows behaviour.
+assert_toml_task_contains "$root_dir/mise.toml" 'test_network_loopback' '^run = .cargo test --package orcvs --test network_loopback --locked.$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^    runs-on: windows-2025$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^      - run: mise run test_network_loopback$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_windows' '^cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked -- -D warnings$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_windows' '^cargo clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --no-default-features --locked -- -D warnings$'
 # The lint needs the target's standard library. rustup installs the toolchain
@@ -751,10 +756,10 @@ assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [
 # always runs, so failed, cancelled, or unexpectedly skipped jobs cannot pass.
 assert_contains "$root_dir/.github/workflows/test.yml" '^  merge_group:$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    types: \[checks_requested\]$'
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 3
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 8
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 4
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 9
 assert_contains "$root_dir/.github/workflows/test.yml" '^    if: always[(][)]$'
-assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[changes, full-gate, macos, wasm\]$'
+assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[changes, full-gate, macos, windows, wasm\]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^        run: bash scripts/check-ci-results.sh$'
 assert_not_contains "$root_dir/.github/workflows/test.yml" "if: github.event_name == 'push'$"
 # `@v1` is how a mutable tag is usually written, so matching a bare digit after

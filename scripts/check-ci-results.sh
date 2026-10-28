@@ -2,8 +2,8 @@
 set -euo pipefail
 
 case "${CI_EVENT:?}" in
-  pull_request) expected_macos=skipped ;;
-  merge_group|push|workflow_dispatch) expected_macos=success ;;
+  pull_request) expected_merge_tier=skipped ;;
+  merge_group|push|workflow_dispatch) expected_merge_tier=success ;;
   *) echo "Unsupported CI event: $CI_EVENT" >&2; exit 1 ;;
 esac
 
@@ -27,7 +27,8 @@ case "${COMPILE:?}" in
 esac
 
 if [[ "${LINUX_RESULT:?}" != success ||
-      "${WASM_RESULT:?}" != "$expected_wasm" || "${MACOS_RESULT:?}" != "$expected_macos" ]]; then
-  echo "CI failed: Linux=$LINUX_RESULT WASM=$WASM_RESULT (expected $expected_wasm) macOS=$MACOS_RESULT (expected $expected_macos)" >&2
+      "${WASM_RESULT:?}" != "$expected_wasm" || "${MACOS_RESULT:?}" != "$expected_merge_tier" ||
+      "${WINDOWS_RESULT:?}" != "$expected_merge_tier" ]]; then
+  echo "CI failed: Linux=$LINUX_RESULT WASM=$WASM_RESULT (expected $expected_wasm) macOS=$MACOS_RESULT Windows=$WINDOWS_RESULT (expected $expected_merge_tier)" >&2
   exit 1
 fi

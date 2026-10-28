@@ -119,7 +119,7 @@ run = 'cargo clippy --package console --all-targets --features inspection --lock
 
 [tasks.check_windows]
 description = "Lint the shipped crates for the Windows target"
-# No tier runs on Windows, so a break behind `cfg(windows)` (midir's WinMM
+# No tier builds the console on Windows, so a break behind `cfg(windows)` (midir's WinMM
 # backend, rfd's COM dialogs, winit's Win32 window, eframe's known-folder
 # storage path) would reach `main` unseen. clippy is a check build: it neither
 # links nor needs the MSVC linker or SDK, so it runs on the Linux and macOS
@@ -165,6 +165,12 @@ description = "Play a Source into a virtual MIDI port and cross-check what a lis
 # CoreMIDI on macOS, which is why the ordinary suite ignores this test and this
 # task is how it runs.
 run = 'cargo test --package console --lib --locked -- --ignored console_midi::loopback_tests::virtual_port::'
+
+[tasks.test_network_loopback]
+description = "Play UDP and OSC through a running Orcvs to loopback listeners"
+# The ordinary suite runs this too. The task is how the merge tier's `windows`
+# job runs it alone, since nothing else there is tested on Windows.
+run = 'cargo test --package orcvs --test network_loopback --locked'
 
 [tasks.miri]
 description = "Interpret the Source model tests under Miri"
@@ -313,7 +319,7 @@ cargo clippy --package orcvs --all-targets --no-default-features --features pers
 # The console's `inspection` feature is off in every line above and below this
 # one, which is the whole reason it needs a line. See the task.
 mise run check_inspection
-# Nothing in CI runs on Windows; this is the one line that compiles for it.
+# No CI job builds the console on Windows; this is the one line that compiles it.
 mise run check_windows
 cargo nextest run --package orcvs --no-default-features --profile ci --locked
 cargo nextest run --workspace --profile ci --locked
