@@ -22,7 +22,8 @@ Toby's decisions (2026-10-27, grilled in the ticket 15 thread):
   (`orcvs/src/playback/tests/shipped_trackers.rs`).
 - The web console opens it when storage holds no Source; a stored Source, or one that fails to
   decode, starts as before.
-- The site's `/` shows the beat on a first visit once a console built from `main` is published.
+- The site's `/` opens the beat on a first visit, and Space plays it on the kit
+  (`site/tests/synth.spec.ts`, against a console built from the branch).
 
 **Blocked by:** 08
 

@@ -19,6 +19,10 @@ declare global {
        * the page's clock, how long after its planned instant it reached the page, and its MIDI
        * status byte. */
       sounds: { planned: number; at: number; late: number; status: number }[];
+      /** The MIDI status byte of every message the page passes the worklet, paired or not: messages
+       * held while the audio starts reach the worklet together, after the last one's planned
+       * instant, so only one of them pairs with it. */
+      statuses: number[];
     };
   }
 }
@@ -33,7 +37,7 @@ test.use({ launchOptions: { ignoreDefaultArgs: ["--autoplay-policy=no-user-gestu
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     if (window !== window.top) return;
-    const spy: Window["synthSpy"] = { sounds: [] };
+    const spy: Window["synthSpy"] = { sounds: [], statuses: [] };
     window.synthSpy = spy;
     const Context = window.AudioContext;
     window.AudioContext = class extends Context {
@@ -50,6 +54,7 @@ test.beforeEach(async ({ page }) => {
     const post = MessagePort.prototype.postMessage;
     MessagePort.prototype.postMessage = function (message: any, ...rest: any[]) {
       const context = spy.context;
+      if (typeof message?.when === "number") spy.statuses.push(message.bytes[0]);
       if (context && typeof message?.when === "number" && spy.planned !== undefined) {
         const playing = context.getOutputTimestamp();
         spy.sounds.push({
@@ -79,10 +84,20 @@ test("the site's console sounds the first note of a run while the page's audio s
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.type("!~0064C404");
   await page.keyboard.press("Space");
-  // The Note On on channel `00`, not only the Note Off that follows once the audio runs.
-  await expect
-    .poll(() => page.evaluate(() => window.synthSpy.sounds.map(({ status }) => status)))
-    .toContain(0x90);
+  // The Note On on channel `00`, not only the Note Off that follows once the audio runs. The
+  // Source the console opens may play on Tick 0 too, so its messages are held with this one.
+  await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x90);
+});
+
+test("a first visit opens the 808 beat, and Space plays it on the kit", async ({ page }) => {
+  await page.goto("/");
+  const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
+  await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+
+  // Nothing is stored, so the console opens `examples/808.orcvs`: the kick and hat on Tick 0.
+  await frame.click({ position: { x: 300, y: 200 } });
+  await page.keyboard.press("Space");
+  await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x98);
 });
 
 test("a framed console plays the page's synth at a constant offset from its Ticks", async ({ page }) => {
