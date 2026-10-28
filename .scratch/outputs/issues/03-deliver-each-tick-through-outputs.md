@@ -1,6 +1,6 @@
 # 03 — Deliver each Tick through Outputs
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 02
 
@@ -8,7 +8,7 @@ Blocked by: 02
 connection state, the MIDI latch and the network output from `PlaybackInner`, and the engine makes
 one call per Tick and per lifecycle request ([spec](../spec.md)).
 
-- [ ] A Tick's MIDI is delivered before its Network Sends.
-- [ ] Network Sends go on while no MIDI destination is connected.
-- [ ] Stop, rewind, disconnect and the safety action send nothing to the network.
-- [ ] These are tested through Outputs' interface.
+- [x] A Tick's MIDI is delivered before its Network Sends.
+- [x] Network Sends go on while no MIDI destination is connected.
+- [x] Stop, rewind, disconnect and the safety action send nothing to the network.
+- [x] These are tested through Outputs' interface.

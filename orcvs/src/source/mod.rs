@@ -21,8 +21,8 @@ use buffer::{Cells, EditedCells, SourceBuffer};
 pub use error::SourceError;
 pub use lang::Tick;
 pub use model::{
-    BendLsb, BendMsb, CellWrite, ControlValue, Controller, Diagnostic, Length, MidiChannel, Note,
-    PlayCommand, RevisionId, Source, TickPlan, Velocity,
+    BendLsb, BendMsb, CellWrite, ControlValue, Controller, Diagnostic, Length, MidiChannel,
+    NetworkSend, Note, PlayCommand, RevisionId, Source, TickPlan, Velocity,
 };
 use planning::{PlannedTick, PlanningSnapshot, StalePlan, TickCommit};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
