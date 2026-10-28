@@ -282,6 +282,10 @@ pub(crate) enum State {
     Selection,
     /// `selection.background` over the input: a `TextEdit` selection.
     InputSelection,
+    /// `button.background` over the panel: a Panel Cell button at rest.
+    Button,
+    /// `button.pressed.background` over the panel: a pressed Cell button.
+    ButtonPressed,
 }
 
 impl fmt::Display for State {
@@ -312,6 +316,10 @@ impl fmt::Display for State {
             Self::Open => f.write_str("vs the open widget fill"),
             Self::Selection => f.write_str("vs selection.background over panel.background"),
             Self::InputSelection => f.write_str("vs selection.background over input.background"),
+            Self::Button => f.write_str("vs button.background over panel.background"),
+            Self::ButtonPressed => {
+                f.write_str("vs button.pressed.background over panel.background")
+            }
         }
     }
 }
@@ -448,13 +456,13 @@ fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
         (Role::Link, State::Panel, visuals.hyperlink_color, panel),
         (
             Role::Button,
-            State::Panel,
+            State::Button,
             theme.button_foreground,
             panel.blend(theme.button_background),
         ),
         (
             Role::ButtonPressed,
-            State::Panel,
+            State::ButtonPressed,
             theme.button_pressed_foreground,
             panel.blend(theme.button_pressed_background),
         ),
@@ -886,9 +894,10 @@ mod tests {
     #[test]
     fn a_button_glyph_matching_its_fill_fails() {
         let base = default_theme(Appearance::Dark);
-        for (role, theme) in [
+        for (role, state, theme) in [
             (
                 Role::Button,
+                State::Button,
                 Theme {
                     button_foreground: base.button_background,
                     ..base.clone()
@@ -896,6 +905,7 @@ mod tests {
             ),
             (
                 Role::ButtonPressed,
+                State::ButtonPressed,
                 Theme {
                     button_pressed_foreground: base.button_pressed_background,
                     ..base.clone()
@@ -903,7 +913,7 @@ mod tests {
             ),
         ] {
             let report = validate(&theme);
-            fails_only_in_an_added_state(&report, &find(&report, role, State::Panel));
+            fails_only_in_an_added_state(&report, &find(&report, role, state));
         }
     }
 

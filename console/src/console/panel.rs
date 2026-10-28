@@ -307,7 +307,7 @@ fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
     (response, committed)
 }
 
-fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
+pub(super) fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     let mut frame = egui::Frame::side_top_panel(style);
     frame.inner_margin.left += BOTTOM_PANEL_LEFT_PAD;
     frame
@@ -431,14 +431,12 @@ impl Console {
                     let cell = snapped_cell(self.source_view.cell, ui.ctx().pixels_per_point());
                     let theme = self.themes.presented(appearance);
                     let playing = observation.state == PlaybackState::Playing;
-                    let cell_button = |ui: &mut egui::Ui, glyph, name, pressed| {
-                        cell_button(ui, cell, &self.font_family, theme, glyph, name, pressed)
-                    };
-                    if cell_button(ui, "P", "Play", playing).clicked() {
+                    let font = &self.font_family;
+                    if cell_button(ui, cell, font, theme, "P", "Play", playing).clicked() {
                         self.orcvs.toggle_playback();
                     }
                     ui.add_space(cell.x);
-                    if cell_button(ui, "R", "Rewind", false).clicked() {
+                    if cell_button(ui, cell, font, theme, "R", "Rewind", false).clicked() {
                         self.orcvs.rewind();
                     }
                     ui.add_space(entry_gap);

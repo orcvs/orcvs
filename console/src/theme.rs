@@ -830,12 +830,8 @@ mod tests {
     fn a_built_in_pressed_button_is_its_bang_ink() {
         for theme in [grayscale_dark(), grayscale_light()] {
             assert_eq!(
-                theme.button_pressed_background, theme.source_bang,
-                "{}",
-                theme.identity
-            );
-            assert_eq!(
-                theme.button_pressed_border, theme.source_bang,
+                (theme.button_pressed_background, theme.button_pressed_border),
+                (theme.source_bang, theme.source_bang),
                 "{}",
                 theme.identity
             );

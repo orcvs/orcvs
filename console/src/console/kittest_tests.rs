@@ -1076,10 +1076,10 @@ async fn configured_settings_reach_the_console_and_their_problems_its_notices() 
 ///
 /// Every filled rectangle the last frame painted, on every layer.
 ///
-fn painted_fills(harness: &Harness<'_, Console>) -> Vec<egui::Color32> {
-    fn collect(shape: &egui::Shape, fills: &mut Vec<egui::Color32>) {
+fn painted_fills(harness: &Harness<'_, Console>) -> Vec<(egui::Rect, egui::Color32)> {
+    fn collect(shape: &egui::Shape, fills: &mut Vec<(egui::Rect, egui::Color32)>) {
         match shape {
-            egui::Shape::Rect(rect) => fills.push(rect.fill),
+            egui::Shape::Rect(rect) => fills.push((rect.rect, rect.fill)),
             egui::Shape::Vec(shapes) => {
                 for shape in shapes {
                     collect(shape, fills);
@@ -1109,7 +1109,10 @@ fn assert_frame_paints(
     others: &[crate::theme::Theme],
     context: &str,
 ) {
-    let fills = painted_fills(harness);
+    let fills: Vec<_> = painted_fills(harness)
+        .into_iter()
+        .map(|(_, fill)| fill)
+        .collect();
     assert!(
         fills.contains(&expected.grid_background),
         "{context}: the Source Grid was not painted on {}'s grid.background",
@@ -3674,13 +3677,22 @@ async fn space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it() {
 
 ///
 /// The Panel's Play Cell plays and stops Playback as Space does, and a press
-/// of it leaves Space as it was: one Space after it toggles once.
+/// of it leaves Space as it was: one Space after it toggles once. It is drawn
+/// in the Theme's `button` role while Playback is stopped and in its
+/// `button.pressed` role while it plays.
 ///
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test]
 async fn the_play_cell_plays_and_stops_playback_as_space_does() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
+    let theme = harness.state().themes.presented(Appearance::Dark).clone();
+    let play = harness.get_by_label("Play").rect();
+    assert_eq!(
+        painted_fill_at(&harness, play.center()),
+        Some(theme.button_background),
+        "a stopped P is not in the button role"
+    );
     let mut engine = harness.state().orcvs.playback_observation_watch();
 
     harness.get_by_label("Play").click();
@@ -3692,6 +3704,11 @@ async fn the_play_cell_plays_and_stops_playback_as_space_does() {
         "P did not start Playback"
     );
     harness.run_steps(1);
+    assert_eq!(
+        painted_fill_at(&harness, play.center()),
+        Some(theme.button_pressed_background),
+        "a playing P is not in the pressed button role"
+    );
 
     harness.get_by_label("Play").click();
     harness.step();
@@ -3740,8 +3757,9 @@ async fn play_and_rewind_are_source_cells_one_cell_apart() {
         play.min.x
     );
     let style = crate::style::style(&default_theme(Appearance::Dark));
-    let inset = egui::Frame::side_top_panel(&style).inner_margin.leftf()
-        + f32::from(super::panel::BOTTOM_PANEL_LEFT_PAD);
+    let inset = super::panel::bottom_panel_frame(&style)
+        .inner_margin
+        .leftf();
     assert!(
         (inset..inset + cell.x).contains(&play.min.x),
         "P is not on the first Cell column past the Panel's inset {inset}: {}",
@@ -3750,61 +3768,15 @@ async fn play_and_rewind_are_source_cells_one_cell_apart() {
 }
 
 ///
-/// P is drawn in the Theme's `button` role while Playback is stopped and in
-/// its `button.pressed` role while it plays.
-///
-#[cfg(not(target_arch = "wasm32"))]
-#[tokio::test]
-async fn the_play_cell_is_pressed_while_playback_plays() {
-    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
-    harness.run_steps(2);
-    let theme = harness.state().themes.presented(Appearance::Dark).clone();
-    let play = harness.get_by_label("Play").rect();
-    assert_eq!(
-        painted_fill_at(&harness, play.center()),
-        Some(theme.button_background),
-        "a stopped P is not in the button role"
-    );
-
-    let mut engine = harness.state().orcvs.playback_observation_watch();
-    harness.get_by_label("Play").click();
-    harness.step();
-    assert!(
-        engine_reaches(&mut engine, |observed| observed.state
-            == PlaybackState::Playing)
-        .await,
-        "P did not start Playback"
-    );
-    harness.run_steps(1);
-    assert_eq!(
-        painted_fill_at(&harness, play.center()),
-        Some(theme.button_pressed_background),
-        "a playing P is not in the pressed button role"
-    );
-}
-
-///
 /// The fill of the last filled rectangle the last frame painted over
 /// `point`, on any layer.
 ///
 fn painted_fill_at(harness: &Harness<'_, Console>, point: Pos2) -> Option<egui::Color32> {
-    fn collect(shape: &egui::Shape, point: Pos2, fill: &mut Option<egui::Color32>) {
-        match shape {
-            egui::Shape::Rect(rect) if rect.rect.contains(point) => *fill = Some(rect.fill),
-            egui::Shape::Vec(shapes) => {
-                for shape in shapes {
-                    collect(shape, point, fill);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let mut fill = None;
-    for clipped in &harness.output().shapes {
-        collect(&clipped.shape, point, &mut fill);
-    }
-    fill
+    painted_fills(harness)
+        .into_iter()
+        .rev()
+        .find(|(rect, _)| rect.contains(point))
+        .map(|(_, fill)| fill)
 }
 
 ///
@@ -3843,21 +3815,6 @@ async fn the_rewind_cell_rewinds_a_paused_playback_to_tick_zero() {
         .await,
         "R did not rewind the paused Playback"
     );
-}
-
-///
-/// The small console (ADR 0086) has no menu bar but keeps the Panel, so an
-/// embedded example can be played and rewound without a key.
-///
-#[tokio::test]
-async fn a_small_console_shows_play_and_rewind() {
-    let mut harness = Harness::builder()
-        .with_size(Vec2::from(DEFAULT_VIEW_SIZE))
-        .with_pixels_per_point(1.0)
-        .build_eframe(|cc| super::tests::start_linked_console(cc, "?small", ""));
-    harness.run_steps(2);
-    harness.get_by_label("Play");
-    harness.get_by_label("Rewind");
 }
 
 ///
@@ -4505,7 +4462,7 @@ async fn the_window_title_names_the_source_and_marks_unsaved_changes() {
 
 ///
 /// The small console (ADR 0086) shows the Grid and the Panel without the
-/// menu bar.
+/// menu bar, so an embedded example can be played and rewound without a key.
 ///
 #[tokio::test]
 async fn a_small_console_shows_no_menu_bar() {
@@ -4520,6 +4477,8 @@ async fn a_small_console_shows_no_menu_bar() {
             "the small console shows {menu}"
         );
     }
+    harness.get_by_label("Play");
+    harness.get_by_label("Rewind");
 }
 
 ///

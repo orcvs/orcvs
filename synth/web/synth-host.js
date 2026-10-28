@@ -109,11 +109,9 @@
       resumeOnGestures(event.source);
       event.source.postMessage(await announcement, event.origin);
     } else if (data?.type === "orcvs.midi" && node && Array.isArray(data.bytes) && typeof data.time === "number") {
-      // Where the gesture's own resume has not run yet, the reader's gesture
-      // that started Playback activates this page too, so the first message
-      // of a run can resume the context. Messages that
-      // arrive while it starts wait for it, and those still due sound as soon
-      // as it runs.
+      // Where no gesture has resumed the context yet, the first message of a
+      // run does. Messages that arrive while it starts wait for it, and those
+      // still due sound as soon as it runs.
       if (context.state === "running") {
         play(data);
         return;
