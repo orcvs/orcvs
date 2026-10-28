@@ -1054,6 +1054,28 @@ mod tests {
         assert_eq!(state.lock().unwrap().messages, safety_action_messages());
     }
 
+    #[tokio::test]
+    async fn installing_a_destination_clears_the_published_midi_failure() {
+        let state = Arc::new(Mutex::new(FakeState::default()));
+        let mut backend = FakeBackend {
+            state: state.clone(),
+        };
+        let playback = engine(
+            SourceCommander::new(Grid::with_shape(1, 1)),
+            MidiOutputAdapter::new(),
+        );
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
+        let one = Some(MidiDestinationId::new("one"));
+        settle_until!(playback.selection.selected_destination_id().unwrap() == one);
+
+        state.lock().unwrap().failing_sends = vec![0];
+        playback.disconnect();
+        settle_until!(playback.observation().midi_failed);
+
+        select(&playback, &mut backend, &MidiDestinationId::new("one"));
+        settle_until!(!playback.observation().midi_failed);
+    }
+
     ///
     /// A destination request that a newer one replaces before the engine's
     /// task applies it is released at once, on the caller's thread.

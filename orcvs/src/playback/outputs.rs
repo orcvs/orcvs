@@ -111,6 +111,11 @@ impl<A: OutputAdapter> Outputs<A> {
         }
     }
 
+    /// Whether the latest MIDI delivery failed.
+    pub(super) fn midi_failed(&self) -> bool {
+        self.midi_failure.is_some()
+    }
+
     /// Whether the latest Network Send failed.
     pub(super) fn network_failed(&self) -> bool {
         self.network_failure.is_some()
