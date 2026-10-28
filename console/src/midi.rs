@@ -41,10 +41,11 @@ pub(crate) fn destination_selected_text<'a>(
 ///
 /// How the Panel presents destination selection for this build.
 ///
-/// When the backend is missing, the ComboBox is still drawn — disabled, with
-/// the empty copy — and Scan is not. The build flag is read here rather
-/// than passed in: a parameter only tests would flip is a seam
-/// `AGENTS.md` forbids.
+/// When the backend is missing, the ComboBox is still drawn, with the empty
+/// copy, and Scan is not. It is disabled only in the web build, because a
+/// native list also holds the UDP and OSC destination fields. The build flag
+/// is read here rather than passed in: a parameter only tests would flip is a
+/// seam `AGENTS.md` forbids.
 ///
 pub(crate) struct DestinationPresentation<'a> {
     pub enabled: bool,
@@ -58,7 +59,7 @@ pub(crate) fn destination_presentation<'a>(
 ) -> DestinationPresentation<'a> {
     if !crate::console_midi::AVAILABLE {
         return DestinationPresentation {
-            enabled: false,
+            enabled: cfg!(not(target_arch = "wasm32")),
             show_refresh: false,
             selected_text: OUTPUT_NONE,
         };
@@ -83,7 +84,7 @@ fn destination_presentation_for<'a>(
 ) -> DestinationPresentation<'a> {
     if !available {
         return DestinationPresentation {
-            enabled: false,
+            enabled: cfg!(not(target_arch = "wasm32")),
             show_refresh: false,
             selected_text: OUTPUT_NONE,
         };
@@ -706,15 +707,16 @@ mod tests {
     }
 
     ///
-    /// A build with no MIDI backend still draws the destination
-    /// Readout, disabled, with the empty copy, and does not offer Scan.
+    /// A build with no MIDI backend still draws the destination Readout, with
+    /// the empty copy, and does not offer Scan. A native build keeps it
+    /// enabled, because its list holds the UDP and OSC destination fields.
     ///
     #[test]
-    fn an_unavailable_backend_disables_the_destination_and_hides_refresh() {
+    fn an_unavailable_backend_hides_refresh_and_keeps_the_network_fields_reachable() {
         let destinations = [MidiDestination::new("one", "Studio Synth")];
         let selected = MidiDestinationId::new("one");
         let presentation = destination_presentation_for(false, &destinations, Some(&selected));
-        assert!(!presentation.enabled);
+        assert_eq!(presentation.enabled, cfg!(not(target_arch = "wasm32")));
         assert!(!presentation.show_refresh);
         assert_eq!(presentation.selected_text, super::OUTPUT_NONE);
     }
