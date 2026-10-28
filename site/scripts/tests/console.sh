@@ -69,8 +69,10 @@ console() {
   tar -czf "$work/$name" -C "$work/console" .
 }
 
+# The build sees only the environment each case gives it, not the caller's: `site.yml` sets
+# `CONSOLE_WEB` for the site build that follows this test.
 build() {
-  (cd "$work/repo/site" && PATH="$work/bin:$PATH" FAKE_RELEASE="$work/release" FAKE_SLEEPS="$work/sleeps" "$@" bash scripts/console.sh)
+  (cd "$work/repo/site" && unset CONSOLE_WEB WORKERS_CI_BRANCH && PATH="$work/bin:$PATH" FAKE_RELEASE="$work/release" FAKE_SLEEPS="$work/sleeps" "$@" bash scripts/console.sh)
 }
 
 served() {
