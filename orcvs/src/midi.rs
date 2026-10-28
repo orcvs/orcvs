@@ -552,6 +552,25 @@ mod tests {
     }
 
     #[test]
+    fn an_adapter_with_no_connection_accepts_playback_and_delivers_nothing() {
+        let mut adapter = MidiOutputAdapter::new();
+
+        assert!(
+            adapter
+                .submit(
+                    &[OutputCommand::NoteOn {
+                        channel: MidiChannel::try_from(0).unwrap(),
+                        velocity: Velocity::try_from(0x7f).unwrap(),
+                        note: Note::try_from(60).unwrap(),
+                    }],
+                    Duration::ZERO
+                )
+                .is_ok()
+        );
+        assert!(adapter.safety_reset().is_ok());
+    }
+
+    #[test]
     fn submits_commands_as_ordered_note_on_messages() {
         let state = Arc::new(Mutex::new(FakeState::default()));
         let mut backend = FakeBackend {
