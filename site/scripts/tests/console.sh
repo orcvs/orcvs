@@ -19,6 +19,7 @@ for arg in "$@"; do
   [[ "$prev" == -o ]] && out="$arg"
   prev="$arg"
 done
+[[ "$prev" == https://github.com/orcvs/orcvs/releases/download/console-web/* ]] || exit 2
 src="$FAKE_RELEASE/${prev##*/}"
 [[ -f "$src" ]] || exit 22
 cp "$src" "$out"
@@ -91,6 +92,16 @@ echo 'fn main() { loop {} }' > "$work/repo/console/main.rs"
 commit
 [[ "$(key)" != "$first" ]] || fail "a console commit kept the console key"
 
+# A filter the key cannot read fails rather than keying the console by the wrong paths.
+repo
+sed -i "s|^      - 'Cargo.lock'$|      - '*.lock'|" "$work/repo/.github/workflows/console-web.yml"
+commit
+if key > /dev/null 2>&1; then fail "a glob in the path filter was keyed"; fi
+repo
+sed -i "s/^    paths:$/    branches-ignore: [gh-pages]/" "$work/repo/.github/workflows/console-web.yml"
+commit
+if key > /dev/null 2>&1; then fail "an empty path filter was keyed"; fi
+
 # The production build waits for its own console, ignoring the rolling one already published.
 repo
 console console-web.tar.gz previous
@@ -108,7 +119,8 @@ if output="$(build env WORKERS_CI_BRANCH=main 2>&1)"; then
   fail "the production build passed without its commit's console"
 fi
 grep -F "$(key)" <<< "$output" > /dev/null || fail "the failure does not name the key: $output"
-[[ "$(cat "$work/sleeps")" == 45 ]] || fail "the build waited $(cat "$work/sleeps") times, not 45"
+# 45 tries with a wait between each.
+[[ "$(cat "$work/sleeps")" == 44 ]] || fail "the build waited $(cat "$work/sleeps") times, not 44"
 
 # Any other build takes the rolling console straight away.
 repo

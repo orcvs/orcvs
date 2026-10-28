@@ -31,10 +31,10 @@ if [[ -n "${CONSOLE_WEB:-}" ]]; then
   cp -R "$CONSOLE_WEB"/. public/play
 elif [[ "${WORKERS_CI_BRANCH:-}" == main ]]; then
   key="$(bash ../scripts/console-key.sh)"
-  # 45 tries 20 seconds apart: 15 minutes, inside Cloudflare's 20-minute build limit.
-  for _ in $(seq 45); do
+  # 45 tries 20 seconds apart: under 15 minutes, inside Cloudflare's 20-minute build limit.
+  for try in $(seq 45); do
     fetch "console-web-$key.tar.gz" && break
-    sleep 20
+    if (( try < 45 )); then sleep 20; fi
   done
   if [[ ! -f public/play/index.html ]]; then
     echo "The console this commit builds (key $key) was not published on the console-web release" \

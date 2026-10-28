@@ -90,7 +90,9 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
-      contents: write # upload to the console-web release
+      contents: write # create the console-web release and upload to it
+    outputs:
+      key: ${{ steps.key.outputs.key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,18 +102,25 @@ jobs:
           name: console-web
           path: target/console-web
       - name: Publish the console under its key
+        id: key
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           key="$(bash scripts/console-key.sh)"
           tar -czf "console-web-$key.tar.gz" -C target/console-web .
+          if ! gh release view console-web > /dev/null 2>&1; then
+            gh release create console-web --prerelease --target "$GITHUB_SHA" \
+              --title "Web console (latest main)" --notes "The web consoles built on main."
+          fi
           gh release upload console-web "console-web-$key.tar.gz" --clobber
+          echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "Published console key $key." >> "$GITHUB_STEP_SUMMARY"
 
   # Replaces the rolling console that previews and local builds take, and keeps
-  # the newest 20 keyed archives. Queued: a newer run replaces a pending one,
-  # which is all the rolling console needs.
+  # the newest 20 keyed archives. Runs finish out of commit order, so a run
+  # replaces the rolling console only while its key is still the key of `main`'s
+  # tip; otherwise a newer run publishes it.
   latest:
     needs: publish
     timeout-minutes: 5
@@ -122,16 +131,25 @@ jobs:
     permissions:
       contents: write # replace and delete console-web release assets
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: console-web
-          path: console-web
+          path: target/console-web
       - name: Replace the rolling console and prune old keys
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          KEY: ${{ needs.publish.outputs.key }}
         run: |
-          tar -czf console-web.tar.gz -C console-web .
+          if [[ "$(bash scripts/console-key.sh)" != "$KEY" ]]; then
+            echo "main has moved past console key $KEY; a newer run publishes the rolling console." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tar -czf console-web.tar.gz -C target/console-web .
           gh release edit console-web \
             --notes "The web console built from $GITHUB_SHA on main, and the consoles of recent keys. The site's build downloads its console from here."
           gh release upload console-web console-web.tar.gz --clobber
