@@ -315,7 +315,10 @@ impl Console {
     ///
     pub(super) fn observe_playback_diagnostics(&mut self) {
         let mut playback_diagnostics = self.orcvs.drain_playback_diagnostics();
-        self.network.observe_diagnostics(&mut playback_diagnostics);
+        self.network.observe_diagnostics(
+            &mut playback_diagnostics,
+            self.orcvs.playback_observation().network_failed,
+        );
         if console_midi::AVAILABLE {
             self.midi.observe_diagnostics(playback_diagnostics);
         } else {

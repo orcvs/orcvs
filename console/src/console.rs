@@ -377,8 +377,8 @@ impl Console {
 impl eframe::App for Console {
     ///
     /// Called by the framework to save state before shutdown, and at
-    /// intervals while running. This stores the current Source revision, the
-    /// UDP and OSC destination and, natively, the window's geometry; the
+    /// intervals while running. This stores the current Source revision and,
+    /// natively, the UDP and OSC destination and the window's geometry; the
     /// settings file is never written.
     ///
     #[cfg(feature = "persistence")]
@@ -386,6 +386,7 @@ impl eframe::App for Console {
         if self.stores_source {
             crate::persistence::save(storage, self.orcvs.source());
         }
+        #[cfg(not(target_arch = "wasm32"))]
         crate::network::store(storage, &self.network.destination());
         // While the splash shows, the window is the splash's, so the save
         // stores the geometry it grows to, or nothing when that is the default.

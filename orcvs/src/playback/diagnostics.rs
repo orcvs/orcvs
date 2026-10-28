@@ -96,21 +96,21 @@ impl OmittedDiagnostics {
 /// the last.
 ///
 /// An Overrun carries no user-facing message and only says a Tick was late.
-/// A refused start or retune leaves the engine as it was, so the play state
-/// and BPM a user is shown already say it did not happen. A network failure
-/// says one UDP or OSC send did not leave, and comes with every activation
-/// while the destination refuses, so it ranks below an output failure, which
-/// a flood of network failures therefore never displaces. An output failure
-/// is the only word a user gets that their device refused a Tick. A clock
-/// failure says the run has ended by itself, and `Orcvs` withdraws its request to play
-/// only on finding one, so it is the last to go.
+/// A network failure says one UDP or OSC send did not leave, and comes with
+/// every activation while the destination refuses, so it ranks below every
+/// other failure, which a flood of network failures therefore never
+/// displaces. A refused start or retune leaves the engine as it was, so the
+/// play state and BPM a user is shown already say it did not happen. An
+/// output failure is the only word a user gets that their device refused a
+/// Tick. A clock failure says the run has ended by itself, and `Orcvs`
+/// withdraws its request to play only on finding one, so it is the last to go.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
     Overrun,
+    NetworkFailure,
     StartFailure,
     RetuneFailure,
-    NetworkFailure,
     OutputFailure,
     ClockFailure,
 }
@@ -123,8 +123,8 @@ impl Class {
     fn tier(self) -> u8 {
         match self {
             Class::Overrun => 0,
-            Class::StartFailure | Class::RetuneFailure => 1,
-            Class::NetworkFailure => 2,
+            Class::NetworkFailure => 1,
+            Class::StartFailure | Class::RetuneFailure => 2,
             Class::OutputFailure => 3,
             Class::ClockFailure => 4,
         }
@@ -459,11 +459,14 @@ mod tests {
     }
 
     #[test]
-    fn a_flood_of_network_failures_never_displaces_an_output_failure() {
+    fn a_flood_of_network_failures_never_displaces_another_failure() {
         let log = DiagnosticLog::new();
         log.report(Report::OutputFailure(OutputAdapterError::new(
             "device lost",
         )));
+        log.report(Report::RetuneFailure {
+            message: "retune refused".to_string(),
+        });
         for index in 0..MAX_RETAINED_DIAGNOSTICS + 10 {
             log.report(Report::NetworkFailure(OutputAdapterError::new(format!(
                 "send {index}"
@@ -476,6 +479,12 @@ mod tests {
             PlaybackDiagnostic::OutputFailure(OutputAdapterError::new("device lost"))
         );
         assert_eq!(
+            drained[1],
+            PlaybackDiagnostic::RetuneFailure {
+                message: "retune refused".to_string(),
+            }
+        );
+        assert_eq!(
             drained[MAX_RETAINED_DIAGNOSTICS - 1],
             PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(format!(
                 "send {}",
@@ -483,7 +492,7 @@ mod tests {
             ))),
             "the newest network failure is retained"
         );
-        assert_eq!(omitted(&drained).network_failures.get(), 11);
+        assert_eq!(omitted(&drained).network_failures.get(), 12);
     }
 
     #[test]
