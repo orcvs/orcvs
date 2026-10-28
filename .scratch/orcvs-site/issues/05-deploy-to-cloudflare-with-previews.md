@@ -57,3 +57,12 @@ For Toby, in the Cloudflare dashboard: Workers & Pages → Create → Import a r
 
 Then name the domain. A preview needs a published console, so previews work once this pull request
 has merged and `main` has published one.
+
+### The deploy hook raced the site build, 2026-10-28
+
+The deploy hook above was never set up, and nothing asked for it, so its step skipped silently.
+Without it the site and console builds race on every merge that changes the console: #323's site
+build copied the previous console a minute and a half before the new one was published. ADR 0092
+replaces the hook: the production site build waits for the console its own commit builds and fails
+otherwise (ticket 25). Ignore the hook bullet in the setup list above, and see ticket 26 for the
+build watch paths, which must now include the console's paths.
