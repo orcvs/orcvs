@@ -58,7 +58,8 @@ pub(crate) fn framing() -> Option<(web_sys::Window, web_sys::Window, String)> {
 /// - `{ type: "orcvs.open", source }` keeps `source` in `inbox`, for a small
 ///   console. Only the latest Source opens, so a burst of messages holds one.
 /// - `{ type: "orcvs.synth", available }` is the Built-in Synth's
-///   announcement (`crate::built_in_synth`).
+///   announcement, and `{ type: "orcvs.audio", running }` says whether the
+///   page's audio runs (`crate::built_in_synth`).
 ///
 /// A console no page frames listens for nothing. The listener lasts as long
 /// as the page.
@@ -104,10 +105,41 @@ pub(crate) fn listen_to_page(inbox: Option<crate::linked_source::Inbox>, ctx: eg
     }
     // The page holds the listener for its whole life.
     listener.forget();
+    wake_page_audio(&window, parent.clone(), origin.clone());
     let ready = js_sys::Object::new();
     // Setting a field on a fresh plain object cannot fail.
     let _ = js_sys::Reflect::set(&ready, &"type".into(), &"orcvs.ready".into());
     if let Err(reason) = parent.post_message(&ready, &origin) {
         log::warn!("the console cannot say it is ready: {reason:?}");
     }
+}
+
+///
+/// Posts `{ type: "orcvs.wake" }` to the page on each of the reader's clicks
+/// and keys in this console. The gesture lets the page start its audio, which
+/// takes a device some time, so a reader who clicks the console before
+/// pressing Space hears Tick 0 on time. A page whose audio runs ignores it.
+///
+fn wake_page_audio(window: &web_sys::Window, parent: web_sys::Window, origin: String) {
+    use wasm_bindgen::JsCast as _;
+    use wasm_bindgen::closure::Closure;
+
+    let wake = js_sys::Object::new();
+    // Setting a field on a fresh plain object cannot fail.
+    let _ = js_sys::Reflect::set(&wake, &"type".into(), &"orcvs.wake".into());
+    let listener = Closure::<dyn FnMut(web_sys::Event)>::new(move |_: web_sys::Event| {
+        let _ = parent.post_message(&wake, &origin);
+    });
+    for gesture in ["pointerdown", "keydown"] {
+        // Captured, so it is heard before egui handles the event.
+        if let Err(reason) = window.add_event_listener_with_callback_and_bool(
+            gesture,
+            listener.as_ref().unchecked_ref(),
+            true,
+        ) {
+            log::warn!("the console cannot wake its page's audio: {reason:?}");
+        }
+    }
+    // The page holds the listener for its whole life.
+    listener.forget();
 }

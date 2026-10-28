@@ -7,11 +7,13 @@ use std::collections::VecDeque;
 
 mod drum;
 mod tone;
+mod vibrato;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
 use drum::{Drum, Instrument};
 use tone::Tone;
+use vibrato::Vibrato;
 
 /// How many voices sound at once.
 pub const VOICES: usize = 16;
@@ -24,8 +26,9 @@ const DRUM_LEVEL: f32 = 0.35;
 /// The synth: sixteen voices, a frame clock, and the messages still to come.
 ///
 /// Channels `0`–`7` play tones and `8`–`15` the 808-style kit. Velocity is the
-/// only level. All Sound Off and All Notes Off release a channel's tones; every
-/// other Control Change, Pitch Bend and Program Change is ignored.
+/// only level. Control Change 1 on any channel sets `MD`, vibrato on the whole
+/// mix. All Sound Off and All Notes Off release a channel's tones;
+/// every other Control Change, Pitch Bend and Program Change is ignored.
 pub struct Synth {
     sample_rate: f32,
     frame: u64,
@@ -35,6 +38,7 @@ pub struct Synth {
     /// Messages not yet applied, in frame order; equal frames keep the order
     /// they were scheduled in.
     queue: VecDeque<(u64, [u8; 3])>,
+    vibrato: Vibrato,
 }
 
 struct Voice {
@@ -60,6 +64,7 @@ impl Synth {
             // Room for several Ticks of messages, so scheduling on the
             // audio thread rarely allocates.
             queue: VecDeque::with_capacity(64),
+            vibrato: Vibrato::new(sample_rate),
         }
     }
 
@@ -99,7 +104,7 @@ impl Synth {
                     None => *slot = None,
                 }
             }
-            *sample = mix.tanh();
+            *sample = self.vibrato.process(mix).tanh();
             self.frame += 1;
         }
     }
@@ -109,6 +114,7 @@ impl Synth {
         match status & 0xF0 {
             0x90 if data2 > 0 => self.note_on(channel, data1, data2),
             0x80 | 0x90 => self.release_note(channel, data1),
+            0xB0 if data1 == 1 => self.vibrato.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             _ => {}
@@ -365,6 +371,62 @@ mod tests {
         }
     }
 
+    /// The ratio of the longest to the shortest whole period of `samples`,
+    /// between rising zero crossings.
+    fn period_spread(samples: &[f32]) -> f32 {
+        let crossings: Vec<usize> = samples
+            .windows(2)
+            .enumerate()
+            .filter(|(_, pair)| pair[0] < 0.0 && pair[1] >= 0.0)
+            .map(|(index, _)| index)
+            .collect();
+        let periods = crossings.windows(2).map(|pair| (pair[1] - pair[0]) as f32);
+        let longest = periods.clone().fold(0.0, f32::max);
+        let shortest = periods.fold(f32::INFINITY, f32::min);
+        longest / shortest
+    }
+
+    #[test]
+    fn modulation_on_any_channel_makes_a_steady_tone_waver() {
+        let tone = |modulation: Option<[u8; 3]>| {
+            let mut synth = Synth::new(RATE);
+            if let Some(message) = modulation {
+                synth.schedule(0, message);
+            }
+            synth.schedule(0, note_on(0, 69, 100));
+            render(&mut synth, seconds(1.0))
+        };
+
+        assert!(period_spread(&tone(None)) < 1.03);
+        assert!(period_spread(&tone(Some([0xB5, 1, 0x7F]))) > 1.08);
+        assert_eq!(tone(Some([0xB0, 1, 0x00])), tone(None));
+    }
+
+    #[test]
+    fn changing_modulation_mid_note_moves_the_tone_without_a_step() {
+        let largest_step = |samples: &[f32]| {
+            samples
+                .windows(2)
+                .map(|pair| (pair[1] - pair[0]).abs())
+                .fold(0.0, f32::max)
+        };
+        let mut plain = Synth::new(RATE);
+        plain.schedule(0, note_on(0, 69, 100));
+        let steady = largest_step(&render(&mut plain, seconds(0.5)));
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(0, 69, 100));
+        // A quarter of the way through the vibrato's cycle, where its delay is
+        // at its longest.
+        synth.schedule(0, [0xB0, 1, 0x7F]);
+        synth.schedule(seconds(0.25) as u64, [0xB0, 1, 0x00]);
+        synth.schedule(seconds(0.35) as u64, [0xB0, 1, 0x7F]);
+
+        let out = render(&mut synth, seconds(0.5));
+
+        let step = largest_step(&out);
+        assert!(step < steady * 1.3, "{step} against {steady}");
+    }
+
     #[test]
     fn other_messages_change_nothing() {
         let mut synth = Synth::new(RATE);
@@ -372,7 +434,10 @@ mod tests {
         let mut plain = Synth::new(RATE);
         plain.schedule(0, note_on(0, 69, 100));
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
-        synth.schedule(0, [0xB0, 7, 0]);
+        // Control Change 2 to 8 set effects whose sound has not landed yet.
+        for controller in 2..=8 {
+            synth.schedule(0, [0xB0, controller, 0x7F]);
+        }
         synth.schedule(0, [0xC0, 5, 0]);
 
         assert_eq!(render(&mut synth, 4_800), render(&mut plain, 4_800));

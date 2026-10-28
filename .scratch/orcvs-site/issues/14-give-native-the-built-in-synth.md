@@ -3,7 +3,8 @@
 **What to build:** The native console offers the Built-in Synth as ADR 0087 decides it, playing
 ticket 08's synth core through cpal on the console's audio device, with small buffers. It is listed
 after the MIDI ports and chosen like one, and plays each message at its Tick's planned time, so the
-same Source sounds the same natively and on the site.
+same Source sounds the same natively and on the site. The console draws the Sound Module as ADR 0088
+decides it, and the console's Theme format gains `sound.magnitude`, defaulting to `source.bang`.
 
 **Blocked by:** 08
 
@@ -13,3 +14,5 @@ same Source sounds the same natively and on the site.
       and that its messages reach the core with their planned times; the core's own tests carry over.
 - [ ] A missing audio device answers as a connect failure, and Playback runs on silently.
 - [ ] cpal's addition is recorded with its rationale, and `mise run audit_deps` passes.
+- [ ] The console draws the Sound Module's channels and effects, and a Theme can set
+      `sound.magnitude`.

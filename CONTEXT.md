@@ -323,8 +323,12 @@ The Cells a UDP or OSC Function sends: every Cell from the end of its spelling t
 _Avoid_: Text value, message value, string literal
 
 **Built-in Synth**:
-The synth a page that frames the console offers it as a MIDI destination, so an example sounds with no MIDI device. Per ADR 0087 it plays each message at its Tick's planned time plus a fixed delay: tones on channels `00`–`07`, an 808-style kit synthesised without recordings on channels `08`–`0F` with the instrument picked by the Note's pitch class, sixteen voices at once, loudness from velocity alone. It is listed after every MIDI port and chosen like one, and a Linked or small console picks it.
+The synth a page that frames the console offers it as a MIDI destination, so an example sounds with no MIDI device. Per ADR 0087 it plays each message at its Tick's planned time plus a fixed delay: tones on channels `00`–`07`, an 808-style kit synthesised without recordings on channels `08`–`0F` with the instrument picked by the Note's pitch class, sixteen voices at once, loudness from velocity alone. Control Change 1 to 8 on any channel set its eight global effects (ADR 0088). It is listed after every MIDI port and chosen like one, and a Linked or small console picks it.
 _Avoid_: internal synth, sound module, Pilot, Enfer
+
+**Sound Module**:
+The row of the site's page below the console that shows the Built-in Synth: sixteen channels that show in the Function role's colours while a note sounds, and its eight effects, each a column of a two-Cell magnitude, a two-Cell value and a two-Cell name, set by Control Change 1 to 8 or by the reader typing into the values (ADR 0088). It is drawn as Cells, as the site draws a Source.
+_Avoid_: effects panel, mixer, control panel
 
 **Cursor**:
 The one Cell the console is editing: a Position drawn with a still outline on its Cell's edges. The Cursor holds no dimensions and does no clamping of its own — the Grid answers where a move lands.

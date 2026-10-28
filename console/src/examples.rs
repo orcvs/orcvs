@@ -12,8 +12,18 @@ pub(crate) struct Example {
     text: &'static [u8],
 }
 
+///
+/// The 808 beat: a kick, a snare and a closed hat on the Built-in Synth's
+/// kit. The web console opens it when nothing is stored.
+///
+pub(crate) const EIGHT_O_EIGHT: Example = Example {
+    name: "808",
+    text: include_bytes!("../../examples/808.orcvs"),
+};
+
 /// Every shipped example, in the order `Help → Examples` lists them.
-pub(crate) const EXAMPLES: [Example; 4] = [
+pub(crate) const EXAMPLES: [Example; 5] = [
+    EIGHT_O_EIGHT,
     Example {
         name: "Cell Tracker",
         text: include_bytes!("../../examples/cell-tracker.orcvs"),

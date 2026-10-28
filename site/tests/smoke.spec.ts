@@ -50,12 +50,14 @@ for (const link of ["/play/?example=cell-tracker", "/play/#source=.%2B0102%0A", 
   });
 }
 
-test("/ is the console, filling the window", async ({ page }) => {
+test("/ is the console, filling the window above the Sound Module", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   const frame = page.locator("iframe");
   await expect(frame).toHaveAttribute("src", "/play/");
-  expect(await frame.boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
+  const module = (await page.locator("#sound-module").boundingBox())!;
+  expect(module.y + module.height).toBe(720);
+  expect(await frame.boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: module.y });
   await expect(frame.contentFrame().locator("#the_canvas_id")).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
 });
 

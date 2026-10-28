@@ -274,12 +274,14 @@ impl Console {
         // `State::on_keyboard_input` and eframe's web keydown handler both
         // withhold `Event::Text` while a command modifier is held, so a
         // shipped build never raises the bare character alongside the chord.
-        let events = ctx.input(|i| {
+        let events: Vec<_> = ctx.input(|i| {
             i.filtered_events(&event_filter)
                 .into_iter()
                 .filter_map(translate_event)
                 .collect()
         });
+        #[cfg(target_arch = "wasm32")]
+        let events = self.hold_start_for_audio(ctx, events);
         // A Copy or Cut answers the text the platform clipboard is to
         // hold; `copy_text` is how egui hands it to the native and the
         // browser backend alike.
@@ -299,6 +301,30 @@ impl Console {
         {
             None
         }
+    }
+
+    ///
+    /// `events` without a Space that starts Playback on the Built-in Synth
+    /// while the page's audio is asleep, and with it again once the audio
+    /// runs. The page announces its audio with a repaint; a timed repaint ends
+    /// the wait without it.
+    ///
+    #[cfg(target_arch = "wasm32")]
+    fn hold_start_for_audio(
+        &mut self,
+        ctx: &egui::Context,
+        mut events: Vec<InputEvent>,
+    ) -> Vec<InputEvent> {
+        let stopped =
+            self.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Stopped;
+        let now = ctx.input(|i| i.time);
+        if self
+            .synth
+            .hold_start(&mut events, &mut self.midi, stopped, now)
+        {
+            ctx.request_repaint_after(std::time::Duration::from_millis(20));
+        }
+        events
     }
 
     ///
