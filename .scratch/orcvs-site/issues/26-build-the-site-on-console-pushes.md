@@ -2,7 +2,7 @@
 
 **What to build:** Cloudflare's build of the `orcvs` Worker runs on every push to `main` that
 changes the console, so ticket 25's wait can deploy it. Ticket 05 asked for build watch paths that
-left the console's paths out, relying on the deploy hook to rebuild the site; ADR 0092 removes the
+left the console's paths out, relying on the deploy hook to rebuild the site; ADR 0093 removes the
 hook. #323's merge did start a site build, which suggests the watch paths were never restricted,
 but this needs checking in the dashboard.
 

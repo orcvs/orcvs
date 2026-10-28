@@ -7,7 +7,7 @@ name: Console web
 # expires, as `console-web-<key>.tar.gz` under its console key and as the
 # rolling `console-web.tar.gz`. Cloudflare's production build of the site
 # (`npm run build` in `site/`) waits for its own commit's key and never compiles
-# the console (ADR 0092).
+# the console (ADR 0093).
 # Path-filtered to what the console is compiled from: the console, the crates
 # under it, the Built-in Synth staged beside it, and the toolchain and tool pins.
 # `scripts/console-key.sh` reads this filter, so a path added here is in the key.

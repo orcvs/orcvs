@@ -5,7 +5,7 @@
 # such as `../target/console-web` from `mise run console_web_build`, and replaces the console there.
 # Cloudflare's production build (`WORKERS_CI_BRANCH` is `main`) takes only the console its commit
 # builds, published under that commit's console key, and waits up to 15 minutes for it before
-# failing (ADR 0092). Any other build keeps a console already in `public/play/`, and otherwise
+# failing (ADR 0093). Any other build keeps a console already in `public/play/`, and otherwise
 # downloads the console last published from `main`; delete `public/play/` to fetch it again. The
 # console is copied unchanged: its URLs are relative, so it serves from `/play/` under any
 # `SITE_BASE`.
