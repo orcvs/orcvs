@@ -25,6 +25,7 @@ contracts while preserving the Source/Playback Engine and output adapter seams.
 
 ## Out of scope
 
-- UDP and OSC until Orcvs has a message value.
+- UDP and OSC, which ADR 0085 settles separately: each sends a Payload of Cells, not a message
+  value.
 - Application Command until its command value encoding is decided.
 - Implicit Note/Number coercion, scaling, clamping, or optional operands.

@@ -85,7 +85,8 @@ Nothing in the language changes until ADR 0070 is accepted (ticket 07), which al
 ## Out of Scope
 
 - Orca's Variable `V`, which ADR 0019 omits entirely.
-- UDP, OSC and the Application Command, which wait on a text or message value.
+- The Application Command, which waits on a command value encoding. UDP and OSC send a Payload of
+  Cells rather than a value (ADR 0085).
 - Reading or writing at a relative diagonal offset.
 - Absolute forms of Track and Push.
 - Multi-Atom reads or writes, and any variable-width result.

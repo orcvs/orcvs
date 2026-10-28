@@ -26,7 +26,8 @@ behavior, structural Sequence Functions, and complete-fit result delivery throug
 ## Out of scope
 
 - Source Read and Source Write operands, deferred by ADR 0005.
-- UDP, OSC, and Application Command message values.
+- Application Command message values. UDP and OSC send a Payload of Cells instead of a value
+  (ADR 0085).
 - Hidden variables or persistent state outside Source Snapshot.
 
 ## Comments

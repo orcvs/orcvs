@@ -21,6 +21,9 @@ function cell(character: string, role: string): string {
   return `<span${role ? ` class="${role}"` : ""}>${shown}</span>`;
 }
 
+/** The Functions whose Payload, the Cells up to the next `!` on the row, is text. */
+const PAYLOAD_SPELLINGS = new Set(["!u", "!o"]);
+
 function row(text: string, columns: number): string {
   let cells = "";
   for (let x = 0; x < columns; ) {
@@ -29,6 +32,14 @@ function row(text: string, columns: number): string {
     const width = role ? 2 : 1;
     for (let i = 0; i < width; i++) cells += cell(text[x + i] ?? " ", role);
     x += width;
+    if (PAYLOAD_SPELLINGS.has(pair)) {
+      // The Payload is ordinary Cells, and the `!` that closes it is drawn with its Function.
+      const closer = text.indexOf("!", x);
+      const end = closer === -1 ? columns : closer;
+      for (; x < end; x++) cells += cell(text[x] ?? " ", "");
+      if (closer !== -1) cells += cell("!", "function");
+      x = end + (closer === -1 ? 0 : 1);
+    }
   }
   return cells;
 }

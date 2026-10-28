@@ -1,6 +1,6 @@
 # UDP and OSC output
 
-Status: ready-for-agent
+Status: resolved
 
 ## The decision
 
