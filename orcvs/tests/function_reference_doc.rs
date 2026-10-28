@@ -4,7 +4,7 @@
 //! An example is a fenced block whose info string is `orcvs`, the Source
 //! before any Tick, followed by one or more blocks whose info string is
 //! `orcvs tick N`, the Source after Ticks `0` through `N` run on it. A `tick`
-//! block may add `plays K`, the Play Commands Tick `N` sends, and
+//! block may add `plays K`, the Play Commands and Network Sends Tick `N` sends, and
 //! `diagnoses`, when Tick `N` diagnoses; without it, every Tick must run
 //! without a diagnostic.
 
@@ -117,11 +117,12 @@ fn every_example_ticks_to_the_source_it_shows() {
             }
             if last {
                 assert_eq!(
-                    plan.play_commands.len(),
+                    plan.play_commands.len() + plan.network_sends.len(),
                     claim.plays,
-                    "line {}: Tick {tick} sent {:?}",
+                    "line {}: Tick {tick} sent {:?} and {:?}",
                     block.line,
-                    plan.play_commands
+                    plan.play_commands,
+                    plan.network_sends
                 );
                 assert_eq!(
                     claim.diagnoses,

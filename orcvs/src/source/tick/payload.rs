@@ -3,7 +3,7 @@
 //!
 //! Equality at (0, 0) Bangs the root at (2, 1) on every Tick.
 
-use lang::{OscArgument, OscMessage, PlayCommand, Tick};
+use lang::{NetworkSend, OscArgument, OscMessage, Tick};
 
 use super::observed::{diagnostic, observed, rows_of, source_of};
 use crate::grid::Grid;
@@ -32,8 +32,8 @@ fn banged(beside: &str, root: &str) -> Source {
     banged_over(beside, root, &[])
 }
 
-fn udp(bytes: &[u8]) -> PlayCommand {
-    PlayCommand::Udp(bytes.into())
+fn udp(bytes: &[u8]) -> NetworkSend {
+    NetworkSend::Udp(bytes.into())
 }
 
 /// Every Payload's Span and text in `source`'s current revision.
@@ -57,7 +57,7 @@ fn a_banged_udp_function_sends_its_payload() {
     ] {
         let mut source = banged("", root);
         let plan = source.execute(Tick::ZERO);
-        assert_eq!(plan.play_commands, [udp(sent)], "{root:?}");
+        assert_eq!(plan.network_sends, [udp(sent)], "{root:?}");
         assert!(
             plan.diagnostics.is_empty(),
             "{root:?}: {:?}",
@@ -70,30 +70,30 @@ fn a_banged_udp_function_sends_its_payload() {
 fn an_empty_payload_sends_nothing_and_reports_nothing() {
     let mut source = banged("", "!u!");
     let plan = source.execute(Tick::ZERO);
-    assert!(plan.play_commands.is_empty());
+    assert!(plan.network_sends.is_empty());
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
 }
 
 #[test]
 fn an_unbanged_payload_function_sends_nothing() {
     let mut source = source_of(grid(), &["", "  !uhello!"]);
-    assert!(source.execute(Tick::ZERO).play_commands.is_empty());
+    assert!(source.execute(Tick::ZERO).network_sends.is_empty());
 }
 
 #[test]
 fn a_banged_osc_function_sends_its_message_or_diagnoses() {
     let mut source = banged("", "!o/synth/freq 40 7F!");
     assert_eq!(
-        source.execute(Tick::ZERO).play_commands,
-        [PlayCommand::Osc(Box::new(OscMessage {
+        source.execute(Tick::ZERO).network_sends,
+        [NetworkSend::Osc(OscMessage {
             address: "/synth/freq".to_owned(),
             arguments: vec![OscArgument::Int(64), OscArgument::Int(127)],
-        }))]
+        })]
     );
 
     let mut source = banged("", "!osynth!");
     let plan = source.execute(Tick::ZERO);
-    assert!(plan.play_commands.is_empty());
+    assert!(plan.network_sends.is_empty());
     let tick = observed(&source, &plan);
     assert_eq!(
         tick.diagnostics,
@@ -113,7 +113,7 @@ fn a_write_into_a_payload_lands_in_the_same_tick() {
     for (beside, sent) in [("@$0601C4", b"heC4o"), (".+0102", b"he03o")] {
         let mut source = banged(beside, "!uhello!");
         let plan = source.execute(Tick::ZERO);
-        assert_eq!(plan.play_commands, [udp(sent)], "{beside:?}");
+        assert_eq!(plan.network_sends, [udp(sent)], "{beside:?}");
         assert!(
             plan.diagnostics.is_empty(),
             "{beside:?}: {:?}",
@@ -129,7 +129,7 @@ fn a_closer_a_write_puts_in_a_payload_is_sent_and_closes_it_from_the_next_parse(
     assert_eq!(payloads(&source), [(28..34, 28..33)]);
 
     let plan = source.execute(Tick::ZERO);
-    assert_eq!(plan.play_commands, [udp(b"he!>o")]);
+    assert_eq!(plan.network_sends, [udp(b"he!>o")]);
     assert_eq!(rows_of(&source)[1].trim_end(), "**!uhe!>o!");
     // Committed and parsed again, the written `!` closes the Payload, and
     // what follows it is Source.
@@ -140,7 +140,7 @@ fn a_closer_a_write_puts_in_a_payload_is_sent_and_closes_it_from_the_next_parse(
 fn a_write_over_the_closer_moves_it_from_the_next_parse() {
     let mut source = banged("@$0901C4", "!uhello!");
     let plan = source.execute(Tick::ZERO);
-    assert_eq!(plan.play_commands, [udp(b"hello")]);
+    assert_eq!(plan.network_sends, [udp(b"hello")]);
     assert_eq!(payloads(&source), [(28..48, 28..48)]);
 }
 
@@ -160,7 +160,7 @@ fn the_cells_after_an_early_closer_are_source_again() {
 fn a_payload_function_is_invalid_where_a_value_is_required() {
     let mut source = banged("", ".+!uab!03");
     let plan = source.execute(Tick::ZERO);
-    assert!(plan.play_commands.is_empty());
+    assert!(plan.network_sends.is_empty());
     assert!(
         source
             .language_map()

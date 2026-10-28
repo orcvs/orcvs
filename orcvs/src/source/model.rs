@@ -117,8 +117,12 @@ pub use lang::{
     BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, PlayCommand, Velocity,
 };
 
-/// The publishable outcome of one Tick: Cell writes, Play Commands, diagnostics,
-/// and the Expression roots this Tick locked.
+/// What a UDP or OSC Function contributes to a Tick Plan: one datagram or one
+/// OSC message, in a list beside the Play Commands.
+pub use lang::NetworkSend;
+
+/// The publishable outcome of one Tick: Cell writes, Play Commands, Network
+/// Sends, diagnostics, and the Expression roots this Tick locked.
 ///
 /// A lock is an Effect, not a write. It names the withheld root so a reader of
 /// the plan does not infer the lock from an unchanged Grid.
@@ -126,6 +130,8 @@ pub use lang::{
 pub struct TickPlan {
     pub writes: Vec<CellWrite>,
     pub play_commands: Vec<PlayCommand>,
+    /// The Tick's UDP and OSC sends, in Tick Plan order.
+    pub network_sends: Vec<NetworkSend>,
     pub diagnostics: Vec<Diagnostic>,
     /// Expression-root anchors this Tick locked, in producer order.
     pub locks: Vec<Position>,
@@ -976,6 +982,7 @@ mod test {
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
         let encoding = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
+            Interpretation::Send(send) => return resolve(vec![Effect::Send(*send)]),
             Interpretation::EmptyPayload => return resolve(vec![]),
             // The rule for what an answer becomes in Cells is production's,
             // called here rather than restated: these tests state an answer,

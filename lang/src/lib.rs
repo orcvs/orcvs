@@ -101,10 +101,21 @@ pub enum PlayCommand {
         lsb: BendLsb,
         msb: BendMsb,
     },
+}
+
+///
+/// One Network Send an active UDP or OSC Function root performs.
+///
+/// A type of its own rather than a Play Command, because nothing the Playback
+/// Engine does to MIDI reaches it: it has no lifetime, owns no voice and takes
+/// no safety action. Its Tick Plan carries it in a list of its own.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub enum NetworkSend {
     /// UDP `!u`: its Payload's bytes, one per Cell, sent as one datagram.
     Udp(Box<[u8]>),
     /// OSC `!o`: one message, which the network output adapter encodes.
-    Osc(Box<OscMessage>),
+    Osc(OscMessage),
 }
 
 /// One OSC message an OSC Function sends: its address and typed arguments, in
@@ -485,15 +496,16 @@ mod test {
         use super::{Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
-        // measures the answer seam. The widest answer is a UDP datagram's
-        // boxed bytes, a pointer and a length, beside the tag, so both read
-        // three words at every pointer width: 24 natively and 12 on wasm32.
+        // measures the answer seam. A Play Command holds no pointer, so it
+        // reads 5 at every pointer width. The widest answer is a Network
+        // Send's box, one pointer beside the tag, so `Interpretation` reads
+        // two words: 16 natively and 8 on wasm32.
         //
         // A failure here is notice rather than a defect: the answer seam has
         // changed shape, and `execute_function` is the measurement to take
         // again.
-        assert_eq!(size_of::<PlayCommand>(), 3 * size_of::<usize>());
-        assert_eq!(size_of::<Interpretation>(), 3 * size_of::<usize>());
+        assert_eq!(size_of::<PlayCommand>(), 5);
+        assert_eq!(size_of::<Interpretation>(), 2 * size_of::<usize>());
     }
 
     #[test]

@@ -12,10 +12,11 @@ use web_time::Instant as ClockInstant;
 mod diagnostics;
 mod gate;
 mod mailbox;
+mod outputs;
 mod schedule;
 
 use crate::midi::MidiSelectionHandle;
-use crate::network::{NetworkDestination, NetworkOutput};
+use crate::network::NetworkDestination;
 use crate::opts::Bpm;
 use crate::source::{
     BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Tick, TickPlan,
@@ -30,7 +31,7 @@ use gate::TickGate;
 pub(crate) use mailbox::open as open_requests;
 use mailbox::{Backlog, RequestReceiver, Unavailable};
 pub(crate) use mailbox::{Destination, RequestSender};
-use schedule::OwnedNotes;
+use outputs::Outputs;
 
 ///
 /// One MIDI message the Playback Engine hands an output adapter.
@@ -138,8 +139,9 @@ pub enum PlaybackDiagnostic {
         observed_at: Duration,
     },
     OutputFailure(OutputAdapterError),
-    /// A UDP or OSC send that did not leave. Each one is reported: a send is
-    /// one activation, so nothing is latched.
+    /// A UDP or OSC send that did not leave. A native failure is reported
+    /// once until it changes; the web build, which can never send, reports
+    /// every activation.
     NetworkFailure(OutputAdapterError),
     ClockFailure {
         message: String,
@@ -213,10 +215,9 @@ pub struct PlaybackObservation {
     /// rewind.
     pub frozen_run_clock: Duration,
     ///
-    /// Whether a UDP or OSC send failed in the last Tick that made any. Held
-    /// through Ticks that send nothing, so it clears only once sends leave
-    /// again. Each failure's message is a
-    /// [`PlaybackDiagnostic::NetworkFailure`].
+    /// Whether the latest UDP or OSC send failed. Held through Ticks that
+    /// send nothing, so it clears once a send leaves again, or a run begins.
+    /// The failure's message is a [`PlaybackDiagnostic::NetworkFailure`].
     ///
     pub network_failed: bool,
 }
@@ -497,7 +498,6 @@ impl OutputAdapter for InMemoryOutputAdapter {
 
 struct PlaybackInner<A: OutputAdapter> {
     source: SourceCommander,
-    adapter: A,
     ///
     /// The performer-facing observation, published rather than held.
     ///
@@ -508,7 +508,6 @@ struct PlaybackInner<A: OutputAdapter> {
     /// and what the console sees cannot drift apart.
     ///
     observation: watch::Sender<PlaybackObservation>,
-    connected: bool,
     ///
     /// The log this engine reports into, shared with every handle.
     ///
@@ -518,7 +517,6 @@ struct PlaybackInner<A: OutputAdapter> {
     /// its run declines Ticks or its device refuses them.
     ///
     diagnostics: DiagnosticLog,
-    last_output_failure: Option<OutputAdapterError>,
     last_tick_at: Option<ClockInstant>,
     ///
     /// The absolute Tick the next executed Tick interprets its Source Snapshot
@@ -531,20 +529,8 @@ struct PlaybackInner<A: OutputAdapter> {
     /// where it was.
     ///
     tick: Tick,
-    ///
-    /// The notes Timed and Monophonic Play own, and the Tick each is stopped
-    /// at.
-    ///
-    /// Here rather than beside the Source for the reason the absolute Tick is:
-    /// a scheduled stop belongs to one Playback run.
-    ///
-    owned: OwnedNotes,
-    ///
-    /// Where UDP `!u` and OSC `!o` send, beside the MIDI adapter. It holds no
-    /// receiver state Orcvs could reset, so stopping, rewinding and the safety
-    /// action send it nothing.
-    ///
-    network: NetworkOutput,
+    /// Every destination each Tick is delivered to.
+    outputs: Outputs<A>,
 }
 
 ///
@@ -707,15 +693,16 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         (
             Self {
                 source,
-                adapter,
                 observation,
-                connected: true,
+                outputs: Outputs::new(
+                    adapter,
+                    network,
+                    crate::network::platform_adapter(),
+                    diagnostics.clone(),
+                ),
                 diagnostics,
-                last_output_failure: None,
                 last_tick_at: None,
                 tick: Tick::ZERO,
-                owned: OwnedNotes::default(),
-                network: NetworkOutput::new(network),
             },
             PlaybackChannels {
                 observation: observed,
@@ -752,37 +739,22 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 observation.run_started_at = None;
                 observation.frozen_run_clock = frozen_run_clock;
             });
-            if self.connected {
-                self.send_safety_reset();
-            }
+            self.outputs.silence();
         }
         // The safety action has stopped whatever was sounding, so every claim is
         // over and every scheduled stop is redundant. Clearing unconditionally
         // rather than alongside the safety action above is deliberate: a run
         // that is already stopped owns nothing, and an engine that reached
         // here holding a claim would otherwise carry it into the next run.
-        self.owned.clear();
+        self.outputs.release();
     }
 
     ///
-    /// Gives up this engine's output, sending the safety action to the device
-    /// it is leaving.
+    /// Gives up this engine's MIDI output, sending the safety action to the
+    /// device it is leaving.
     ///
     fn disconnect(&mut self) {
-        if self.connected {
-            self.send_safety_reset();
-            self.connected = false;
-        }
-        // Nothing this engine owns is sounding on a disconnected output, and
-        // nothing it delivers while disconnected can start a note, so the
-        // schedule goes with the connection.
-        self.owned.clear();
-    }
-
-    fn send_safety_reset(&mut self) {
-        if let Err(error) = self.adapter.safety_reset() {
-            self.record_output_failure(error);
-        }
+        self.outputs.disconnect();
     }
 
     ///
@@ -805,19 +777,12 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // `stop` clears the schedule after the safety action; a panic in
             // that action leaves claims that must not survive into the next
             // run the task is about to keep serving.
-            self.owned.clear();
+            self.outputs.release();
             self.report(Report::ClockFailure {
                 message: "Playback output could not be silenced".to_string(),
             });
         }
         completed
-    }
-
-    fn record_output_failure(&mut self, error: OutputAdapterError) {
-        if self.last_output_failure.as_ref() != Some(&error) {
-            self.report(Report::OutputFailure(error.clone()));
-            self.last_output_failure = Some(error);
-        }
     }
 
     ///
@@ -859,28 +824,9 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // a platform clock that says otherwise.
             observation.run_started_at = Some(now.checked_sub(spent).unwrap_or(now));
             observation.frozen_run_clock = Duration::ZERO;
-            // No send of this run has failed yet.
-            observation.network_failed = false;
         });
-        // The stop that ended the last run sent the safety action and
-        // discarded the schedule, so a run never begins owning a note. This
-        // holds it for an engine that reaches here by any other path: an
-        // inherited claim would schedule a stop for a note this run never
-        // started.
-        self.owned.clear();
-        // The latch suppresses a report of the failure it already reported, so
-        // a device refusing every Tick is reported once rather than once per
-        // Tick. That is one report per run, not one per adapter lifetime: a
-        // drain takes the diagnostics away, so a run inheriting the latch would
-        // say nothing at all about a device still failing in front of the user.
-        //
-        // Here alone, and deliberately not in `stop`. The safety action `stop`
-        // sends is the last submission of the run that recorded the latch, so a
-        // refusal repeating that run's failure is the same fault, which is what
-        // the latch is for; clearing before sending it would report one device
-        // fault twice. A stopped engine submits nothing, so a latch left
-        // standing after `stop` suppresses nothing until this line clears it.
-        self.last_output_failure = None;
+        self.outputs.begin_run();
+        self.publish_network_failed();
     }
 
     ///
@@ -911,6 +857,14 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// them only while a run is live, so reaching here at all is what says a
     /// run is in progress.
     ///
+    /// Publishes whether the latest Network Send failed, when that changed.
+    fn publish_network_failed(&self) {
+        let failed = self.outputs.network_failed();
+        self.observation.send_if_modified(|observation| {
+            std::mem::replace(&mut observation.network_failed, failed) != failed
+        });
+    }
+
     fn execute_tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
         if timing.is_overrun() {
             self.report(Report::Overrun {
@@ -936,47 +890,8 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         // lit a Tick ahead would flash before the beat and go dark on it.
         self.observation
             .send_modify(|observation| observation.set_tick(tick));
-        if self.connected {
-            // Nothing is delivered while disconnected, so nothing is owned
-            // while disconnected either: resolving the Tick Plan here rather
-            // than above keeps a Note Off from being scheduled for a note that
-            // never sounded.
-            //
-            // The schedule describes notes that are sounding, so it may record
-            // only what the adapter accepted. The Tick is resolved against a
-            // copy and adopted once the submission is: a refused submission
-            // leaves every claim and every expiry standing, and the stop this
-            // Tick drained is drained again by the next executed Tick rather
-            // than discarded with no retry and no diagnostic. Do not adopt the
-            // resolved schedule before the submission answers: `OutputAdapter`
-            // is a trait, and that would rest on every implementation giving
-            // up its connection the way `MidiOutputAdapter` does. The copy is
-            // two maps of the notes currently sounding, taken once per
-            // executed Tick.
-            let mut owned = self.owned.clone();
-            let delivery = owned.deliver(tick, &plan.play_commands);
-            // Read at the submission rather than at the clock's wake, so the
-            // time this Tick took to interpret counts as lateness too.
-            let since_due = ClockInstant::now().saturating_duration_since(timing.deadline());
-            match self.adapter.submit(&delivery, since_due) {
-                Ok(()) => {
-                    self.owned = owned;
-                    self.last_output_failure = None;
-                }
-                Err(error) => self.record_output_failure(error),
-            }
-        }
-        // Each failed send is its own report, unlatched, so every activation
-        // that could not send says so, and the performance goes on.
-        if let Some(failures) = self.network.deliver(&plan.play_commands) {
-            let failed = !failures.is_empty();
-            for failure in failures {
-                self.report(Report::NetworkFailure(failure));
-            }
-            self.observation.send_if_modified(|observation| {
-                std::mem::replace(&mut observation.network_failed, failed) != failed
-            });
-        }
+        self.outputs.deliver(tick, &plan, timing.deadline());
+        self.publish_network_failed();
         Some(plan)
     }
 }
@@ -1175,23 +1090,7 @@ impl PlaybackInner<crate::midi::MidiOutputAdapter> {
         destination_id: crate::midi::MidiDestinationId,
         connection: Box<dyn crate::midi::MidiConnection>,
     ) {
-        // The notes this engine owned are sounding on the destination it is
-        // leaving, which is sent the safety action before the new connection is
-        // reached. Their scheduled stops would arrive at a device that never
-        // started them, and a claim kept across the change would stop a note
-        // the Source starts on that voice afterwards.
-        self.owned.clear();
-        // A selection is not a Tick: it is a thing the user just asked for,
-        // and it is owed its own answer even when the answer is the
-        // one the last selection got. Clearing before the install is what
-        // makes a safety-action refusal that repeats the latched failure
-        // visible.
-        self.last_output_failure = None;
-        let selection = self.adapter.install_connection(destination_id, connection);
-        if let Some(error) = selection.safety_failure() {
-            self.record_output_failure(OutputAdapterError::new(error.message));
-        }
-        self.connected = true;
+        self.outputs.install_connection(destination_id, connection);
     }
 }
 
@@ -1891,8 +1790,7 @@ mod tests {
         inner: PlaybackInner<A>,
         observation: watch::Receiver<PlaybackObservation>,
         diagnostics: DiagnosticLog,
-        /// Where the run's network output sends. Only a native test sends.
-        #[cfg(not(target_arch = "wasm32"))]
+        /// Where the run's network output sends.
         network_destination: watch::Sender<NetworkDestination>,
     }
 
@@ -1903,9 +1801,22 @@ mod tests {
                 inner,
                 observation: channels.observation,
                 diagnostics: channels.diagnostics,
-                #[cfg(not(target_arch = "wasm32"))]
                 network_destination: channels.network_destination,
             }
+        }
+
+        ///
+        /// A run whose network output sends to `network`, recording each
+        /// send, rather than to this build's own adapter.
+        ///
+        fn with_network(
+            source: SourceCommander,
+            adapter: A,
+            network: &crate::network::RecordingAdapter,
+        ) -> Self {
+            let mut run = Self::new(source, adapter);
+            run.inner.outputs.set_network(Box::new(network.clone()));
+            run
         }
 
         ///
@@ -1975,7 +1886,7 @@ mod tests {
         /// Whether this run's note schedule holds anything.
         ///
         fn holds_note_ownership(&self) -> bool {
-            self.inner.owned.holds_note_ownership()
+            self.inner.outputs.owned.holds_note_ownership()
         }
 
         fn drain_diagnostics(&mut self) -> Vec<PlaybackDiagnostic> {
@@ -2669,11 +2580,14 @@ mod tests {
             .tick(scheduled(Duration::ZERO, Duration::ZERO))
             .expect("scheduled Tick runs");
 
-        assert_eq!(&run.inner.adapter.source_at_submission[0][30..32], "03");
+        assert_eq!(
+            &run.inner.outputs.midi.source_at_submission[0][30..32],
+            "03"
+        );
         assert_eq!(&source.snapshot()[30..32], "03");
         assert_eq!(tick.play_commands.len(), 1);
         assert_eq!(
-            run.inner.adapter.command_lists,
+            run.inner.outputs.midi.command_lists,
             vec![vec![note_on(0, 0x7F, 60)]]
         );
     }
@@ -2691,7 +2605,7 @@ mod tests {
         run.tick(scheduled_from(epoch, Duration::ZERO, late));
         run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
 
-        let since_due = &run.inner.adapter.since_due;
+        let since_due = &run.inner.outputs.midi.since_due;
         assert!(
             since_due[0] >= late && since_due[0] < late * 2,
             "{since_due:?}"
@@ -4263,73 +4177,64 @@ mod tests {
         assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn a_banged_udp_function_sends_its_payload_to_the_destination() {
-        let listener = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        listener
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+        let network = crate::network::RecordingAdapter::default();
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 0, ".=0101");
         write(&source, 12, "!uhi!");
-        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
-        run.network_destination.send_modify(|destination| {
-            destination.udp_port = listener.local_addr().unwrap().port();
-        });
+        let mut run =
+            HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
+        run.network_destination
+            .send_modify(|destination| destination.udp_port = 9000);
         run.begin_run();
 
         run.run_tick(0);
 
-        let mut buffer = [0; 16];
-        let (length, _) = listener.recv_from(&mut buffer).unwrap();
-        assert_eq!(&buffer[..length], b"hi");
+        let sent = network.sends();
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(sent[0].0, lang::NetworkSend::Udp(b"hi".as_slice().into()));
+        assert_eq!(sent[0].1.udp_port, 9000);
         assert!(run.drain_diagnostics().is_empty());
 
         // Stopping, with its safety action, and rewinding send nothing.
         run.inner.stop();
         run.inner.rewind();
-        listener
-            .set_read_timeout(Some(Duration::from_millis(100)))
-            .unwrap();
-        assert!(listener.recv_from(&mut buffer).is_err());
+        assert_eq!(network.sends().len(), 1);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn a_failed_network_send_is_reported_each_time_and_playback_goes_on() {
+    fn a_repeated_network_failure_is_reported_once_and_playback_goes_on() {
+        let network = crate::network::RecordingAdapter::default();
+        network.refuse(Some("refused"));
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 0, ".=0101");
         write(&source, 12, "!o/go!");
-        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
-        // Port zero is no destination, so every send is refused.
-        run.network_destination
-            .send_modify(|destination| destination.osc_port = 0);
+        let mut run =
+            HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
         run.begin_run();
 
         run.run_tick(0);
         run.run_tick(1);
 
-        let diagnostics = run.drain_diagnostics();
-        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        assert!(diagnostics.iter().all(|diagnostic| matches!(
-            diagnostic,
-            PlaybackDiagnostic::NetworkFailure(error)
-                if error.message.starts_with("network send to 127.0.0.1:0 failed")
-        )));
+        assert_eq!(
+            run.drain_diagnostics(),
+            vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
+                "refused"
+            ))]
+        );
         assert_eq!(run.state(), PlaybackState::Playing);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn the_observation_says_whether_the_last_network_sends_failed() {
-        let listener = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let network = crate::network::RecordingAdapter::default();
+        network.refuse(Some("refused"));
         let source = SourceCommander::new(Grid::with_shape(10, 6));
         write(&source, 0, ".=0101");
         write(&source, 12, "!o/go!");
-        let mut run = HandDrivenRun::new(source, InMemoryOutputAdapter::default());
-        run.network_destination
-            .send_modify(|destination| destination.osc_port = 0);
+        let mut run =
+            HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
         run.begin_run();
         assert!(!run.observation().network_failed);
 
@@ -4343,9 +4248,7 @@ mod tests {
         run.run_tick(1);
         assert!(run.observation().network_failed);
 
-        run.network_destination.send_modify(|destination| {
-            destination.osc_port = listener.local_addr().unwrap().port();
-        });
+        network.refuse(None);
         run.run_tick(2);
         assert!(!run.observation().network_failed);
     }

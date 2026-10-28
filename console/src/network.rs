@@ -105,8 +105,8 @@ impl NetworkSetting {
     }
 
     ///
-    /// Takes every network failure out of `diagnostics`, reporting each, one
-    /// for each send that did not leave, and shows the last of them. With
+    /// Takes every network failure out of `diagnostics`, reporting each, and
+    /// shows the last of them. With
     /// none, the failure shown stays only while `sends_failed`, which
     /// [`orcvs::playback::PlaybackObservation::network_failed`] answers.
     ///

@@ -2,16 +2,17 @@
 //! The network output adapter: where UDP `!u` and OSC `!o` send, and the bytes
 //! each sends.
 //!
-//! The Playback Engine hands it every network send of a Tick in Tick Plan
+//! The Playback Engine hands it every Network Send of a Tick in Tick Plan
 //! order. A native build sends each as one datagram from one
 //! `std::net::UdpSocket`; a browser cannot open one, so the web build reports
 //! every send as a failure instead. Orcvs only sends: nothing here receives.
 //!
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr};
 
-use lang::{OscArgument, OscMessage, PlayCommand};
-use tokio::sync::watch;
+use lang::NetworkSend;
+#[cfg(any(not(target_arch = "wasm32"), test))]
+use lang::{OscArgument, OscMessage};
 
 use crate::playback::OutputAdapterError;
 
@@ -40,60 +41,72 @@ impl Default for NetworkDestination {
 }
 
 ///
-/// Sends what `!u` and `!o` ask for to the destination last published on its
-/// channel, which it reads at each send, so a change takes effect at the next
-/// one.
+/// Where a Network Send leaves: the seam between the Playback Engine's network
+/// output and a transport.
 ///
-pub(crate) struct NetworkOutput {
-    destination: watch::Receiver<NetworkDestination>,
+/// Each target supplies its own: a native build sends from a socket, and the
+/// web build, which cannot open one, refuses every send.
+///
+pub(crate) trait NetworkAdapter: Send {
+    ///
+    /// Sends `send` to its port at `destination`, or answers why it did not
+    /// leave.
+    ///
+    fn send(
+        &mut self,
+        send: &NetworkSend,
+        destination: &NetworkDestination,
+    ) -> Result<(), OutputAdapterError>;
+
+    ///
+    /// Whether every refused send is reported, rather than once until the
+    /// failure changes. A build that can never send reports every activation
+    /// (ADR 0085).
+    ///
+    fn reports_every_failure(&self) -> bool {
+        false
+    }
+}
+
+/// The network adapter this build sends through.
+pub(crate) fn platform_adapter() -> Box<dyn NetworkAdapter> {
     #[cfg(not(target_arch = "wasm32"))]
+    return Box::new(SocketAdapter::default());
+    #[cfg(target_arch = "wasm32")]
+    return Box::new(RefusingAdapter);
+}
+
+///
+/// The native adapter: one datagram per send from one `std::net::UdpSocket`,
+/// bound at the first send and bound again only when the host changes address
+/// family.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+pub(crate) struct SocketAdapter {
     socket: Option<std::net::UdpSocket>,
 }
 
-impl NetworkOutput {
-    pub(crate) fn new(destination: watch::Receiver<NetworkDestination>) -> Self {
-        Self {
-            destination,
-            #[cfg(not(target_arch = "wasm32"))]
-            socket: None,
-        }
-    }
-
-    ///
-    /// Sends every network command among `commands`, in their order, and
-    /// answers one failure per send that failed, or `None` when there was
-    /// nothing to send. A failure stops nothing: the sends after it are still
-    /// made.
-    ///
-    pub(crate) fn deliver(&mut self, commands: &[PlayCommand]) -> Option<Vec<OutputAdapterError>> {
-        let destination = *self.destination.borrow();
-        let mut attempted = false;
-        let mut failures = Vec::new();
-        for command in commands {
-            let result = match command {
-                PlayCommand::Udp(bytes) => self.send(
-                    bytes,
-                    SocketAddr::new(destination.host, destination.udp_port),
-                ),
-                PlayCommand::Osc(message) => self.send(
-                    &encode(message),
-                    SocketAddr::new(destination.host, destination.osc_port),
-                ),
-                _ => continue,
-            };
-            attempted = true;
-            failures.extend(result.err());
-        }
-        attempted.then_some(failures)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn send(&mut self, datagram: &[u8], to: SocketAddr) -> Result<(), OutputAdapterError> {
+#[cfg(not(target_arch = "wasm32"))]
+impl NetworkAdapter for SocketAdapter {
+    fn send(
+        &mut self,
+        send: &NetworkSend,
+        destination: &NetworkDestination,
+    ) -> Result<(), OutputAdapterError> {
+        let (datagram, port) = match send {
+            NetworkSend::Udp(bytes) => {
+                (std::borrow::Cow::Borrowed(&bytes[..]), destination.udp_port)
+            }
+            NetworkSend::Osc(message) => (
+                std::borrow::Cow::Owned(encode(message)),
+                destination.osc_port,
+            ),
+        };
+        let to = std::net::SocketAddr::new(destination.host, port);
         let failed = |error: std::io::Error| {
             OutputAdapterError::new(format!("network send to {to} failed: {error}"))
         };
-        // One socket of the destination's address family, bound once and
-        // bound again only when the host changes family.
         let socket = match self.socket.take() {
             Some(socket)
                 if socket
@@ -115,17 +128,80 @@ impl NetworkOutput {
                 socket
             }
         };
-        let sent = socket.send_to(datagram, to);
+        let sent = socket.send_to(&datagram, to);
         self.socket = Some(socket);
         sent.map(drop).or_else(|error| match reported(error) {
             Some(error) => Err(failed(error)),
             None => Ok(()),
         })
     }
+}
 
-    #[cfg(target_arch = "wasm32")]
-    fn send(&mut self, _datagram: &[u8], _to: SocketAddr) -> Result<(), OutputAdapterError> {
+///
+/// The web adapter: a browser cannot open a UDP socket, so every send is
+/// refused, before anything is encoded.
+///
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) struct RefusingAdapter;
+
+#[cfg(any(target_arch = "wasm32", test))]
+impl NetworkAdapter for RefusingAdapter {
+    fn send(
+        &mut self,
+        _send: &NetworkSend,
+        _destination: &NetworkDestination,
+    ) -> Result<(), OutputAdapterError> {
         Err(OutputAdapterError::new("this build cannot send UDP or OSC"))
+    }
+
+    fn reports_every_failure(&self) -> bool {
+        true
+    }
+}
+
+///
+/// A test adapter that records every send and its destination, and refuses
+/// them while it is told to.
+///
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct RecordingAdapter {
+    state: std::sync::Arc<std::sync::Mutex<Recorded>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct Recorded {
+    sends: Vec<(NetworkSend, NetworkDestination)>,
+    refusal: Option<String>,
+}
+
+#[cfg(test)]
+impl RecordingAdapter {
+    /// Every send made so far, with the destination it was made to.
+    pub(crate) fn sends(&self) -> Vec<(NetworkSend, NetworkDestination)> {
+        self.state.lock().unwrap().sends.clone()
+    }
+
+    /// Refuses every send from now on with `message`, or accepts them again.
+    pub(crate) fn refuse(&self, message: Option<&str>) {
+        self.state.lock().unwrap().refusal = message.map(str::to_owned);
+    }
+}
+
+#[cfg(test)]
+impl NetworkAdapter for RecordingAdapter {
+    fn send(
+        &mut self,
+        send: &NetworkSend,
+        destination: &NetworkDestination,
+    ) -> Result<(), OutputAdapterError> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(refusal) = &state.refusal {
+            return Err(OutputAdapterError::new(refusal.clone()));
+        }
+        state.sends.push((send.clone(), *destination));
+        Ok(())
     }
 }
 
@@ -144,8 +220,10 @@ fn reported(error: std::io::Error) -> Option<std::io::Error> {
 ///
 /// One OSC 1.0 message's bytes: the address, the type tag string, then each
 /// argument, with every string null-terminated and padded with nulls to a
-/// multiple of four bytes and every number big-endian ("OSC Syntax").
+/// multiple of four bytes and every number big-endian ("OSC Syntax"). The web
+/// build never encodes, since it sends nothing.
 ///
+#[cfg(any(not(target_arch = "wasm32"), test))]
 pub(crate) fn encode(message: &OscMessage) -> Vec<u8> {
     let mut bytes = Vec::new();
     string(&mut bytes, &message.address);
@@ -169,6 +247,7 @@ pub(crate) fn encode(message: &OscMessage) -> Vec<u8> {
 
 /// Appends `text` as an OSC-string: its bytes, then one to four nulls, so
 /// the total is a multiple of four.
+#[cfg(any(not(target_arch = "wasm32"), test))]
 fn string(bytes: &mut Vec<u8>, text: &str) {
     bytes.extend(text.as_bytes());
     let nulls = 4 - text.len() % 4;
@@ -260,27 +339,26 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     mod native {
-        use super::super::{NetworkDestination, NetworkOutput, encode, reported};
+        use super::super::{NetworkAdapter, NetworkDestination, SocketAdapter, encode, reported};
         use super::message;
-        use lang::{OscArgument, PlayCommand};
+        use lang::{NetworkSend, OscArgument};
         use std::net::UdpSocket;
         use std::time::Duration;
-        use tokio::sync::watch;
 
-        /// A loopback socket to receive on, and an output whose UDP and OSC
-        /// destination is that socket.
-        fn listening() -> (UdpSocket, NetworkOutput, watch::Sender<NetworkDestination>) {
+        /// A loopback socket to receive on, and a destination whose UDP and
+        /// OSC ports are that socket's.
+        fn listening() -> (UdpSocket, NetworkDestination) {
             let listener = UdpSocket::bind("127.0.0.1:0").unwrap();
             listener
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
             let port = listener.local_addr().unwrap().port();
-            let (sender, receiver) = watch::channel(NetworkDestination {
+            let destination = NetworkDestination {
                 host: "127.0.0.1".parse().unwrap(),
                 udp_port: port,
                 osc_port: port,
-            });
-            (listener, NetworkOutput::new(receiver), sender)
+            };
+            (listener, destination)
         }
 
         fn received(listener: &UdpSocket) -> Vec<u8> {
@@ -291,41 +369,22 @@ mod tests {
 
         #[test]
         fn a_udp_send_arrives_as_its_exact_bytes() {
-            let (listener, mut output, _sender) = listening();
-            let failures = output.deliver(&[PlayCommand::Udp(b"hi there ".as_slice().into())]);
-            assert_eq!(failures, Some(Vec::new()));
+            let (listener, destination) = listening();
+            let mut adapter = SocketAdapter::default();
+            let send = NetworkSend::Udp(b"hi there ".as_slice().into());
+            adapter.send(&send, &destination).unwrap();
             assert_eq!(received(&listener), b"hi there ");
         }
 
         #[test]
-        fn an_osc_send_arrives_encoded_and_sends_keep_their_order() {
-            let (listener, mut output, _sender) = listening();
+        fn an_osc_send_arrives_encoded() {
+            let (listener, destination) = listening();
+            let mut adapter = SocketAdapter::default();
             let osc = message("/amp", vec![OscArgument::Float(0.5)]);
-            let failures = output.deliver(&[
-                PlayCommand::Udp(b"first".as_slice().into()),
-                PlayCommand::Osc(Box::new(osc.clone())),
-            ]);
-            assert_eq!(failures, Some(Vec::new()));
-            assert_eq!(received(&listener), b"first");
+            adapter
+                .send(&NetworkSend::Osc(osc.clone()), &destination)
+                .unwrap();
             assert_eq!(received(&listener), encode(&osc));
-        }
-
-        #[test]
-        fn commands_with_no_network_send_send_nothing() {
-            let (_listener, mut output, _sender) = listening();
-            assert_eq!(output.deliver(&[]), None);
-        }
-
-        #[test]
-        fn a_destination_change_takes_effect_at_the_next_send() {
-            let (first, mut output, sender) = listening();
-            let (second, _, _) = listening();
-            let port = second.local_addr().unwrap().port();
-            output.deliver(&[PlayCommand::Udp(b"one".as_slice().into())]);
-            sender.send_modify(|destination| destination.udp_port = port);
-            output.deliver(&[PlayCommand::Udp(b"two".as_slice().into())]);
-            assert_eq!(received(&first), b"one");
-            assert_eq!(received(&second), b"two");
         }
 
         #[test]
@@ -336,26 +395,19 @@ mod tests {
         }
 
         #[test]
-        fn a_failed_send_is_reported_and_the_sends_after_it_are_made() {
-            let (listener, mut output, sender) = listening();
-            let port = listener.local_addr().unwrap().port();
+        fn a_refused_send_names_where_it_went() {
+            let (_listener, mut destination) = listening();
             // Port zero is no destination, so the send is refused.
-            sender.send_modify(|destination| destination.osc_port = 0);
-            let failures = output
-                .deliver(&[
-                    PlayCommand::Osc(Box::new(message("/x", vec![]))),
-                    PlayCommand::Udp(b"still".as_slice().into()),
-                ])
-                .expect("two sends were made");
-            assert_eq!(failures.len(), 1, "{failures:?}");
+            destination.osc_port = 0;
+            let failure = SocketAdapter::default()
+                .send(&NetworkSend::Osc(message("/x", vec![])), &destination)
+                .unwrap_err();
             assert!(
-                failures[0]
+                failure
                     .message
                     .starts_with("network send to 127.0.0.1:0 failed"),
-                "{failures:?}"
+                "{failure:?}"
             );
-            assert_eq!(port, sender.borrow().udp_port);
-            assert_eq!(received(&listener), b"still");
         }
     }
 }

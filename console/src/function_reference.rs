@@ -185,7 +185,7 @@ fn source_from_reference_text(text: &str) -> Source {
 #[cfg(test)]
 mod tests {
     use super::{function_reference, source_from_reference_text};
-    use lang::{OscArgument, OscMessage};
+    use lang::{NetworkSend, OscArgument, OscMessage};
     use orcvs::grid::{CellIndex, Grid};
     use orcvs::source::{
         BendLsb, BendMsb, CellContent, CellWrite, ControlValue, Controller, LanguageUnitKind,
@@ -868,10 +868,9 @@ mod tests {
         }
     }
 
-    /// The seven expected [`PlayCommand`]s the MIDI and Network examples
-    /// emit when their own Euclidean Bang source Bangs, in the band's own row
-    /// order (Raw Play, Timed Play, Monophonic Play, Control Change, Pitch
-    /// Bend, UDP, OSC) — the
+    /// The five expected [`PlayCommand`]s the MIDI examples emit when their
+    /// own Euclidean Bang source Bangs, in the band's own row order (Raw
+    /// Play, Timed Play, Monophonic Play, Control Change, Pitch Bend) — the
     /// operands `console/assets/function_reference.orcvs` checks in for
     /// each, read as the domain types the Function table binds them to.
     /// Channel, velocity, note, controller, value, and bend operands were
@@ -882,7 +881,7 @@ mod tests {
     /// `lang`. Timed Play's and Monophonic Play's lengths (`04` Ticks each)
     /// match their own Euclidean's four-Tick period, so neither note is
     /// asked to sound again before the one before it has ended.
-    fn expected_play_commands() -> [PlayCommand; 7] {
+    fn expected_play_commands() -> [PlayCommand; 5] {
         [
             // !>0064C4 — Raw Play: channel 00, velocity 64 (100), note C4.
             PlayCommand::Raw {
@@ -920,13 +919,20 @@ mod tests {
                 lsb: BendLsb::try_from(0x00).unwrap(),
                 msb: BendMsb::try_from(0x50).unwrap(),
             },
+        ]
+    }
+
+    /// The two expected [`NetworkSend`]s the Network examples emit, in the
+    /// band's row order (UDP, OSC).
+    fn expected_network_sends() -> [NetworkSend; 2] {
+        [
             // !uhello! — UDP: the Payload's five bytes.
-            PlayCommand::Udp(b"hello".as_slice().into()),
+            NetworkSend::Udp(b"hello".as_slice().into()),
             // !o/amp 0.5! — OSC: the address /amp and the float32 0.5.
-            PlayCommand::Osc(Box::new(OscMessage {
+            NetworkSend::Osc(OscMessage {
                 address: "/amp".to_owned(),
                 arguments: vec![OscArgument::Float(0.5)],
-            })),
+            }),
         ]
     }
 
@@ -974,6 +980,7 @@ mod tests {
             .collect();
 
         let expected = expected_play_commands();
+        let expected_sends = expected_network_sends();
         let mut emitted = [false; 7];
 
         for tick in 0..9u64 {
@@ -1001,6 +1008,11 @@ mod tests {
             for (index, command) in expected.iter().enumerate() {
                 if plan.play_commands.contains(command) {
                     emitted[index] = true;
+                }
+            }
+            for (index, send) in expected_sends.iter().enumerate() {
+                if plan.network_sends.contains(send) {
+                    emitted[expected.len() + index] = true;
                 }
             }
 

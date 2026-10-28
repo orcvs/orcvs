@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, FunctionInputs, Output, PlayCommand, SourceEffect, Stack,
+    Atom, Error, Function, FunctionInputs, NetworkSend, Output, PlayCommand, SourceEffect, Stack,
     atom::operands,
     functions::{self, math, numeric_conversion, tick},
 };
@@ -23,6 +23,9 @@ pub enum Interpretation {
     /// A chord is several Terminal Output roots that one Bang activates, each
     /// answering its own command.
     Play(PlayCommand),
+    /// The one Network Send an active UDP or OSC Function root performs,
+    /// boxed so a Play Command's answer stays small.
+    Send(Box<NetworkSend>),
     /// What an active UDP Function answers for an empty Payload, `!u!`: it
     /// sends nothing and reports nothing.
     EmptyPayload,

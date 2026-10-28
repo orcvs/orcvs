@@ -65,7 +65,7 @@ mod track;
 #[cfg(test)]
 mod write;
 
-use lang::{Anchor, Function, PlayCommand, Tick, TickInputs};
+use lang::{Anchor, Function, NetworkSend, PlayCommand, Tick, TickInputs};
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
@@ -184,6 +184,7 @@ fn ordering_nodes(lookup: &Lookup) -> ordering::Nodes {
 pub(super) enum Effect {
     Write(SpanWrite),
     Play(PlayCommand),
+    Send(NetworkSend),
     Diagnose(Diagnostic),
     /// Withholds the Expression root at this anchor. Not a Cell write.
     Lock(Position),
@@ -929,7 +930,7 @@ fn order_turns(
 ///
 /// Writes resolve Cell-wise: a later producer wins each Cell it overlaps and
 /// leaves every other Cell of an earlier producer's write standing. Play
-/// Commands and diagnostics keep producer-then-emission order. The resolved
+/// Commands, Network Sends and diagnostics keep producer-then-emission order. The resolved
 /// writes are ordered by Cell so a Tick Plan describes its Source changes in
 /// one predictable order, which is a separate question from which producer
 /// owns each Cell.
@@ -937,6 +938,7 @@ fn order_turns(
 pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
     let mut writes: BTreeMap<CellIndex, CellContent> = BTreeMap::new();
     let mut play_commands = Vec::new();
+    let mut network_sends = Vec::new();
     let mut diagnostics = Vec::new();
     let mut locks = Vec::new();
 
@@ -948,6 +950,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
                 }
             }
             Effect::Play(command) => play_commands.push(command),
+            Effect::Send(send) => network_sends.push(send),
             Effect::Diagnose(diagnostic) => diagnostics.push(diagnostic),
             Effect::Lock(root) => locks.push(root),
         }
@@ -961,6 +964,7 @@ pub(super) fn resolve(effects: Vec<Effect>) -> TickPlan {
             .map(|(cell, content)| CellWrite { cell, content })
             .collect(),
         play_commands,
+        network_sends,
         diagnostics,
         locks,
     }

@@ -366,6 +366,7 @@ impl<'a> Execution<'a> {
                 .effects
                 .push(Effect::Diagnose(diagnose(node, error.to_string()))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
+            Ok(Interpretation::Send(send)) => self.effects.push(Effect::Send(*send)),
             Ok(Interpretation::EmptyPayload) => {}
             Ok(Interpretation::Cell(atom)) => {
                 self.deliver_value(index, Answer::Unit(atom), destination, delivery);
