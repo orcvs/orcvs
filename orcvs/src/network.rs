@@ -8,9 +8,11 @@
 //! every send as a failure instead. Orcvs only sends: nothing here receives.
 //!
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr};
 
-use lang::{NetworkSend, OscArgument, OscMessage};
+use lang::NetworkSend;
+#[cfg(any(not(target_arch = "wasm32"), test))]
+use lang::{OscArgument, OscMessage};
 
 use crate::playback::OutputAdapterError;
 
@@ -101,7 +103,7 @@ impl NetworkAdapter for SocketAdapter {
                 destination.osc_port,
             ),
         };
-        let to = SocketAddr::new(destination.host, port);
+        let to = std::net::SocketAddr::new(destination.host, port);
         let failed = |error: std::io::Error| {
             OutputAdapterError::new(format!("network send to {to} failed: {error}"))
         };
@@ -218,8 +220,10 @@ fn reported(error: std::io::Error) -> Option<std::io::Error> {
 ///
 /// One OSC 1.0 message's bytes: the address, the type tag string, then each
 /// argument, with every string null-terminated and padded with nulls to a
-/// multiple of four bytes and every number big-endian ("OSC Syntax").
+/// multiple of four bytes and every number big-endian ("OSC Syntax"). The web
+/// build never encodes, since it sends nothing.
 ///
+#[cfg(any(not(target_arch = "wasm32"), test))]
 pub(crate) fn encode(message: &OscMessage) -> Vec<u8> {
     let mut bytes = Vec::new();
     string(&mut bytes, &message.address);
@@ -243,6 +247,7 @@ pub(crate) fn encode(message: &OscMessage) -> Vec<u8> {
 
 /// Appends `text` as an OSC-string: its bytes, then one to four nulls, so
 /// the total is a multiple of four.
+#[cfg(any(not(target_arch = "wasm32"), test))]
 fn string(bytes: &mut Vec<u8>, text: &str) {
     bytes.extend(text.as_bytes());
     let nulls = 4 - text.len() % 4;
