@@ -18,7 +18,7 @@ stays small; widening it is the Windows-support effort's job.
       the second send made. On Windows the first send's `ConnectionReset` reaches the second.
 - [x] The `windows` job runs on merge-group, push to `main` and manual dispatch, never on a pull
       request, and `ci` treats it as `macos` is treated.
-- [ ] `scripts/check-tooling-contract.sh`, `actionlint` and `zizmor` pass.
+- [x] `scripts/check-tooling-contract.sh`, `actionlint` and `zizmor` pass.
 
 ## Answer
 
@@ -30,6 +30,7 @@ The merge tier's `windows` job (`windows-2025`, 40 minutes) runs `mise run test_
 with `install: false`, since the task needs only cargo. It follows the research's option B scoped
 to this test: `if: github.event_name != 'pull_request'`, and `ci` requires it skipped on pull
 requests and successful otherwise, as it does `macos`. `scripts/tests/check-ci-results.sh` covers
-every outcome. The contract script pins the task, the job's runner and its step. actionlint and
-zizmor were not available locally and run in the tooling workflow; the job's wall time is measured
-on its first manual dispatch.
+every outcome. The contract script pins the task, the job's runner and its step, and the pull
+request tier's actionlint and zizmor pass. The first manual dispatch (run 40619437276) took 2 min
+38 s on a cold cache, 1 min 50 s of it building and running the test, so it finishes before the
+`macos` job it runs beside.
