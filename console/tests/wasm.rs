@@ -566,38 +566,39 @@ mod developer_console {
 ///
 /// The browser end of the Playback failure report.
 ///
-/// `console::diagnostics::report_playback_failures` is the path a build with no
-/// MIDI service takes; the browser has a MIDI backend, so its console presents
-/// a Playback failure in the Panel's MIDI status (`midi_output`) instead. The
-/// reporter is compiled on every target all the same, and this holds its
-/// browser channel: `report::error!` has to reach the developer console that
-/// `eframe::WebLogger` writes to.
-///
-/// What it drives is the reporting path itself, with a real
-/// `PlaybackDiagnostic` and the real failure decision: a diagnostic that is not
-/// a failure has to stay silent, and one that is has to reach the developer
-/// console.
+/// The browser build can never send UDP or OSC, so every activated `!u` and
+/// `!o` is a network failure, and the Playback status reports each to the
+/// developer console as well as showing it. This holds that channel:
+/// `report::error!` has to reach the developer console that
+/// `eframe::WebLogger` writes to, and a diagnostic that is not a failure has to
+/// stay silent.
 ///
 mod playback_failure {
-    use console::diagnostics::report_playback_failures;
-    use orcvs::playback::PlaybackDiagnostic;
+    use console::playback_status::PlaybackStatus;
+    use orcvs::playback::{OutputAdapterError, PlaybackDiagnostic, PlaybackObservation};
     use std::time::Duration;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::developer_console::records_from;
 
     #[wasm_bindgen_test]
-    fn the_browser_reports_a_playback_failure() {
+    fn the_browser_reports_a_failed_network_send() {
         let reported = records_from(|| {
-            report_playback_failures(&[PlaybackDiagnostic::ClockFailure {
-                message: "Playback clock terminated unexpectedly".to_owned(),
-            }])
+            PlaybackStatus::default().observe(
+                vec![PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
+                    "this build cannot send UDP or OSC",
+                ))],
+                &PlaybackObservation {
+                    network_failed: true,
+                    ..PlaybackObservation::default()
+                },
+            )
         });
 
         assert!(
             reported
                 .iter()
-                .any(|record| record == "Playback failure: Playback clock terminated unexpectedly"),
+                .any(|record| record == "Playback failure: this build cannot send UDP or OSC"),
             "the browser build reported nothing a developer console would show: {reported:?}"
         );
     }
@@ -605,10 +606,13 @@ mod playback_failure {
     #[wasm_bindgen_test]
     fn the_browser_reports_nothing_for_a_diagnostic_that_is_not_a_failure() {
         let reported = records_from(|| {
-            report_playback_failures(&[PlaybackDiagnostic::Overrun {
-                scheduled_at: Duration::from_millis(750),
-                observed_at: Duration::from_millis(1_600),
-            }])
+            PlaybackStatus::default().observe(
+                vec![PlaybackDiagnostic::Overrun {
+                    scheduled_at: Duration::from_millis(750),
+                    observed_at: Duration::from_millis(1_600),
+                }],
+                &PlaybackObservation::default(),
+            )
         });
 
         assert!(

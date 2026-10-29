@@ -33,6 +33,12 @@ pub(super) struct Outputs<A: OutputAdapter> {
     ///
     pub(super) owned: OwnedNotes,
     midi_failure: Option<OutputAdapterError>,
+    ///
+    /// Whether the latest MIDI delivery failed. Apart from the latch because
+    /// a new run clears the latch so the next failure is reported again,
+    /// while only a delivery answers whether the device recovered.
+    ///
+    midi_failed: bool,
     /// Where the Network Sends go, read at each Tick that makes one.
     destination: watch::Receiver<NetworkDestination>,
     network: Box<dyn NetworkAdapter>,
@@ -52,6 +58,7 @@ impl<A: OutputAdapter> Outputs<A> {
             connected: true,
             owned: OwnedNotes::default(),
             midi_failure: None,
+            midi_failed: false,
             destination,
             network,
             network_failure: None,
@@ -89,6 +96,7 @@ impl<A: OutputAdapter> Outputs<A> {
                 Ok(()) => {
                     self.owned = owned;
                     self.midi_failure = None;
+                    self.midi_failed = false;
                 }
                 Err(error) => self.record_midi_failure(error),
             }
@@ -109,6 +117,11 @@ impl<A: OutputAdapter> Outputs<A> {
                 Err(error) => self.record_network_failure(error),
             }
         }
+    }
+
+    /// Whether the latest MIDI delivery failed.
+    pub(super) fn midi_failed(&self) -> bool {
+        self.midi_failed
     }
 
     /// Whether the latest Network Send failed.
@@ -176,6 +189,7 @@ impl<A: OutputAdapter> Outputs<A> {
     }
 
     fn record_midi_failure(&mut self, error: OutputAdapterError) {
+        self.midi_failed = true;
         if self.midi_failure.as_ref() != Some(&error) {
             self.diagnostics
                 .report(Report::OutputFailure(error.clone()));
@@ -220,6 +234,7 @@ impl Outputs<crate::midi::MidiOutputAdapter> {
         // makes a safety-action refusal that repeats the latched failure
         // visible.
         self.midi_failure = None;
+        self.midi_failed = false;
         let selection = self.midi.install_connection(destination_id, connection);
         if let Some(error) = selection.safety_failure() {
             self.record_midi_failure(OutputAdapterError::new(error.message));

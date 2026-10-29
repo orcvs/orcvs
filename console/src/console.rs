@@ -43,6 +43,7 @@ use crate::linked_source::Opening;
 use crate::midi::MidiDeviceSelection;
 use crate::network::NetworkSetting;
 use crate::persistence::starting_source;
+use crate::playback_status::PlaybackStatus;
 use crate::theme::Appearance;
 use crate::theme_registry::ThemeRegistry;
 use crate::theme_selection::SelectedThemes;
@@ -87,6 +88,9 @@ pub struct Console {
     /// Where UDP and OSC send. The Panel sets it on native, and storage keeps
     /// it.
     network: NetworkSetting,
+    /// The Playback failures the Panel shows, routed from each frame's
+    /// diagnostics.
+    playback_status: PlaybackStatus,
     /// The framing page's Built-in Synth announcements, which list the synth
     /// under **O** and, in a Linked console, pick it.
     #[cfg(target_arch = "wasm32")]
@@ -295,6 +299,7 @@ impl Console {
             orcvs,
             midi,
             network,
+            playback_status: PlaybackStatus::default(),
             #[cfg(target_arch = "wasm32")]
             synth: crate::built_in_synth::SynthAnnouncements::new(
                 crate::built_in_synth::BrowserPage,

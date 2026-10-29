@@ -220,6 +220,13 @@ pub struct PlaybackObservation {
     /// The failure's message is a [`PlaybackDiagnostic::NetworkFailure`].
     ///
     pub network_failed: bool,
+    ///
+    /// Whether the latest MIDI delivery failed. Held while the engine is
+    /// stopped and into the next run, so it clears once a delivery succeeds
+    /// or a destination is installed. The failure's message is a
+    /// [`PlaybackDiagnostic::OutputFailure`].
+    ///
+    pub midi_failed: bool,
 }
 
 impl Default for PlaybackObservation {
@@ -235,6 +242,7 @@ impl Default for PlaybackObservation {
             run_started_at: None,
             frozen_run_clock: Duration::ZERO,
             network_failed: false,
+            midi_failed: false,
         }
     }
 }
@@ -740,6 +748,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
                 observation.frozen_run_clock = frozen_run_clock;
             });
             self.outputs.silence();
+            self.publish_output_failures();
         }
         // The safety action has stopped whatever was sounding, so every claim is
         // over and every scheduled stop is redundant. Clearing unconditionally
@@ -755,6 +764,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     ///
     fn disconnect(&mut self) {
         self.outputs.disconnect();
+        self.publish_output_failures();
     }
 
     ///
@@ -778,6 +788,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             // that action leaves claims that must not survive into the next
             // run the task is about to keep serving.
             self.outputs.release();
+            self.publish_output_failures();
             self.report(Report::ClockFailure {
                 message: "Playback output could not be silenced".to_string(),
             });
@@ -826,7 +837,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
             observation.frozen_run_clock = Duration::ZERO;
         });
         self.outputs.begin_run();
-        self.publish_network_failed();
+        self.publish_output_failures();
     }
 
     ///
@@ -846,6 +857,20 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         });
     }
 
+    /// Publishes whether each destination's latest delivery failed, when
+    /// that changed.
+    fn publish_output_failures(&self) {
+        let network_failed = self.outputs.network_failed();
+        let midi_failed = self.outputs.midi_failed();
+        self.observation.send_if_modified(|observation| {
+            let changed = observation.network_failed != network_failed
+                || observation.midi_failed != midi_failed;
+            observation.network_failed = network_failed;
+            observation.midi_failed = midi_failed;
+            changed
+        });
+    }
+
     ///
     /// Executes one Tick of the run in progress: interprets a Source Snapshot
     /// into a Tick Plan and advances the absolute Tick. Named apart from the
@@ -857,14 +882,6 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// them only while a run is live, so reaching here at all is what says a
     /// run is in progress.
     ///
-    /// Publishes whether the latest Network Send failed, when that changed.
-    fn publish_network_failed(&self) {
-        let failed = self.outputs.network_failed();
-        self.observation.send_if_modified(|observation| {
-            std::mem::replace(&mut observation.network_failed, failed) != failed
-        });
-    }
-
     fn execute_tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
         if timing.is_overrun() {
             self.report(Report::Overrun {
@@ -891,7 +908,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
         self.observation
             .send_modify(|observation| observation.set_tick(tick));
         self.outputs.deliver(tick, &plan, timing.deadline());
-        self.publish_network_failed();
+        self.publish_output_failures();
         Some(plan)
     }
 }
@@ -1091,6 +1108,7 @@ impl PlaybackInner<crate::midi::MidiOutputAdapter> {
         connection: Box<dyn crate::midi::MidiConnection>,
     ) {
         self.outputs.install_connection(destination_id, connection);
+        self.publish_output_failures();
     }
 }
 
@@ -4251,6 +4269,37 @@ mod tests {
         network.refuse(None);
         run.run_tick(2);
         assert!(!run.observation().network_failed);
+    }
+
+    #[test]
+    fn the_observation_says_whether_the_last_midi_delivery_failed() {
+        let adapter = InMemoryOutputAdapter::default();
+        let source = SourceCommander::new(Grid::with_shape(10, 6));
+        write(&source, 0, ".=0101");
+        let mut run = HandDrivenRun::new(source, adapter.clone());
+        run.begin_run();
+        assert!(!run.observation().midi_failed);
+
+        adapter.fail_next_submission("device lost");
+        run.run_tick(0);
+        assert!(run.observation().midi_failed);
+
+        // Only a delivery answers whether the device recovered, so the
+        // failure stands through a stop and into the next run: a rewind while
+        // playing stops and begins in one step, and clearing it there would
+        // hide a refused safety action the console has not yet drawn.
+        run.inner.stop();
+        assert!(run.observation().midi_failed);
+        run.begin_run();
+        assert!(run.observation().midi_failed);
+        run.run_tick(1);
+        assert!(!run.observation().midi_failed);
+
+        adapter.fail_next_submission("device lost");
+        run.run_tick(2);
+        assert!(run.observation().midi_failed);
+        run.run_tick(3);
+        assert!(!run.observation().midi_failed);
     }
 
     #[test]

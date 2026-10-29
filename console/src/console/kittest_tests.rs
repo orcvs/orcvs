@@ -5395,3 +5395,23 @@ async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can
     assert!(harness.query_by_value("Second").is_some());
     assert!(harness.query_by_label("Opening Second…").is_none());
 }
+
+///
+/// A clock, start or retune failure shows on the Panel in a status of its own.
+///
+#[tokio::test]
+async fn the_panel_shows_an_engine_failure_in_its_own_status() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    assert!(harness.query_by_label("clock stopped").is_none());
+
+    harness.state_mut().playback_status.observe(
+        vec![orcvs::playback::PlaybackDiagnostic::ClockFailure {
+            message: "clock stopped".to_owned(),
+        }],
+        &orcvs::playback::PlaybackObservation::default(),
+    );
+    harness.run_steps(2);
+
+    assert!(harness.query_by_label("clock stopped").is_some());
+}

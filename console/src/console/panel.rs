@@ -11,7 +11,6 @@ use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
 use super::diagnostics_panel::summary_height;
-use crate::console_midi;
 use crate::grid_viewport::{glyph_size, snapped_cell};
 use crate::midi::destination_presentation;
 use crate::theme::{Appearance, Theme};
@@ -359,26 +358,11 @@ pub(super) fn show_bar<R>(
 }
 
 impl Console {
-    ///
-    /// Hands this frame's network failures to the Panel's network status, and
-    /// the rest of its Playback diagnostics to the Panel's MIDI status, or,
-    /// without a MIDI backend, to the developer console.
-    ///
+    /// Hands this frame's Playback diagnostics to the Playback status.
     pub(super) fn observe_playback_diagnostics(&mut self) {
-        let mut playback_diagnostics = self.orcvs.drain_playback_diagnostics();
-        self.network.observe_diagnostics(
-            &mut playback_diagnostics,
-            self.orcvs.playback_observation().network_failed,
-        );
-        if console_midi::AVAILABLE {
-            self.midi.observe_diagnostics(playback_diagnostics);
-        } else {
-            // Without a MIDI backend the destination ComboBox is disabled
-            // and Scan is hidden, so a refused connect has nowhere on the
-            // Panel to land; the developer console is the only channel a
-            // failure has.
-            crate::diagnostics::report_playback_failures(&playback_diagnostics);
-        }
+        let diagnostics = self.orcvs.drain_playback_diagnostics();
+        self.playback_status
+            .observe(diagnostics, &self.orcvs.playback_observation());
     }
 
     ///
@@ -577,6 +561,7 @@ impl Console {
         if network_changed {
             self.orcvs
                 .set_network_destination(self.network.destination());
+            self.playback_status.network_destination_changed();
         }
         if scan {
             self.midi.refresh_destinations();
@@ -588,9 +573,15 @@ impl Console {
         if self.midi.awaiting_install() {
             ui.ctx().request_repaint();
         }
-        for status in [self.midi.status(), self.network.status()]
-            .into_iter()
-            .flatten()
+        for status in [
+            self.midi.status(),
+            self.playback_status.midi(),
+            self.network.status(),
+            self.playback_status.network(),
+            self.playback_status.engine(),
+        ]
+        .into_iter()
+        .flatten()
         {
             ui.add_space(readout_group_gap(ui));
             ui.colored_label(ui.visuals().error_fg_color, status);
