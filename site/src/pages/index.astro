@@ -52,7 +52,12 @@ import "../console/sound-module.css";
   </head>
   <body>
     <main>
-      <iframe src="/play/" title="Orcvs console"></iframe>
+      <iframe title="Orcvs console"></iframe>
+      <script is:inline>
+        // The console opens what the page's address names, so a link to the site opens the same
+        // example or Source as that link to `/play/` (ADR 0094).
+        document.querySelector("iframe").src = "/play/" + location.search + location.hash;
+      </script>
       <section id="sound-module" aria-label="Sound Module"></section>
     </main>
     <script is:inline src="/play/synth-host.js"></script>
