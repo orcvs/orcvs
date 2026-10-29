@@ -107,13 +107,13 @@ pub enum EdgeRank {
     GridLine,
     /// A Source role's own border.
     Role,
-    /// A Bang's own border, which a Bang keeps on all four of its edges
-    /// against any other role's.
-    Bang,
     Diagnostic,
     Locked,
     InputPortal,
     OutputPortal,
+    /// A Bang's own border, which a Bang keeps on all four of its edges
+    /// against any other role's, Diagnostic's or Portal's.
+    Bang,
     /// The Cursor's own Cell inside a Region larger than one Cell, carrying
     /// the border its fact gives it.
     RegionCursor,
@@ -394,7 +394,13 @@ impl Paint {
                 let border = match visuals.border {
                     Some(line)
                         if placement == CursorPlacement::RegionCursor
-                            && line.rank >= EdgeRank::Diagnostic =>
+                            && matches!(
+                                line.rank,
+                                EdgeRank::Diagnostic
+                                    | EdgeRank::Locked
+                                    | EdgeRank::InputPortal
+                                    | EdgeRank::OutputPortal
+                            ) =>
                     {
                         Some(EdgeLine {
                             rank: EdgeRank::RegionCursor,
@@ -2029,6 +2035,46 @@ mod tests {
     }
 
     ///
+    /// Under each built-in, a Bang an Output Portal holds keeps the edge it
+    /// shares with an empty Cell of a neighbouring Output Portal: `**` under
+    /// the left `=v` stands beside the right `=v`'s empty Output Portal.
+    ///
+    #[tokio::test]
+    async fn a_bang_border_wins_the_edge_it_shares_with_an_output_portal_frame() {
+        let mut orcvs = running_orcvs(6, 3);
+        write_row(&mut orcvs, 0, "=v=v");
+        write_row(&mut orcvs, 1, "**");
+        orcvs.select(orcvs.grid().position(5, 2).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        let grid = orcvs.grid();
+        assert!(
+            frame
+                .at(grid.position(2, 1).expect("inside the grid"))
+                .portal_roles()
+                .contains(PortalRole::Output),
+            "the right `=v` reserves the Cell beside the Bang"
+        );
+
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let theme = default_theme(appearance);
+            let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+            let bang = paint
+                .at(grid.position(1, 1).expect("inside the grid"))
+                .border
+                .expect("a visible Bang border");
+            assert_eq!(bang.rank, EdgeRank::Bang, "{appearance:?}");
+
+            let shared = paint
+                .edges()
+                .columns
+                .into_iter()
+                .find(|run| run.line == 2 && run.span.contains(&1))
+                .expect("the edge between the Bang and the Output Portal");
+            assert_eq!(shared.edge, bang, "{appearance:?}");
+        }
+    }
+
+    ///
     /// A transparent Function border holds no edge, so the Function's Cells
     /// keep the Grid line at `grid.border.width`, whatever the Function
     /// border's own width. A visible one at width zero withdraws as well.
@@ -3252,11 +3298,11 @@ mod tests {
     fn the_higher_ranked_fact_wins_an_edge_from_either_side() {
         let ranks = [
             EdgeRank::Role,
-            EdgeRank::Bang,
             EdgeRank::Diagnostic,
             EdgeRank::Locked,
             EdgeRank::InputPortal,
             EdgeRank::OutputPortal,
+            EdgeRank::Bang,
         ];
         let mut below = None;
         for (index, rank) in ranks.into_iter().enumerate() {
