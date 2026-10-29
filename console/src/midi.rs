@@ -34,11 +34,10 @@ pub(crate) fn selected_destination_name<'a>(
 /// network host, joined by ` · `, or [`OUTPUT_NONE`] when nothing is live.
 ///
 pub(crate) fn output_readout(midi: Option<&str>, network: Option<&str>) -> String {
-    let live: Vec<&str> = [midi, network].into_iter().flatten().collect();
-    if live.is_empty() {
-        OUTPUT_NONE.to_owned()
-    } else {
-        live.join(" · ")
+    match (midi, network) {
+        (Some(midi), Some(network)) => format!("{midi} · {network}"),
+        (Some(live), None) | (None, Some(live)) => live.to_owned(),
+        (None, None) => OUTPUT_NONE.to_owned(),
     }
 }
 

@@ -83,7 +83,7 @@ use egui_kittest::{
 use orcvs::grid::{COL_COUNT, ROW_COUNT};
 use orcvs::playback::PlaybackState;
 
-use super::tests::{ENGINE_WAIT, engine_reaches, start_console};
+use super::tests::{ENGINE_WAIT, engine_reaches, quiet_midi, start_console};
 use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
 use crate::grid_viewport::{CELL_SIZE, GridViewport, PictureMap, SourceCellPoint, snapped_cell};
 use crate::theme::Appearance;
@@ -5425,6 +5425,7 @@ async fn the_panel_shows_an_engine_failure_in_its_own_status() {
 async fn the_status_messages_sit_beneath_the_panel_row_from_its_left_edge() {
     for diagnostics_open in [false, true] {
         let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        quiet_midi(harness.state_mut());
         harness.state_mut().diagnostics_open = diagnostics_open;
         harness.state_mut().playback_status.observe(
             vec![orcvs::playback::PlaybackDiagnostic::ClockFailure {
@@ -5454,4 +5455,87 @@ async fn the_status_messages_sit_beneath_the_panel_row_from_its_left_edge() {
             );
         }
     }
+}
+
+///
+/// A message longer than the window is cut short at its right edge rather
+/// than running past it.
+///
+#[tokio::test]
+async fn a_long_status_stops_at_the_window_edge() {
+    let size = Vec2::from(DEFAULT_VIEW_SIZE);
+    let message = "the clock stopped ".repeat(20);
+    let mut harness = running_console(size);
+    quiet_midi(harness.state_mut());
+    harness.state_mut().playback_status.observe(
+        vec![orcvs::playback::PlaybackDiagnostic::ClockFailure {
+            message: message.clone(),
+        }],
+        &orcvs::playback::PlaybackObservation::default(),
+    );
+    harness.run_steps(3);
+
+    let status = harness
+        .get_by(|node| {
+            node.role() == egui::accesskit::Role::Label
+                && node
+                    .value()
+                    .is_some_and(|value| value.starts_with("the clock stopped"))
+        })
+        .rect();
+    assert!(
+        status.right() <= size.x,
+        "the status runs to {} in a {}pt window",
+        status.right(),
+        size.x
+    );
+}
+
+///
+/// The status line is there only while a message is, and the Panel grows by
+/// exactly the line it takes: the row rises and the Diagnostics readouts
+/// beneath it stay where they were.
+///
+#[tokio::test]
+async fn the_status_line_grows_the_panel_by_its_own_height() {
+    let panel_with = |failure: Option<&str>| {
+        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        quiet_midi(harness.state_mut());
+        harness.state_mut().diagnostics_open = true;
+        let diagnostics = failure
+            .map(
+                |message| orcvs::playback::PlaybackDiagnostic::ClockFailure {
+                    message: message.to_owned(),
+                },
+            )
+            .into_iter()
+            .collect();
+        harness.state_mut().playback_status.observe(
+            diagnostics,
+            &orcvs::playback::PlaybackObservation::default(),
+        );
+        harness.run_steps(3);
+        let status = harness
+            .query_by_label("clock stopped")
+            .map(|node| node.rect());
+        let play = harness.get_by_label("Play").rect();
+        let fps = harness.get_by_label("FPS").rect();
+        (status, play, fps)
+    };
+
+    let (no_status, quiet_play, quiet_fps) = panel_with(None);
+    let (status, play, fps) = panel_with(Some("clock stopped"));
+
+    assert_eq!(no_status, None, "a status line with no message");
+    let status = status.expect("the status line");
+    assert_eq!(
+        fps, quiet_fps,
+        "the status line moved the Diagnostics readouts"
+    );
+    let rise = quiet_play.top() - play.top();
+    assert!(
+        rise >= status.height(),
+        "the row rose {rise}pt for a {}pt status line",
+        status.height()
+    );
 }

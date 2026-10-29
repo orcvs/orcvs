@@ -705,27 +705,31 @@ async fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_th
 /// whether it drives it over its own `Context`, through a kittest `Harness`
 /// or from a stored revision.
 ///
-/// Its MIDI service grants access and lists no destinations, so the console
-/// opens with no MIDI status whatever the machine's own MIDI support says.
-///
 pub(super) fn start_console(
     cc: &eframe::CreationContext<'_>,
     themes: ThemeRegistry,
     config: crate::config::Config,
 ) -> Console {
+    Console::new(cc, themes, config, crate::linked_source::Opening::Stored)
+        .expect("the test runtime")
+}
+
+///
+/// Gives `console` a MIDI service that grants access and lists no
+/// destinations, so whatever the machine's own MIDI support says adds no
+/// status line to the Panel.
+///
+pub(super) fn quiet_midi(console: &mut Console) {
     use crate::web_midi::{
         AccessStatus,
         tests::{FakeWebMidi, backend},
     };
 
-    let mut console = Console::new(cc, themes, config, crate::linked_source::Opening::Stored)
-        .expect("the test runtime");
     let quiet = FakeWebMidi::with(AccessStatus::Granted, &[]);
     console.midi = crate::midi::MidiDeviceSelection::new(
         console.orcvs.midi_selection_handle(),
         Box::new(backend(&quiet)),
     );
-    console
 }
 
 ///
@@ -748,15 +752,18 @@ pub(super) fn start_linked_console(
 
 ///
 /// A fresh-install Console over `ctx`: the built-in Themes, the default
-/// settings and no storage. `CreationContext::_new_kittest` is eframe's own
+/// settings, no storage and a [`quiet_midi`] service, so its Panel keeps one
+/// geometry on every machine. `CreationContext::_new_kittest` is eframe's own
 /// headless constructor, which is how an `App` starts outside a window.
 ///
 fn console_on(ctx: &egui::Context) -> Console {
-    start_console(
+    let mut console = start_console(
         &eframe::CreationContext::_new_kittest(ctx.clone()),
         ThemeRegistry::built_in(),
         crate::config::Config::default(),
-    )
+    );
+    quiet_midi(&mut console);
+    console
 }
 
 ///
@@ -1221,7 +1228,7 @@ async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
 
 ///
 /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
-/// C `00:00`, O `None`. File, View and Help are the top bar's menus, in
+/// C `00:00`, O `127.0.0.1`. File, View and Help are the top bar's menus, in
 /// that order.
 ///
 #[tokio::test]
