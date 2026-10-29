@@ -32,3 +32,5 @@ fresh and drop the reader's edits.
 - An example's link name is now part of links in the wild: renaming a shipped example breaks them.
 - Edits in a linked console are not saved, as in any linked console.
 - `/` passes its whole query and fragment on, so `/?small` opens the small console on `/`.
+- The address is read once, when the page loads: editing the fragment of an open `/` changes
+  nothing until a reload, as on `/play/`.
