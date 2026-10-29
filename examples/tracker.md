@@ -27,18 +27,19 @@ col  0         1         2         3         4         5         6         7
  12    ~*0101    .+02~.0110        ~*0101    .+02~.0110
  13      !~0077&v  01                !~0477&v  01
  14
- 15          || |  |   |C4|   |  |   |  |   |  |   |  |   |  |   |  | ||
- 16          || |  |   |  |   |  |   |  |   |  |   |  |   |  |   |  | ||
+ 15            ||  |   |C4|   |  |   |  |   |  |   |  |   |  |   |  ||
+ 16            ||  |   |  |   |  |   |  |   |  |   |  |   |  |   |  ||
  ...
- 30          || |  |   |  |   |  |   |  |   |  |   |  |   |  |   |  | ||
+ 30            ||  |   |  |   |  |   |  |   |  |   |  |   |  |   |  ||
 ```
 
 As Learn Orca ships it, the pattern holds one Note at step 0: Orca's `3C`, which
 Orcvs spells `C4` (MIDI note 60), on channel `01` (MIDI channel 2 in most DAWs).
 Each pattern row is one `||` Comment, so the Notes in it are text the Reads
-select rather than Functions, and a single `|` either side marks each voice's
-step. Type a Note between a step's marks to fill it in, and keep each row's `||`
-at both ends.
+select rather than Functions. A single `|` either side marks each voice's
+step, and the Comment's own `||` marks the first voice's left side and the last
+voice's right side. Type a Note between a step's marks to fill it in, and keep
+each row's `||` at both ends.
 
 ## From Orca to Orcvs
 
@@ -106,7 +107,7 @@ Each voice has its own Clock, as in Orca. Change a voice's modulus, for example
   Orca's and the layout spreads further east and south.
 - Orca frames each voice's step in its own `#..#`. Orcvs needs only one Comment
   per row to keep its Notes from being read as Functions, so each step is
-  marked with a single `|` inside it.
+  marked with a single `|` inside it, or by the Comment's `||` at either end.
 - The web console has no Rewind, because the browser keeps Command Shift R for
   a reload.
 - There is no Undo, and no way to run a single Tick by hand.

@@ -343,17 +343,17 @@ fn the_orca_tracker_plays_two_bars_of_its_one_note() {
 
 #[test]
 fn the_orca_tracker_frames_its_pattern_rows_in_comments() {
-    // Each pattern row is one closed Comment from column 8 to 66, so the
-    // Notes of every voice's step, and the single `|` marking it, are text
-    // the Reads select rather than standalone units the Language Map
-    // diagnoses.
+    // Each pattern row is one closed Comment from column 10 to 64, its `||`
+    // beside the first and last voices' steps, so the Notes of every voice's
+    // step, and the single `|` marking the others, are text the Reads select
+    // rather than standalone units the Language Map diagnoses.
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/tracker.orcvs"))
             .expect("the shipped file is a Source File"),
     );
     assert_eq!(
         comments_from(&source, 15),
-        (15..31).map(|row| (8, row, 66)).collect::<Vec<_>>()
+        (15..31).map(|row| (10, row, 64)).collect::<Vec<_>>()
     );
     source.read_source(|source| {
         let map = source.language_map();
