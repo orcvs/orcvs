@@ -1,6 +1,6 @@
 # 02 — Status messages beneath the Panel's row
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 
 **What to build:** the Panel's status messages take a line of their own beneath its row, clear of

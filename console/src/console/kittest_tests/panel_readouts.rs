@@ -85,11 +85,11 @@ async fn a_long_destination_name_leaves_no_empty_icon_slot_in_its_field() {
 }
 
 ///
-/// A MIDI status stands apart from the destination field it follows, rather
-/// than touching its frame.
+/// A MIDI status takes the line beneath the destination field rather than
+/// touching its frame.
 ///
 #[tokio::test]
-async fn the_midi_status_does_not_touch_the_destination_field() {
+async fn the_midi_status_sits_beneath_the_destination_field() {
     let fake = FakeWebMidi::with(
         AccessStatus::Granted,
         &[("a", Some("First")), ("b", Some("Second"))],
@@ -106,10 +106,11 @@ async fn the_midi_status_does_not_touch_the_destination_field() {
             node.role() == Role::Label && node.value().as_deref() == Some("Opening Second…")
         })
         .rect();
-    let gap = status.left() - field.right();
+    let gap = status.top() - field.bottom();
     assert!(
-        gap >= 1.0,
-        "the status sits {gap}pt from the destination field"
+        gap >= 0.0,
+        "the status overlaps the destination field by {}pt",
+        -gap
     );
 }
 

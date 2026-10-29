@@ -395,14 +395,23 @@ impl Console {
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
+        // Sized from the messages standing as the frame begins; one that
+        // appears or clears while the row is drawn resizes the next frame.
+        let status_height = if self.statuses().is_empty() {
+            0.0
+        } else {
+            root.text_style_height(&egui::TextStyle::Body)
+        };
         let diagnostics_room = root.available_height()
             - BOTTOM_PANEL_HEIGHT
+            - status_height
             - separation
             - source_reserve(root, self.source_view.cell);
         let diagnostics_height = self
             .diagnostics_open
             .then(|| summary_height(root).min(diagnostics_room.max(0.0)));
-        let extra_height = diagnostics_height.map_or(0.0, |height| height + separation);
+        let extra_height =
+            status_height + diagnostics_height.map_or(0.0, |height| height + separation);
         let height = BOTTOM_PANEL_HEIGHT + extra_height;
         let separator = crate::style::bar_separator(self.themes.presented(appearance));
         let bottom_panel = egui::Panel::bottom("bottom_panel")
@@ -465,6 +474,7 @@ impl Console {
                     self.show_destination(ui);
                 },
             );
+            self.show_statuses(ui, status_height);
             diagnostics_height.map(|height| {
                 ui.add(egui::Separator::default().horizontal().spacing(0.0));
                 // Reserve the readouts before the Source takes its space;
@@ -476,6 +486,47 @@ impl Console {
                 diagnostics
             })
         })
+    }
+
+    /// The status messages the Panel shows, in the order it shows them.
+    fn statuses(&self) -> Vec<&str> {
+        [
+            self.midi.status(),
+            self.playback_status.midi(),
+            self.network.status(),
+            self.playback_status.network(),
+            self.playback_status.engine(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    ///
+    /// The status messages on a line of their own beneath the Panel's row,
+    /// from its left edge, so the Overview over the window's bottom-right
+    /// corner does not cover them. `height` is the line the frame reserved.
+    ///
+    fn show_statuses(&self, ui: &mut egui::Ui, height: f32) {
+        let statuses = self.statuses();
+        if statuses.is_empty() != (height == 0.0) {
+            ui.ctx().request_repaint();
+        }
+        if height == 0.0 {
+            return;
+        }
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), height),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                for (index, status) in statuses.into_iter().enumerate() {
+                    if index > 0 {
+                        ui.add_space(readout_group_gap(ui));
+                    }
+                    ui.colored_label(ui.visuals().error_fg_color, status);
+                }
+            },
+        );
     }
 
     ///
@@ -585,19 +636,6 @@ impl Console {
         self.midi.observe_frame();
         if self.midi.awaiting_install() {
             ui.ctx().request_repaint();
-        }
-        for status in [
-            self.midi.status(),
-            self.playback_status.midi(),
-            self.network.status(),
-            self.playback_status.network(),
-            self.playback_status.engine(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            ui.add_space(readout_group_gap(ui));
-            ui.colored_label(ui.visuals().error_fg_color, status);
         }
     }
 }

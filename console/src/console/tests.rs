@@ -705,13 +705,27 @@ async fn a_click_selects_the_cell_under_the_pointer_in_a_console_smaller_than_th
 /// whether it drives it over its own `Context`, through a kittest `Harness`
 /// or from a stored revision.
 ///
+/// Its MIDI service grants access and lists no destinations, so the console
+/// opens with no MIDI status whatever the machine's own MIDI support says.
+///
 pub(super) fn start_console(
     cc: &eframe::CreationContext<'_>,
     themes: ThemeRegistry,
     config: crate::config::Config,
 ) -> Console {
-    Console::new(cc, themes, config, crate::linked_source::Opening::Stored)
-        .expect("the test runtime")
+    use crate::web_midi::{
+        AccessStatus,
+        tests::{FakeWebMidi, backend},
+    };
+
+    let mut console = Console::new(cc, themes, config, crate::linked_source::Opening::Stored)
+        .expect("the test runtime");
+    let quiet = FakeWebMidi::with(AccessStatus::Granted, &[]);
+    console.midi = crate::midi::MidiDeviceSelection::new(
+        console.orcvs.midi_selection_handle(),
+        Box::new(backend(&quiet)),
+    );
+    console
 }
 
 ///

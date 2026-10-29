@@ -5415,3 +5415,43 @@ async fn the_panel_shows_an_engine_failure_in_its_own_status() {
 
     assert!(harness.query_by_label("clock stopped").is_some());
 }
+
+///
+/// The Panel's status messages take a line of their own beneath its row,
+/// starting at its left edge, clear of the Overview in the window's
+/// bottom-right corner, with or without the Diagnostics readouts.
+///
+#[tokio::test]
+async fn the_status_messages_sit_beneath_the_panel_row_from_its_left_edge() {
+    for diagnostics_open in [false, true] {
+        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        harness.state_mut().diagnostics_open = diagnostics_open;
+        harness.state_mut().playback_status.observe(
+            vec![orcvs::playback::PlaybackDiagnostic::ClockFailure {
+                message: "clock stopped".to_owned(),
+            }],
+            &orcvs::playback::PlaybackObservation::default(),
+        );
+        harness.run_steps(3);
+
+        let status = harness.get_by_label("clock stopped").rect();
+        let play = harness.get_by_label("Play").rect();
+        let output = harness.get_by_label("O").rect();
+        assert!(
+            status.top() >= play.bottom() && status.top() >= output.bottom(),
+            "the status is on the Panel's row with Diagnostics open: {diagnostics_open}"
+        );
+        assert!(
+            status.left() <= play.right(),
+            "the status starts at {} rather than the Panel's left edge",
+            status.left()
+        );
+        if diagnostics_open {
+            let fps = harness.get_by_label("FPS").rect();
+            assert!(
+                status.bottom() <= fps.top(),
+                "the status is not above the Diagnostics readouts"
+            );
+        }
+    }
+}
