@@ -240,3 +240,37 @@ fn field<'tree>(
 ) -> egui_kittest::Node<'tree> {
     harness.get_by(|node| is_field(node, value))
 }
+
+///
+/// Opening an empty Output list looks for MIDI destinations; closing it from
+/// its field does not.
+///
+#[tokio::test]
+async fn closing_an_empty_output_list_does_not_scan() {
+    let fake = FakeWebMidi::with(AccessStatus::Granted, &[]);
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.state_mut().midi = crate::midi::MidiDeviceSelection::new(
+        harness.state().orcvs.midi_selection_handle(),
+        Box::new(backend(&fake)),
+    );
+    harness.run_steps(2);
+    harness.get_by_role(Role::ComboBox).click();
+    harness.run_steps(2);
+    assert!(harness.state().midi.destinations().is_empty());
+
+    fake.plug_in("a", "First");
+    harness.get_by_role(Role::ComboBox).click();
+    harness.run_steps(2);
+    assert!(
+        harness.state().midi.destinations().is_empty(),
+        "closing the list scanned for destinations"
+    );
+
+    harness.get_by_role(Role::ComboBox).click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().midi.destinations().len(),
+        1,
+        "opening the list did not scan for destinations"
+    );
+}
