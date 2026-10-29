@@ -6,7 +6,7 @@ Status: resolved
 
 The Panel's **O** list shows every output type, and the status messages leave the Overview's corner.
 Toby settled this (review candidate 4, revised) on 2026-10-29.
-[ADR 0094](../../docs/adr/0094-the-output-list-shows-every-output-type.md) records it.
+[ADR 0095](../../docs/adr/0095-the-output-list-shows-every-output-type.md) records it.
 
 ## Rules
 
