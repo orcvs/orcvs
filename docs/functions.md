@@ -946,10 +946,10 @@ What each sends is its Payload: the Cells after its spelling through the next `!
 closes it, or through the end of the row when no `!` follows. The Payload is never parsed, so it
 can hold any character but `!`, and a Write into it changes what the next send carries.
 
-Sends go to the host and ports set at the foot of the list under the Panel's **O**, which default
-to `127.0.0.1`, UDP port `49161` and OSC port `49162`. A failed send is reported once, until the
-failure changes or a send leaves, and playback goes on. The web build cannot send UDP or OSC, so
-there each activation is reported instead.
+Sends go to the host and ports set in the UDP/OSC section of the list under the Panel's **O**,
+which default to `127.0.0.1`, UDP port `49161` and OSC port `49162`. A failed send is reported once,
+until the failure changes or a send leaves, and playback goes on. The web build cannot send UDP or
+OSC, so there each activation is reported instead.
 
 ### `!u` UDP
 

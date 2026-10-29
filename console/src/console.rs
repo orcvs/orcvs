@@ -82,8 +82,8 @@ pub struct Console {
     /// Device discovery and selection for whatever MIDI backend `orcvs` has on
     /// this target. The console never asks what target it is on: a target with
     /// no MIDI service answers an empty destination list here, and
-    /// `console_midi::AVAILABLE` says whether the ComboBox is enabled and
-    /// whether Scan is shown.
+    /// `console_midi::AVAILABLE` says whether the Output list has a MIDI
+    /// section.
     midi: MidiDeviceSelection,
     /// Where UDP and OSC send. The Panel sets it on native, and storage keeps
     /// it.

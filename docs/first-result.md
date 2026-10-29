@@ -15,7 +15,7 @@ cargo run
 
 The first build takes several minutes. The console opens as a desktop window: a Grid of Cells,
 a menu bar above it, and the Panel along the bottom. The Panel shows the tempo under **B**, the
-current Tick under **T**, the time played under **C**, and the MIDI output under **O**.
+current Tick under **T**, the time played under **C**, and the outputs under **O**.
 
 ## Open an empty Source
 

@@ -5319,12 +5319,12 @@ async fn midi_clicking_the_installed_row_cancels_a_pending_switch() {
         .select_destination(&MidiDestinationId::new("a"));
     tokio::task::yield_now().await;
     harness.run_steps(2);
-    harness.get_by_value("First").click();
+    harness.get_by_value("First · 127.0.0.1").click();
     harness.run_steps(2);
     harness.get_by_label("Second").click();
     harness.run_steps(2);
     assert!(harness.state().midi.status().is_some());
-    harness.get_by_value("First").click();
+    harness.get_by_value("First · 127.0.0.1").click();
     harness.run_steps(2);
     harness.get_by_label("First").click();
     harness.run_steps(2);
@@ -5368,17 +5368,17 @@ async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can
         .select_destination(&MidiDestinationId::new("a"));
     tokio::task::yield_now().await;
     harness.run_steps(2);
-    harness.get_by_value("First").click();
+    harness.get_by_value("First · 127.0.0.1").click();
     harness.run_steps(2);
     harness.get_by_label("Second").click();
     harness.run_steps(2);
-    assert!(harness.query_by_value("First").is_some());
+    assert!(harness.query_by_value("First · 127.0.0.1").is_some());
     assert!(harness.query_by_label("Opening Second…").is_some());
     fake.answer_open("b", Err("port is busy"));
     harness.run_steps(2);
-    assert!(harness.query_by_value("First").is_some());
+    assert!(harness.query_by_value("First · 127.0.0.1").is_some());
     assert!(harness.query_by_label("port is busy").is_some());
-    harness.get_by_value("First").click();
+    harness.get_by_value("First · 127.0.0.1").click();
     harness.run_steps(2);
     harness.get_by_label("Second").click();
     harness.run_steps(2);
@@ -5386,13 +5386,13 @@ async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can
     fake.answer_open("b", Ok(()));
     harness.run_steps(2);
     assert!(
-        harness.query_by_value("First").is_some(),
+        harness.query_by_value("First · 127.0.0.1").is_some(),
         "the connection is queued but not installed"
     );
     assert!(harness.query_by_label("Opening Second…").is_some());
     tokio::task::yield_now().await;
     harness.run_steps(2);
-    assert!(harness.query_by_value("Second").is_some());
+    assert!(harness.query_by_value("Second · 127.0.0.1").is_some());
     assert!(harness.query_by_label("Opening Second…").is_none());
 }
 

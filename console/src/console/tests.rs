@@ -1293,12 +1293,12 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         + text[clock_at..]
             .find('O')
             .expect("the Panel is missing the O label in {text:?}");
-    let none_at = text
-        .find(crate::midi::OUTPUT_NONE)
-        .unwrap_or_else(|| panic!("the Panel is missing Output None in {text:?}"));
+    let host_at = text
+        .find("127.0.0.1")
+        .unwrap_or_else(|| panic!("the Panel's Output is missing the host in {text:?}"));
     assert!(
-        clock_at < output_at && output_at < none_at,
-        "Readout order is not C then O then None in {text:?}"
+        clock_at < output_at && output_at < host_at,
+        "Readout order is not C then O then the host in {text:?}"
     );
     assert!(
         !text.contains(super::panel::OUTPUT_SCAN),
