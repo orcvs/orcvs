@@ -28,7 +28,7 @@ use crate::theme_registry::tests_support::TempDir;
 /// The shipped tracker, byte for byte.
 const CELL_TRACKER: &str = include_str!("../../../../examples/cell-tracker.orcvs");
 
-/// The shipped Orca tracker, byte for byte.
+/// The shipped Tracker, byte for byte.
 const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
 
 /// The row holding Track and the pairs it reads.
@@ -467,24 +467,27 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
 }
 
 ///
-/// The Orca tracker edits as the cell tracker does. Channel 1's voice reads
-/// the column at x 19 from row 15, one step per row and one step per Tick:
-/// a typed step plays, clearing the shipped C4 rests that voice with no
-/// diagnostic at its Timed Play at (11, 10), typing it back restores it, and
-/// Save and a reopen keep the edits and start every voice at step 0.
+/// The Tracker edits as the cell tracker does. Channel 3's voice, which
+/// ships empty, reads the column at x 33 from row 15, one step per row and
+/// one step per Tick: a typed step plays, clearing it rests that voice with
+/// no diagnostic at its Timed Play at (25, 4), typing it back restores it,
+/// and Save and a reopen keep the edits and start every voice at step 0.
 ///
 #[tokio::test]
-async fn the_orca_tracker_edits_saves_and_reopens_a_voices_steps() {
-    const COLUMN: usize = 19;
-    const CHANNEL: u8 = 1;
+async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
+    const COLUMN: usize = 33;
+    const CHANNEL: u8 = 3;
     let step_row = |step: usize| 15 + step;
     let dir = TempDir::new();
     let (mut harness, path) = console_with(&dir, "tracker.orcvs", TRACKER);
-    assert_eq!(
-        notes_on(&tick(&harness, 0), CHANNEL),
-        [60],
-        "the shipped C4"
+    assert!(
+        notes_on(&tick(&harness, 0), CHANNEL).is_empty(),
+        "the voice ships empty"
     );
+
+    go_to(&mut harness, COLUMN, step_row(0));
+    type_text(&mut harness, "C4");
+    assert_eq!(notes_on(&tick(&harness, 0), CHANNEL), [60], "C4");
 
     go_to(&mut harness, COLUMN, step_row(1));
     type_text(&mut harness, "E4");
@@ -502,7 +505,7 @@ async fn the_orca_tracker_edits_saves_and_reopens_a_voices_steps() {
     assert!(
         diagnostics(&rest)
             .iter()
-            .all(|(anchor, _)| *anchor != (11, 10)),
+            .all(|(anchor, _)| *anchor != (25, 4)),
         "a cleared step is a silent rest: {:?}",
         rest.diagnostics
     );

@@ -428,18 +428,21 @@ async fn midi_loopback_in_process() {
 }
 
 ///
-/// The Learn Orca tracker as shipped, its pattern holding `notes` as
-/// (channel, step, Note spelling) in place of its one `C4`.
+/// The Tracker as shipped, its pattern holding `notes` as (voice, step,
+/// Note spelling) in place of its 808 beat.
 ///
-/// Channel `c`'s steps are the column `2 + 28(c / 4) + 7(c % 4) + 10` of rows
+/// Voice `v`'s steps are the column `2 + 28(v / 4) + 7(v % 4) + 10` of rows
 /// 15 to 30, each pair marked `|  |` inside the `||` Comment that spans the
-/// row.
+/// row. Voices 0 to 2 play on channel 8, and voice `v` from 3 on channel `v`.
 ///
 fn tracker(notes: &[(u8, usize, &str)]) -> Source {
-    let text = include_str!("../../../examples/tracker.orcvs").replace("C4", "  ");
+    let text = include_str!("../../../examples/tracker.orcvs")
+        .replace("C2", "  ")
+        .replace("D2", "  ")
+        .replace("f2", "  ");
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
-    for &(channel, step, note) in notes {
-        let column = 2 + 28 * usize::from(channel / 4) + 7 * usize::from(channel % 4) + 10;
+    for &(voice, step, note) in notes {
+        let column = 2 + 28 * usize::from(voice / 4) + 7 * usize::from(voice % 4) + 10;
         let row = &mut rows[15 + step];
         assert_eq!(
             &row[column - 1..column + 3],
@@ -482,8 +485,8 @@ const TRACKER_TICKS: u32 = 17;
 /// Within a Tick, the Note Offs of the Notes whose one-Tick length ends there
 /// come first, in the order those Notes started; the Tick's Note Ons follow
 /// in Source order, row by row from the top and left to right within a row,
-/// which puts channels 3 and 7 first and 0 and 4 last. All on velocity
-/// `0x77`, as each voice's `!~cc77` writes it.
+/// which puts voices 3 and 7 first and 0 and 4 last. Voices 0 to 2 play on
+/// channel 8. All on velocity `0x77`, as each voice's `!~cc77` writes it.
 ///
 fn tracker_plays() -> [Vec<Heard>; TRACKER_TICKS as usize] {
     let on = |channel, note| Heard::NoteOn {
@@ -492,22 +495,22 @@ fn tracker_plays() -> [Vec<Heard>; TRACKER_TICKS as usize] {
         velocity: 0x77,
     };
     let off = |channel, note| Heard::NoteOff { channel, note };
-    let step_0 = [on(2, 64), on(5, 67), on(0, 60)];
+    let step_0 = [on(8, 64), on(5, 67), on(8, 60)];
     [
         step_0.to_vec(),
-        vec![off(2, 64), off(5, 67), off(0, 60), on(3, 62)],
+        vec![off(8, 64), off(5, 67), off(8, 60), on(3, 62)],
         vec![off(3, 62), on(3, 65), on(6, 71)],
         vec![off(3, 65), off(6, 71)],
         vec![],
         vec![],
         vec![],
         vec![],
-        vec![on(7, 64), on(1, 67), on(4, 60)],
-        vec![off(7, 64), off(1, 67), off(4, 60)],
+        vec![on(7, 64), on(8, 67), on(4, 60)],
+        vec![off(7, 64), off(8, 67), off(4, 60)],
         vec![],
         vec![],
-        vec![on(0, 69)],
-        vec![off(0, 69)],
+        vec![on(8, 69)],
+        vec![off(8, 69)],
         vec![],
         vec![on(6, 72)],
         [vec![off(6, 72)], step_0.to_vec()].concat(),
