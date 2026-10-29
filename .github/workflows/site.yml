@@ -7,7 +7,9 @@ name: Site
 # from the `console-web` workflow's build for the same commit when that commit
 # changed the console, and otherwise from the published `console-web` release,
 # as Cloudflare's build takes it. Path-filtered to what the site itself is
-# built from: the site, the tool pins, and the repository docs it renders.
+# built from: the site, the tool pins, and the repository docs it renders, and
+# to the console key and the filter it reads, which the console script's test
+# covers.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
@@ -19,6 +21,8 @@ on:
       - 'mise.toml'
       - 'docs/first-result.md'
       - 'docs/functions.md'
+      - 'scripts/console-key.sh'
+      - '.github/workflows/console-web.yml'
       - '.github/workflows/site.yml'
   pull_request:
     branches: [main]
@@ -27,6 +31,8 @@ on:
       - 'mise.toml'
       - 'docs/first-result.md'
       - 'docs/functions.md'
+      - 'scripts/console-key.sh'
+      - '.github/workflows/console-web.yml'
       - '.github/workflows/site.yml'
 
 permissions:
@@ -72,6 +78,8 @@ jobs:
           gh run download "$run" --name console-web --dir target/console-web
           echo "CONSOLE_WEB=$GITHUB_WORKSPACE/target/console-web" >> "$GITHUB_ENV"
           echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
+      # How Cloudflare's build takes its console, against a stubbed release.
+      - run: bash site/scripts/tests/console.sh
       - run: mise run site_build
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

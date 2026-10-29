@@ -144,7 +144,8 @@ filter, the agent workflow and the acceptance criteria.
 
   The site is served from the root of its domain, so `<base>` is empty and the console is at
   `/play/`. The console needs no base of its own, so `<base>` can change without rebuilding it.
-  A new console on `main` posts to Cloudflare's deploy hook, so the deployed site follows it. The
+  The production site build waits for the console its own commit builds, and fails rather than
+  ship another (ADR 0093, ticket 25). The
   existing feature-on and feature-off WASM builds in `check_wasm` stay as they are.
 - **CI paths.** Today a pull request whose diff is only Markdown skips compiling (`test.yml`,
   `changes` job). Site files get their own path filter and a site job that runs the Astro build and

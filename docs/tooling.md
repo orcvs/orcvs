@@ -41,14 +41,18 @@ Built-in Synth and the toolchain and tool pins, runs `mise run console_web_build
 build with relative URLs into `target/console-web/`, kept as the `console-web` artifact. Trunk's
 post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly module and stages
 it beside the console with `synth/web/`'s AudioWorklet and page scripts (ADR 0087). On `main` it also publishes the
-build as `console-web.tar.gz` on the public `console-web` release, then posts to the
-`CLOUDFLARE_DEPLOY_HOOK` secret, when the repository has it, so Cloudflare rebuilds the site.
+build on the public `console-web` release twice: as `console-web-<key>.tar.gz`, where the key from
+`scripts/console-key.sh` hashes the paths in the workflow's own path filter, and as the rolling
+`console-web.tar.gz`. It keeps the newest 20 keyed archives.
 
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
 `site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
 the directory `CONSOLE_WEB` names, relative to `site/`, and Astro builds the site around it into
-`site/dist/`; nothing in the site build compiles the console. A push to `main` deploys, and a pull
+`site/dist/`; nothing in the site build compiles the console. The production build waits up to 15
+minutes for the console keyed to its own commit and fails without it (ADR 0093); any other build
+takes the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
+release, and the site workflow runs it. A push to `main` deploys, and a pull
 request gets Cloudflare's preview URL. `site/.node-version` is the Node pin Cloudflare's build
 reads, and a site test holds it equal to `mise.toml`'s.
 
