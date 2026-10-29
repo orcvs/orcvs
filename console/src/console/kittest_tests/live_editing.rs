@@ -12,9 +12,9 @@
 //! test the only thing that runs a Tick.
 //!
 //! The cell tracker's layout, as `examples/cell-tracker.md` describes it: Track at
-//! (8, 1) reads pair `n` at column `14 + 2n` of row 1, the Clock selects step
+//! (8, 2) reads pair `n` at column `14 + 2n` of row 2, the Clock selects step
 //! `(Tick / 2) % 8`, the Delay bangs every even Tick, and the Timed Play at
-//! (2, 2) plays what Track writes into its note slot at (8, 2).
+//! (2, 3) plays what Track writes into its note slot at (8, 3).
 //!
 
 use egui::{Event, Key, Modifiers, Vec2};
@@ -32,7 +32,7 @@ const CELL_TRACKER: &str = include_str!("../../../../examples/cell-tracker.orcvs
 const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
 
 /// The row holding Track and the pairs it reads.
-const PAIR_ROW: usize = 1;
+const PAIR_ROW: usize = 2;
 
 /// The column of pair `n`'s first Cell.
 fn pair_column(n: usize) -> usize {
@@ -40,7 +40,7 @@ fn pair_column(n: usize) -> usize {
 }
 
 /// The Timed Play's anchor, where its diagnostics are anchored.
-const PLAY: (usize, usize) = (2, 2);
+const PLAY: (usize, usize) = (2, 3);
 
 /// The first even Tick that selects pair `n`, so the Delay bangs on it.
 fn banged_tick_of(n: usize) -> u64 {
@@ -468,16 +468,16 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
 
 ///
 /// The Orca tracker edits as the cell tracker does. Channel 1's voice reads
-/// the column at x 19 from row 14, one step per row and one step per Tick:
+/// the column at x 19 from row 15, one step per row and one step per Tick:
 /// a typed step plays, clearing the shipped C4 rests that voice with no
-/// diagnostic at its Timed Play at (11, 9), typing it back restores it, and
+/// diagnostic at its Timed Play at (11, 10), typing it back restores it, and
 /// Save and a reopen keep the edits and start every voice at step 0.
 ///
 #[tokio::test]
 async fn the_orca_tracker_edits_saves_and_reopens_a_voices_steps() {
     const COLUMN: usize = 19;
     const CHANNEL: u8 = 1;
-    let step_row = |step: usize| 14 + step;
+    let step_row = |step: usize| 15 + step;
     let dir = TempDir::new();
     let (mut harness, path) = console_with(&dir, "tracker.orcvs", TRACKER);
     assert_eq!(
@@ -502,7 +502,7 @@ async fn the_orca_tracker_edits_saves_and_reopens_a_voices_steps() {
     assert!(
         diagnostics(&rest)
             .iter()
-            .all(|(anchor, _)| *anchor != (11, 9)),
+            .all(|(anchor, _)| *anchor != (11, 10)),
         "a cleared step is a silent rest: {:?}",
         rest.diagnostics
     );

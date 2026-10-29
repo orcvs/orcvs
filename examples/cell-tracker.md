@@ -9,20 +9,21 @@ chosen for you; change it in the bottom Panel. The example opens Untitled, so
 ```text
 col  0         1         2
      012345678901234567890123456789
-  0            ~.0208
-  1  ~*0102  &t  08C4D4  G4  A4C5
-  2    !~0064  04
+  0
+  1            ~.0208
+  2  ~*0102  &t  08C4D4  G4  A4C5
+  3    !~0064  04
 ```
 
 ## What each part does
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (10, 0) `~.0208` | Clock, rate `02`, modulus `08` | Counts `00` to `07`, holding each value for two Ticks. It writes the count one row south, into Track's `index` slot at (10, 1). |
-| (0, 1) `~*0102` | Delay, rate `01`, modulus `02` | Bangs every second Tick, starting at Tick 0. It writes `**` one row south, at (0, 2). |
-| (8, 1) `&t  08` | Track, `index` at (10, 1), `count` `08` at (12, 1) | Reads pair `index % count` from the eight pairs east of its last operand, and writes it one row south, into the Timed Play's note slot at (8, 2). |
-| (14, 1) to (29, 1) | Ordinary Source | The pattern: pairs `00` to `07` at columns 14, 16, 18, 20, 22, 24, 26 and 28. As shipped they hold `C4 D4 __ G4 __ A4 C5 __`. |
-| (2, 2) `!~0064  04` | Timed Play | MIDI channel `00` (channel 1), velocity `64` (100), its note slot at (8, 2) filled by Track, length `04` Ticks. The `**` at (0, 2) activates it. |
+| (10, 1) `~.0208` | Clock, rate `02`, modulus `08` | Counts `00` to `07`, holding each value for two Ticks. It writes the count one row south, into Track's `index` slot at (10, 2). |
+| (0, 2) `~*0102` | Delay, rate `01`, modulus `02` | Bangs every second Tick, starting at Tick 0. It writes `**` one row south, at (0, 3). |
+| (8, 2) `&t  08` | Track, `index` at (10, 2), `count` `08` at (12, 2) | Reads pair `index % count` from the eight pairs east of its last operand, and writes it one row south, into the Timed Play's note slot at (8, 3). |
+| (14, 2) to (29, 2) | Ordinary Source | The pattern: pairs `00` to `07` at columns 14, 16, 18, 20, 22, 24, 26 and 28. As shipped they hold `C4 D4 __ G4 __ A4 C5 __`. |
+| (2, 3) `!~0064  04` | Timed Play | MIDI channel `00` (channel 1), velocity `64` (100), its note slot at (8, 3) filled by Track, length `04` Ticks. The `**` at (0, 3) activates it. |
 
 At the default 120 BPM a Tick is 125 ms, so each step lasts 250 ms (an eighth
 note), a loop of eight steps lasts one 4/4 bar, and each note sounds for 500 ms

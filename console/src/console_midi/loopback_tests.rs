@@ -432,7 +432,7 @@ async fn midi_loopback_in_process() {
 /// (channel, step, Note spelling) in place of its one `C4`.
 ///
 /// Channel `c`'s steps are the column `2 + 28(c / 4) + 7(c % 4) + 10` of rows
-/// 14 to 29, each pair marked `|  |` inside the `||` Comment that spans the
+/// 15 to 30, each pair marked `|  |` inside the `||` Comment that spans the
 /// row.
 ///
 fn tracker(notes: &[(u8, usize, &str)]) -> Source {
@@ -440,7 +440,7 @@ fn tracker(notes: &[(u8, usize, &str)]) -> Source {
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
     for &(channel, step, note) in notes {
         let column = 2 + 28 * usize::from(channel / 4) + 7 * usize::from(channel % 4) + 10;
-        let row = &mut rows[14 + step];
+        let row = &mut rows[15 + step];
         assert_eq!(
             &row[column - 1..column + 3],
             "|  |",

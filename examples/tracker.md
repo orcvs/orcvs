@@ -12,24 +12,25 @@ edits.
 ```text
 col  0         1         2         3         4         5         6         7
      01234567890123456789012345678901234567890123456789012345678901234567890
-  0    || TRACKER ||
-  1
-  2                         ~*0101    .+0B~.0110        ~*0101    .+0B~.0110
-  3                           !~0377&v  01                !~0777&v  01
-  4
-  5                  ~*0101    .+08~.0110        ~*0101    .+08~.0110
-  6                    !~0277&v  01                !~0677&v  01
-  7
-  8           ~*0101    .+05~.0110        ~*0101    .+05~.0110
-  9             !~0177&v  01                !~0577&v  01
- 10
- 11    ~*0101    .+02~.0110        ~*0101    .+02~.0110
- 12      !~0077&v  01                !~0477&v  01
- 13
- 14          || |  |   |C4|   |  |   |  |   |  |   |  |   |  |   |  | ||
- 15          || |  |   |  |   |  |   |  |   |  |   |  |   |  |   |  | ||
+  0
+  1    || TRACKER ||
+  2
+  3                         ~*0101    .+0B~.0110        ~*0101    .+0B~.0110
+  4                           !~0377&v  01                !~0777&v  01
+  5
+  6                  ~*0101    .+08~.0110        ~*0101    .+08~.0110
+  7                    !~0277&v  01                !~0677&v  01
+  8
+  9           ~*0101    .+05~.0110        ~*0101    .+05~.0110
+ 10             !~0177&v  01                !~0577&v  01
+ 11
+ 12    ~*0101    .+02~.0110        ~*0101    .+02~.0110
+ 13      !~0077&v  01                !~0477&v  01
+ 14
+ 15          || |  |   |C4|   |  |   |  |   |  |   |  |   |  |   |  | ||
+ 16          || |  |   |  |   |  |   |  |   |  |   |  |   |  |   |  | ||
  ...
- 29          || |  |   |  |   |  |   |  |   |  |   |  |   |  |   |  | ||
+ 30          || |  |   |  |   |  |   |  |   |  |   |  |   |  |   |  | ||
 ```
 
 As Learn Orca ships it, the pattern holds one Note at step 0: Orca's `3C`, which
@@ -62,21 +63,21 @@ are `2` to `5`.
 
 ## One voice
 
-For channel `00`, with its machine at rows 11 and 12:
+For channel `00`, with its machine at rows 12 and 13:
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (2, 11) `~*0101` | Delay | Writes `**` at (2, 12) every Tick, which activates the Timed Play at (4, 12). |
-| (12, 11) `.+02~.0110` | Add, with a nested Clock | Adds `02` to the step and writes the sum into the Read's `n` slot at (12, 12). The nested Clock also writes its count at (16, 12). |
-| (4, 12) `!~0077&v  01` | Timed Play with a nested Read south | Channel `00` (MIDI channel 1 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&v`, whose `n` operand at (12, 12) is the Add's sum. |
-| (12, 14) to (13, 29) | Comment text | The voice's sixteen steps, one Note per row. An empty row is a silent rest, as in Orca. |
+| (2, 12) `~*0101` | Delay | Writes `**` at (2, 13) every Tick, which activates the Timed Play at (4, 13). |
+| (12, 12) `.+02~.0110` | Add, with a nested Clock | Adds `02` to the step and writes the sum into the Read's `n` slot at (12, 13). The nested Clock also writes its count at (16, 13). |
+| (4, 13) `!~0077&v  01` | Timed Play with a nested Read south | Channel `00` (MIDI channel 1 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&v`, whose `n` operand at (12, 13) is the Add's sum. |
+| (12, 15) to (13, 30) | Comment text | The voice's sixteen steps, one Note per row. An empty row is a silent rest, as in Orca. |
 
 `&v n` reads the pair `n` rows south of its own `n` operand, so with the offset
-`02` step 0 is row 14. The nested Read also writes the Note it reads one row
-south of itself, at (10, 13), which shows the step being played.
+`02` step 0 is row 15. The nested Read also writes the Note it reads one row
+south of itself, at (10, 14), which shows the step being played.
 
 Voice `v` of the staircase starting at column `c` has its Delay at
-`(c + 7v, 11 - 3v)`, its Play one row down and two columns east, and its steps
+`(c + 7v, 12 - 3v)`, its Play one row down and two columns east, and its steps
 in columns `c + 7v + 10` and `c + 7v + 11`. That puts the columns at 12, 19,
 26, 33, 40, 47, 54 and 61 for channels `00` to `07`.
 

@@ -12,20 +12,21 @@ edits.
 ```text
 col  0         1         2         3
      01234567890123456789012345678901234567
-  0                      ||00||
-  1    ~*0101        .+04&^01
-  2      !c0041~>04&>      ||00000F373737||
-  3
-  4    ~*0101        .+04&^04
-  5      !c0042~>04&>      ||0B370F370F37||
+  0
+  1                      ||00||
+  2    ~*0101        .+04&^01
+  3      !c0041~>04&>      ||00000F373737||
+  4
+  5    ~*0101        .+04&^04
+  6      !c0042~>04&>      ||0B370F370F37||
  ...
- 22    ~*0101        .+04&^16
- 23      !c0048~>04&>      ||424242214D42||
+ 23    ~*0101        .+04&^16
+ 24      !c0048~>04&>      ||424242214D42||
 ```
 
 The preset and each knob's six presets are `||` Comments, so the Numbers in
 them are text the Reads select rather than Functions. The preset is the pair at
-column 22 of row 0. A knob's presets are the pairs from column 24: preset `00`
+column 22 of row 1. A knob's presets are the pairs from column 24: preset `00`
 at column 24, preset `01` at column 26, and so on to preset `05` at column 34.
 As Learn Orca ships it, preset `00` is selected. Keep each row's `||` at both
 ends.
@@ -55,20 +56,20 @@ Each knob is the same machine in both languages.
 
 ## One knob
 
-For knob 1, with its machine at rows 1 and 2:
+For knob 1, with its machine at rows 2 and 3:
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (2, 1) `~*0101` | Delay | Writes `**` at (2, 2) every Tick, which activates the Control Change at (4, 2). |
-| (16, 1) `.+04&^01` | Add, with a nested Read north | Adds `04` to the preset, which the Read reads `01` row north of its `n` operand, at (22, 0), and writes the sum into the Read east's `n` slot at (16, 2). The nested Read also writes the preset at (20, 2). |
-| (4, 2) `!c0041` | Control Change | Channel `00` (MIDI channel 1 in most DAWs), controller `41`. Its value slot holds the Interpolation. |
-| (10, 2) `~>04&>` | Interpolation, nested, with a nested Read east | Rate `04`. Its target is the pair the Read east reads, `n` pairs east of (16, 2). It writes the value it sends at (10, 3) and reads it back there on the next Tick. |
-| (24, 2) to (35, 2) | Comment text | The knob's six presets. |
+| (2, 2) `~*0101` | Delay | Writes `**` at (2, 3) every Tick, which activates the Control Change at (4, 3). |
+| (16, 2) `.+04&^01` | Add, with a nested Read north | Adds `04` to the preset, which the Read reads `01` row north of its `n` operand, at (22, 1), and writes the sum into the Read east's `n` slot at (16, 3). The nested Read also writes the preset at (20, 3). |
+| (4, 3) `!c0041` | Control Change | Channel `00` (MIDI channel 1 in most DAWs), controller `41`. Its value slot holds the Interpolation. |
+| (10, 3) `~>04&>` | Interpolation, nested, with a nested Read east | Rate `04`. Its target is the pair the Read east reads, `n` pairs east of (16, 3). It writes the value it sends at (10, 4) and reads it back there on the next Tick. |
+| (24, 3) to (35, 3) | Comment text | The knob's six presets. |
 
-Knob `k`, from `0` to `7`, has its Delay at `(2, 1 + 3k)`, its Add fourteen
+Knob `k`, from `0` to `7`, has its Delay at `(2, 2 + 3k)`, its Add fourteen
 columns east of it, its Control Change one row down and two columns east of
 the Delay, and controller `41 + k`. Its Read north's `n` is `1 + 3k`, the
-distance from its row to row 0, so every knob reads the same preset.
+distance from its row to row 1, so every knob reads the same preset.
 
 Every value starts at `00`, so after you start Playback the knobs take up to
 seventeen Ticks to reach preset `00`. At the default 120 BPM a Tick is

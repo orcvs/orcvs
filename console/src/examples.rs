@@ -80,4 +80,16 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn every_example_leaves_its_first_row_empty() {
+        for example in &EXAMPLES {
+            let first = example.text.split(|&byte| byte == b'\n').next();
+            assert!(
+                first.is_some_and(|row| row.iter().all(|&byte| byte == b' ')),
+                "{} starts on its first row",
+                example.name
+            );
+        }
+    }
 }

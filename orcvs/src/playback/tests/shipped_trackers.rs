@@ -179,7 +179,7 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
 ///
 #[test]
 fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
-    let rest = || vec![(2, 2, "expected a note, found \"  \"".to_owned())];
+    let rest = || vec![(2, 3, "expected a note, found \"  \"".to_owned())];
     let expected: [Expected; 17] = [
         (vec![note_on(0, 0x64, 60)], vec![]),
         (vec![], vec![]),
@@ -235,7 +235,7 @@ fn the_cell_tracker_plays_two_loops_with_its_empty_pairs_resting() {
             slot_written: true,
             voices: &[Voice {
                 channel: 0,
-                play: (2, 2),
+                play: (2, 3),
                 steps: vec![
                     Some(60),
                     Some(62),
@@ -309,7 +309,7 @@ fn comments_from(source: &SourceCommander, row: usize) -> Vec<(usize, usize, usi
 ///
 /// The Learn Orca tracker's voices in Source order: two staircases of four,
 /// voice `v` of group `g` on channel `4g + v` with its Timed Play anchored at
-/// column `2 + 28g + 7v + 2` on row `12 - 3v`. `notes` places a Note at a
+/// column `2 + 28g + 7v + 2` on row `13 - 3v`. `notes` places a Note at a
 /// channel's step; every other step is empty.
 ///
 fn orca_tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
@@ -321,7 +321,7 @@ fn orca_tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
                 channel,
                 play: (
                     4 + 28 * usize::from(group) + 7 * usize::from(v),
-                    12 - 3 * usize::from(v),
+                    13 - 3 * usize::from(v),
                 ),
                 steps: steps(notes, channel, 16),
             });
@@ -352,8 +352,8 @@ fn the_orca_tracker_frames_its_pattern_rows_in_comments() {
             .expect("the shipped file is a Source File"),
     );
     assert_eq!(
-        comments_from(&source, 14),
-        (14..30).map(|row| (8, row, 66)).collect::<Vec<_>>()
+        comments_from(&source, 15),
+        (15..31).map(|row| (8, row, 66)).collect::<Vec<_>>()
     );
     source.read_source(|source| {
         let map = source.language_map();
@@ -362,7 +362,7 @@ fn the_orca_tracker_frames_its_pattern_rows_in_comments() {
         assert_eq!(map.lexical_diagnostics().count(), 0);
         assert!(
             map.diagnostics()
-                .all(|diagnostic| diagnostic.anchor().y() < 14)
+                .all(|diagnostic| diagnostic.anchor().y() < 15)
         );
     });
 }
@@ -380,7 +380,7 @@ fn every_orca_tracker_voice_plays_its_own_column_on_its_own_channel() {
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
     for &(channel, step, note) in &notes {
         let column = 2 + 28 * usize::from(channel / 4) + 7 * usize::from(channel % 4) + 10;
-        let row = &mut rows[14 + step];
+        let row = &mut rows[15 + step];
         assert_eq!(
             &row[column - 1..column + 3],
             "|  |",
@@ -404,7 +404,7 @@ fn a_half_typed_step_silences_only_its_own_voice() {
             .expect("the shipped file is a Source File"),
     );
     let grid = source.grid();
-    source.unset(super::cell(grid, 14 * grid.columns() + 20));
+    source.unset(super::cell(grid, 15 * grid.columns() + 20));
 
     let plan = source.execute(Tick::ZERO);
 
@@ -412,16 +412,16 @@ fn a_half_typed_step_silences_only_its_own_voice() {
         .diagnostics
         .iter()
         .map(|d| (d.anchor().x(), d.anchor().y(), d.message.as_str()))
-        .filter(|&(_, row, _)| row == 9)
+        .filter(|&(_, row, _)| row == 10)
         .collect::<Vec<_>>();
     assert_eq!(
         half_typed,
         [
-            (17, 9, "&v has partial or invalid input"),
+            (17, 10, "&v has partial or invalid input"),
             (
                 11,
-                9,
-                "nested computation at column 17, row 9 returned nothing"
+                10,
+                "nested computation at column 17, row 10 returned nothing"
             ),
         ]
     );
@@ -431,7 +431,7 @@ fn a_half_typed_step_silences_only_its_own_voice() {
 
 ///
 /// The Learn Orca sequencer's ten voices in Source order: voice `v` on
-/// channel `v`, its Timed Play anchored at column 4 on row `3 + 3v`, reading
+/// channel `v`, its Timed Play anchored at column 4 on row `4 + 3v`, reading
 /// thirty-two steps along its own row. `notes` places a Note at a channel's
 /// step; every other step is empty.
 ///
@@ -439,7 +439,7 @@ fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     (0..10)
         .map(|channel| Voice {
             channel,
-            play: (4, 3 + 3 * usize::from(channel)),
+            play: (4, 4 + 3 * usize::from(channel)),
             steps: steps(notes, channel, 32),
         })
         .collect()
@@ -467,7 +467,7 @@ fn every_sequencer_voice_plays_its_own_row_on_its_own_channel() {
     let text = include_str!("../../../../examples/sequencer.orcvs");
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
     for &(channel, step, note) in &notes {
-        let row = &mut rows[3 + 3 * usize::from(channel)];
+        let row = &mut rows[4 + 3 * usize::from(channel)];
         let column = 20 + 2 * step;
         assert_eq!(&row[column..column + 2], "  ", "step {step} is empty");
         row.replace_range(column..column + 2, &spelling(note));
@@ -488,8 +488,8 @@ fn the_sequencer_frames_each_voices_steps_in_a_comment() {
             .expect("the shipped file is a Source File"),
     );
     assert_eq!(
-        comments_from(&source, 3),
-        (0..10).map(|v| (18, 3 + 3 * v, 85)).collect::<Vec<_>>()
+        comments_from(&source, 4),
+        (0..10).map(|v| (18, 4 + 3 * v, 85)).collect::<Vec<_>>()
     );
     source.read_source(|source| assert_eq!(source.language_map().lexical_diagnostics().count(), 0));
 }

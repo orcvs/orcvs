@@ -23,7 +23,7 @@ const PRESETS: [[u8; 8]; 6] = [
 /// How far a knob's value moves in one Tick, its Interpolation's `rate`.
 const RATE: u8 = 0x04;
 
-/// The Cell holding the preset's low digit: column 23, row 0.
+/// The column of the Cell holding the preset's low digit, on row 1.
 const PRESET_DIGIT: usize = 23;
 
 ///
@@ -71,7 +71,7 @@ fn the_knobs_glide_to_each_preset_selected_and_hold_it() {
     };
     assert_eq!(
         mapped(&source),
-        (0..8).map(|knob| (4, 2 + 3 * knob)).collect::<Vec<_>>()
+        (0..8).map(|knob| (4, 3 + 3 * knob)).collect::<Vec<_>>()
     );
     let adapter = InMemoryOutputAdapter::default();
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
@@ -84,7 +84,7 @@ fn the_knobs_glide_to_each_preset_selected_and_hold_it() {
     for preset in [0, 4, 2] {
         source
             .set(
-                super::cell(source.grid(), PRESET_DIGIT),
+                super::cell(source.grid(), source.grid().columns() + PRESET_DIGIT),
                 &preset.to_string(),
             )
             .expect("a digit is one Cell");
