@@ -539,12 +539,6 @@ fn the_sequencer_frames_each_voices_steps_in_a_comment() {
     source.read_source(|source| assert_eq!(source.language_map().lexical_diagnostics().count(), 0));
 }
 
-///
-/// The 808 beat's first bar and the Tick that starts its second: kick `C2` on
-/// every beat, snare `D2` on beats 2 and 4 and closed hat `f2` on every
-/// eighth, all on channel `08` and each held one Tick, with nothing diagnosed
-/// before or during the run.
-///
 #[test]
 fn the_808_stacks_its_instruments_twelve_columns_wide() {
     // Each instrument's label, then its machine, so a phone shows all three.
@@ -558,6 +552,12 @@ fn the_808_stacks_its_instruments_twelve_columns_wide() {
     assert!(text.lines().all(|line| line.len() <= 12), "{text}");
 }
 
+///
+/// The 808 beat's first bar and the Tick that starts its second: kick `C2` on
+/// every beat, snare `D2` on beats 2 and 4 and closed hat `f2` on every
+/// eighth, all on channel `08` and each held one Tick, with nothing diagnosed
+/// before or during the run.
+///
 #[test]
 fn the_808_beat_plays_one_bar_with_nothing_diagnosed() {
     let (kick, snare, hat) = (36, 38, 42);
