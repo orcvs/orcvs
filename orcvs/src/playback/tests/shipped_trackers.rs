@@ -501,6 +501,19 @@ fn the_sequencer_frames_each_voices_steps_in_a_comment() {
 /// before or during the run.
 ///
 #[test]
+fn the_808_stacks_its_instruments_twelve_columns_wide() {
+    // Each instrument's label, then its machine, so a phone shows all three.
+    let text = include_str!("../../../../examples/808.orcvs");
+    let labels: Vec<usize> = text
+        .lines()
+        .enumerate()
+        .filter_map(|(row, line)| line.starts_with("|| ").then_some(row))
+        .collect();
+    assert_eq!(labels, [1, 5, 10]);
+    assert!(text.lines().all(|line| line.len() <= 12), "{text}");
+}
+
+#[test]
 fn the_808_beat_plays_one_bar_with_nothing_diagnosed() {
     let (kick, snare, hat) = (36, 38, 42);
     let source = SourceCommander::with_source(
