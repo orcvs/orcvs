@@ -1,13 +1,13 @@
-# Orca tracker
+# Tracker
 
 `tracker.orcvs` is the tracker from [Learn Orca](https://metasyn.srht.site/learn-orca/)
 in Orcvs: eight voices, each with its own Clock, reading a sixteen-step column
 of Notes and playing it on a MIDI channel. It ships playing the 808 beat. Open
-it with **Help > Examples > Orca Tracker** and press Space to start Playback.
-Space pauses and resumes it, and Command Shift R (Ctrl Shift R outside macOS)
-rewinds every voice to step 0, as in Orca. The first MIDI output is chosen for
-you; change it in the bottom Panel. The example opens Untitled, so **File >
-Save** asks where to keep your edits.
+it with **Help > Examples > Tracker** and press Space to start Playback. Space
+pauses and resumes it, and Command Shift R (Ctrl Shift R outside macOS) rewinds
+every voice to step 0, as in Orca. The first MIDI output is chosen for you;
+change it in the bottom Panel. The example opens Untitled, so **File > Save**
+asks where to keep your edits.
 
 ```text
 col  0         1         2         3         4         5         6         7

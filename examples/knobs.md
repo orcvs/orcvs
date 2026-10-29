@@ -1,13 +1,12 @@
-# Orca knobs
+# Knobs
 
 `knobs.orcvs` is the knobs patch from [Learn Orca](https://metasyn.srht.site/learn-orca/)
 in Orcvs: eight knobs, each sending a MIDI Control Change every Tick, whose
-values glide to one of six presets. Open it with **Help > Examples > Orca
-Knobs** and press Space to start Playback. Type a preset from `00` to `05`
-over the `00` at the top while it plays, and every knob glides to its value in
-that preset. The first MIDI output is chosen for you; change it in the bottom
-Panel. The example opens Untitled, so **File > Save** asks where to keep your
-edits.
+values glide to one of six presets. Open it with **Help > Examples > Knobs** and
+press Space to start Playback. Type a preset from `00` to `05` over the `00` at
+the top while it plays, and every knob glides to its value in that preset. The
+first MIDI output is chosen for you; change it in the bottom Panel. The example
+opens Untitled, so **File > Save** asks where to keep your edits.
 
 ```text
 col  0         1         2         3

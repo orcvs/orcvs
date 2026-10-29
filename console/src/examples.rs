@@ -29,15 +29,15 @@ pub(crate) const EXAMPLES: [Example; 5] = [
         text: include_bytes!("../../examples/cell-tracker.orcvs"),
     },
     Example {
-        name: "Orca Tracker",
+        name: "Tracker",
         text: include_bytes!("../../examples/tracker.orcvs"),
     },
     Example {
-        name: "Orca Sequencer",
+        name: "Sequencer",
         text: include_bytes!("../../examples/sequencer.orcvs"),
     },
     Example {
-        name: "Orca Knobs",
+        name: "Knobs",
         text: include_bytes!("../../examples/knobs.orcvs"),
     },
 ];
@@ -79,6 +79,15 @@ mod tests {
                 example.name
             );
         }
+    }
+
+    #[test]
+    fn each_example_links_by_its_name() {
+        let links: Vec<String> = EXAMPLES.iter().map(super::Example::link_name).collect();
+        assert_eq!(
+            links,
+            ["808", "cell-tracker", "tracker", "sequencer", "knobs"]
+        );
     }
 
     #[test]

@@ -3996,7 +3996,7 @@ async fn an_empty_cell_a_tick_read_shows_the_input_portal_background() {
 }
 
 ///
-/// One voice of the Orca tracker, stepping down its column: `.+02~.0104`
+/// One voice of the Tracker, stepping down its column: `.+02~.0104`
 /// writes `n` as 2 plus the Tick modulo 4 into the operand of the `&v` below
 /// it, which reads the pair `n` rows south of that operand. Each Tick the
 /// pair it read is lit as Input Portal and the pair the Tick before read is

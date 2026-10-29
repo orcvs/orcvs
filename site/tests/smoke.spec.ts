@@ -63,7 +63,7 @@ test("/ is the console, filling the window above the Sound Module", async ({ pag
 
 // A link to the site opens what the same link to `/play/` opens, inside the page that holds the
 // Built-in Synth (ADR 0094).
-for (const link of ["?example=orca-tracker", "#source=.%2B0102%0A"]) {
+for (const link of ["?example=tracker", "#source=.%2B0102%0A"]) {
   test(`/${link} frames /play/${link}`, async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto(`/${link}`);
