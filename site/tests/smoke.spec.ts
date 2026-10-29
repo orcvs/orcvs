@@ -61,6 +61,22 @@ test("/ is the console, filling the window above the Sound Module", async ({ pag
   await expect(frame.contentFrame().locator("#the_canvas_id")).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
 });
 
+// A link to the site opens what the same link to `/play/` opens, inside the page that holds the
+// Built-in Synth (ADR 0094).
+for (const link of ["?example=orca-tracker", "#source=.%2B0102%0A"]) {
+  test(`/${link} frames /play/${link}`, async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto(`/${link}`);
+    await expect(page.locator("iframe")).toHaveAttribute("src", `/play/${link}`);
+    const framed = page.locator("iframe").contentFrame();
+    await expect(framed.locator("#the_canvas_id")).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+    expect(
+      await framed.locator("body").evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),
+    ).toBe(0);
+    expect(errors).toEqual([]);
+  });
+}
+
 test("nothing on the site opens a new tab or window", async ({ page }) => {
   for (const path of ["/", "/learn/", "/reference/"]) {
     await page.goto(path);
