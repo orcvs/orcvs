@@ -160,7 +160,7 @@ Grid background, the Cell around the glyph tells them apart
 | Glyphs that read alike | Grayscale Dark tells them apart by | Grayscale Light tells them apart by |
 |---|---|---|
 | Ordinary, Note | Note's fill and border | Note's fill and border |
-| Output Portal, Input Portal | Input Portal's border | nothing: both Portals draw alike |
+| Function, Output Portal | Function's fill | Function's fill |
 
 The test accepts the two Portals alike in any built-in, since both mark a Cell
 the Tick reached.
@@ -168,15 +168,16 @@ the Tick reached.
 Both draw Comment faint, below the 4.5:1 floor, which Comment is not held to
 (`contrast::Role::held_to_floor`): Grayscale Dark's `#555555` measures 2.82:1
 on black and 1.57:1 on the Region fill, and Grayscale Light's `#ADADAD`
-measures 2.24:1 on white and 1.72:1 on the Region fill. The Input Portal glyph in
-Grayscale Light is `#E4E4E4`, which measures 4.52:1 on its `#666666` fill.
+measures 2.24:1 on white and 1.72:1 on the Region fill. The Input Portal
+glyph in Grayscale Light is `#E4E4E4`, which measures 4.52:1 on its `#666666`
+fill.
 
 ### The Grayscale Dark built-in Theme
 
 `grayscale-dark` sets light grey text and Cells on black, never pure white.
 The Output Portal frames its Cells unfilled in `#444444` under a `#E6E6E6`
-glyph, and the Input Portal fills its Cells light grey under a dark
-glyph. The Cursor draws every glyph in `#E6E6E6`.
+glyph, and the Input Portal fills its Cells light grey under a dark glyph.
+The Cursor draws every glyph in `#E6E6E6`.
 `theme::tests::every_built_in_defines_every_key_at_its_table` reads the
 table below and fails when it and the code disagree, or when it leaves a
 property out.
@@ -217,9 +218,9 @@ property out.
 ### The Grayscale Light built-in Theme
 
 `grayscale-light` sets dark grey text and Cells on white. The Output Portal
-frames its Cells in `#BBBBBB` with no fill under a `#191919` glyph, the
-Input Portal draws a light glyph on a `#666666` fill, and a Diagnostic draws its red glyph and
-border on a white fill.
+frames its Cells in `#BBBBBB` with no fill under a `#191919` glyph, the Input
+Portal draws a light glyph on a `#666666` fill, and a Diagnostic draws its red
+glyph and border on a white fill.
 `theme::tests::every_built_in_defines_every_key_at_its_table` reads the
 table below and fails when it and the code disagree, or when it leaves a
 property out.
@@ -373,9 +374,12 @@ exactly as ordinary
 Source would (a `07` left south of `.+0304` is two unknown one-Cell
 Functions, diagnostics included), and the Output Portal fact is what tells
 that written value apart from the Expression that produced it. Such a Cell
-draws in the Output Portal colour on `output_portal.background`
-instead of whatever its Source Paint fact alone would answer; an empty Output
-Portal Cell shows the same background with no glyph. The one named exception is a
+draws in the Output Portal colour on `output_portal.background`, framed in
+`output_portal.border`, instead of whatever its Source Paint fact alone would
+answer; an empty Output Portal Cell shows the same fill and frame with no
+glyph. Both built-ins leave `output_portal.background` transparent, so there
+the Cell shows only its frame over whatever lies beneath, the Region fill
+included. The one named exception is a
 Bang answer: it keeps all its own paint, because a Bang is what a Producer
 emits rather than a value it writes, so under both built-ins it draws as a Bang
 anywhere else does.

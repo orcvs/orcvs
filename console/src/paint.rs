@@ -807,8 +807,9 @@ mod tests {
     /// back from `theme` rather than recomputed: `.scratch/theming/schema.md`
     /// stores a background per role, so what a test asks is which stored value a
     /// Cell answers, not a mix this layer would have to reimplement to
-    /// check. Every foreground `CellColours::colours` can answer
-    /// is distinct in the dark default.
+    /// check. The foregrounds it looks up are distinct in the dark default.
+    /// The Output Portal is not among them: its foreground is the Function's
+    /// there, and a test reads its fill from `output_portal.background`.
     fn tinted(theme: &Theme, colour: Color32) -> Color32 {
         for (foreground, background) in [
             (theme.source_function, theme.source_function_background),
@@ -2694,25 +2695,45 @@ mod tests {
     ///
     mod output_portal_paint {
         use super::{
-            Appearance, Color32, FramePaint, Paint, PortalRole, Theme, default_theme,
-            running_orcvs, tinted, whole, write_row,
+            Appearance, EdgeLine, EdgeRank, FramePaint, Paint, PortalRole, Stroke, Theme,
+            default_theme, running_orcvs, tinted, whole, write_row,
         };
+        use crate::theme_registry::tests_support::filled_output_portal_theme;
         use orcvs::render_frame::RenderFrame;
-
-        ///
-        /// The dark default with an opaque Output Portal fill of its own, so a
-        /// Cell's fill names whether the Output Portal painted it: the dark
-        /// default frames the Output Portal without filling it.
-        ///
-        fn filled_portal_theme() -> Theme {
-            Theme {
-                output_portal_background: Color32::from_rgb(0xFF, 0x80, 0x00),
-                ..default_theme(Appearance::Dark)
-            }
-        }
 
         fn painted_with(frame: &RenderFrame, theme: &Theme) -> Paint {
             Paint::derive_with_theme(FramePaint::whole(frame), theme)
+        }
+
+        ///
+        /// Each grayscale built-in frames an empty Output Portal Cell without
+        /// a fill: no background, and a 1pt border in `output_portal.border`.
+        ///
+        #[tokio::test]
+        async fn each_built_in_frames_an_empty_output_portal_cell_without_a_fill() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, ".+0102");
+            orcvs.select(orcvs.grid().position(5, 2).expect("inside the grid"));
+            let frame = orcvs.render_frame();
+            let grid = orcvs.grid();
+
+            for appearance in [Appearance::Dark, Appearance::Light] {
+                let theme = default_theme(appearance);
+                let paint = painted_with(&frame, &theme);
+                for x in 0..2 {
+                    let painted = paint.at(grid.position(x, 1).expect("inside the grid"));
+                    assert_eq!(painted.background, None, "{appearance:?}, column {x}");
+                    assert_eq!(
+                        painted.border,
+                        Some(EdgeLine {
+                            rank: EdgeRank::OutputPortal,
+                            stroke: Stroke::new(1.0, theme.output_portal_border),
+                            seamed: false,
+                        }),
+                        "{appearance:?}, column {x}"
+                    );
+                }
+            }
         }
 
         ///
@@ -2730,7 +2751,7 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let theme = filled_portal_theme();
+            let theme = filled_output_portal_theme();
             let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
@@ -2783,7 +2804,7 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let theme = filled_portal_theme();
+            let theme = filled_output_portal_theme();
             let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
@@ -2870,7 +2891,7 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let theme = filled_portal_theme();
+            let theme = filled_output_portal_theme();
             let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
@@ -3027,10 +3048,9 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let theme = filled_portal_theme();
+            let theme = filled_output_portal_theme();
             let paint = painted_with(&frame, &theme);
             let function_tinted = tinted(&theme, theme.source_function);
-            let output_tinted = theme.output_portal_background;
             let grid = orcvs.grid();
 
             for x in 0..8 {
@@ -3057,19 +3077,23 @@ mod tests {
                     "Add's own spelling, column {x}"
                 );
             }
-            // Add's own Number operand background is not `output_tinted`
-            // alone: the Output Portal tint composites *over* Number's own
-            // translucent role background (`role_and_portal`'s
-            // `background.blend(theme.output_portal_background)`), and every
-            // tinted role background is translucent rather than opaque, so
-            // Number's own hue still shows through under the Portal tint here.
-            // `output_tinted` alone is only the composited answer where the
-            // underlying role's own background is fully transparent, which is
-            // why every other `output_tinted` assertion in this module — over
-            // Unclaimed Cells — is unaffected.
-            let number_under_portal = theme
-                .cell_background
-                .blend(theme.source_number_background.blend(output_tinted));
+            // Add's own Number operand background is not the Output Portal
+            // fill alone: the translucent fill composites *over* Number's own
+            // role background (`role_and_portal`'s
+            // `background.blend(theme.output_portal_background)`), so Number's
+            // own fill still shows through under it here. The fill alone is
+            // the composited answer only where the role's own background is
+            // fully transparent, as over the Unclaimed Cells the rest of this
+            // module asserts.
+            let number_under_portal = theme.cell_background.blend(
+                theme
+                    .source_number_background
+                    .blend(theme.output_portal_background),
+            );
+            assert_ne!(
+                number_under_portal, theme.output_portal_background,
+                "the composite must differ from the fill alone"
+            );
             for x in 2..4 {
                 let position = grid.position(x, 1).expect("inside the grid");
                 let painted = paint.at(position);

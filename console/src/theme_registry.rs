@@ -1387,6 +1387,19 @@ pub(crate) mod tests_support {
             .clone()
     }
 
+    ///
+    /// The dark default with a translucent Output Portal fill of its own, so a
+    /// Cell's fill names whether the Output Portal painted it and a role's own
+    /// background shows through the composite: the dark default frames the
+    /// Output Portal without filling it.
+    ///
+    pub(crate) fn filled_output_portal_theme() -> crate::theme::Theme {
+        crate::theme::Theme {
+            output_portal_background: egui::Color32::from_rgba_unmultiplied(0xFF, 0x80, 0x00, 0x80),
+            ..default_theme(crate::theme::Appearance::Dark)
+        }
+    }
+
     /// A custom Theme's identity, as a file named `stem` supplies it.
     pub(crate) fn id(stem: &str) -> crate::theme::ThemeIdentity {
         crate::theme::ThemeIdentity::from_stem(stem).expect("a non-empty stem")

@@ -476,9 +476,9 @@ pub(crate) const GRAYSCALE_DARK_IDENTITY: ThemeIdentity = ThemeIdentity::reserve
 /// apart by grey level and by filled and bordered Number, Note, Function and
 /// Bang Cells; hue marks only a green Bang and a red Diagnostic glyph. The
 /// Output Portal frames its Cells unfilled in the Function fill under the
-/// Function glyph colour, the
-/// Input Portal fills its Cells light grey under a dark glyph, and the Region
-/// fills opaque. Every field is spelled out explicitly (see [`Theme`]).
+/// Function glyph colour, the Input Portal fills its Cells light grey under a
+/// dark glyph, and the Region fills opaque. Every field is spelled out
+/// explicitly (see [`Theme`]).
 ///
 /// This is the dark Theme selection's default and fallback
 /// (`crate::theme_selection`). `console/src/theme.md` records its values.
@@ -598,9 +598,9 @@ pub(crate) const GRAYSCALE_LIGHT_IDENTITY: ThemeIdentity =
 /// the reserved identity `GRAYSCALE_LIGHT_IDENTITY`, with [`grayscale_dark`]'s
 /// filled and bordered Source roles. Hue marks only a magenta Bang and a red,
 /// red-framed Diagnostic. The Output Portal frames its Cells unfilled in the
-/// Function fill under the Function glyph colour, the Input Portal draws a light glyph on a mid-grey fill,
-/// and the Region fills opaque. Every field is spelled out explicitly (see
-/// [`Theme`]).
+/// Function fill under the Function glyph colour, the Input Portal draws a
+/// light glyph on a mid-grey fill, and the Region fills opaque. Every field is
+/// spelled out explicitly (see [`Theme`]).
 ///
 /// This is the light Theme selection's default and fallback
 /// (`crate::theme_selection`). `console/src/theme.md` records its values.
