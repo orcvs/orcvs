@@ -715,6 +715,24 @@ pub(super) fn start_console(
 }
 
 ///
+/// Gives `console` a MIDI service that grants access and lists no
+/// destinations, so whatever the machine's own MIDI support says adds no
+/// status line to the Panel.
+///
+pub(super) fn quiet_midi(console: &mut Console) {
+    use crate::web_midi::{
+        AccessStatus,
+        tests::{FakeWebMidi, backend},
+    };
+
+    let quiet = FakeWebMidi::with(AccessStatus::Granted, &[]);
+    console.midi = crate::midi::MidiDeviceSelection::new(
+        console.orcvs.midi_selection_handle(),
+        Box::new(backend(&quiet)),
+    );
+}
+
+///
 /// A Console started from `cc` at a URL with `search` and `fragment`, the way
 /// the web page starts one, over the built-in Themes and default settings.
 ///
@@ -734,15 +752,18 @@ pub(super) fn start_linked_console(
 
 ///
 /// A fresh-install Console over `ctx`: the built-in Themes, the default
-/// settings and no storage. `CreationContext::_new_kittest` is eframe's own
+/// settings, no storage and a [`quiet_midi`] service, so its Panel keeps one
+/// geometry on every machine. `CreationContext::_new_kittest` is eframe's own
 /// headless constructor, which is how an `App` starts outside a window.
 ///
 fn console_on(ctx: &egui::Context) -> Console {
-    start_console(
+    let mut console = start_console(
         &eframe::CreationContext::_new_kittest(ctx.clone()),
         ThemeRegistry::built_in(),
         crate::config::Config::default(),
-    )
+    );
+    quiet_midi(&mut console);
+    console
 }
 
 ///
@@ -1207,7 +1228,7 @@ async fn console_new_leaves_a_fresh_context_on_the_system_preference() {
 
 ///
 /// Before the first Playback run the Panel shows B `120 //`, T `00000`,
-/// C `00:00`, O `None`. File, View and Help are the top bar's menus, in
+/// C `00:00`, O `127.0.0.1`. File, View and Help are the top bar's menus, in
 /// that order.
 ///
 #[tokio::test]
@@ -1293,12 +1314,12 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         + text[clock_at..]
             .find('O')
             .expect("the Panel is missing the O label in {text:?}");
-    let none_at = text
-        .find(crate::midi::OUTPUT_NONE)
-        .unwrap_or_else(|| panic!("the Panel is missing Output None in {text:?}"));
+    let host_at = text
+        .find("127.0.0.1")
+        .unwrap_or_else(|| panic!("the Panel's Output is missing the host in {text:?}"));
     assert!(
-        clock_at < output_at && output_at < none_at,
-        "Readout order is not C then O then None in {text:?}"
+        clock_at < output_at && output_at < host_at,
+        "Readout order is not C then O then the host in {text:?}"
     );
     assert!(
         !text.contains(super::panel::OUTPUT_SCAN),

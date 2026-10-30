@@ -11,8 +11,9 @@ use orcvs::playback::{PlaybackObservation, PlaybackState};
 
 use super::Console;
 use super::diagnostics_panel::summary_height;
+use crate::console_midi;
 use crate::grid_viewport::{glyph_size, snapped_cell};
-use crate::midi::destination_presentation;
+use crate::midi::{output_readout, selected_destination_name};
 use crate::theme::{Appearance, Theme};
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
@@ -57,6 +58,11 @@ const GROUP_GAP_CELLS: f32 = 3.0;
 const OUTPUT_READOUT_WIDTH: f32 = 196.0;
 /// Menu action that asks the engine to discover output destinations again.
 pub(super) const OUTPUT_SCAN: &str = "Scan";
+/// The Output list's section headings. The web build cannot send, so it has
+/// no UDP/OSC section.
+pub(super) const OUTPUT_MIDI: &str = "MIDI";
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) const OUTPUT_NETWORK: &str = "UDP/OSC";
 
 ///
 /// Run Clock copy for a wall-clock Duration: `mm:ss` through 59:59 inclusive,
@@ -389,14 +395,29 @@ impl Console {
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
+        // Sized from the messages standing as the frame begins; one that
+        // appears or clears while the row is drawn resizes the next frame.
+        let status_height = if self.statuses().iter().any(Option::is_some) {
+            root.text_style_height(&egui::TextStyle::Body)
+        } else {
+            0.0
+        };
+        // The line follows the row with egui's item spacing between them.
+        let status_room = if status_height > 0.0 {
+            status_height + root.spacing().item_spacing.y
+        } else {
+            0.0
+        };
         let diagnostics_room = root.available_height()
             - BOTTOM_PANEL_HEIGHT
+            - status_room
             - separation
             - source_reserve(root, self.source_view.cell);
         let diagnostics_height = self
             .diagnostics_open
             .then(|| summary_height(root).min(diagnostics_room.max(0.0)));
-        let extra_height = diagnostics_height.map_or(0.0, |height| height + separation);
+        let extra_height =
+            status_room + diagnostics_height.map_or(0.0, |height| height + separation);
         let height = BOTTOM_PANEL_HEIGHT + extra_height;
         let separator = crate::style::bar_separator(self.themes.presented(appearance));
         let bottom_panel = egui::Panel::bottom("bottom_panel")
@@ -459,6 +480,7 @@ impl Console {
                     self.show_destination(ui);
                 },
             );
+            self.show_statuses(ui, status_height);
             diagnostics_height.map(|height| {
                 ui.add(egui::Separator::default().horizontal().spacing(0.0));
                 // Reserve the readouts before the Source takes its space;
@@ -472,92 +494,142 @@ impl Console {
         })
     }
 
+    /// The status messages the Panel can show, in the order it shows them.
+    fn statuses(&self) -> [Option<&str>; 5] {
+        [
+            self.midi.status(),
+            self.playback_status.midi(),
+            self.network.status(),
+            self.playback_status.network(),
+            self.playback_status.engine(),
+        ]
+    }
+
     ///
-    /// The MIDI Output destination ComboBox, then the MIDI status.
+    /// The status messages on a line of their own beneath the Panel's row,
+    /// from its left edge, so the Overview over the window's bottom-right
+    /// corner does not cover them. `height` is the line the frame reserved.
+    /// A message too long for what is left of the line is cut short with an
+    /// ellipsis and shown whole on hover.
     ///
-    /// The ComboBox lists the destinations the selection already holds,
-    /// borrowed for the frame. Scan, and opening an empty list, ask for a
-    /// fresh discovery once the ComboBox is done with that borrow; the list
-    /// shows what that discovery found from the next frame.
+    fn show_statuses(&self, ui: &mut egui::Ui, height: f32) {
+        let statuses = self.statuses();
+        let shown = statuses.iter().any(Option::is_some);
+        if shown != (height > 0.0) {
+            ui.ctx().request_repaint();
+        }
+        if height == 0.0 {
+            return;
+        }
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), height),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                let color = ui.visuals().error_fg_color;
+                for (index, status) in statuses.into_iter().flatten().enumerate() {
+                    if index > 0 {
+                        ui.add_space(readout_group_gap(ui));
+                    }
+                    ui.add(egui::Label::new(egui::RichText::new(status).color(color)).truncate());
+                }
+            },
+        );
+    }
+
+    ///
+    /// The Output ComboBox: one section per output type this build can use,
+    /// MIDI's Scan and destinations, then the UDP and OSC destination.
+    ///
+    /// The MIDI section lists the destinations the selection already holds,
+    /// borrowed for the frame. Scan, and opening the list while it is empty,
+    /// ask for a fresh discovery once the ComboBox is done with that borrow;
+    /// the list shows what that discovery found from the next frame.
     ///
     fn show_destination(&mut self, ui: &mut egui::Ui) {
         let selected_id = self.midi.selected_destination_id();
         let destinations = self.midi.destinations();
-        let presentation = destination_presentation(destinations, selected_id.as_ref());
-        let (scan, selected, network_changed) = ui
-            .add_enabled_ui(presentation.enabled, |ui| {
+        let midi = selected_destination_name(destinations, selected_id.as_ref());
+        #[cfg(not(target_arch = "wasm32"))]
+        let host = Some(self.network.text(crate::network::NetworkField::Host));
+        #[cfg(target_arch = "wasm32")]
+        let host: Option<String> = None;
+        let readout = output_readout(midi, host.as_deref());
+        let mut selected = None;
+        let mut scan = false;
+        #[cfg_attr(
+            target_arch = "wasm32",
+            expect(
+                unused_mut,
+                reason = "the web build cannot send, so its list holds no network fields to change"
+            )
+        )]
+        let mut network_changed = false;
+        let opened = ui
+            .scope(|ui| {
                 apply_panel_field_spacing(ui);
-                // The field draws no arrow, so it reserves no icon slot. The
-                // popup builds its own Ui from the context's style, so the
-                // list keeps egui's icon spacing.
+                // The field draws no arrow, so it reserves no icon slot. The popup
+                // builds its own Ui from the context's style, so the list keeps
+                // egui's icon spacing.
                 ui.spacing_mut().icon_width = 0.0;
                 ui.spacing_mut().icon_spacing = 0.0;
-                let mut selected = None;
-                let mut scan = false;
-                #[cfg_attr(
-                    target_arch = "wasm32",
-                    expect(
-                        unused_mut,
-                        reason = "the web build cannot send, so its list holds no network fields to change"
-                    )
-                )]
-                let mut network_changed = false;
-                let combo_response = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
+                let combo = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
                     .selected_text(
-                        egui::RichText::new(presentation.selected_text)
-                            .text_style(egui::TextStyle::Monospace),
+                        egui::RichText::new(readout).text_style(egui::TextStyle::Monospace),
                     )
                     .width(OUTPUT_READOUT_WIDTH)
                     .icon(|_ui, _rect, _visuals, _is_open| {})
-                    // The UDP and OSC fields in the list are typed into, so a
-                    // click closes it only outside them, or on Scan or a
-                    // destination, which close it themselves.
+                    // The UDP and OSC fields in the list are typed into, so a click
+                    // closes it only outside them, or on Scan or a destination, which
+                    // close it themselves.
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show_ui(ui, |ui| {
-                        if presentation.show_refresh {
+                        if console_midi::AVAILABLE {
+                            panel_label(ui, OUTPUT_MIDI);
                             if ui.button(OUTPUT_SCAN).clicked() {
                                 scan = true;
                                 ui.close();
                             }
-                            ui.separator();
-                        }
-                        if destinations.is_empty() {
-                            ui.add_enabled_ui(false, |ui| {
-                                let _ = ui.selectable_label(
-                                    true,
-                                    egui::RichText::new(crate::midi::OUTPUT_NONE)
-                                        .text_style(egui::TextStyle::Monospace),
-                                );
-                            });
-                        } else {
-                            for destination in destinations {
-                                if ui
-                                    .push_id(destination.id.as_str(), |ui| {
-                                        ui.selectable_label(
-                                            selected_id.as_ref() == Some(&destination.id),
-                                            destination.name.as_str(),
-                                        )
-                                        .clicked()
-                                    })
-                                    .inner
-                                {
-                                    selected = Some(destination.id.clone());
-                                    ui.close();
+                            if destinations.is_empty() {
+                                ui.add_enabled_ui(false, |ui| {
+                                    let _ = ui.selectable_label(
+                                        true,
+                                        egui::RichText::new(crate::midi::OUTPUT_NONE)
+                                            .text_style(egui::TextStyle::Monospace),
+                                    );
+                                });
+                            } else {
+                                for destination in destinations {
+                                    if ui
+                                        .push_id(destination.id.as_str(), |ui| {
+                                            ui.selectable_label(
+                                                selected_id.as_ref() == Some(&destination.id),
+                                                destination.name.as_str(),
+                                            )
+                                            .clicked()
+                                        })
+                                        .inner
+                                    {
+                                        selected = Some(destination.id.clone());
+                                        ui.close();
+                                    }
                                 }
                             }
                         }
                         #[cfg(not(target_arch = "wasm32"))]
                         {
-                            ui.separator();
+                            if console_midi::AVAILABLE {
+                                ui.separator();
+                            }
+                            panel_label(ui, OUTPUT_NETWORK);
                             network_changed = network_fields(ui, &mut self.network);
                         }
                     });
-                scan |= combo_response.response.clicked()
-                    && presentation.show_refresh
-                    && destinations.is_empty();
-                (scan, selected, network_changed)
+                // A click on the field also closes an open list; only the click
+                // that leaves the list showing opened it.
+                combo.response.clicked() && combo.inner.is_some()
             })
             .inner;
+        scan |= opened && console_midi::AVAILABLE && destinations.is_empty();
         if network_changed {
             self.orcvs
                 .set_network_destination(self.network.destination());
@@ -573,25 +645,12 @@ impl Console {
         if self.midi.awaiting_install() {
             ui.ctx().request_repaint();
         }
-        for status in [
-            self.midi.status(),
-            self.playback_status.midi(),
-            self.network.status(),
-            self.playback_status.network(),
-            self.playback_status.engine(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            ui.add_space(readout_group_gap(ui));
-            ui.colored_label(ui.visuals().error_fg_color, status);
-        }
     }
 }
 
 ///
-/// The UDP and OSC destination as the Output list shows it beneath the MIDI
-/// destinations: a field for the host and one for each port, each taking what
+/// The UDP and OSC destination as the Output list's UDP/OSC section shows it:
+/// a field for the host and one for each port, each taking what
 /// is typed into it on Enter or when focus leaves. Answers whether the
 /// destination changed.
 ///

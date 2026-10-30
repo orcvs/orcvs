@@ -5,91 +5,39 @@ use orcvs::midi::{
     MidiSelectionHandle,
 };
 
-///
-/// Output readout copy when nothing is selected or the last discovery returned
-/// no destinations.
-///
+/// The Output field's copy when no output is live.
 pub(crate) const OUTPUT_NONE: &str = "None";
 
 ///
-/// The text the destination ComboBox shows for the current selection.
+/// The name the Output field gives the selected MIDI destination, or `None`
+/// when the last discovery found none or nothing is selected. A kept
+/// selection missing from a non-empty list is named by its id.
 ///
-/// An empty discovery is the empty copy, not a device name and not "not
-/// found". A kept selection missing from a later non-empty list is still a
-/// selection: the ComboBox shows that id rather than the empty copy.
-///
-pub(crate) fn destination_selected_text<'a>(
+pub(crate) fn selected_destination_name<'a>(
     destinations: &'a [MidiDestination],
     selected_id: Option<&'a MidiDestinationId>,
-) -> &'a str {
+) -> Option<&'a str> {
     if destinations.is_empty() {
-        return OUTPUT_NONE;
+        return None;
     }
-    match selected_id {
-        Some(id) => destinations
+    let id = selected_id?;
+    Some(
+        destinations
             .iter()
             .find(|destination| &destination.id == id)
-            .map(|destination| destination.name.as_str())
-            .unwrap_or_else(|| id.as_str()),
-        None => OUTPUT_NONE,
-    }
+            .map_or(id.as_str(), |destination| destination.name.as_str()),
+    )
 }
 
 ///
-/// How the Panel presents destination selection for this build.
+/// The closed Output field: every live output, the MIDI destination then the
+/// network host, joined by ` · `, or [`OUTPUT_NONE`] when nothing is live.
 ///
-/// When the backend is missing, the ComboBox is still drawn, with the empty
-/// copy, and Scan is not. It is disabled only in the web build, because a
-/// native list also holds the UDP and OSC destination fields. The build flag
-/// is read here rather than passed in: a parameter only tests would flip is a
-/// seam `AGENTS.md` forbids.
-///
-pub(crate) struct DestinationPresentation<'a> {
-    pub enabled: bool,
-    pub show_refresh: bool,
-    pub selected_text: &'a str,
-}
-
-pub(crate) fn destination_presentation<'a>(
-    destinations: &'a [MidiDestination],
-    selected_id: Option<&'a MidiDestinationId>,
-) -> DestinationPresentation<'a> {
-    if !crate::console_midi::AVAILABLE {
-        return DestinationPresentation {
-            enabled: cfg!(not(target_arch = "wasm32")),
-            show_refresh: false,
-            selected_text: OUTPUT_NONE,
-        };
-    }
-    DestinationPresentation {
-        enabled: true,
-        show_refresh: true,
-        selected_text: destination_selected_text(destinations, selected_id),
-    }
-}
-
-///
-/// The presentation a test builds for a backend availability production
-/// cannot construct on this target. Production goes through
-/// [`destination_presentation`], which reads `console_midi::AVAILABLE`.
-///
-#[cfg(test)]
-fn destination_presentation_for<'a>(
-    available: bool,
-    destinations: &'a [MidiDestination],
-    selected_id: Option<&'a MidiDestinationId>,
-) -> DestinationPresentation<'a> {
-    if !available {
-        return DestinationPresentation {
-            enabled: cfg!(not(target_arch = "wasm32")),
-            show_refresh: false,
-            selected_text: OUTPUT_NONE,
-        };
-    }
-    DestinationPresentation {
-        enabled: true,
-        show_refresh: true,
-        selected_text: destination_selected_text(destinations, selected_id),
+pub(crate) fn output_readout(midi: Option<&str>, network: Option<&str>) -> String {
+    match (midi, network) {
+        (Some(midi), Some(network)) => format!("{midi} · {network}"),
+        (Some(live), None) | (None, Some(live)) => live.to_owned(),
+        (None, None) => OUTPUT_NONE.to_owned(),
     }
 }
 
@@ -367,7 +315,7 @@ mod tests {
         MidiOutputAdapter,
     };
 
-    use super::{MidiDeviceSelection, destination_presentation_for, destination_selected_text};
+    use super::{MidiDeviceSelection, output_readout, selected_destination_name};
 
     fn selection_for(backend: impl MidiBackend + 'static) -> (Orcvs, MidiDeviceSelection) {
         let orcvs = Orcvs::with_source_and_midi_output_adapter(
@@ -630,66 +578,48 @@ mod tests {
         assert_eq!(midi.selected_destination_id(), None);
         assert_eq!(midi.destinations(), &[]);
         assert_eq!(
-            destination_selected_text(&[], midi.selected_destination_id().as_ref()),
-            super::OUTPUT_NONE
+            selected_destination_name(&[], midi.selected_destination_id().as_ref()),
+            None
         );
     }
 
-    ///
-    /// When the last discovery returned no destinations, the Output readout is
-    /// exactly "None" — not "not found" and not "No MIDI destinations found."
-    ///
+    /// An empty discovery names no MIDI destination, whatever was selected.
     #[test]
-    fn an_empty_discovery_presents_none() {
-        assert_eq!(destination_selected_text(&[], None), super::OUTPUT_NONE);
+    fn an_empty_discovery_names_no_destination() {
+        assert_eq!(selected_destination_name(&[], None), None);
         assert_eq!(
-            destination_selected_text(&[], Some(&MidiDestinationId::new("one"))),
-            super::OUTPUT_NONE
+            selected_destination_name(&[], Some(&MidiDestinationId::new("one"))),
+            None
         );
     }
 
     ///
     /// A kept selection whose id is missing from a later non-empty list is
-    /// still a selection: the empty copy is only for an empty discovery, so
-    /// the ComboBox shows the id rather than pretending nothing is chosen.
+    /// still a selection, so the Output field shows the id rather than
+    /// pretending nothing is chosen.
     ///
     #[test]
-    fn a_kept_selection_missing_from_the_list_is_not_the_empty_copy() {
+    fn a_kept_selection_missing_from_the_list_is_named_by_its_id() {
         let destinations = [MidiDestination::new("three", "Third")];
         assert_eq!(
-            destination_selected_text(&destinations, Some(&MidiDestinationId::new("two"))),
-            "two"
+            selected_destination_name(&destinations, Some(&MidiDestinationId::new("two"))),
+            Some("two")
         );
     }
 
     ///
-    /// A build with no MIDI backend still draws the destination Readout, with
-    /// the empty copy, and does not offer Scan. A native build keeps it
-    /// enabled, because its list holds the UDP and OSC destination fields.
+    /// The Output field names every live output, MIDI first, and is exactly
+    /// "None" when nothing is live.
     ///
     #[test]
-    fn an_unavailable_backend_hides_refresh_and_keeps_the_network_fields_reachable() {
-        let destinations = [MidiDestination::new("one", "Studio Synth")];
-        let selected = MidiDestinationId::new("one");
-        let presentation = destination_presentation_for(false, &destinations, Some(&selected));
-        #[cfg(not(target_arch = "wasm32"))]
-        assert!(presentation.enabled);
-        #[cfg(target_arch = "wasm32")]
-        assert!(!presentation.enabled);
-        assert!(!presentation.show_refresh);
-        assert_eq!(presentation.selected_text, super::OUTPUT_NONE);
-    }
-
-    ///
-    /// A build that has a backend keeps the Output readout enabled and offers
-    /// Scan in its menu, even when the last discovery was empty.
-    ///
-    #[test]
-    fn an_available_backend_keeps_refresh_and_the_destination_enabled() {
-        let presentation = destination_presentation_for(true, &[], None);
-        assert!(presentation.enabled);
-        assert!(presentation.show_refresh);
-        assert_eq!(presentation.selected_text, super::OUTPUT_NONE);
+    fn the_output_field_names_every_live_output() {
+        assert_eq!(
+            output_readout(Some("Studio Synth"), Some("127.0.0.1")),
+            "Studio Synth · 127.0.0.1"
+        );
+        assert_eq!(output_readout(None, Some("127.0.0.1")), "127.0.0.1");
+        assert_eq!(output_readout(Some("Studio Synth"), None), "Studio Synth");
+        assert_eq!(output_readout(None, None), "None");
     }
 
     #[tokio::test]

@@ -67,11 +67,12 @@ async fn a_long_destination_name_leaves_no_empty_icon_slot_in_its_field() {
     const NAME: &str = "A destination whose device name runs long";
     let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some(NAME))]);
     let harness = console_over(&fake, "a").await;
-    let field = harness.get_by_value(NAME).rect();
+    let readout = format!("{NAME} · 127.0.0.1");
+    let field = harness.get_by_value(&readout).rect();
     let font_id = harness.ctx.global_style().text_styles[&TextStyle::Monospace].clone();
     let text_width = harness.ctx.fonts_mut(|fonts| {
         fonts
-            .layout_no_wrap(NAME.to_owned(), font_id, Color32::WHITE)
+            .layout_no_wrap(readout.clone(), font_id, Color32::WHITE)
             .size()
             .x
     });
@@ -84,32 +85,62 @@ async fn a_long_destination_name_leaves_no_empty_icon_slot_in_its_field() {
 }
 
 ///
-/// A MIDI status stands apart from the destination field it follows, rather
-/// than touching its frame.
+/// A MIDI status takes the line beneath the destination field rather than
+/// touching its frame.
 ///
 #[tokio::test]
-async fn the_midi_status_does_not_touch_the_destination_field() {
+async fn the_midi_status_sits_beneath_the_destination_field() {
     let fake = FakeWebMidi::with(
         AccessStatus::Granted,
         &[("a", Some("First")), ("b", Some("Second"))],
     );
     fake.close_port("b");
     let mut harness = console_over(&fake, "a").await;
-    harness.get_by_value("First").click();
+    harness.get_by_value("First · 127.0.0.1").click();
     harness.run_steps(2);
     harness.get_by_label("Second").click();
     harness.run_steps(2);
-    let field = harness.get_by_value("First").rect();
+    let field = harness.get_by_value("First · 127.0.0.1").rect();
     let status = harness
         .get_by(|node| {
             node.role() == Role::Label && node.value().as_deref() == Some("Opening Second…")
         })
         .rect();
-    let gap = status.left() - field.right();
+    let gap = status.top() - field.bottom();
     assert!(
-        gap >= 1.0,
-        "the status sits {gap}pt from the destination field"
+        gap >= 0.0,
+        "the status overlaps the destination field by {}pt",
+        -gap
     );
+}
+
+///
+/// The Output list holds one labelled section per output type, MIDI's above
+/// the UDP and OSC destination's, and its closed field names both.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_output_list_has_a_section_for_each_output_type() {
+    let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("First"))]);
+    let mut harness = console_over(&fake, "a").await;
+    assert!(harness.query_by_label("MIDI").is_none());
+
+    harness.get_by_value("First · 127.0.0.1").click();
+    harness.run_steps(2);
+
+    let midi = harness.get_by_label("MIDI").rect();
+    let network = harness.get_by_label("UDP/OSC").rect();
+    let host = field(&harness, "127.0.0.1").rect();
+    let destination = harness.get_by_label("First").rect();
+    assert!(
+        midi.bottom() <= destination.top(),
+        "MIDI heads its destinations"
+    );
+    assert!(
+        destination.bottom() <= network.top(),
+        "UDP/OSC follows MIDI"
+    );
+    assert!(network.bottom() <= host.top(), "UDP/OSC heads the host");
 }
 
 ///
@@ -123,7 +154,7 @@ async fn the_network_destination_fields_take_a_valid_value_and_report_an_invalid
 
     let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("First"))]);
     let mut harness = console_over(&fake, "a").await;
-    harness.get_by_value("First").click();
+    harness.get_by_value("First · 127.0.0.1").click();
     harness.run_steps(2);
 
     field(&harness, "49161").click();
@@ -169,7 +200,7 @@ async fn the_network_destination_fields_take_a_valid_value_and_report_an_invalid
 async fn escape_cancels_a_typed_port_and_a_click_outside_keeps_one() {
     let fake = FakeWebMidi::with(AccessStatus::Granted, &[("a", Some("First"))]);
     let mut harness = console_over(&fake, "a").await;
-    harness.get_by_value("First").click();
+    harness.get_by_value("First · 127.0.0.1").click();
     harness.run_steps(2);
 
     field(&harness, "49162").click();
@@ -180,7 +211,7 @@ async fn escape_cancels_a_typed_port_and_a_click_outside_keeps_one() {
     assert_eq!(harness.state().network.destination().osc_port, 49162);
 
     if harness.query_by(|node| is_field(node, "49162")).is_none() {
-        harness.get_by_value("First").click();
+        harness.get_by_value("First · 127.0.0.1").click();
         harness.run_steps(2);
     }
     field(&harness, "49162").click();
@@ -208,4 +239,38 @@ fn field<'tree>(
     value: &'tree str,
 ) -> egui_kittest::Node<'tree> {
     harness.get_by(|node| is_field(node, value))
+}
+
+///
+/// Opening an empty Output list looks for MIDI destinations; closing it from
+/// its field does not.
+///
+#[tokio::test]
+async fn closing_an_empty_output_list_does_not_scan() {
+    let fake = FakeWebMidi::with(AccessStatus::Granted, &[]);
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.state_mut().midi = crate::midi::MidiDeviceSelection::new(
+        harness.state().orcvs.midi_selection_handle(),
+        Box::new(backend(&fake)),
+    );
+    harness.run_steps(2);
+    harness.get_by_role(Role::ComboBox).click();
+    harness.run_steps(2);
+    assert!(harness.state().midi.destinations().is_empty());
+
+    fake.plug_in("a", "First");
+    harness.get_by_role(Role::ComboBox).click();
+    harness.run_steps(2);
+    assert!(
+        harness.state().midi.destinations().is_empty(),
+        "closing the list scanned for destinations"
+    );
+
+    harness.get_by_role(Role::ComboBox).click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().midi.destinations().len(),
+        1,
+        "opening the list did not scan for destinations"
+    );
 }

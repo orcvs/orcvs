@@ -467,6 +467,18 @@ pub(crate) mod tests {
             self.state().closed.clone()
         }
 
+        /// Adds a connected output, as plugging in a device does.
+        #[cfg(not(target_arch = "wasm32"))]
+        pub(crate) fn plug_in(&self, id: &str, name: &str) {
+            let mut state = self.state();
+            state.outputs.push(WebMidiOutput {
+                id: id.to_owned(),
+                name: Some(name.to_owned()),
+                connected: true,
+            });
+            state.auto_open.insert(id.to_owned());
+        }
+
         /// Leaves the output with `id` closed, so the next open has to wait.
         pub(crate) fn close_port(&self, id: &str) {
             self.state().auto_open.remove(id);
