@@ -2,7 +2,7 @@
 //! Live editing of the shipped trackers through the console's own input and
 //! file workflows.
 //!
-//! Each test opens a copy of `examples/cell-tracker.orcvs` or
+//! Each test opens a copy of `examples/melody.orcvs` or
 //! `examples/tracker.orcvs` through the Open path, edits
 //! it with the keys, clipboard events and menu items a viewer uses, and runs
 //! Ticks against the Source the console owns. A Tick here is
@@ -11,7 +11,7 @@
 //! handed without waiting on its clock. Playback stays stopped, which keeps the
 //! test the only thing that runs a Tick.
 //!
-//! The cell tracker's layout, as `examples/cell-tracker.md` describes it: Track at
+//! The Melody's layout, as `examples/melody.md` describes it: Track at
 //! (8, 2) reads pair `n` at column `14 + 2n` of row 2, the Clock selects step
 //! `(Tick / 2) % 8`, the Delay bangs every even Tick, and the Timed Play at
 //! (2, 3) plays what Track writes into its note slot at (8, 3).
@@ -26,7 +26,7 @@ use super::{choose_in_menu, cursor, open_picked, running_console};
 use crate::theme_registry::tests_support::TempDir;
 
 /// The shipped tracker, byte for byte.
-const CELL_TRACKER: &str = include_str!("../../../../examples/cell-tracker.orcvs");
+const CELL_TRACKER: &str = include_str!("../../../../examples/melody.orcvs");
 
 /// The shipped Tracker, byte for byte.
 const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
@@ -60,9 +60,9 @@ fn console_with(
     (reopen(&path), path)
 }
 
-/// The shipped cell tracker, opened as [`console_with`] opens a file.
+/// The shipped Melody, opened as [`console_with`] opens a file.
 fn console_with_the_tracker(dir: &TempDir) -> (Harness<'static, Console>, std::path::PathBuf) {
-    console_with(dir, "cell-tracker.orcvs", CELL_TRACKER)
+    console_with(dir, "melody.orcvs", CELL_TRACKER)
 }
 
 /// A new running console that opened the Source File at `path`.
@@ -467,7 +467,7 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
 }
 
 ///
-/// The Tracker edits as the cell tracker does. Channel 3's voice, which
+/// The Tracker edits as the Melody does. Channel 3's voice, which
 /// ships empty, reads the column at x 33 from row 15, one step per row and
 /// one step per Tick: a typed step plays, clearing it rests that voice with
 /// no diagnostic at its Timed Play at (25, 4), typing it back restores it,

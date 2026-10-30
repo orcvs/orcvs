@@ -1,6 +1,6 @@
 # Example refinements
 
-Status: ready-for-agent
+Status: resolved
 
 Toby's ask (2026-10-29), on the shipped examples that `Help > Examples` lists on native and on the
 site:
@@ -8,7 +8,7 @@ site:
 - Every example starts on Row 2, leaving one blank row above it.
 - The 808's instruments stack, each under its own `|| name ||` label, so all three are visible on a
   phone.
-- The 808 and the Cell Tracker get clearer names, chosen from options.
+- The 808 and the Cell Tracker get clearer names, chosen from options: Toby chose Beat and Melody.
 - "Orca" leaves the other examples' names: Tracker, Sequencer, Knobs.
 - The Tracker and the Sequencer ship playing the basic 4/4 808 beat: kick `C2` on every beat,
   snare `D2` on beats 2 and 4, closed hat `f2` on every eighth.

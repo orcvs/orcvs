@@ -13,20 +13,20 @@ pub(crate) struct Example {
 }
 
 ///
-/// The 808 beat: a kick, a snare and a closed hat on the Built-in Synth's
+/// The Beat: the 808 beat, a kick, a snare and a closed hat on the Built-in Synth's
 /// kit. The web console opens it when nothing is stored.
 ///
-pub(crate) const EIGHT_O_EIGHT: Example = Example {
-    name: "808",
-    text: include_bytes!("../../examples/808.orcvs"),
+pub(crate) const BEAT: Example = Example {
+    name: "Beat",
+    text: include_bytes!("../../examples/beat.orcvs"),
 };
 
 /// Every shipped example, in the order `Help → Examples` lists them.
 pub(crate) const EXAMPLES: [Example; 5] = [
-    EIGHT_O_EIGHT,
+    BEAT,
     Example {
-        name: "Cell Tracker",
-        text: include_bytes!("../../examples/cell-tracker.orcvs"),
+        name: "Melody",
+        text: include_bytes!("../../examples/melody.orcvs"),
     },
     Example {
         name: "Tracker",
@@ -45,7 +45,7 @@ pub(crate) const EXAMPLES: [Example; 5] = [
 impl Example {
     ///
     /// The name a link gives for this example: its name in lowercase, with a
-    /// hyphen for each space, so `Cell Tracker` is `cell-tracker`.
+    /// hyphen for each space, so `Melody` is `melody`.
     ///
     #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn link_name(&self) -> String {
@@ -84,10 +84,7 @@ mod tests {
     #[test]
     fn each_example_links_by_its_name() {
         let links: Vec<String> = EXAMPLES.iter().map(super::Example::link_name).collect();
-        assert_eq!(
-            links,
-            ["808", "cell-tracker", "tracker", "sequencer", "knobs"]
-        );
+        assert_eq!(links, ["beat", "melody", "tracker", "sequencer", "knobs"]);
     }
 
     #[test]

@@ -29,7 +29,7 @@ col  0         1         2         3         4         5         6         7    
 ```
 
 The first three voices play the basic 4/4 808 beat over both bars, the beat the
-808 example plays: the kick `C2` on every beat, the snare `D2` on beats 2 and 4,
+Beat example plays: the kick `C2` on every beat, the snare `D2` on beats 2 and 4,
 and the closed hat `f2` on every eighth. They play on channel `08`, where the
 Built-in Synth's kit picks each instrument from the Note's pitch class. Every
 other voice ships empty, on its Learn Orca channel, `03` to `09`. Each voice's

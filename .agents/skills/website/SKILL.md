@@ -45,7 +45,7 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
   `docs/functions.md` as a Grid (`grid.ts`). Pressing a starting Source starts the page's one
   small console, `/play/?small`, and posts it `{ type: "orcvs.open", source }` (`small.ts`, ADR
   0086). Nothing opens a new tab or window.
-- **Links.** `/play/?example=<link-name>` opens a shipped example (`808`, `cell-tracker`,
+- **Links.** `/play/?example=<link-name>` opens a shipped example (`beat`, `melody`,
   `tracker`, `sequencer`, `knobs`); `/play/#source=<percent-encoded Source File>`
   opens text, up to 16 KiB of fragment; `/play/?small` opens the small console. Each opens
   stopped, none reads or writes saved work, and none registers the service worker

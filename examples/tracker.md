@@ -36,7 +36,7 @@ col  0         1         2         3         4         5         6         7
  30            ||  |   |  |   |  |   |  |   |  |   |  |   |  |   |  ||
 ```
 
-The pattern holds the basic 4/4 808 beat, the beat the 808 example plays: the
+The pattern holds the basic 4/4 808 beat, the beat the Beat example plays: the
 kick `C2` on every beat, steps 0, 4, 8 and 12; the snare `D2` on beats 2 and 4,
 steps 4 and 12; and the closed hat `f2` on every eighth, every even step. The
 three voices that play it, in columns 12, 19 and 26, play on channel `08`, where

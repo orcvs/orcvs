@@ -173,12 +173,12 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
 }
 
 ///
-/// The cell tracker's first loop and the Tick that starts its second, written
+/// The Melody's first loop and the Tick that starts its second, written
 /// out Tick by Tick rather than derived, so a misreading shared by
 /// [`Sounding::expect`] and Playback cannot pass both.
 ///
 #[test]
-fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
+fn the_melody_delivers_its_first_loop_as_written_out() {
     let rest = || vec![(2, 3, "expected a note, found \"  \"".to_owned())];
     let expected: [Expected; 17] = [
         (vec![note_on(0, 0x64, 60)], vec![]),
@@ -200,7 +200,7 @@ fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
         (vec![stop(0, 72), note_on(0, 0x64, 60)], vec![]),
     ];
     let source = SourceCommander::with_source(
-        file::read(include_bytes!("../../../../examples/cell-tracker.orcvs"))
+        file::read(include_bytes!("../../../../examples/melody.orcvs"))
             .expect("the shipped file is a Source File"),
     );
     let adapter = InMemoryOutputAdapter::default();
@@ -223,11 +223,11 @@ fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
 }
 
 #[test]
-fn the_cell_tracker_plays_two_loops_with_its_empty_pairs_resting() {
+fn the_melody_plays_two_loops_with_its_empty_pairs_resting() {
     // C4 D4 __ G4 __ A4 C5 __ at `~.0208`, each held `04`, as
-    // `examples/cell-tracker.md` describes.
+    // `examples/melody.md` describes.
     assert_two_loops(
-        include_bytes!("../../../../examples/cell-tracker.orcvs"),
+        include_bytes!("../../../../examples/melody.orcvs"),
         &Tracker {
             step_ticks: 2,
             length: 4,
@@ -540,9 +540,9 @@ fn the_sequencer_frames_each_voices_steps_in_a_comment() {
 }
 
 #[test]
-fn the_808_stacks_its_instruments_twelve_columns_wide() {
+fn the_beat_stacks_its_instruments_twelve_columns_wide() {
     // Each instrument's label, then its machine, so a phone shows all three.
-    let text = include_str!("../../../../examples/808.orcvs");
+    let text = include_str!("../../../../examples/beat.orcvs");
     let labels: Vec<usize> = text
         .lines()
         .enumerate()
@@ -553,16 +553,16 @@ fn the_808_stacks_its_instruments_twelve_columns_wide() {
 }
 
 ///
-/// The 808 beat's first bar and the Tick that starts its second: kick `C2` on
+/// The Beat's first bar and the Tick that starts its second: kick `C2` on
 /// every beat, snare `D2` on beats 2 and 4 and closed hat `f2` on every
 /// eighth, all on channel `08` and each held one Tick, with nothing diagnosed
 /// before or during the run.
 ///
 #[test]
-fn the_808_beat_plays_one_bar_with_nothing_diagnosed() {
+fn the_beat_plays_one_bar_with_nothing_diagnosed() {
     let (kick, snare, hat) = (36, 38, 42);
     let source = SourceCommander::with_source(
-        file::read(include_bytes!("../../../../examples/808.orcvs"))
+        file::read(include_bytes!("../../../../examples/beat.orcvs"))
             .expect("the shipped file is a Source File"),
     );
     source.read_source(|source| assert_eq!(source.language_map().diagnostics().count(), 0));
