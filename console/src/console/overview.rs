@@ -213,20 +213,146 @@ impl Console {
         frame: &RenderFrame,
         appearance: Appearance,
     ) -> Option<SourceCellPoint> {
-        if !self.overview_open {
+        let variant = proto_variant();
+        if !self.overview_open && variant == '0' {
             return None;
         }
         let ctx = root.ctx().clone();
         let theme = self.themes.presented(appearance);
         // The line the bottom panel draws along its edge facing the Source.
         let border = crate::style::bar_separator(theme);
-        let rect = place_picture(
-            ctx.content_rect(),
-            below_menu,
-            border.width,
-            frame.grid(),
-            ctx.pixels_per_point(),
-        )?;
+        let window = ctx.content_rect();
+        let ppp = ctx.pixels_per_point();
+        let cell = self.source_view.cell;
+        // PROTOTYPE: a phone-narrow window lets the picture take its whole width.
+        let narrow = variant != '0' && window.width() < 320.0;
+        let half = if narrow {
+            window.width()
+        } else {
+            window.width() / 2.0
+        };
+        let source_rect: Rect = ctx
+            .data(|data| data.get_temp(egui::Id::new("proto_source_rect")))
+            .unwrap_or(window);
+        let texels = extent(frame.grid()).size();
+        let side_in = |room: Vec2| -> Option<Vec2> {
+            let pixels_per_texel = ppp
+                .floor()
+                .max(1.0)
+                .min((room * ppp / texels).min_elem().floor());
+            (pixels_per_texel >= 1.0).then(|| texels * pixels_per_texel / ppp)
+        };
+        let seam = Stroke::new(1.0 / ppp, theme.sector_seam);
+        // PROTOTYPE: the picture, the Area's rect, a fill behind it, the
+        // separator lines and a frame around the picture, per variant.
+        let (rect, bordered, fill, lines, frame_stroke): (
+            Rect,
+            Rect,
+            Option<Color32>,
+            Vec<[egui::Pos2; 2]>,
+            Option<Stroke>,
+        ) = match variant {
+            'b' => {
+                let room = Vec2::new(
+                    if narrow {
+                        source_rect.width() - cell.x
+                    } else {
+                        source_rect.width() / 2.0
+                    },
+                    source_rect.height() - 2.0 * cell.y,
+                ) - Vec2::new(cell.x, 0.0);
+                let side = side_in(room)?;
+                let max = source_rect.max - cell;
+                let rect = Rect::from_min_size((max - side).round_to_pixels(ppp), side);
+                (rect, rect.expand(1.0), None, vec![], Some(seam))
+            }
+            'c' => {
+                let room = Vec2::new(half, window.bottom() - below_menu)
+                    - 2.0 * cell
+                    - Vec2::splat(border.width);
+                let side = side_in(room)?;
+                let rect =
+                    Rect::from_min_size((window.max - cell - side).round_to_pixels(ppp), side);
+                let wing =
+                    Rect::from_min_max(rect.min - cell - Vec2::splat(border.width), window.max);
+                let inset = border.width / 2.0;
+                let top = wing.top() + inset;
+                let left = wing.left() + inset;
+                (
+                    rect,
+                    wing,
+                    Some(theme.panel_background),
+                    vec![
+                        [egui::pos2(wing.left(), top), egui::pos2(wing.right(), top)],
+                        [
+                            egui::pos2(left, wing.top()),
+                            egui::pos2(left, wing.bottom()),
+                        ],
+                    ],
+                    Some(seam),
+                )
+            }
+            'd' => {
+                let room = Vec2::new(half, source_rect.height() * 0.7)
+                    - 2.0 * cell
+                    - Vec2::splat(border.width);
+                let side = side_in(room)?;
+                let min = egui::pos2(window.right() - cell.x - side.x, below_menu + cell.y);
+                let rect = Rect::from_min_size(min.round_to_pixels(ppp), side);
+                let wing = Rect::from_min_max(
+                    egui::pos2(rect.left() - cell.x - border.width, below_menu),
+                    egui::pos2(window.right(), rect.bottom() + cell.y + border.width),
+                );
+                let inset = border.width / 2.0;
+                let bottom = wing.bottom() - inset;
+                let left = wing.left() + inset;
+                (
+                    rect,
+                    wing,
+                    Some(theme.panel_background),
+                    vec![
+                        [
+                            egui::pos2(wing.left(), bottom),
+                            egui::pos2(wing.right(), bottom),
+                        ],
+                        [
+                            egui::pos2(left, wing.top()),
+                            egui::pos2(left, wing.bottom()),
+                        ],
+                    ],
+                    Some(seam),
+                )
+            }
+            _ => {
+                let room = if narrow {
+                    Rect::from_min_max(
+                        egui::pos2(window.min.x - window.width(), window.min.y),
+                        window.max,
+                    )
+                } else {
+                    window
+                };
+                let rect = place_picture(room, below_menu, border.width, frame.grid(), ppp)?;
+                let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
+                let inset = border.width / 2.0;
+                (
+                    rect,
+                    bordered,
+                    None,
+                    vec![
+                        [
+                            egui::pos2(bordered.left(), rect.top() - inset),
+                            egui::pos2(bordered.right(), rect.top() - inset),
+                        ],
+                        [
+                            egui::pos2(rect.left() - inset, bordered.top()),
+                            egui::pos2(rect.left() - inset, bordered.bottom()),
+                        ],
+                    ],
+                    None,
+                )
+            }
+        };
         let texture = self
             .overview
             .texture(&ctx, revision, frame, theme, appearance);
@@ -236,7 +362,6 @@ impl Console {
         let texture = texture.id();
         let source = self.source_view.shown();
         let overview = &mut self.overview;
-        let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
         egui::Area::new(egui::Id::new("overview"))
             .fixed_pos(bordered.min)
             .movable(false)
@@ -248,13 +373,16 @@ impl Console {
             .constrain(false)
             .sense(Sense::hover())
             .show(&ctx, |ui| {
-                // Each line just outside the picture, as the separator lies
-                // just outside the bottom panel's frame.
-                let inset = border.width / 2.0;
-                ui.painter()
-                    .hline(bordered.x_range(), rect.top() - inset, border);
-                ui.painter()
-                    .vline(rect.left() - inset, bordered.y_range(), border);
+                if let Some(fill) = fill {
+                    ui.painter().rect_filled(bordered, 0.0, fill);
+                }
+                for line in lines {
+                    ui.painter().line_segment(line, border);
+                }
+                if let Some(stroke) = frame_stroke {
+                    ui.painter()
+                        .rect_stroke(rect, 0.0, stroke, StrokeKind::Outside);
+                }
                 let response = ui.allocate_rect(rect, Sense::DRAG);
                 response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source overview")
@@ -354,6 +482,36 @@ pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage
             .iter()
             .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain)),
     );
+    // PROTOTYPE: every variant but the shipped one draws the sector seams.
+    if proto_variant() != '0' {
+        let spacing = frame.sector_seam_spacing().cells();
+        for (index, pixel) in pixels.iter_mut().enumerate() {
+            if (index % width) % spacing == 0 || (index / width) % spacing == 0 {
+                *pixel = pixel.blend(theme.grid_border);
+            }
+        }
+    }
+}
+
+/// PROTOTYPE: the Overview variant a `?variant=` names, `'0'` for the shipped one.
+pub(crate) fn proto_variant() -> char {
+    static VARIANT: std::sync::OnceLock<char> = std::sync::OnceLock::new();
+    *VARIANT.get_or_init(|| {
+        #[cfg(target_arch = "wasm32")]
+        let search = web_sys::window()
+            .and_then(|window| window.location().search().ok())
+            .unwrap_or_default();
+        #[cfg(not(target_arch = "wasm32"))]
+        let search = std::env::var("ORCVS_VARIANT")
+            .map(|v| format!("variant={v}"))
+            .unwrap_or_default();
+        search
+            .trim_start_matches('?')
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("variant="))
+            .and_then(|value| value.chars().next())
+            .unwrap_or('0')
+    })
 }
 
 ///
