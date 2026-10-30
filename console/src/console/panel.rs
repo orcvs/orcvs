@@ -572,7 +572,7 @@ impl Console {
                 // egui's icon spacing.
                 ui.spacing_mut().icon_width = 0.0;
                 ui.spacing_mut().icon_spacing = 0.0;
-                egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
+                let combo = egui::ComboBox::from_id_salt(DESTINATION_COMBO_ID)
                     .selected_text(
                         egui::RichText::new(readout).text_style(egui::TextStyle::Monospace),
                     )
@@ -623,9 +623,10 @@ impl Console {
                             panel_label(ui, OUTPUT_NETWORK);
                             network_changed = network_fields(ui, &mut self.network);
                         }
-                    })
-                    .response
-                    .clicked()
+                    });
+                // A click on the field also closes an open list; only the click
+                // that leaves the list showing opened it.
+                combo.response.clicked() && combo.inner.is_some()
             })
             .inner;
         scan |= opened && console_midi::AVAILABLE && destinations.is_empty();
