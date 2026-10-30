@@ -107,13 +107,13 @@ pub enum EdgeRank {
     GridLine,
     /// A Source role's own border.
     Role,
-    /// A Bang's own border, which a Bang keeps on all four of its edges
-    /// against any other role's.
-    Bang,
     Diagnostic,
     Locked,
     InputPortal,
     OutputPortal,
+    /// A Bang's own border, which a Bang keeps on all four of its edges
+    /// against any other role's, Diagnostic's or Portal's.
+    Bang,
     /// The Cursor's own Cell inside a Region larger than one Cell, carrying
     /// the border its fact gives it.
     RegionCursor,
@@ -394,7 +394,13 @@ impl Paint {
                 let border = match visuals.border {
                     Some(line)
                         if placement == CursorPlacement::RegionCursor
-                            && line.rank >= EdgeRank::Diagnostic =>
+                            && matches!(
+                                line.rank,
+                                EdgeRank::Diagnostic
+                                    | EdgeRank::Locked
+                                    | EdgeRank::InputPortal
+                                    | EdgeRank::OutputPortal
+                            ) =>
                     {
                         Some(EdgeLine {
                             rank: EdgeRank::RegionCursor,
@@ -807,17 +813,14 @@ mod tests {
     /// back from `theme` rather than recomputed: `.scratch/theming/schema.md`
     /// stores a background per role, so what a test asks is which stored value a
     /// Cell answers, not a mix this layer would have to reimplement to
-    /// check. Every foreground `CellColours::colours` can answer
-    /// is distinct in the dark default.
+    /// check. The foregrounds it looks up are distinct in the dark default.
+    /// The Output Portal is not among them: its foreground is the Function's
+    /// there, and a test reads its fill from `output_portal.background`.
     fn tinted(theme: &Theme, colour: Color32) -> Color32 {
         for (foreground, background) in [
             (theme.source_function, theme.source_function_background),
             (theme.source_number, theme.source_number_background),
             (theme.source_note, theme.source_note_background),
-            (
-                theme.output_portal_foreground,
-                theme.output_portal_background,
-            ),
         ] {
             if foreground == colour {
                 return background;
@@ -2032,6 +2035,46 @@ mod tests {
     }
 
     ///
+    /// Under each built-in, a Bang an Output Portal holds keeps the edge it
+    /// shares with an empty Cell of a neighbouring Output Portal: `**` under
+    /// the left `=v` stands beside the right `=v`'s empty Output Portal.
+    ///
+    #[tokio::test]
+    async fn a_bang_border_wins_the_edge_it_shares_with_an_output_portal_frame() {
+        let mut orcvs = running_orcvs(6, 3);
+        write_row(&mut orcvs, 0, "=v=v");
+        write_row(&mut orcvs, 1, "**");
+        orcvs.select(orcvs.grid().position(5, 2).expect("inside the grid"));
+        let frame = orcvs.render_frame();
+        let grid = orcvs.grid();
+        assert!(
+            frame
+                .at(grid.position(2, 1).expect("inside the grid"))
+                .portal_roles()
+                .contains(PortalRole::Output),
+            "the right `=v` reserves the Cell beside the Bang"
+        );
+
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let theme = default_theme(appearance);
+            let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
+            let bang = paint
+                .at(grid.position(1, 1).expect("inside the grid"))
+                .border
+                .expect("a visible Bang border");
+            assert_eq!(bang.rank, EdgeRank::Bang, "{appearance:?}");
+
+            let shared = paint
+                .edges()
+                .columns
+                .into_iter()
+                .find(|run| run.line == 2 && run.span.contains(&1))
+                .expect("the edge between the Bang and the Output Portal");
+            assert_eq!(shared.edge, bang, "{appearance:?}");
+        }
+    }
+
+    ///
     /// A transparent Function border holds no edge, so the Function's Cells
     /// keep the Grid line at `grid.border.width`, whatever the Function
     /// border's own width. A visible one at width zero withdraws as well.
@@ -2698,12 +2741,50 @@ mod tests {
     ///
     mod output_portal_paint {
         use super::{
-            Appearance, PortalRole, default_theme, running_orcvs, tinted, whole, write_row,
+            Appearance, EdgeLine, EdgeRank, FramePaint, Paint, PortalRole, Stroke, Theme,
+            default_theme, running_orcvs, tinted, whole, write_row,
         };
+        use crate::theme_registry::tests_support::filled_output_portal_theme;
+        use orcvs::render_frame::RenderFrame;
+
+        fn painted_with(frame: &RenderFrame, theme: &Theme) -> Paint {
+            Paint::derive_with_theme(FramePaint::whole(frame), theme)
+        }
+
+        ///
+        /// Each grayscale built-in frames an empty Output Portal Cell without
+        /// a fill: no background, and a 1pt border in `output_portal.border`.
+        ///
+        #[tokio::test]
+        async fn each_built_in_frames_an_empty_output_portal_cell_without_a_fill() {
+            let mut orcvs = running_orcvs(6, 3);
+            write_row(&mut orcvs, 0, ".+0102");
+            orcvs.select(orcvs.grid().position(5, 2).expect("inside the grid"));
+            let frame = orcvs.render_frame();
+            let grid = orcvs.grid();
+
+            for appearance in [Appearance::Dark, Appearance::Light] {
+                let theme = default_theme(appearance);
+                let paint = painted_with(&frame, &theme);
+                for x in 0..2 {
+                    let painted = paint.at(grid.position(x, 1).expect("inside the grid"));
+                    assert_eq!(painted.background, None, "{appearance:?}, column {x}");
+                    assert_eq!(
+                        painted.border,
+                        Some(EdgeLine {
+                            rank: EdgeRank::OutputPortal,
+                            stroke: Stroke::new(1.0, theme.output_portal_border),
+                            seamed: false,
+                        }),
+                        "{appearance:?}, column {x}"
+                    );
+                }
+            }
+        }
 
         ///
         /// A scalar answer south of a Function draws in the Output Portal
-        /// colour on the Output Portal tint: `07` left south of `.+0304` re-
+        /// colour on the Output Portal fill: `07` left south of `.+0304` re-
         /// parses as two one-Cell unbound Function claims, and the Output
         /// Portal fact paints over that Diagnostic-shaped claim rather than
         /// leaving it Diagnostic.
@@ -2716,9 +2797,8 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let theme = filled_output_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2735,7 +2815,11 @@ mod tests {
                     painted.foreground, theme.output_portal_foreground,
                     "column {x}"
                 );
-                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(
+                    painted.background,
+                    Some(theme.output_portal_background),
+                    "column {x}"
+                );
             }
             // Past the scalar Reservation's pair: an ordinary, untinted blank
             // Cell, the same as if `.+0304` were not there.
@@ -2766,9 +2850,8 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let theme = filled_output_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2778,7 +2861,11 @@ mod tests {
                     painted.foreground, theme.output_portal_foreground,
                     "column {x}"
                 );
-                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(
+                    painted.background,
+                    Some(theme.output_portal_background),
+                    "column {x}"
+                );
             }
         }
 
@@ -2838,21 +2925,20 @@ mod tests {
         }
 
         ///
-        /// An empty Output Portal Cell shows the Output Portal tint and no
+        /// An empty Output Portal Cell shows the Output Portal fill and no
         /// glyph, including before the first Tick: nothing ever runs a Tick
         /// in this test, so the highlight can only have come from the
         /// current Source revision.
         ///
         #[tokio::test]
-        async fn an_empty_output_portal_cell_shows_the_tint_and_no_glyph_before_any_tick() {
+        async fn an_empty_output_portal_cell_shows_the_fill_and_no_glyph_before_any_tick() {
             let mut orcvs = running_orcvs(6, 3);
             write_row(&mut orcvs, 0, ".+0102");
             orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
+            let theme = filled_output_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let grid = orcvs.grid();
 
             for x in 0..2 {
@@ -2867,7 +2953,11 @@ mod tests {
                 assert_eq!(frame.at(position).content(), None, "column {x}");
                 let painted = paint.at(position);
                 assert_eq!(painted.character, ' ', "column {x}");
-                assert_eq!(painted.background, Some(output_tinted), "column {x}");
+                assert_eq!(
+                    painted.background,
+                    Some(theme.output_portal_background),
+                    "column {x}"
+                );
             }
             for x in 2..6 {
                 let position = grid.position(x, 1).expect("inside the grid");
@@ -3004,10 +3094,9 @@ mod tests {
             orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
 
             let frame = orcvs.render_frame();
-            let paint = whole(&frame);
-            let theme = default_theme(Appearance::Dark);
+            let theme = filled_output_portal_theme();
+            let paint = painted_with(&frame, &theme);
             let function_tinted = tinted(&theme, theme.source_function);
-            let output_tinted = tinted(&theme, theme.output_portal_foreground);
             let grid = orcvs.grid();
 
             for x in 0..8 {
@@ -3034,19 +3123,23 @@ mod tests {
                     "Add's own spelling, column {x}"
                 );
             }
-            // Add's own Number operand background is not `output_tinted`
-            // alone: the Output Portal tint composites *over* Number's own
-            // translucent role background (`role_and_portal`'s
-            // `background.blend(theme.output_portal_background)`), and every
-            // tinted role background is translucent rather than opaque, so
-            // Number's own hue still shows through under the Portal tint here.
-            // `output_tinted` alone is only the composited answer where the
-            // underlying role's own background is fully transparent, which is
-            // why every other `output_tinted` assertion in this module — over
-            // Unclaimed Cells — is unaffected.
-            let number_under_portal = theme
-                .cell_background
-                .blend(theme.source_number_background.blend(output_tinted));
+            // Add's own Number operand background is not the Output Portal
+            // fill alone: the translucent fill composites *over* Number's own
+            // role background (`role_and_portal`'s
+            // `background.blend(theme.output_portal_background)`), so Number's
+            // own fill still shows through under it here. The fill alone is
+            // the composited answer only where the role's own background is
+            // fully transparent, as over the Unclaimed Cells the rest of this
+            // module asserts.
+            let number_under_portal = theme.cell_background.blend(
+                theme
+                    .source_number_background
+                    .blend(theme.output_portal_background),
+            );
+            assert_ne!(
+                number_under_portal, theme.output_portal_background,
+                "the composite must differ from the fill alone"
+            );
             for x in 2..4 {
                 let position = grid.position(x, 1).expect("inside the grid");
                 let painted = paint.at(position);
@@ -3205,11 +3298,11 @@ mod tests {
     fn the_higher_ranked_fact_wins_an_edge_from_either_side() {
         let ranks = [
             EdgeRank::Role,
-            EdgeRank::Bang,
             EdgeRank::Diagnostic,
             EdgeRank::Locked,
             EdgeRank::InputPortal,
             EdgeRank::OutputPortal,
+            EdgeRank::Bang,
         ];
         let mut below = None;
         for (index, rank) in ranks.into_iter().enumerate() {

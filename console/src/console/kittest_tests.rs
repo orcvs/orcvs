@@ -3862,7 +3862,8 @@ fn painted_on(
 ///
 /// It presents the dark default with its Portal and Locked fills set apart,
 /// so the fill under a Cell names the role it paints: a Theme may share
-/// those fills, as the dark default fills both Portals alike.
+/// those fills or leave one transparent, as the dark default leaves the
+/// Output Portal unfilled.
 ///
 fn ticked_console(rows: &[&str]) -> Harness<'static, Console> {
     use crate::theme_registry::tests_support::{dark, load};

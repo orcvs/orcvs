@@ -160,7 +160,7 @@ Grid background, the Cell around the glyph tells them apart
 | Glyphs that read alike | Grayscale Dark tells them apart by | Grayscale Light tells them apart by |
 |---|---|---|
 | Ordinary, Note | Note's fill and border | Note's fill and border |
-| Output Portal, Input Portal | Input Portal's border | nothing: both Portals draw alike |
+| Function, Output Portal | Function's fill | Function's fill |
 
 The test accepts the two Portals alike in any built-in, since both mark a Cell
 the Tick reached.
@@ -168,14 +168,16 @@ the Tick reached.
 Both draw Comment faint, below the 4.5:1 floor, which Comment is not held to
 (`contrast::Role::held_to_floor`): Grayscale Dark's `#555555` measures 2.82:1
 on black and 1.57:1 on the Region fill, and Grayscale Light's `#ADADAD`
-measures 2.24:1 on white and 1.72:1 on the Region fill. Both Portal glyphs in
-Grayscale Light are `#E4E4E4`, which measures 4.52:1 on their `#666666` fill.
+measures 2.24:1 on white and 1.72:1 on the Region fill. The Input Portal
+glyph in Grayscale Light is `#E4E4E4`, which measures 4.52:1 on its `#666666`
+fill.
 
 ### The Grayscale Dark built-in Theme
 
 `grayscale-dark` sets light grey text and Cells on black, never pure white.
-Both Portals fill their Cells light grey under a dark glyph. The Cursor draws
-every glyph in `#E6E6E6`.
+The Output Portal frames its Cells unfilled in `#444444` under a `#E6E6E6`
+glyph, and the Input Portal fills its Cells light grey under a dark glyph.
+The Cursor draws every glyph in `#E6E6E6`.
 `theme::tests::every_built_in_defines_every_key_at_its_table` reads the
 table below and fails when it and the code disagree, or when it leaves a
 property out.
@@ -183,20 +185,20 @@ property out.
 | Property | Grayscale Dark |
 |---|---|
 | `cursor.background`, `region.cursor.foreground` | none |
-| `cursor.foreground`, `source.function`, `cursor.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning`, `button.foreground` | `#E6E6E6` |
-| `region.cursor.background`, `output_portal.foreground`, `input_portal.foreground`, `selection.background` | `#333333` |
+| `cursor.foreground`, `source.function`, `output_portal.foreground`, `cursor.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning`, `button.foreground` | `#E6E6E6` |
+| `region.cursor.background`, `input_portal.foreground`, `selection.background` | `#333333` |
 | `window.background`, `panel.background`, `grid.background`, `locked.background`, `input.background`, `button.pressed.foreground` | `#000000` |
-| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `locked.foreground` | `#00000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `diagnostic.background`, `output_portal.background`, `locked.foreground` | `#00000000` |
 | `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
 | `source.comment` | `#555555` |
 | `source.number` | `#898989` |
-| `source.note`, `output_portal.background`, `input_portal.background`, `locked.border` | `#CCCCCC` |
+| `source.note`, `input_portal.background`, `locked.border` | `#CCCCCC` |
 | `source.bang`, `source.bang.border`, `button.pressed.background`, `button.pressed.border` | `#00FF00` |
 | `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
-| `source.function.background`, `source.function.border`, `button.background`, `button.border` | `#444444` |
+| `source.function.background`, `source.function.border`, `output_portal.border`, `button.background`, `button.border` | `#444444` |
 | `source.bang.background` | `#111111` |
 | `diagnostic.foreground` | `#FF3B3B` |
-| `output_portal.border`, `input_portal.border` | `#FFFFFF66` |
+| `input_portal.border` | `#FFFFFF66` |
 | `grid.border` | `#FFFFFF1A` |
 | `sector.seam` | `#FFFFFF33` |
 | `region.border` | `#DDDDDD` |
@@ -207,17 +209,18 @@ property out.
 | `text.muted` | `#C8C8C899` |
 | `grid.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
-| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
-| `diagnostic.border.width`, `output_portal.border.width`, `widget.inactive.border.width` | 0 |
+| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
+| `diagnostic.border.width`, `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
 | `overview.source_view` | `#FFFFFF` |
 | `overview.source_view.width` | 1 |
 
 ### The Grayscale Light built-in Theme
 
-`grayscale-light` sets dark grey text and Cells on white. Both Portals draw a
-light glyph on a `#666666` fill, and a Diagnostic draws its red glyph and
-border on a white fill.
+`grayscale-light` sets dark grey text and Cells on white. The Output Portal
+frames its Cells in `#BBBBBB` with no fill under a `#191919` glyph, the Input
+Portal draws a light glyph on a `#666666` fill, and a Diagnostic draws its red
+glyph and border on a white fill.
 `theme::tests::every_built_in_defines_every_key_at_its_table` reads the
 table below and fails when it and the code disagree, or when it leaves a
 property out.
@@ -225,21 +228,21 @@ property out.
 | Property | Grayscale Light |
 |---|---|
 | `cursor.background`, `region.cursor.foreground` | none |
-| `cursor.foreground`, `source.function`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning`, `button.foreground` | `#191919` |
+| `cursor.foreground`, `source.function`, `output_portal.foreground`, `cursor.border`, `region.border`, `selection.border`, `text.active`, `link`, `input.cursor`, `error`, `warning`, `button.foreground` | `#191919` |
 | `region.cursor.background`, `selection.background` | `#CCCCCC` |
 | `window.background`, `panel.background`, `grid.background`, `source.bang.background`, `diagnostic.background`, `locked.background`, `input.background`, `button.pressed.foreground` | `#FFFFFF` |
-| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `locked.foreground` | `#00000000` |
+| `cell.background`, `source.ordinary.background`, `source.comment.background`, `source.ordinary.border`, `source.comment.border`, `output_portal.background`, `locked.foreground` | `#00000000` |
 | `source.ordinary`, `text` | `#373737` |
 | `source.comment` | `#ADADAD` |
 | `source.number` | `#616161` |
 | `source.note`, `locked.border` | `#333333` |
 | `source.bang`, `button.pressed.background`, `button.pressed.border` | `#D100D1` |
 | `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
-| `source.function.background`, `source.function.border`, `button.background`, `button.border` | `#BBBBBB` |
+| `source.function.background`, `source.function.border`, `output_portal.border`, `button.background`, `button.border` | `#BBBBBB` |
 | `source.bang.border` | `#FF00FF` |
 | `diagnostic.foreground`, `diagnostic.border` | `#C70000` |
-| `output_portal.foreground`, `input_portal.foreground` | `#E4E4E4` |
-| `output_portal.background`, `output_portal.border`, `input_portal.background`, `input_portal.border` | `#666666` |
+| `input_portal.foreground` | `#E4E4E4` |
+| `input_portal.background`, `input_portal.border` | `#666666` |
 | `grid.border` | `#0000001A` |
 | `sector.seam` | `#00000033` |
 | `region.background` | `#E1E1E1` |
@@ -247,9 +250,9 @@ property out.
 | `panel.separator` | `#ADADAD` |
 | `selection.border.rest` | `#575757` |
 | `text.muted` | `#373737AF` |
-| `grid.border.width`, `cell.selection.border.width`, `output_portal.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
+| `grid.border.width`, `cell.selection.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
-| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
+| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
 | `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
 | `overview.source_view` | `#000000` |
@@ -371,9 +374,12 @@ exactly as ordinary
 Source would (a `07` left south of `.+0304` is two unknown one-Cell
 Functions, diagnostics included), and the Output Portal fact is what tells
 that written value apart from the Expression that produced it. Such a Cell
-draws in the Output Portal colour on `output_portal.background`
-instead of whatever its Source Paint fact alone would answer; an empty Output
-Portal Cell shows the same background with no glyph. The one named exception is a
+draws in the Output Portal colour on `output_portal.background`, framed in
+`output_portal.border`, instead of whatever its Source Paint fact alone would
+answer; an empty Output Portal Cell shows the same fill and frame with no
+glyph. Both built-ins leave `output_portal.background` transparent, so there
+the Cell shows only its frame over whatever lies beneath, the Region fill
+included. The one named exception is a
 Bang answer: it keeps all its own paint, because a Bang is what a Producer
 emits rather than a value it writes, so under both built-ins it draws as a Bang
 anywhere else does.

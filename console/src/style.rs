@@ -2220,15 +2220,14 @@ mod tests {
     ///
     #[test]
     fn output_portal_paints_over_an_unclaimed_and_a_bound_operand_cell() {
-        let theme = default_theme(Appearance::Dark);
+        let theme = crate::theme_registry::tests_support::filled_output_portal_theme();
 
         // The Output Portal channel composites *over* each fact's own raw
         // role background, not in place of it (`role_and_portal`'s
         // `background.blend(theme.output_portal_background)`) — Unclaimed's
         // own background is fully transparent, so the composite collapses
-        // to the Output Portal tint alone; Number's is not, since every
-        // tinted role background is translucent, so its own hue still shows
-        // through under the Portal tint.
+        // to the Output Portal fill alone; Number's is not, so its own fill
+        // shows through under the translucent Output Portal fill.
         for (paint, role_background) in [
             (SourcePaint::Unclaimed, theme.source_ordinary_background),
             (
