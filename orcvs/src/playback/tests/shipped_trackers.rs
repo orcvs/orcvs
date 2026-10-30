@@ -8,7 +8,7 @@
 
 use super::{HandDrivenRun, note_on, stop};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
-use crate::source::{LanguageUnitKind, SourceCommander, Tick, TickPlan, file};
+use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, TickPlan, file};
 
 /// What one Tick delivers to the adapter, and its diagnostics as anchor
 /// column, anchor row and message.
@@ -173,13 +173,13 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
 }
 
 ///
-/// The cell tracker's first loop and the Tick that starts its second, written
+/// The Melody's first loop and the Tick that starts its second, written
 /// out Tick by Tick rather than derived, so a misreading shared by
 /// [`Sounding::expect`] and Playback cannot pass both.
 ///
 #[test]
-fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
-    let rest = || vec![(2, 2, "expected a note, found \"  \"".to_owned())];
+fn the_melody_delivers_its_first_loop_as_written_out() {
+    let rest = || vec![(2, 3, "expected a note, found \"  \"".to_owned())];
     let expected: [Expected; 17] = [
         (vec![note_on(0, 0x64, 60)], vec![]),
         (vec![], vec![]),
@@ -200,7 +200,7 @@ fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
         (vec![stop(0, 72), note_on(0, 0x64, 60)], vec![]),
     ];
     let source = SourceCommander::with_source(
-        file::read(include_bytes!("../../../../examples/cell-tracker.orcvs"))
+        file::read(include_bytes!("../../../../examples/melody.orcvs"))
             .expect("the shipped file is a Source File"),
     );
     let adapter = InMemoryOutputAdapter::default();
@@ -223,11 +223,11 @@ fn the_cell_tracker_delivers_its_first_loop_as_written_out() {
 }
 
 #[test]
-fn the_cell_tracker_plays_two_loops_with_its_empty_pairs_resting() {
+fn the_melody_plays_two_loops_with_its_empty_pairs_resting() {
     // C4 D4 __ G4 __ A4 C5 __ at `~.0208`, each held `04`, as
-    // `examples/cell-tracker.md` describes.
+    // `examples/melody.md` describes.
     assert_two_loops(
-        include_bytes!("../../../../examples/cell-tracker.orcvs"),
+        include_bytes!("../../../../examples/melody.orcvs"),
         &Tracker {
             step_ticks: 2,
             length: 4,
@@ -235,7 +235,7 @@ fn the_cell_tracker_plays_two_loops_with_its_empty_pairs_resting() {
             slot_written: true,
             voices: &[Voice {
                 channel: 0,
-                play: (2, 2),
+                play: (2, 3),
                 steps: vec![
                     Some(60),
                     Some(62),
@@ -266,15 +266,41 @@ fn orca_patch(voices: &[Voice]) -> Tracker<'_> {
     }
 }
 
-/// `count` steps for `channel`, holding each of `notes` placed on it.
-fn steps(notes: &[(u8, usize, u8)], channel: u8, count: usize) -> Vec<Option<u8>> {
+/// `count` steps for `voice`, holding each of `notes` placed on it.
+fn steps(notes: &[(u8, usize, u8)], voice: u8, count: usize) -> Vec<Option<u8>> {
     let mut steps = vec![None; count];
     for &(on, step, note) in notes {
-        if on == channel {
+        if on == voice {
             steps[step] = Some(note);
         }
     }
     steps
+}
+
+///
+/// The basic 4/4 808 beat over `count` steps, as (voice, step, Note): kick
+/// `C2` on voice 0 on every beat, snare `D2` on voice 1 on beats 2 and 4, and
+/// closed hat `f2` on voice 2 on every eighth.
+///
+fn beat(count: usize) -> Vec<(u8, usize, u8)> {
+    (0..count)
+        .flat_map(|step| {
+            [
+                (0, step % 4 == 0, 36),
+                (1, step % 8 == 4, 38),
+                (2, step % 2 == 0, 42),
+            ]
+            .into_iter()
+            .filter_map(move |(voice, hit, note)| hit.then_some((voice, step, note)))
+        })
+        .collect()
+}
+
+/// `text` with the shipped beat's Notes blanked, every step of it empty.
+fn without_the_beat(text: &str) -> String {
+    text.replace("C2", "  ")
+        .replace("D2", "  ")
+        .replace("f2", "  ")
 }
 
 /// `note` spelled as the Source writes it: its pitch letter, lowercase for a
@@ -306,24 +332,29 @@ fn comments_from(source: &SourceCommander, row: usize) -> Vec<(usize, usize, usi
     comments
 }
 
+/// The channel each Tracker voice plays on: the beat's three voices share
+/// the Built-in Synth's kit on `08`, and the others keep Learn Orca's.
+const TRACKER_CHANNELS: [u8; 8] = [8, 8, 8, 3, 4, 5, 6, 7];
+
 ///
-/// The Learn Orca tracker's voices in Source order: two staircases of four,
-/// voice `v` of group `g` on channel `4g + v` with its Timed Play anchored at
-/// column `2 + 28g + 7v + 2` on row `12 - 3v`. `notes` places a Note at a
-/// channel's step; every other step is empty.
+/// The Tracker's voices in Source order: two staircases of four, voice
+/// `v` of group `g` is voice `4g + v`, on its [`TRACKER_CHANNELS`] channel,
+/// with its Timed Play anchored at column `2 + 28g + 7v + 2` on row
+/// `13 - 3v`. `notes` places a Note at a voice's step; every other step is
+/// empty.
 ///
-fn orca_tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
+fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     let mut voices = Vec::new();
     for v in (0..4).rev() {
         for group in 0..2 {
-            let channel = 4 * group + v;
+            let voice = 4 * group + v;
             voices.push(Voice {
-                channel,
+                channel: TRACKER_CHANNELS[usize::from(voice)],
                 play: (
                     4 + 28 * usize::from(group) + 7 * usize::from(v),
-                    12 - 3 * usize::from(v),
+                    13 - 3 * usize::from(v),
                 ),
-                steps: steps(notes, channel, 16),
+                steps: steps(notes, voice, 16),
             });
         }
     }
@@ -331,29 +362,30 @@ fn orca_tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
 }
 
 #[test]
-fn the_orca_tracker_plays_two_bars_of_its_one_note() {
-    // C4 on channel 1 at step 0 and nothing else, as Learn Orca's tracker
-    // ships its `3C`: every voice steps once a Tick through sixteen steps, at
-    // velocity `77`, the byte Orca's default `f` sends.
+fn the_tracker_plays_two_bars_of_the_808_beat() {
+    // Kick, snare and hat on the first three voices, on the kit's channel
+    // `08`, and every other voice resting: every voice steps once a Tick
+    // through sixteen steps, at velocity `77`, the byte Orca's default `f`
+    // sends.
     assert_two_loops(
         include_bytes!("../../../../examples/tracker.orcvs"),
-        &orca_patch(&orca_tracker_voices(&[(1, 0, 60)])),
+        &orca_patch(&tracker_voices(&beat(16))),
     );
 }
 
 #[test]
-fn the_orca_tracker_frames_its_pattern_rows_in_comments() {
-    // Each pattern row is one closed Comment from column 8 to 66, so the
-    // Notes of every voice's step, and the single `|` marking it, are text
-    // the Reads select rather than standalone units the Language Map
-    // diagnoses.
+fn the_tracker_frames_its_pattern_rows_in_comments() {
+    // Each pattern row is one closed Comment from column 10 to 64, its `||`
+    // beside the first and last voices' steps, so the Notes of every voice's
+    // step, and the single `|` marking the others, are text the Reads select
+    // rather than standalone units the Language Map diagnoses.
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/tracker.orcvs"))
             .expect("the shipped file is a Source File"),
     );
     assert_eq!(
-        comments_from(&source, 14),
-        (14..30).map(|row| (8, row, 66)).collect::<Vec<_>>()
+        comments_from(&source, 15),
+        (15..31).map(|row| (10, row, 64)).collect::<Vec<_>>()
     );
     source.read_source(|source| {
         let map = source.language_map();
@@ -362,25 +394,25 @@ fn the_orca_tracker_frames_its_pattern_rows_in_comments() {
         assert_eq!(map.lexical_diagnostics().count(), 0);
         assert!(
             map.diagnostics()
-                .all(|diagnostic| diagnostic.anchor().y() < 14)
+                .all(|diagnostic| diagnostic.anchor().y() < 15)
         );
     });
 }
 
 #[test]
-fn every_orca_tracker_voice_plays_its_own_column_on_its_own_channel() {
+fn every_tracker_voice_plays_its_own_column_on_its_own_channel() {
     // One Note per voice, each on a different step, so a voice that read
     // another's column, or played on another's channel, is caught.
     let notes: Vec<(u8, usize, u8)> = (0..8)
-        .map(|channel| (channel, 2 * usize::from(channel), 60 + channel))
+        .map(|voice| (voice, 2 * usize::from(voice), 60 + voice))
         .collect();
     // The Notes are written into the shipped pattern rows' Comments, over
-    // their blank steps once the shipped C4 is blanked too.
-    let text = include_str!("../../../../examples/tracker.orcvs").replace("C4", "  ");
+    // their blank steps once the shipped beat is blanked too.
+    let text = without_the_beat(include_str!("../../../../examples/tracker.orcvs"));
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
-    for &(channel, step, note) in &notes {
-        let column = 2 + 28 * usize::from(channel / 4) + 7 * usize::from(channel % 4) + 10;
-        let row = &mut rows[14 + step];
+    for &(voice, step, note) in &notes {
+        let column = 2 + 28 * usize::from(voice / 4) + 7 * usize::from(voice % 4) + 10;
+        let row = &mut rows[15 + step];
         assert_eq!(
             &row[column - 1..column + 3],
             "|  |",
@@ -390,21 +422,22 @@ fn every_orca_tracker_voice_plays_its_own_column_on_its_own_channel() {
     }
     assert_two_loops(
         rows.join("\n").as_bytes(),
-        &orca_patch(&orca_tracker_voices(&notes)),
+        &orca_patch(&tracker_voices(&notes)),
     );
 }
 
 #[test]
 fn a_half_typed_step_silences_only_its_own_voice() {
-    // Clearing the `4` of channel 1's step-0 `C4` leaves `C `, partial input
+    // Clearing the `2` of the kick's step-0 `C2` leaves `C `, partial input
     // for its Read. The Read is diagnosed, its Timed Play is invalid with it
-    // and sends nothing, and every other voice rests silently.
+    // and sends nothing, the hat still plays, and every other voice rests
+    // silently.
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/tracker.orcvs"))
             .expect("the shipped file is a Source File"),
     );
     let grid = source.grid();
-    source.unset(super::cell(grid, 14 * grid.columns() + 20));
+    source.unset(super::cell(grid, 15 * grid.columns() + 13));
 
     let plan = source.execute(Tick::ZERO);
 
@@ -412,62 +445,74 @@ fn a_half_typed_step_silences_only_its_own_voice() {
         .diagnostics
         .iter()
         .map(|d| (d.anchor().x(), d.anchor().y(), d.message.as_str()))
-        .filter(|&(_, row, _)| row == 9)
+        .filter(|&(_, row, _)| row == 13)
         .collect::<Vec<_>>();
     assert_eq!(
         half_typed,
         [
-            (17, 9, "&v has partial or invalid input"),
+            (10, 13, "&v has partial or invalid input"),
             (
-                11,
-                9,
-                "nested computation at column 17, row 9 returned nothing"
+                4,
+                13,
+                "nested computation at column 10, row 13 returned nothing"
             ),
         ]
     );
     assert_eq!(plan.diagnostics.len(), 2, "{:?}", plan.diagnostics);
-    assert!(plan.play_commands.is_empty(), "{:?}", plan.play_commands);
+    assert!(
+        matches!(
+            plan.play_commands.as_slice(),
+            [PlayCommand::Timed { channel, note, .. }]
+                if channel.value() == 8 && note.value() == 42
+        ),
+        "{:?}",
+        plan.play_commands
+    );
 }
 
+/// The channel each Sequencer voice plays on: the beat's three voices share
+/// the Built-in Synth's kit on `08`, and the others keep Learn Orca's.
+const SEQUENCER_CHANNELS: [u8; 10] = [8, 8, 8, 3, 4, 5, 6, 7, 8, 9];
+
 ///
-/// The Learn Orca sequencer's ten voices in Source order: voice `v` on
-/// channel `v`, its Timed Play anchored at column 4 on row `3 + 3v`, reading
-/// thirty-two steps along its own row. `notes` places a Note at a channel's
-/// step; every other step is empty.
+/// The Sequencer's ten voices in Source order: voice `v` on its
+/// [`SEQUENCER_CHANNELS`] channel, its Timed Play anchored at column 4 on row
+/// `4 + 3v`, reading thirty-two steps along its own row. `notes` places a
+/// Note at a voice's step; every other step is empty.
 ///
 fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     (0..10)
-        .map(|channel| Voice {
-            channel,
-            play: (4, 3 + 3 * usize::from(channel)),
-            steps: steps(notes, channel, 32),
+        .map(|voice| Voice {
+            channel: SEQUENCER_CHANNELS[usize::from(voice)],
+            play: (4, 4 + 3 * usize::from(voice)),
+            steps: steps(notes, voice, 32),
         })
         .collect()
 }
 
 #[test]
-fn the_sequencer_ships_with_every_step_resting() {
-    // Learn Orca's sequencer ships with no notes, so every voice rests on
-    // every step, silently.
+fn the_sequencer_plays_the_808_beat_over_both_bars() {
+    // Kick, snare and hat on the first three voices, on the kit's channel
+    // `08`, over both of its bars; every other voice rests, silently.
     assert_two_loops(
         include_bytes!("../../../../examples/sequencer.orcvs"),
-        &orca_patch(&sequencer_voices(&[])),
+        &orca_patch(&sequencer_voices(&beat(32))),
     );
 }
 
 #[test]
 fn every_sequencer_voice_plays_its_own_row_on_its_own_channel() {
-    // One Note per voice, each on a different step, and channel 0's first
+    // One Note per voice, each on a different step, and voice 0's first
     // and last steps, so a voice that read another's row, played on another's
     // channel or read past either end of its steps, is caught.
     let mut notes: Vec<(u8, usize, u8)> = (0..10)
-        .map(|channel| (channel, 3 * usize::from(channel) + 1, 60 + channel))
+        .map(|voice| (voice, 3 * usize::from(voice) + 1, 60 + voice))
         .collect();
     notes.extend([(0, 0, 72), (0, 31, 48)]);
-    let text = include_str!("../../../../examples/sequencer.orcvs");
+    let text = without_the_beat(include_str!("../../../../examples/sequencer.orcvs"));
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
-    for &(channel, step, note) in &notes {
-        let row = &mut rows[3 + 3 * usize::from(channel)];
+    for &(voice, step, note) in &notes {
+        let row = &mut rows[4 + 3 * usize::from(voice)];
         let column = 20 + 2 * step;
         assert_eq!(&row[column..column + 2], "  ", "step {step} is empty");
         row.replace_range(column..column + 2, &spelling(note));
@@ -488,23 +533,36 @@ fn the_sequencer_frames_each_voices_steps_in_a_comment() {
             .expect("the shipped file is a Source File"),
     );
     assert_eq!(
-        comments_from(&source, 3),
-        (0..10).map(|v| (18, 3 + 3 * v, 85)).collect::<Vec<_>>()
+        comments_from(&source, 4),
+        (0..10).map(|v| (18, 4 + 3 * v, 85)).collect::<Vec<_>>()
     );
     source.read_source(|source| assert_eq!(source.language_map().lexical_diagnostics().count(), 0));
 }
 
+#[test]
+fn the_beat_stacks_its_instruments_twelve_columns_wide() {
+    // Each instrument's label, then its machine, so a phone shows all three.
+    let text = include_str!("../../../../examples/beat.orcvs");
+    let labels: Vec<usize> = text
+        .lines()
+        .enumerate()
+        .filter_map(|(row, line)| line.starts_with("|| ").then_some(row))
+        .collect();
+    assert_eq!(labels, [1, 5, 10]);
+    assert!(text.lines().all(|line| line.len() <= 12), "{text}");
+}
+
 ///
-/// The 808 beat's first bar and the Tick that starts its second: kick `C2` on
+/// The Beat's first bar and the Tick that starts its second: kick `C2` on
 /// every beat, snare `D2` on beats 2 and 4 and closed hat `f2` on every
 /// eighth, all on channel `08` and each held one Tick, with nothing diagnosed
 /// before or during the run.
 ///
 #[test]
-fn the_808_beat_plays_one_bar_with_nothing_diagnosed() {
+fn the_beat_plays_one_bar_with_nothing_diagnosed() {
     let (kick, snare, hat) = (36, 38, 42);
     let source = SourceCommander::with_source(
-        file::read(include_bytes!("../../../../examples/808.orcvs"))
+        file::read(include_bytes!("../../../../examples/beat.orcvs"))
             .expect("the shipped file is a Source File"),
     );
     source.read_source(|source| assert_eq!(source.language_map().diagnostics().count(), 0));

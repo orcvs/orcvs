@@ -2,7 +2,7 @@
 //! Live editing of the shipped trackers through the console's own input and
 //! file workflows.
 //!
-//! Each test opens a copy of `examples/cell-tracker.orcvs` or
+//! Each test opens a copy of `examples/melody.orcvs` or
 //! `examples/tracker.orcvs` through the Open path, edits
 //! it with the keys, clipboard events and menu items a viewer uses, and runs
 //! Ticks against the Source the console owns. A Tick here is
@@ -11,10 +11,10 @@
 //! handed without waiting on its clock. Playback stays stopped, which keeps the
 //! test the only thing that runs a Tick.
 //!
-//! The cell tracker's layout, as `examples/cell-tracker.md` describes it: Track at
-//! (8, 1) reads pair `n` at column `14 + 2n` of row 1, the Clock selects step
+//! The Melody's layout, as `examples/melody.md` describes it: Track at
+//! (8, 2) reads pair `n` at column `14 + 2n` of row 2, the Clock selects step
 //! `(Tick / 2) % 8`, the Delay bangs every even Tick, and the Timed Play at
-//! (2, 2) plays what Track writes into its note slot at (8, 2).
+//! (2, 3) plays what Track writes into its note slot at (8, 3).
 //!
 
 use egui::{Event, Key, Modifiers, Vec2};
@@ -26,13 +26,13 @@ use super::{choose_in_menu, cursor, open_picked, running_console};
 use crate::theme_registry::tests_support::TempDir;
 
 /// The shipped tracker, byte for byte.
-const CELL_TRACKER: &str = include_str!("../../../../examples/cell-tracker.orcvs");
+const CELL_TRACKER: &str = include_str!("../../../../examples/melody.orcvs");
 
-/// The shipped Orca tracker, byte for byte.
+/// The shipped Tracker, byte for byte.
 const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
 
 /// The row holding Track and the pairs it reads.
-const PAIR_ROW: usize = 1;
+const PAIR_ROW: usize = 2;
 
 /// The column of pair `n`'s first Cell.
 fn pair_column(n: usize) -> usize {
@@ -40,7 +40,7 @@ fn pair_column(n: usize) -> usize {
 }
 
 /// The Timed Play's anchor, where its diagnostics are anchored.
-const PLAY: (usize, usize) = (2, 2);
+const PLAY: (usize, usize) = (2, 3);
 
 /// The first even Tick that selects pair `n`, so the Delay bangs on it.
 fn banged_tick_of(n: usize) -> u64 {
@@ -60,9 +60,9 @@ fn console_with(
     (reopen(&path), path)
 }
 
-/// The shipped cell tracker, opened as [`console_with`] opens a file.
+/// The shipped Melody, opened as [`console_with`] opens a file.
 fn console_with_the_tracker(dir: &TempDir) -> (Harness<'static, Console>, std::path::PathBuf) {
-    console_with(dir, "cell-tracker.orcvs", CELL_TRACKER)
+    console_with(dir, "melody.orcvs", CELL_TRACKER)
 }
 
 /// A new running console that opened the Source File at `path`.
@@ -467,24 +467,27 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
 }
 
 ///
-/// The Orca tracker edits as the cell tracker does. Channel 1's voice reads
-/// the column at x 19 from row 14, one step per row and one step per Tick:
-/// a typed step plays, clearing the shipped C4 rests that voice with no
-/// diagnostic at its Timed Play at (11, 9), typing it back restores it, and
-/// Save and a reopen keep the edits and start every voice at step 0.
+/// The Tracker edits as the Melody does. Channel 3's voice, which
+/// ships empty, reads the column at x 33 from row 15, one step per row and
+/// one step per Tick: a typed step plays, clearing it rests that voice with
+/// no diagnostic at its Timed Play at (25, 4), typing it back restores it,
+/// and Save and a reopen keep the edits and start every voice at step 0.
 ///
 #[tokio::test]
-async fn the_orca_tracker_edits_saves_and_reopens_a_voices_steps() {
-    const COLUMN: usize = 19;
-    const CHANNEL: u8 = 1;
-    let step_row = |step: usize| 14 + step;
+async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
+    const COLUMN: usize = 33;
+    const CHANNEL: u8 = 3;
+    let step_row = |step: usize| 15 + step;
     let dir = TempDir::new();
     let (mut harness, path) = console_with(&dir, "tracker.orcvs", TRACKER);
-    assert_eq!(
-        notes_on(&tick(&harness, 0), CHANNEL),
-        [60],
-        "the shipped C4"
+    assert!(
+        notes_on(&tick(&harness, 0), CHANNEL).is_empty(),
+        "the voice ships empty"
     );
+
+    go_to(&mut harness, COLUMN, step_row(0));
+    type_text(&mut harness, "C4");
+    assert_eq!(notes_on(&tick(&harness, 0), CHANNEL), [60], "C4");
 
     go_to(&mut harness, COLUMN, step_row(1));
     type_text(&mut harness, "E4");
@@ -502,7 +505,7 @@ async fn the_orca_tracker_edits_saves_and_reopens_a_voices_steps() {
     assert!(
         diagnostics(&rest)
             .iter()
-            .all(|(anchor, _)| *anchor != (11, 9)),
+            .all(|(anchor, _)| *anchor != (25, 4)),
         "a cleared step is a silent rest: {:?}",
         rest.diagnostics
     );

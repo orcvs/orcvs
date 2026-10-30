@@ -93,13 +93,13 @@ test("the site's console sounds the first note of a run while the page's audio s
   await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x90);
 });
 
-test("a first visit opens the 808 beat, and its first Tick sounds on time", async ({ page }) => {
+test("a first visit opens the Beat, and its first Tick sounds on time", async ({ page }) => {
   await page.goto("/");
   const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
   await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
   await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
 
-  // Nothing is stored, so the console opens `examples/808.orcvs`: the kick and hat on Tick 0. Space
+  // Nothing is stored, so the console opens `examples/beat.orcvs`: the kick and hat on Tick 0. Space
   // is the reader's first gesture, so Tick 0 waits for the page's audio to start.
   await frame.focus();
   await page.keyboard.press("Space");

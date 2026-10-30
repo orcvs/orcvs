@@ -40,7 +40,7 @@ test("/play/ starts the console and registers its service worker", async ({ page
 // `console/index.html` decides whether to register the worker before the console reads its URL,
 // so each link form `console/src/linked_source.rs` opens, and the small console, is checked here
 // too.
-for (const link of ["/play/?example=cell-tracker", "/play/#source=.%2B0102%0A", "/play/?small"]) {
+for (const link of ["/play/?example=melody", "/play/#source=.%2B0102%0A", "/play/?small"]) {
   test(`${link} starts and registers no service worker`, async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto(link);
@@ -63,7 +63,7 @@ test("/ is the console, filling the window above the Sound Module", async ({ pag
 
 // A link to the site opens what the same link to `/play/` opens, inside the page that holds the
 // Built-in Synth (ADR 0094).
-for (const link of ["?example=orca-tracker", "#source=.%2B0102%0A"]) {
+for (const link of ["?example=tracker", "#source=.%2B0102%0A"]) {
   test(`/${link} frames /play/${link}`, async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto(`/${link}`);

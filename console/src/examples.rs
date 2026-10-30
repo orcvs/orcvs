@@ -13,31 +13,31 @@ pub(crate) struct Example {
 }
 
 ///
-/// The 808 beat: a kick, a snare and a closed hat on the Built-in Synth's
+/// The Beat: the 808 beat, a kick, a snare and a closed hat on the Built-in Synth's
 /// kit. The web console opens it when nothing is stored.
 ///
-pub(crate) const EIGHT_O_EIGHT: Example = Example {
-    name: "808",
-    text: include_bytes!("../../examples/808.orcvs"),
+pub(crate) const BEAT: Example = Example {
+    name: "Beat",
+    text: include_bytes!("../../examples/beat.orcvs"),
 };
 
 /// Every shipped example, in the order `Help → Examples` lists them.
 pub(crate) const EXAMPLES: [Example; 5] = [
-    EIGHT_O_EIGHT,
+    BEAT,
     Example {
-        name: "Cell Tracker",
-        text: include_bytes!("../../examples/cell-tracker.orcvs"),
+        name: "Melody",
+        text: include_bytes!("../../examples/melody.orcvs"),
     },
     Example {
-        name: "Orca Tracker",
+        name: "Tracker",
         text: include_bytes!("../../examples/tracker.orcvs"),
     },
     Example {
-        name: "Orca Sequencer",
+        name: "Sequencer",
         text: include_bytes!("../../examples/sequencer.orcvs"),
     },
     Example {
-        name: "Orca Knobs",
+        name: "Knobs",
         text: include_bytes!("../../examples/knobs.orcvs"),
     },
 ];
@@ -45,7 +45,7 @@ pub(crate) const EXAMPLES: [Example; 5] = [
 impl Example {
     ///
     /// The name a link gives for this example: its name in lowercase, with a
-    /// hyphen for each space, so `Cell Tracker` is `cell-tracker`.
+    /// hyphen for each space, so `Melody` is `melody`.
     ///
     #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn link_name(&self) -> String {
@@ -76,6 +76,24 @@ mod tests {
             assert!(
                 orcvs::source::file::read(example.text).is_ok(),
                 "{} is not a Source File",
+                example.name
+            );
+        }
+    }
+
+    #[test]
+    fn each_example_links_by_its_name() {
+        let links: Vec<String> = EXAMPLES.iter().map(super::Example::link_name).collect();
+        assert_eq!(links, ["beat", "melody", "tracker", "sequencer", "knobs"]);
+    }
+
+    #[test]
+    fn every_example_leaves_its_first_row_empty() {
+        for example in &EXAMPLES {
+            let first = example.text.split(|&byte| byte == b'\n').next();
+            assert!(
+                first.is_some_and(|row| row.iter().all(|&byte| byte == b' ')),
+                "{} starts on its first row",
                 example.name
             );
         }
