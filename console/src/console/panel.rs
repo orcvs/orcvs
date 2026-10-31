@@ -432,6 +432,7 @@ impl Console {
             4 => 3.0 * line + 3.0 * root.spacing().item_spacing.y,
             6 => 5.0 * line + 4.0 * root.spacing().item_spacing.y,
             0 if !self.statuses().iter().any(Option::is_some) => 0.0,
+            7 => line,
             _ => line,
         };
         // The line follows the row with egui's item spacing between them.
@@ -519,6 +520,13 @@ impl Console {
             match prototype_variant() {
                 0 | 3 | 5 => self.show_statuses(ui, status_height),
                 4 => self.show_prototype_inspector_row(ui, status_height),
+                7 => {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), status_height),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| self.show_prototype_analysis(ui, false),
+                    );
+                }
                 6 => self.show_prototype_split(ui, status_height),
                 variant => self.show_prototype_line(ui, status_height, variant),
             }
@@ -731,14 +739,20 @@ impl Console {
         let text = |ui: &mut egui::Ui, value: &str, color: egui::Color32| {
             ui.label(egui::RichText::new(value).font(mono.clone()).color(color));
         };
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
+        let header = |ui: &mut egui::Ui| {
             text(ui, name, strong);
             ui.add_space(gap);
             text(ui, &spelling, strong);
             ui.add_space(gap);
             text(ui, summary, weak);
-        });
+        };
+        let one_line = prototype_variant() == 7;
+        if !one_line {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                header(ui);
+            });
+        }
         if tall {
             let column = monospace_width(ui, "answer  ");
             let row = |ui: &mut egui::Ui, label: &str, value: &str, note: &str| {
@@ -774,6 +788,10 @@ impl Console {
         } else {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
+                if one_line {
+                    header(ui);
+                    ui.add_space(gap * 2.0);
+                }
                 for ((role, _), value) in roles.iter().zip(&operands) {
                     text(ui, role, weak);
                     ui.add_space(gap / 2.0);
@@ -789,6 +807,49 @@ impl Console {
                 }
             });
         }
+    }
+
+    // PROTOTYPE (throwaway): G. Each standing message as a toast in the
+    // window's top-right corner, under the menu bar, one per output, with a
+    // dismiss button. It stays while its failure stands.
+    pub(super) fn show_prototype_toasts(&self, ctx: &egui::Context, top: f32) {
+        const SOURCES: [&str; 5] = ["MIDI", "MIDI", "UDP/OSC", "UDP/OSC", "ENGINE"];
+        let statuses = self.statuses();
+        if statuses.iter().all(Option::is_none) {
+            return;
+        }
+        egui::Area::new(egui::Id::new("prototype_toasts"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16.0, top + 16.0))
+            .show(ctx, |ui| {
+                let mono = panel_monospace_id(ui);
+                let weak = ui.visuals().weak_text_color();
+                let error = ui.visuals().error_fg_color;
+                for (source, status) in SOURCES.iter().zip(statuses) {
+                    let Some(status) = status else { continue };
+                    egui::Frame::popup(ui.style())
+                        .stroke(egui::Stroke::new(1.0, error))
+                        .inner_margin(egui::Margin::symmetric(14, 10))
+                        .show(ui, |ui| {
+                            ui.set_width(380.0);
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(*source).font(mono.clone()).color(weak),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let _ = ui.small_button("×");
+                                    },
+                                );
+                            });
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(status).color(error)).wrap(),
+                            );
+                        });
+                    ui.add_space(8.0);
+                }
+            });
     }
 
     // PROTOTYPE (throwaway): the second line for layouts A (Cursor info left,
