@@ -5,33 +5,29 @@ Status: resolved
 **What to build:**
 
 `examples/knobs.orcvs` did nothing on orcvs.com: it sent controllers `41` to `48`, which the
-Built-in Synth ignores and the Sound Module does not show, and it played no notes. Point the eight
-knobs at the Built-in Synth's effects, Control Change `01` to `08` (ADR 0088), with presets chosen
-for those effects, and give the patch a bassline so the effects have something to act on.
+Built-in Synth ignores and the Sound Module does not show, and it played no notes. Point the knobs
+at the Built-in Synth's effects, Control Change `01` to `08` (ADR 0088), make them move on their
+own, and give the patch a bassline so the effects have something to act on.
 
 ## Acceptance criteria
 
-- [x] Knob `k` sends controller `k` on channel `00`, so the Sound Module shows every knob's effect
-      move with the preset.
-- [x] No preset drives `LN` below `40` or tilts `EQ` far from flat, and preset `01` is the synth's
-      load values. Every knob starts at `00`, so `LN` and `EQ` ramp up over the first sixteen Ticks;
-      `knobs.md` says so.
-- [x] `knobs.md` says the patch is made for the Built-in Synth, and what controllers `01` to `08`
-      mean on a General MIDI device.
+- [x] Six knobs send `MD`, `OF`, `DL`, `CH`, `R1` and `R2` on channel `00`, so the Sound Module
+      shows each effect move; `LN` and `EQ` keep their load values.
+- [x] Each knob's value climbs with a Clock, a step at a time, and an Interpolation glides it back
+      to `00` when the Clock wraps, so no value jumps.
 - [x] A sixteen-step bassline on channel `02`, the saw, plays one step a Tick from a Comment, so the
       file opens with no lexical diagnostic.
-- [x] The shipped-file test asserts every Tick's bassline note and Control Changes through three
-      presets.
-- [x] `examples/knobs.md` describes the bassline, the effects and where the patch now differs from
-      Learn Orca.
+- [x] The shipped-file test asserts every Tick's bassline note and Control Changes past `MD`'s wrap.
+- [x] `examples/knobs.md` describes the bassline and the knobs, and what controllers `01` to `08`
+      mean on a General MIDI device.
 
 ## Comments
 
 ### 2026-10-31 — Resolved
 
 Toby reported that `?example=knobs` did nothing and chose to drive the synth's effects, then asked
-for "some sort of cool 303 baseline thing to make the effects audible". The bassline is the
-Sequencer's voice machine reading `A1 A1 A2 A1 C2 A1 G2 A1 A1 E2 A1 A2 C3 A1 G2 E2`. The
-Interpolation's rate rises from `04` to `08`, so a preset is reached within sixteen Ticks. Only `MD`
-sounds until the other effects' tickets (`orcvs-site/17` to `23`) land. Test:
-`playback::tests::shipped_knobs::the_knobs_glide_the_effects_to_each_preset_over_the_bassline`.
+for "some sort of cool 303 baseline thing to make the effects audible". A first version kept Learn
+Orca's six presets with an Add, a Read north and a Read east per knob. Toby found it more complex
+than it needed to be, with nothing moving unless a preset was typed, so each knob is now a Clock
+under an Interpolation. Only `MD` sounds until the other effects' tickets (`orcvs-site/17` to `23`)
+land. Test: `playback::tests::shipped_knobs::the_knobs_sweep_the_effects_over_the_bassline`.
