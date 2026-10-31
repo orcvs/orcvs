@@ -1,66 +1,69 @@
 name: Console web
 
-# Builds the release web console once (`mise run console_web_build`) and keeps
-# it as the `console-web` artifact. Its URLs are relative, so the same build
-# serves from any path: the site's `/play/`, or a download. On `main` the build
-# is also published on the `console-web` release, which is public and never
-# expires, as `console-web-<key>.tar.gz` under its console key and as the
-# rolling `console-web.tar.gz`. Cloudflare's production build of the site
-# (`npm run build` in `site/`) waits for its own commit's key and never compiles
-# the console (ADR 0093).
-# Path-filtered to what the console is compiled from: the console, the crates
-# under it, the Built-in Synth staged beside it, the shipped examples it
-# embeds, and the toolchain and tool pins.
-# `scripts/console-key.sh` reads this filter, so a path added here is in the key.
+# Builds the release web console (`mise run console_web_build`) for every pushed commit whose
+# console is not yet published, and keeps it as the `console-web` artifact. Its URLs are relative,
+# so the same build serves from any path: the site's `/play/`, or a download. Each build is
+# published on the `console-web` release, which is public and never expires, as
+# `console-web-<key>.tar.gz` under the console key `scripts/console-key.sh` prints; a commit whose
+# key is already there builds nothing. On `main` the rolling `console-web.tar.gz` is then pointed
+# at `main`'s key. Every Cloudflare build of the site, production or preview, waits for its own
+# commit's key and never compiles the console (ADR 0093, ADR 0101).
 #
-# Repeated under both triggers because Actions does not support YAML anchors.
+# Runs on every branch rather than behind a path filter, so a branch that changes nothing in the
+# console still finds its key published, however far behind `main` it is. `gh-pages` holds only
+# the benchmark series and the merge queue's branches are never previewed.
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - 'console/**'
-      - 'orcvs/**'
-      - 'lang/**'
-      - 'synth/**'
-      - 'examples/**'
-      - 'scripts/stage-synth.sh'
-      - 'scripts/console-key.sh'
-      - '.cargo/config.toml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'mise.toml'
-      - '.github/workflows/console-web.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'console/**'
-      - 'orcvs/**'
-      - 'lang/**'
-      - 'synth/**'
-      - 'examples/**'
-      - 'scripts/stage-synth.sh'
-      - 'scripts/console-key.sh'
-      - '.cargo/config.toml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'mise.toml'
-      - '.github/workflows/console-web.yml'
+    branches-ignore:
+      - gh-pages
+      - 'gh-readonly-queue/**'
 
 permissions:
   contents: read
 
+# Every commit on `main` publishes its own key, so its runs never cancel each other. A newer push
+# to another branch supersedes the one before it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The commit's console key, and whether a console with that key is already published: by an
+  # earlier commit on any branch, since one key is one console.
+  key:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      published: ${{ steps.key.outputs.published }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: key
+        name: Find the console key and whether it is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          key="$(bash scripts/console-key.sh)"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          # No release yet lists no assets, so the console is built.
+          if gh release view console-web --json assets --jq '.assets[].name' 2> /dev/null \
+            | grep -qxF "console-web-$key.tar.gz"; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "Console key $key is already published." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: key
+    if: needs.key.outputs.published != 'true'
     # One release WASM build with wasm-opt: a few minutes warm.
     timeout-minutes: 20
     runs-on: ubuntu-latest
@@ -84,20 +87,18 @@ jobs:
           path: target/console-web
           if-no-files-found: error
 
-  # Publishes a console built on `main` under its console key, where the site's
-  # production build waits for it. Each key names one archive, so concurrent
-  # runs cannot overwrite each other's console and need no queue.
+  # Publishes the console under its key, where the site builds of every commit with that key wait
+  # for it. Each key names one console, so concurrent runs cannot overwrite each other's console and
+  # need no queue. Dependabot's pushes get a read-only token, so their consoles are built but not
+  # published.
   publish:
-    needs: build
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [key, build]
+    if: github.actor != 'dependabot[bot]'
     timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the console-web release and upload to it
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: console-web
@@ -106,23 +107,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          KEY: ${{ needs.key.outputs.key }}
         run: |
-          key="$(bash scripts/console-key.sh)"
-          tar -czf "console-web-$key.tar.gz" -C target/console-web .
+          tar -czf "console-web-$KEY.tar.gz" -C target/console-web .
           if ! gh release view console-web > /dev/null 2>&1; then
             gh release create console-web --prerelease --target "$GITHUB_SHA" \
-              --title "Web console (latest main)" --notes "The web consoles built on main."
+              --title "Web console (latest main)" --notes "The web consoles built on main and its branches."
           fi
-          gh release upload console-web "console-web-$key.tar.gz" --clobber
-          echo "Published console key $key." >> "$GITHUB_STEP_SUMMARY"
+          gh release upload console-web "console-web-$KEY.tar.gz" --clobber
+          echo "Published console key $KEY." >> "$GITHUB_STEP_SUMMARY"
 
-  # Points the rolling console that previews and local builds take at the
-  # console of `main`'s tip, and keeps the newest 20 keyed archives. Runs finish
-  # out of commit order, and a queued run can displace another, so every run
-  # copies `main`'s keyed archive rather than its own build: whichever run goes
-  # last leaves the rolling console matching `main`.
+  # Points the rolling console that local builds take at the console of `main`'s tip, and keeps the
+  # newest 100 keyed archives, enough for every open branch. Runs finish out of commit order, and a
+  # queued run can displace another, so every run copies `main`'s keyed archive rather than its own
+  # build: whichever run goes last leaves the rolling console matching `main`. It runs whether this
+  # commit's console was built here or was already published.
   latest:
-    needs: publish
+    needs: [key, build, publish]
+    if: >-
+      always() && github.ref == 'refs/heads/main'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     timeout-minutes: 5
     runs-on: ubuntu-latest
     concurrency:
@@ -149,5 +153,5 @@ jobs:
             --notes "The web console of main (key $key), and the consoles of recent keys. The site's build downloads its console from here."
           gh release upload console-web console-web.tar.gz --clobber
           gh release view console-web --json assets \
-            --jq '.assets | map(select(.name | startswith("console-web-"))) | sort_by(.createdAt) | reverse | .[20:][].name' \
+            --jq '.assets | map(select(.name | startswith("console-web-"))) | sort_by(.createdAt) | reverse | .[100:][].name' \
             | while read -r name; do gh release delete-asset console-web "$name" --yes; done

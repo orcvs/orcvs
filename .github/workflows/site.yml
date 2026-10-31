@@ -3,13 +3,12 @@ name: Site
 # Tests the site. Cloudflare builds and deploys it through its GitHub app: it
 # installs the dependencies and runs `npm run build` in `site/`. This workflow
 # does the same through `mise run site_build`, which is exactly those two
-# commands, runs the Playwright suite against the result, and deploys nothing. The console comes
-# from the `console-web` workflow's build for the same commit when that commit
-# changed the console, and otherwise from the published `console-web` release,
-# as Cloudflare's build takes it. Path-filtered to what the site itself is
-# built from: the site, the tool pins, and the repository docs it renders, and
-# to the console key and the filter it reads, which the console script's test
-# covers.
+# commands, runs the Playwright suite against the result, and deploys nothing. The console is the
+# one its commit builds: the `console-web` workflow's build for the same commit, or, when that run
+# found the console already published, the archive under the commit's console key, as Cloudflare's
+# build takes it. Path-filtered to what the site itself is built from: the site, the tool pins, and
+# the repository docs it renders, and to the console key and the workflow that publishes it, which
+# the console script's test covers.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
@@ -52,15 +51,17 @@ jobs:
       contents: read # checkout
       actions: read # find and download the console-web artifact
     steps:
+      # The pull request's head, as Cloudflare's preview builds it, rather than its merge with main.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
-      # The console built from this commit when this commit changed it, waiting
-      # for that build to finish. Otherwise the build's `prebuild` step downloads
-      # the published console, as Cloudflare's build does.
+      # The console this commit builds, waiting for its Console web run to finish: that run's build,
+      # or the published archive under the commit's key when the run found it already published.
+      # Without a run, the build's `prebuild` step downloads the rolling console.
       - name: Download this commit's web console
         env:
           GH_TOKEN: ${{ github.token }}
@@ -71,13 +72,20 @@ jobs:
           run=$(gh run list --workflow console-web.yml --commit "$HEAD_SHA" --limit 1 \
             --json databaseId --jq '.[0].databaseId // empty')
           if [[ -z "$run" ]]; then
-            echo "Console from the console-web release." >> "$GITHUB_STEP_SUMMARY"
+            echo "Console from the rolling console-web release." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           gh run watch "$run" --exit-status > /dev/null
-          gh run download "$run" --name console-web --dir target/console-web
+          if gh run download "$run" --name console-web --dir target/console-web; then
+            echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            key="$(bash scripts/console-key.sh)"
+            mkdir -p target/console-web
+            gh release download console-web --pattern "console-web-$key.tar.gz" --output - \
+              | tar -xzf - -C target/console-web
+            echo "Console key $key from the console-web release." >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "CONSOLE_WEB=$GITHUB_WORKSPACE/target/console-web" >> "$GITHUB_ENV"
-          echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
       # How Cloudflare's build takes its console, against a stubbed release.
       - run: bash site/scripts/tests/console.sh
       - run: mise run site_build
@@ -94,8 +102,10 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
+      # The same commit the build job built.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:

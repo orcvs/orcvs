@@ -3,12 +3,12 @@
 # this as `prebuild`, from `site/`, so `npm run build` there is the whole site build and is
 # Cloudflare's build command. `CONSOLE_WEB` names a built console's directory, relative to `site/`,
 # such as `../target/console-web` from `mise run console_web_build`, and replaces the console there.
-# Cloudflare's production build (`WORKERS_CI_BRANCH` is `main`) takes only the console its commit
-# builds, published under that commit's console key, and waits up to 15 minutes for it before
-# failing (ADR 0093). Any other build keeps a console already in `public/play/`, and otherwise
-# downloads the console last published from `main`; delete `public/play/` to fetch it again. The
-# console is copied unchanged: its URLs are relative, so it serves from `/play/` under any
-# `SITE_BASE`.
+# Every Cloudflare build (`WORKERS_CI_BRANCH` is set), production or preview, takes only the console
+# its commit builds, published under that commit's console key, and waits up to 15 minutes for it
+# before failing (ADR 0093, ADR 0101). A local build keeps a console already in `public/play/`, and
+# otherwise downloads the console last published from `main`; delete `public/play/` to fetch it
+# again. The console is copied unchanged: its URLs are relative, so it serves from `/play/` under
+# any `SITE_BASE`.
 set -euo pipefail
 if [[ -n "${CONSOLE_WEB:-}" ]]; then
   CONSOLE_WEB="$(cd "$CONSOLE_WEB" && pwd)"
@@ -29,7 +29,7 @@ if [[ -n "${CONSOLE_WEB:-}" ]]; then
   rm -rf public/play
   mkdir -p public/play
   cp -R "$CONSOLE_WEB"/. public/play
-elif [[ "${WORKERS_CI_BRANCH:-}" == main ]]; then
+elif [[ -n "${WORKERS_CI_BRANCH:-}" ]]; then
   key="$(bash ../scripts/console-key.sh)"
   # 45 tries 20 seconds apart: under 15 minutes, inside Cloudflare's 20-minute build limit.
   for try in $(seq 45); do

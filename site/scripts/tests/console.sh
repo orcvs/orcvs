@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests `site/scripts/console.sh` and `scripts/console-key.sh` as Cloudflare's build runs them
-# (ADR 0093), without the network. Each case is a throwaway repository holding the two scripts and
-# the real `console-web.yml`, whose path filter decides the key. `curl` and `sleep` are stubbed on
+# (ADR 0093, ADR 0101), without the network. Each case is a throwaway repository holding the two
+# scripts and a stand-in console. `curl` and `sleep` are stubbed on
 # `PATH`: `curl` serves files from a directory standing in for the `console-web` release, and
 # `sleep` counts the waits and can publish a console partway through them.
 set -euo pipefail
@@ -42,10 +42,9 @@ repo() {
   git -C "$work/repo" config user.name test
   git -C "$work/repo" config maintenance.auto false
   git -C "$work/repo" config gc.auto 0
-  mkdir -p "$work/repo/scripts" "$work/repo/site/scripts" "$work/repo/.github/workflows" "$work/repo/console"
+  mkdir -p "$work/repo/scripts" "$work/repo/site/scripts" "$work/repo/console"
   cp "$repo_root/scripts/console-key.sh" "$work/repo/scripts/"
   cp "$repo_root/site/scripts/console.sh" "$work/repo/site/scripts/"
-  cp "$repo_root/.github/workflows/console-web.yml" "$work/repo/.github/workflows/"
   echo 'fn main() {}' > "$work/repo/console/main.rs"
   echo '# Home' > "$work/repo/site/index.md"
   commit
@@ -94,16 +93,6 @@ echo 'fn main() { loop {} }' > "$work/repo/console/main.rs"
 commit
 [[ "$(key)" != "$first" ]] || fail "a console commit kept the console key"
 
-# A filter the key cannot read fails rather than keying the console by the wrong paths.
-repo
-sed -i "s|^      - 'Cargo.lock'$|      - '*.lock'|" "$work/repo/.github/workflows/console-web.yml"
-commit
-if key > /dev/null 2>&1; then fail "a glob in the path filter was keyed"; fi
-repo
-sed -i "s/^    paths:$/    branches-ignore: [gh-pages]/" "$work/repo/.github/workflows/console-web.yml"
-commit
-if key > /dev/null 2>&1; then fail "an empty path filter was keyed"; fi
-
 # The production build waits for its own console, ignoring the rolling one already published.
 repo
 console console-web.tar.gz previous
@@ -124,10 +113,27 @@ grep -F "$(key)" <<< "$output" > /dev/null || fail "the failure does not name th
 # 45 tries with a wait between each.
 [[ "$(cat "$work/sleeps")" == 44 ]] || fail "the build waited $(cat "$work/sleeps") times, not 44"
 
-# Any other build takes the rolling console straight away.
+# A preview build waits for its own console too, ignoring the rolling one already published.
 repo
 console console-web.tar.gz previous
 cp "$work/console-web.tar.gz" "$work/release/"
-build env WORKERS_CI_BRANCH=feature || fail "a preview build failed with a published console"
-[[ "$(served)" == previous ]] || fail "a preview build served $(served), not the rolling console"
-[[ ! -f "$work/sleeps" ]] || fail "a preview build waited"
+console "console-web-$(key).tar.gz" this-commit
+build env WORKERS_CI_BRANCH=feature FAKE_PUBLISH="$work/console-web-$(key).tar.gz" FAKE_PUBLISH_AFTER=2 \
+  || fail "a preview build failed although its console was published while it waited"
+[[ "$(served)" == this-commit ]] || fail "a preview build served $(served), not its commit's console"
+
+# A preview build whose console is already published takes it without waiting.
+repo
+console "console-web-$(key).tar.gz" this-commit
+cp "$work/console-web-$(key).tar.gz" "$work/release/"
+build env WORKERS_CI_BRANCH=feature || fail "a preview build failed with its console published"
+[[ "$(served)" == this-commit ]] || fail "a preview build served $(served), not its commit's console"
+[[ ! -f "$work/sleeps" ]] || fail "a preview build waited for a published console"
+
+# A local build takes the rolling console straight away.
+repo
+console console-web.tar.gz previous
+cp "$work/console-web.tar.gz" "$work/release/"
+build env || fail "a local build failed with a published console"
+[[ "$(served)" == previous ]] || fail "a local build served $(served), not the rolling console"
+[[ ! -f "$work/sleeps" ]] || fail "a local build waited"
