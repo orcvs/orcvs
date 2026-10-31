@@ -1,0 +1,80 @@
+# One Built-in Synth channel plays a 303-style voice
+
+Status: proposed. Opened with Toby on 2026-10-31 in `.scratch/acid-channel/`. It would amend
+[ADR 0087](0087-the-site-plays-the-console-through-a-built-in-synth.md), whose channels share one
+envelope and which ignores every Control Change but All Sound Off and All Notes Off, and leave
+[ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)'s effects as
+they are.
+
+Acid basslines are the music a reader expects a sequencer like Orcvs to make, and the Built-in
+Synth cannot make one. A 303's sound is its filter: a resonant lowpass swept down by an envelope on
+every note, deepened by accent and tied across notes by slide. The synth has no filter, no
+per-note envelope but loudness, and no voice that slides.
+
+## Decision
+
+**Channel `02` plays a 303-style voice.** _Open: `02`, which replaces today's saw, or a channel of
+its own; see below._
+
+- **One voice, mono.** A Note On while the channel's note is still held is legato: the pitch glides
+  to the new note over about 60 ms and neither envelope restarts. A Note On with nothing held starts
+  both envelopes. A Note Off for a note that is no longer the one sounding changes nothing, so a
+  Timed Play's late Note Off cannot cut the note that replaced it.
+- **A bandlimited saw or square** (polyBLEP), chosen by a Control Change.
+- **A resonant 24 dB/oct lowpass,** four saturating one-pole stages with feedback. Resonance is
+  capped below self-oscillation, as a 303's is.
+- **A filter envelope** that jumps on each new note and decays exponentially. Its decay and depth are
+  Control Changes.
+- **Accent:** a Note On at or above velocity `78` is accented: louder, its filter opened further,
+  and its envelope at the shortest decay. Below that, velocity sets loudness as it does on every
+  other channel. _Open: the threshold. `78` leaves `64`, `77` (Orca's default `f`) and the examples'
+  velocities unaccented and makes `7F` accented._
+- **Its Control Changes, on that channel only**, after General MIDI's sound controllers:
+
+  | CC | Sets | At load |
+  | --- | --- | --- |
+  | 70 | waveform: below `40` saw, from `40` square | `00` |
+  | 71 | resonance | `50` |
+  | 74 | cutoff | `30` |
+  | 75 | envelope decay | `30` |
+  | 79 | envelope depth (env mod) | `50` |
+
+  The load values make a recognisable acid sound with no Control Change at all. Reset All
+  Controllers, which Stop's safety action sends, returns them.
+
+**The language needs nothing new.** A Control Change every Tick turns the knobs, as the Knobs
+example turns the effects. Velocity carries accent. A Timed Play whose length runs past its step
+overlaps the next note, which is how a slide is written. Monophonic Play stops the prior note before
+it starts the next one, so it never slides.
+
+## Which channel
+
+**`02` (recommended).** It is already the saw, and the Knobs example's bassline plays it. At its load
+values it no longer sounds like a bare saw, and it can no longer play a chord. No shipped example
+plays a chord on `02`.
+
+**A channel of its own,** such as `07`, which gives up an AM voice. Every existing channel keeps its
+sound, and the acid voice is one more thing a reader has to learn the number of.
+
+## Rejected alternatives
+
+**A Program Change that turns any tone channel into the acid voice.** A Source would have to send it
+before a run and again after every Stop, because the safety action resets the channel; ADR 0087
+ignores Program Change for that reason.
+
+**Accent and slide as Control Changes,** as some 303 clones take them. A Source would send a CC
+before each Play, which doubles every step. Velocity and note overlap already say it.
+
+**A filter on every tone channel.** It is more than the ask. One channel proves the voice first.
+
+**Sample playback of a 303.** The synth has no samples (ADR 0087), and a 303's sound is the filter
+moving, which a sample cannot follow.
+
+## Consequences
+
+- The core gains one voice type and a per-channel controller state; every other channel keeps one
+  shared envelope and ignores these controllers.
+- The Sound Module shows the channel's notes as it shows any channel's; it does not show the acid
+  controllers. Showing them is the Sound Module's own decision.
+- A MIDI device on the same channel reads CC 70 to 79 as General MIDI's sound controllers, which most
+  devices treat as timbre, so a Source written for the acid channel stays harmless elsewhere.
