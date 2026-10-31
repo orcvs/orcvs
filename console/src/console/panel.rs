@@ -28,28 +28,6 @@ fn source_reserve(ui: &egui::Ui, cell: Vec2) -> f32 {
     snapped_cell(cell, ui.ctx().pixels_per_point()).y
 }
 
-// PROTOTYPE (throwaway): which Cursor info layout the Panel draws. 0 is
-// today's Panel, 1 is A, 2 is B, 3 is C. Read once from `ORCVS_VARIANT`
-// (a, b or c) unless a capture set it first.
-pub(crate) static PROTOTYPE_VARIANT: std::sync::atomic::AtomicU8 =
-    std::sync::atomic::AtomicU8::new(u8::MAX);
-
-pub(crate) fn prototype_variant() -> u8 {
-    use std::sync::atomic::Ordering;
-    let variant = PROTOTYPE_VARIANT.load(Ordering::Relaxed);
-    if variant != u8::MAX {
-        return variant;
-    }
-    let read = match std::env::var("ORCVS_VARIANT").as_deref() {
-        Ok("a") => 1,
-        Ok("b") => 2,
-        Ok("c") => 3,
-        _ => 0,
-    };
-    PROTOTYPE_VARIANT.store(read, Ordering::Relaxed);
-    read
-}
-
 /// Extra left inset on top of `Frame::side_top_panel`'s inner margin.
 pub(super) const BOTTOM_PANEL_LEFT_PAD: i8 = 10;
 
@@ -419,12 +397,11 @@ impl Console {
         let separation = 2.0 * root.spacing().item_spacing.y;
         // Sized from the messages standing as the frame begins; one that
         // appears or clears while the row is drawn resizes the next frame.
-        let status_height =
-            if prototype_variant() != 0 || self.statuses().iter().any(Option::is_some) {
-                root.text_style_height(&egui::TextStyle::Body)
-            } else {
-                0.0
-            };
+        let status_height = if self.statuses().iter().any(Option::is_some) {
+            root.text_style_height(&egui::TextStyle::Body)
+        } else {
+            0.0
+        };
         // The line follows the row with egui's item spacing between them.
         let status_room = if status_height > 0.0 {
             status_height + root.spacing().item_spacing.y
@@ -501,16 +478,9 @@ impl Console {
                     panel_label(ui, "O");
                     ui.add_space(label_value_gap);
                     self.show_destination(ui);
-                    if prototype_variant() == 3 {
-                        ui.add_space(entry_gap);
-                        self.show_cursor_info(ui);
-                    }
                 },
             );
-            match prototype_variant() {
-                0 | 3 => self.show_statuses(ui, status_height),
-                variant => self.show_prototype_line(ui, status_height, variant),
-            }
+            self.show_statuses(ui, status_height);
             diagnostics_height.map(|height| {
                 ui.add(egui::Separator::default().horizontal().spacing(0.0));
                 // Reserve the readouts before the Source takes its space;
@@ -564,103 +534,6 @@ impl Console {
                 }
             },
         );
-    }
-
-    // PROTOTYPE (throwaway): the second line for layouts A (Cursor info left,
-    // status messages right) and B (Cursor info, replaced by a message).
-    fn show_prototype_line(&self, ui: &mut egui::Ui, height: f32, variant: u8) {
-        let statuses = self.statuses();
-        let shown = statuses.iter().any(Option::is_some);
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), height),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                if variant == 1 || !shown {
-                    self.show_cursor_info(ui);
-                }
-                if shown {
-                    let color = ui.visuals().error_fg_color;
-                    for (index, status) in statuses.into_iter().flatten().enumerate() {
-                        if variant == 1 || index > 0 {
-                            ui.add_space(readout_group_gap(ui));
-                        }
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(status).color(color)).truncate(),
-                        );
-                    }
-                }
-            },
-        );
-    }
-
-    // PROTOTYPE (throwaway): the Function at the Cursor, read off the Render
-    // Frame's Cells, in the Panel's readout style: name, spelling, then each
-    // operand's role label and value, then its answer from the Cells south.
-    fn show_cursor_info(&self, ui: &mut egui::Ui) {
-        let frame = self.orcvs.render_frame();
-        let cursor = frame.cursor();
-        let Some(expression) = frame.expression_at(cursor) else {
-            return;
-        };
-        let text_at = |x: usize, y: usize| -> String {
-            frame
-                .cells()
-                .iter()
-                .filter(|cell| {
-                    cell.position().y() == y && (x..x + 2).contains(&cell.position().x())
-                })
-                .map(|cell| cell.content().unwrap_or(' '))
-                .collect()
-        };
-        let span: String = expression
-            .span()
-            .positions()
-            .map(|position| {
-                text_at(position.x(), position.y())
-                    .chars()
-                    .next()
-                    .unwrap_or(' ')
-            })
-            .collect();
-        let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
-        let mono = panel_monospace_id(ui);
-        let strong = ui.visuals().strong_text_color();
-        if let Some(diagnostic) = expression.diagnostic() {
-            let color = ui.visuals().error_fg_color;
-            ui.label(
-                egui::RichText::new(format!("{span}  {diagnostic:?}"))
-                    .font(mono)
-                    .color(color),
-            );
-            return;
-        }
-        let spelling: String = span.chars().take(2).collect();
-        let (name, roles): (&str, &[&str]) = match spelling.as_str() {
-            ".+" => ("ADD", &["L", "R"]),
-            ".-" => ("SUBTRACT", &["L", "R"]),
-            ".v" => ("NOTE", &["N"]),
-            _ => ("FUNCTION", &[]),
-        };
-        ui.label(egui::RichText::new(name).font(mono.clone()).color(strong));
-        ui.add_space(label_value_gap);
-        ui.label(egui::RichText::new(&spelling).font(mono.clone()));
-        let operands: Vec<char> = span.chars().skip(2).collect();
-        for (role, value) in roles.iter().zip(operands.chunks(2)) {
-            ui.add_space(entry_gap);
-            panel_label(ui, role);
-            ui.add_space(label_value_gap);
-            ui.label(egui::RichText::new(value.iter().collect::<String>()).font(mono.clone()));
-        }
-        if let Some(root) = expression.root() {
-            let answer = text_at(root.x(), root.y() + 1);
-            if !answer.trim().is_empty() {
-                ui.add_space(entry_gap);
-                panel_label(ui, "=");
-                ui.add_space(label_value_gap);
-                ui.label(egui::RichText::new(answer).font(mono));
-            }
-        }
     }
 
     ///
