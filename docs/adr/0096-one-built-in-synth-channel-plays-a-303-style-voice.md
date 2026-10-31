@@ -14,8 +14,9 @@ per-note envelope but loudness, and no voice that slides.
 
 ## Decision
 
-**Channel `03` plays a 303-style voice,** in place of today's square; its waveform Control Change
-keeps the square. The 808 kit stays on `08`. Toby chose the channels on 2026-10-31.
+**Channel `09` plays a 303-style voice.** ADR 0087 gives `08` to `0F` the same 808 kit, so `09`
+adds nothing today; the kit stays on `08` and `0A`–`0F`, and every tone channel keeps its sound.
+Toby chose `09` on 2026-10-31.
 
 - **One voice, mono.** It takes one of ADR 0087's sixteen voices while it sounds, and a chord
   played on the channel sounds as its last note, legato from the one before. A Note On while the channel's note is still held is legato: the pitch glides
@@ -52,10 +53,8 @@ it starts the next one, so it never slides.
 
 ## Rejected alternatives
 
-**Channel `02`, the saw,** which the Knobs bassline already plays. Toby put the 303 on `03`.
-
-**A channel of its own,** such as `07`. It gives up an AM voice and adds one more channel number to
-learn, while `03`'s square survives as the acid voice's square.
+**A tone channel's slot:** `02`, the saw the Knobs bassline already plays, or `03`, the square. Either
+loses a sound the synth has, while `09` only repeats the kit on `08`.
 
 **A Program Change that turns any tone channel into the acid voice.** A Source would have to send it
 before a run and again after every Stop, because the safety action resets the channel. The synth
@@ -71,8 +70,9 @@ moving, which a sample cannot follow.
 
 ## Consequences
 
-- Channel `03` no longer plays a bare square or a chord. No shipped example plays `03`; the Knobs
-  bassline moves to it from `02`.
+- Channel `09` no longer plays the kit. No shipped example sounds on `09`: the Sequencer ships its
+  `09` voice empty, so a reader who fills it hears the acid voice. The Knobs bassline moves to `09`
+  from `02`.
 - The core gains one voice type and a per-channel controller state; every other channel keeps one
   shared envelope and ignores these controllers.
 - The Sound Module shows the channel's notes as it shows any channel's; it does not show the acid
@@ -80,5 +80,6 @@ moving, which a sample cannot follow.
 - A MIDI device on the same channel reads CC 70 to 79 as General MIDI's sound controllers: 71, 74
   and 75 are resonance, cutoff and decay on most synths, and 70 and 79 vary by device. A Source
   written for the acid channel usually only changes timbre elsewhere.
-- On acceptance, ADR 0087's Status line, `CONTEXT.md`'s Built-in Synth entry ("tones on channels
-  `00`–`07`") and `examples/knobs.md` ("the Built-in Synth's saw") name the acid channel `03`.
+- On acceptance, ADR 0087's Status line, `CONTEXT.md`'s Built-in Synth entry ("an 808-style kit
+  ... on channels `08`–`0F`") and `examples/knobs.md` ("the Built-in Synth's saw") name the acid
+  channel `09`.

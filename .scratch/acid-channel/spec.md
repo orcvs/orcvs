@@ -24,7 +24,7 @@ tones' shared on/off envelope, which is about a fifth of a 303.
   slid step. Monophonic Play stops the prior note before it starts the next, so it cannot slide.
 
 So no new Function is needed. The work is one voice in the synth core and the Control Changes that
-reach it on channel `03`, in place of the square, decided in [ADR 0096](../../docs/adr/0096-one-built-in-synth-channel-plays-a-303-style-voice.md).
+reach it on channel `09`, which today only repeats the kit on `08`, decided in [ADR 0096](../../docs/adr/0096-one-built-in-synth-channel-plays-a-303-style-voice.md).
 
 ## Prototype
 
