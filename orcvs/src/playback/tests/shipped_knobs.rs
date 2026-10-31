@@ -9,7 +9,9 @@
 
 use super::{HandDrivenRun, note_on, stop};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
-use crate::source::{ControlValue, Controller, MidiChannel, SourceCommander, file};
+use crate::source::{
+    ControlValue, Controller, LanguageUnitKind, MidiChannel, SourceCommander, file,
+};
 
 /// The bassline's sixteen steps, one a Tick, as MIDI notes: A1 A1 A2 A1 C2 A1
 /// G2 A1 A1 E2 A1 A2 C3 A1 G2 E2.
@@ -87,6 +89,21 @@ fn the_knobs_glide_the_effects_to_each_preset_over_the_bassline() {
             .chain((0..8).map(|knob| (4, 6 + 3 * knob)))
             .collect::<Vec<_>>()
     );
+    // Each Comment as its anchor's column and row and its last Cell's column:
+    // the bassline's steps, the preset and the eight knobs' presets.
+    let mut comments = Vec::new();
+    source.read_source(|source| {
+        comments = source
+            .language_map()
+            .units()
+            .filter(|unit| matches!(unit.kind(), LanguageUnitKind::Comment(_)))
+            .map(|unit| {
+                let end = unit.span().positions().last().expect("a Span holds a Cell");
+                (unit.anchor().x(), unit.anchor().y(), end.x())
+            })
+            .collect::<Vec<_>>();
+    });
+    assert_eq!(comments.len(), 10);
     let adapter = InMemoryOutputAdapter::default();
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
@@ -113,13 +130,13 @@ fn the_knobs_glide_the_effects_to_each_preset_over_the_bassline() {
                 plan.diagnostics
             );
             // The Cells the nested Functions write below themselves are
-            // diagnosed as they are in the tracker; the Comments, from
-            // column 18 of the bassline's row 2 and column 22 of the rest,
-            // never are.
+            // diagnosed as they are in the tracker; the Comments never are.
             assert!(
-                mapped(&source)
-                    .iter()
-                    .all(|&(column, row)| column < if row == 2 { 18 } else { 22 }),
+                mapped(&source).iter().all(|&(column, row)| {
+                    !comments
+                        .iter()
+                        .any(|&(start, at, end)| at == row && (start..=end).contains(&column))
+                }),
                 "Tick {tick}'s Language Map"
             );
             let mut delivery = Vec::new();

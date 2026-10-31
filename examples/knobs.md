@@ -55,6 +55,11 @@ Knob `k` sends Control Change `k` on channel `00`, which sets the Built-in
 Synth's effect `k` (ADR 0088). Each effect is global, so the channel picks
 nothing.
 
+The patch is made for the Built-in Synth. On another MIDI output, controllers
+`01` to `08` carry General MIDI's meanings instead: `01` is the modulation
+wheel, `06` Data Entry, `07` channel volume and `08` balance. Preset `00` sends
+`07` a `00`, which silences channel 1 on most devices.
+
 | Knob | Controller | Effect | `00` | `01` | `02` | `03` | `04` | `05` |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `01` | `MD` | `30` | `00` | `10` | `7F` | `20` | `50` |
@@ -101,8 +106,10 @@ the Delay, and controller `01 + k`. Its Read north's `n` is `1 + 3k`, the
 distance from its row to row 4, so every knob reads the same preset.
 
 Every value starts at `00`, so after you start Playback the knobs take up to
-sixteen Ticks, two seconds at the default 120 BPM, to reach a preset. Change
-the tempo in the Panel's BPM field.
+sixteen Ticks, two seconds at the default 120 BPM, to reach a preset. Until
+then `LN` and `EQ` sit below their load values, so a sound's length and its
+brightness rise over the first two seconds. Change the tempo in the Panel's
+BPM field.
 
 ## Where it differs from Orca
 

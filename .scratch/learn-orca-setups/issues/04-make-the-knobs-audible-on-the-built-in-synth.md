@@ -14,7 +14,10 @@ for those effects, and give the patch a bassline so the effects have something t
 - [x] Knob `k` sends controller `k` on channel `00`, so the Sound Module shows every knob's effect
       move with the preset.
 - [x] No preset drives `LN` below `40` or tilts `EQ` far from flat, and preset `01` is the synth's
-      load values.
+      load values. Every knob starts at `00`, so `LN` and `EQ` ramp up over the first sixteen Ticks;
+      `knobs.md` says so.
+- [x] `knobs.md` says the patch is made for the Built-in Synth, and what controllers `01` to `08`
+      mean on a General MIDI device.
 - [x] A sixteen-step bassline on channel `02`, the saw, plays one step a Tick from a Comment, so the
       file opens with no lexical diagnostic.
 - [x] The shipped-file test asserts every Tick's bassline note and Control Changes through three
