@@ -54,7 +54,7 @@ jobs:
             accepted="^$archive "
           else
             archive="console-preview-$key.tar.gz"
-            accepted="^console-(web|preview)-$key[.]tar[.]gz "
+            accepted="^console-(web|preview)-${key}[.]tar[.]gz "
           fi
           assets="$(bash scripts/console-assets.sh)"
           published=false
@@ -175,6 +175,6 @@ jobs:
           gh release upload console-web console-web.tar.gz --clobber
           assets="$(bash scripts/console-assets.sh)"
           for kind in web preview; do
-            grep -E "^console-$kind-[0-9a-f]+[.]tar[.]gz " <<< "$assets" | grep -v "^console-web-$key[.]" \
+            grep -E "^console-$kind-[0-9a-f]+[.]tar[.]gz " <<< "$assets" | grep -v "^console-web-${key}[.]" \
               | sort -k2 -r | tail -n +51 | cut -d' ' -f1 || true
           done | while read -r name; do gh release delete-asset console-web "$name" --yes; done
