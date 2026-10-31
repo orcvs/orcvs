@@ -110,12 +110,12 @@ orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 #
 # `.agents/skills/egui/references/guide.md` records the release this stack is
 # read against and what moving it costs.
-eframe = { version = "=0.36.2", default-features = false, features = [
+eframe = { version = "=0.37.0", default-features = false, features = [
     "glow",
     "wayland",
     "x11",
 ] }
-egui = { version = "=0.36.2", default-features = false }
+egui = { version = "=0.37.0", default-features = false }
 # The Theme document decoder (`theme_document.rs`, `.scratch/theming/issues/07`).
 # A Theme document is TOML and nothing else, as ADR 0053 records: `toml`'s own
 # Serde deserializer decodes it straight into a derived, strict document type.
@@ -250,7 +250,7 @@ web-sys = { version = "0.3", features = [
 # and a browser build has no business resolving a test harness. `=0.36.2` for the
 # reason `egui` and `eframe` carry it — the harness has to be the one that matches
 # the egui it drives.
-egui_kittest = { version = "=0.36.2", default-features = false, features = ["eframe"] }
+egui_kittest = { version = "=0.37.0", default-features = false, features = ["eframe"] }
 # Native FileStorage writes a RON `HashMap<String, String>` to `app.ron`.
 # FileStorage itself is crate-private (`from_ron_filepath` is `pub(crate)`;
 # only `eframe::storage_dir` is re-exported), so a product-path test has to
