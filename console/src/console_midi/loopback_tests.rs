@@ -429,17 +429,20 @@ async fn midi_loopback_in_process() {
 
 ///
 /// The Tracker as shipped, its pattern holding `notes` as (voice, step,
-/// Note spelling) in place of its 808 beat.
+/// Note spelling) in place of its 808 beat and bassline.
 ///
 /// Voice `v`'s steps are the column `2 + 28(v / 4) + 7(v % 4) + 10` of rows
 /// 15 to 30, each pair marked `|  |` inside the `||` Comment that spans the
-/// row. Voices 0 to 2 play on channel 8, and voice `v` from 3 on channel `v`.
+/// row. Voices 0 to 2 play on channel 8, voice 3 on channel 9, and voice `v`
+/// from 4 on channel `v`.
 ///
 fn tracker(notes: &[(u8, usize, &str)]) -> Source {
-    let text = include_str!("../../../examples/tracker.orcvs")
-        .replace("C2", "  ")
-        .replace("D2", "  ")
-        .replace("f2", "  ");
+    let text = ["C2", "D2", "f2", "A1", "A2", "C3", "E2", "G2"]
+        .into_iter()
+        .fold(
+            include_str!("../../../examples/tracker.orcvs").to_owned(),
+            |text, note| text.replace(note, "  "),
+        );
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
     for &(voice, step, note) in notes {
         let column = 2 + 28 * usize::from(voice / 4) + 7 * usize::from(voice % 4) + 10;
@@ -486,7 +489,7 @@ const TRACKER_TICKS: u32 = 17;
 /// come first, in the order those Notes started; the Tick's Note Ons follow
 /// in Source order, row by row from the top and left to right within a row,
 /// which puts voices 3 and 7 first and 0 and 4 last. Voices 0 to 2 play on
-/// channel 8. All on velocity `0x77`, as each voice's `!~cc77` writes it.
+/// channel 8 and voice 3 on channel 9. All on velocity `0x77`, as each voice's `!~cc77` writes it.
 ///
 fn tracker_plays() -> [Vec<Heard>; TRACKER_TICKS as usize] {
     let on = |channel, note| Heard::NoteOn {
@@ -498,9 +501,9 @@ fn tracker_plays() -> [Vec<Heard>; TRACKER_TICKS as usize] {
     let step_0 = [on(8, 64), on(5, 67), on(8, 60)];
     [
         step_0.to_vec(),
-        vec![off(8, 64), off(5, 67), off(8, 60), on(3, 62)],
-        vec![off(3, 62), on(3, 65), on(6, 71)],
-        vec![off(3, 65), off(6, 71)],
+        vec![off(8, 64), off(5, 67), off(8, 60), on(9, 62)],
+        vec![off(9, 62), on(9, 65), on(6, 71)],
+        vec![off(9, 65), off(6, 71)],
         vec![],
         vec![],
         vec![],
