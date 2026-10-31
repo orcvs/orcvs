@@ -32,7 +32,7 @@ const ACID_LEVEL: f32 = 0.3;
 /// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 on
 /// any channel sets `MD`, vibrato on the whole mix. All Sound Off and All Notes
 /// Off release a channel's tones and its acid voice. The acid channel's own
-/// Control Changes and Reset All Controllers set its [`Controls`]; every other
+/// Control Changes and Reset All Controllers set its controls; every other
 /// Control Change, Pitch Bend and Program Change is ignored.
 pub struct Synth {
     sample_rate: f32,
@@ -176,12 +176,13 @@ impl Synth {
     }
 
     fn note_on(&mut self, channel: u8, note: u8, velocity: u8) {
-        if channel == acid::CHANNEL && self.play_acid(note, velocity) {
-            return;
-        }
+        self.started += 1;
         let sound = if channel < 8 {
             Sound::Tone(Tone::new(channel, note))
         } else if channel == acid::CHANNEL {
+            if self.play_acid(note, velocity) {
+                return;
+            }
             Sound::Acid(Acid::new(note, velocity))
         } else {
             let instrument = Instrument::of(note);
@@ -190,7 +191,6 @@ impl Synth {
             }
             Sound::Drum(Drum::new(instrument, self.sample_rate))
         };
-        self.started += 1;
         // A free voice ranks first, then the oldest.
         let slot = (0..VOICES)
             .min_by_key(|&index| self.voices[index].as_ref().map_or(0, |voice| voice.started))
@@ -205,9 +205,16 @@ impl Synth {
     }
 
     /// Plays `note` on the acid voice if it is still sounding, and answers
-    /// whether it was. A note struck afresh counts as the newest voice.
+    /// whether it was. The note counts as the newest voice and takes its own
+    /// velocity, slid into or struck afresh.
     fn play_acid(&mut self, note: u8, velocity: u8) -> bool {
-        let Some(voice) = self
+        let Some(Voice {
+            note: playing,
+            started,
+            level,
+            sound: Sound::Acid(acid),
+            ..
+        }) = self
             .voices
             .iter_mut()
             .flatten()
@@ -215,16 +222,10 @@ impl Synth {
         else {
             return false;
         };
-        let Sound::Acid(acid) = &mut voice.sound else {
-            unreachable!("the voice was found by its acid sound");
-        };
-        if !acid.is_held() {
-            self.started += 1;
-            voice.started = self.started;
-            voice.level = f32::from(velocity) / 127.0;
-        }
         acid.play(note, velocity);
-        voice.note = note;
+        *playing = note;
+        *started = self.started;
+        *level = f32::from(velocity) / 127.0;
         true
     }
 
@@ -777,10 +778,11 @@ mod tests {
             }
             let out = render(&mut synth, seconds(3.0));
 
-            assert!(
-                out.iter().all(|s| s.is_finite() && s.abs() <= 1.0),
-                "{value}"
-            );
+            // The mix's own saturation holds every sample under 1; the voice
+            // alone leaves it room for the others.
+            assert!(out.iter().all(|s| s.is_finite()), "{value}");
+            let peak = out.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+            assert!(peak < 0.5, "{value}: {peak}");
             assert!(synth.sounding().is_empty(), "{value}");
             assert_eq!(rms(&out[seconds(2.5)..]), 0.0, "{value}");
         }
@@ -875,5 +877,34 @@ mod tests {
         assert_eq!(sounding.len(), VOICES);
         assert!(!sounding.contains(&(1, 40)));
         assert_eq!(sounding.last(), Some(&(9, 45)));
+    }
+
+    #[test]
+    fn a_slide_keeps_the_acid_voice_from_being_the_oldest() {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(9, 45, 100));
+        for note in 40..55 {
+            synth.schedule(u64::from(note), note_on(1, note, 100));
+        }
+        synth.schedule(100, note_on(9, 48, 100));
+        synth.schedule(110, note_on(1, 80, 100));
+        render(&mut synth, 200);
+
+        let sounding = synth.sounding();
+        assert!(sounding.contains(&(9, 48)), "{sounding:?}");
+        assert!(!sounding.contains(&(1, 40)), "{sounding:?}");
+    }
+
+    #[test]
+    fn a_note_slid_into_takes_its_own_velocity() {
+        let slid_into = |velocity| {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, [0xB9, 79, 0x00]);
+            synth.schedule(0, note_on(9, 45, 0x40));
+            synth.schedule(seconds(0.2) as u64, note_on(9, 47, velocity));
+            rms(&render(&mut synth, seconds(0.4))[seconds(0.3)..])
+        };
+
+        assert!(slid_into(0x7F) > slid_into(0x40) * 1.5);
     }
 }

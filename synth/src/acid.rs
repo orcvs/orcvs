@@ -149,7 +149,7 @@ impl Acid {
         }
         // The feedback takes as much from the passband as it adds at the
         // cutoff, so it is given back to keep the note about as loud.
-        Some(self.stages[3] * (1.0 + feedback) * self.gate * (1.0 + accent))
+        Some(self.stages[3] * (1.0 + feedback) * self.gate * (1.0 + 0.5 * accent))
     }
 }
 
