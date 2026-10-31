@@ -137,7 +137,7 @@ pub(super) fn readout_group_gap(ui: &egui::Ui) -> f32 {
     panel_readout_gaps(ui).1
 }
 
-pub(super) fn panel_monospace_id(ui: &egui::Ui) -> FontId {
+pub(crate) fn panel_monospace_id(ui: &egui::Ui) -> FontId {
     ui.style()
         .text_styles
         .get(&egui::TextStyle::Monospace)
@@ -425,12 +425,15 @@ impl Console {
         let separation = 2.0 * root.spacing().item_spacing.y;
         // Sized from the messages standing as the frame begins; one that
         // appears or clears while the row is drawn resizes the next frame.
-        let status_height =
-            if prototype_variant() != 0 || self.statuses().iter().any(Option::is_some) {
-                root.text_style_height(&egui::TextStyle::Body)
-            } else {
-                0.0
-            };
+        let line = root
+            .text_style_height(&egui::TextStyle::Body)
+            .max(root.spacing().interact_size.y);
+        let status_height = match prototype_variant() {
+            4 => 3.0 * line + 3.0 * root.spacing().item_spacing.y,
+            6 => 5.0 * line + 4.0 * root.spacing().item_spacing.y,
+            0 if !self.statuses().iter().any(Option::is_some) => 0.0,
+            _ => line,
+        };
         // The line follows the row with egui's item spacing between them.
         let status_room = if status_height > 0.0 {
             status_height + root.spacing().item_spacing.y
@@ -514,7 +517,9 @@ impl Console {
                 },
             );
             match prototype_variant() {
-                0 | 3 => self.show_statuses(ui, status_height),
+                0 | 3 | 5 => self.show_statuses(ui, status_height),
+                4 => self.show_prototype_inspector_row(ui, status_height),
+                6 => self.show_prototype_split(ui, status_height),
                 variant => self.show_prototype_line(ui, status_height, variant),
             }
             diagnostics_height.map(|height| {
@@ -554,7 +559,7 @@ impl Console {
     fn show_statuses(&self, ui: &mut egui::Ui, height: f32) {
         let statuses = self.statuses();
         let shown = statuses.iter().any(Option::is_some);
-        if shown != (height > 0.0) {
+        if prototype_variant() == 0 && shown != (height > 0.0) {
             ui.ctx().request_repaint();
         }
         if height == 0.0 {
@@ -573,6 +578,217 @@ impl Console {
                 }
             },
         );
+    }
+
+    // PROTOTYPE (throwaway): D. The Panel keeps one fixed height. Beneath the
+    // controls row the messages keep the left half, and the Cursor analysis
+    // takes the right half, clear of the Minimap.
+    fn show_prototype_inspector_row(&self, ui: &mut egui::Ui, height: f32) {
+        self.show_prototype_halves(ui, height, false);
+    }
+
+    // PROTOTYPE (throwaway): F. Beneath the controls row, two labelled areas:
+    // the messages, one per row under the output each belongs to, and the
+    // Cursor analysis, one row per operand.
+    fn show_prototype_split(&self, ui: &mut egui::Ui, height: f32) {
+        self.show_prototype_halves(ui, height, true);
+    }
+
+    fn show_prototype_halves(&self, ui: &mut egui::Ui, height: f32, labelled: bool) {
+        let width = ui.available_width();
+        let mono = panel_monospace_id(ui);
+        let weak = ui.visuals().weak_text_color();
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, height),
+            egui::Layout::left_to_right(egui::Align::Min),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width * 0.45, height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(width * 0.45);
+                        if labelled {
+                            ui.label(
+                                egui::RichText::new("MESSAGES")
+                                    .font(mono.clone())
+                                    .color(weak),
+                            );
+                        }
+                        self.show_prototype_messages(ui, labelled);
+                    },
+                );
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width * 0.55 - 260.0, height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        if labelled {
+                            ui.label(egui::RichText::new("CURSOR").font(mono.clone()).color(weak));
+                        }
+                        self.show_prototype_analysis(ui, labelled);
+                    },
+                );
+            },
+        );
+    }
+
+    // PROTOTYPE (throwaway): the messages, joined on one line, or one per row
+    // under the output each belongs to.
+    pub(super) fn show_prototype_messages(&self, ui: &mut egui::Ui, labelled: bool) {
+        const SOURCES: [&str; 5] = ["MIDI", "MIDI", "UDP/OSC", "UDP/OSC", "ENGINE"];
+        let color = ui.visuals().error_fg_color;
+        let weak = ui.visuals().weak_text_color();
+        let mono = panel_monospace_id(ui);
+        let statuses = self.statuses();
+        if labelled {
+            if statuses.iter().all(Option::is_none) {
+                ui.label(egui::RichText::new("None").font(mono).color(weak));
+                return;
+            }
+            let column = monospace_width(ui, "UDP/OSC  ");
+            for (source, status) in SOURCES.iter().zip(statuses) {
+                if let Some(status) = status {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(column, ui.text_style_height(&egui::TextStyle::Body)),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().text(
+                            rect.left_center(),
+                            egui::Align2::LEFT_CENTER,
+                            *source,
+                            mono.clone(),
+                            weak,
+                        );
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(status).color(color)).truncate(),
+                        );
+                    });
+                }
+            }
+        } else {
+            for status in statuses.into_iter().flatten() {
+                ui.add(egui::Label::new(egui::RichText::new(status).color(color)).truncate());
+            }
+        }
+    }
+
+    // PROTOTYPE (throwaway): the Function at the Cursor: its name, spelling
+    // and what it answers, then its operands and its answer with the Output
+    // Portal it is written to, on one line or one row each. Only `.+` is
+    // named here; the shipped version reads the Function table.
+    pub(super) fn show_prototype_analysis(&self, ui: &mut egui::Ui, tall: bool) {
+        let frame = self.orcvs.render_frame();
+        let cursor = frame.cursor();
+        let mono = panel_monospace_id(ui);
+        let weak = ui.visuals().weak_text_color();
+        let strong = ui.visuals().strong_text_color();
+        let Some(expression) = frame.expression_at(cursor) else {
+            ui.label(egui::RichText::new("Empty Cell").font(mono).color(weak));
+            return;
+        };
+        let text_at = |x: usize, y: usize| -> String {
+            frame
+                .cells()
+                .iter()
+                .filter(|cell| {
+                    cell.position().y() == y && (x..x + 2).contains(&cell.position().x())
+                })
+                .map(|cell| cell.content().unwrap_or(' '))
+                .collect()
+        };
+        let span: String = expression
+            .span()
+            .positions()
+            .map(|position| {
+                text_at(position.x(), position.y())
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
+            .collect();
+        let spelling: String = span.chars().take(2).collect();
+        let (name, summary, roles): (&str, &str, &[(&str, &str)]) = match spelling.as_str() {
+            ".+" => (
+                "Add",
+                "answers left + right",
+                &[("left", "Number"), ("right", "Number")],
+            ),
+            _ => ("Function", "", &[]),
+        };
+        let operands: Vec<String> = span
+            .chars()
+            .skip(2)
+            .collect::<Vec<_>>()
+            .chunks(2)
+            .map(|pair| pair.iter().collect())
+            .collect();
+        let answer = expression
+            .root()
+            .map(|root| (text_at(root.x(), root.y() + 1), root.x(), root.y() + 1));
+        let gap = monospace_width(ui, "  ");
+        let text = |ui: &mut egui::Ui, value: &str, color: egui::Color32| {
+            ui.label(egui::RichText::new(value).font(mono.clone()).color(color));
+        };
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            text(ui, name, strong);
+            ui.add_space(gap);
+            text(ui, &spelling, strong);
+            ui.add_space(gap);
+            text(ui, summary, weak);
+        });
+        if tall {
+            let column = monospace_width(ui, "answer  ");
+            let row = |ui: &mut egui::Ui, label: &str, value: &str, note: &str| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(column, ui.text_style_height(&egui::TextStyle::Body)),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter().text(
+                        rect.left_center(),
+                        egui::Align2::LEFT_CENTER,
+                        label,
+                        mono.clone(),
+                        weak,
+                    );
+                    text(ui, value, strong);
+                    ui.add_space(gap);
+                    text(ui, note, weak);
+                });
+            };
+            for ((role, kind), value) in roles.iter().zip(&operands) {
+                row(ui, role, value, kind);
+            }
+            if let Some((value, x, y)) = &answer {
+                row(
+                    ui,
+                    "answer",
+                    value,
+                    &format!("Output Portal {x:02X} {y:02X}"),
+                );
+            }
+        } else {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                for ((role, _), value) in roles.iter().zip(&operands) {
+                    text(ui, role, weak);
+                    ui.add_space(gap / 2.0);
+                    text(ui, value, strong);
+                    ui.add_space(gap * 1.5);
+                }
+                if let Some((value, x, y)) = &answer {
+                    text(ui, "answer", weak);
+                    ui.add_space(gap / 2.0);
+                    text(ui, value, strong);
+                    ui.add_space(gap);
+                    text(ui, &format!("at {x:02X} {y:02X}"), weak);
+                }
+            });
+        }
     }
 
     // PROTOTYPE (throwaway): the second line for layouts A (Cursor info left,

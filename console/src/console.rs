@@ -501,6 +501,25 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
+        // PROTOTYPE (throwaway): E, the Cursor analysis in an inspector
+        // beside the Source.
+        if panel::prototype_variant() == 5 {
+            let weak = root.visuals().weak_text_color();
+            let mono = panel::panel_monospace_id(root);
+            egui::Panel::right("prototype_inspector")
+                .resizable(false)
+                .exact_size(340.0)
+                .show(root, |ui| {
+                    // The Source paints a little past its own edge.
+                    ui.set_clip_rect(ui.max_rect());
+                    let rect = ui.max_rect().shrink2(egui::vec2(24.0, 0.0));
+                    let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new("CURSOR").font(mono).color(weak));
+                    ui.add_space(8.0);
+                    self.show_prototype_analysis(ui, true);
+                });
+        }
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
         if let Some(centre) = self.show_overview(root, below_menu, revision, &frame, appearance) {

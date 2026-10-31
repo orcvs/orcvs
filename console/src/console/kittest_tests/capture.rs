@@ -642,7 +642,7 @@ async fn prototype_cursor_info_layouts() {
         name: "prototype",
         size: Vec2::new(1024.0, 520.0),
     };
-    for (variant, name) in [(0, "today"), (1, "a"), (2, "b"), (3, "c")] {
+    for (variant, name) in [(4, "d"), (5, "e"), (6, "f")] {
         crate::console::panel::PROTOTYPE_VARIANT
             .store(variant, std::sync::atomic::Ordering::Relaxed);
         for (mode, theme) in modes() {
@@ -705,7 +705,11 @@ async fn prototype_current_panel() {
         name: "desktop",
         size: Vec2::new(1440.0, 900.0),
     };
-    crate::console::panel::PROTOTYPE_VARIANT.store(0, std::sync::atomic::Ordering::Relaxed);
+    let variant: u8 = std::env::var("ORCVS_PROTOTYPE_LAYOUT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    crate::console::panel::PROTOTYPE_VARIANT.store(variant, std::sync::atomic::Ordering::Relaxed);
     let midi = || {
         PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
             "MIDI output lost: IAC Driver Bus 1",
@@ -743,6 +747,10 @@ async fn prototype_current_panel() {
                     render_state,
                 );
                 harness.run_steps(2);
+                for _ in 0..11 {
+                    harness.key_press_modifiers(Modifiers::NONE, Key::ArrowDown);
+                    harness.step();
+                }
                 harness.state_mut().playback_status = Default::default();
                 super::quiet_midi(harness.state_mut());
                 harness.state_mut().diagnostics_open = diagnostics_open;
@@ -769,7 +777,7 @@ async fn prototype_current_panel() {
                     .render()
                     .expect("the wgpu renderer rendered the frame");
                 let file = format!(
-                    "current-{}-{}-{name}.png",
+                    "layout{variant}-{}-{}-{name}.png",
                     if mode == egui::Theme::Dark {
                         "dark"
                     } else {
