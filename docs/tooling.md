@@ -44,17 +44,19 @@ examples and the toolchain and tool pins. When `console-web-<key>.tar.gz` is alr
 release Trunk build with relative URLs into `target/console-web/`, kept as the `console-web`
 artifact. Trunk's post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly
 module and stages it beside the console with `synth/web/`'s AudioWorklet and page scripts (ADR 0087).
-The build is published on the release as `console-web-<key>.tar.gz`, except from Dependabot's
-read-only pushes. On `main` the run then copies `main`'s keyed archive to the rolling
-`console-web.tar.gz` and keeps the newest 100 keyed archives (ADR 0101).
+The build is published on the release as `console-web-<key>.tar.gz` from `main` and as
+`console-preview-<key>.tar.gz` from any other branch, except Dependabot's read-only ones, and an
+archive is never replaced. On `main` the run then copies `main`'s keyed archive to the rolling
+`console-web.tar.gz` and keeps the newest 50 archives of each kind (ADR 0101).
 
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
 `site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
 the directory `CONSOLE_WEB` names, relative to `site/`, and Astro builds the site around it into
-`site/dist/`; nothing in the site build compiles the console. Every Cloudflare build, production or
-preview, waits up to 15 minutes for the console keyed to its own commit and fails without it (ADR
-0093, ADR 0101); a local build takes the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
+`site/dist/`; nothing in the site build compiles the console. Every Cloudflare build waits up to 15
+minutes for the console keyed to its own commit and fails without it (ADR 0093, ADR 0101):
+production for `main`'s archive only, a preview for either. A local build and a `dependabot/`
+branch's build take the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
 release, and the site workflow runs it. A push to `main` deploys, and a pull
 request gets Cloudflare's preview URL. `site/.node-version` is the Node pin Cloudflare's build
 reads, and a site test holds it equal to `mise.toml`'s.

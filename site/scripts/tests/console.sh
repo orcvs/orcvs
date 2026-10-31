@@ -113,16 +113,24 @@ grep -F "$(key)" <<< "$output" > /dev/null || fail "the failure does not name th
 # 45 tries with a wait between each.
 [[ "$(cat "$work/sleeps")" == 44 ]] || fail "the build waited $(cat "$work/sleeps") times, not 44"
 
+# Production never takes a console a branch published under its key.
+repo
+console "console-preview-$(key).tar.gz" branch-built
+cp "$work/console-preview-$(key).tar.gz" "$work/release/"
+if build env WORKERS_CI_BRANCH=main > /dev/null 2>&1; then
+  fail "the production build took a branch's console"
+fi
+
 # A preview build waits for its own console too, ignoring the rolling one already published.
 repo
 console console-web.tar.gz previous
 cp "$work/console-web.tar.gz" "$work/release/"
-console "console-web-$(key).tar.gz" this-commit
-build env WORKERS_CI_BRANCH=feature FAKE_PUBLISH="$work/console-web-$(key).tar.gz" FAKE_PUBLISH_AFTER=2 \
+console "console-preview-$(key).tar.gz" this-commit
+build env WORKERS_CI_BRANCH=feature FAKE_PUBLISH="$work/console-preview-$(key).tar.gz" FAKE_PUBLISH_AFTER=2 \
   || fail "a preview build failed although its console was published while it waited"
 [[ "$(served)" == this-commit ]] || fail "a preview build served $(served), not its commit's console"
 
-# A preview build whose console is already published takes it without waiting.
+# A preview build whose console main already published takes it without waiting.
 repo
 console "console-web-$(key).tar.gz" this-commit
 cp "$work/console-web-$(key).tar.gz" "$work/release/"
@@ -130,10 +138,41 @@ build env WORKERS_CI_BRANCH=feature || fail "a preview build failed with its con
 [[ "$(served)" == this-commit ]] || fail "a preview build served $(served), not its commit's console"
 [[ ! -f "$work/sleeps" ]] || fail "a preview build waited for a published console"
 
-# A local build takes the rolling console straight away.
-repo
-console console-web.tar.gz previous
-cp "$work/console-web.tar.gz" "$work/release/"
-build env || fail "a local build failed with a published console"
-[[ "$(served)" == previous ]] || fail "a local build served $(served), not the rolling console"
-[[ ! -f "$work/sleeps" ]] || fail "a local build waited"
+# A local build, and a Dependabot branch's build, take the rolling console straight away.
+for branch in "" dependabot/cargo/update; do
+  repo
+  console console-web.tar.gz previous
+  cp "$work/console-web.tar.gz" "$work/release/"
+  build env ${branch:+WORKERS_CI_BRANCH=$branch} || fail "a build on '$branch' failed with a published console"
+  [[ "$(served)" == previous ]] || fail "a build on '$branch' served $(served), not the rolling console"
+  [[ ! -f "$work/sleeps" ]] || fail "a build on '$branch' waited"
+done
+
+# The key covers every path outside the crates that the console build reads: each workspace member,
+# each file a crate embeds from outside itself, and each script a Trunk hook runs. A missing one
+# would give two different consoles one key.
+mapfile -t keyed < <(sed -n '/^paths=($/,/^)$/p' "$repo_root/scripts/console-key.sh" | sed '1d;$d;s/^ *//')
+keyed_root() {
+  local top="${1%%/*}"
+  for k in "${keyed[@]}"; do
+    [[ "$1" == "$k" || "$top" == "$k" ]] && return 0
+  done
+  return 1
+}
+mapfile -t members < <(sed -n 's/^members = \[\(.*\)\]$/\1/p' "$repo_root/Cargo.toml" | tr -d '" ' | tr ',' '\n')
+(( ${#members[@]} > 0 )) || fail "no workspace members found in Cargo.toml"
+for member in "${members[@]}"; do
+  keyed_root "$member" || fail "workspace member $member is not in the console key"
+done
+# A file's test module starts at its first top-level `#[cfg(test)]`; an embed after it is test-only.
+while IFS=: read -r file line include; do
+  tests_from="$(grep -n -m1 '^#\[cfg(test)\]' "$repo_root/$file" | cut -d: -f1 || true)"
+  if [[ -n "$tests_from" ]] && (( line > tests_from )); then continue; fi
+  target="$(realpath -m --relative-to="$repo_root" "$(dirname "$repo_root/$file")/$include")"
+  keyed_root "$target" || fail "$file embeds $target, which is not in the console key"
+done < <(cd "$repo_root" && grep -rnoE --include='*.rs' 'include_(str|bytes)!\("[^"]+"' "${members[@]/%//src}" \
+  | sed -E 's/include_(str|bytes)!\("//; s/"$//')
+while read -r hook; do
+  target="$(realpath -m --relative-to="$repo_root" "$repo_root/console/$hook")"
+  keyed_root "$target" || fail "a Trunk hook runs $target, which is not in the console key"
+done < <(sed -n 's/^command_arguments = \["\([^"]*\)".*/\1/p' "$repo_root/console/Trunk.toml")

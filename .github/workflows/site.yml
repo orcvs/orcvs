@@ -76,14 +76,25 @@ jobs:
             exit 0
           fi
           gh run watch "$run" --exit-status > /dev/null
-          if gh run download "$run" --name console-web --dir target/console-web; then
+          artifact=$(gh api "repos/$GH_REPO/actions/runs/$run/artifacts" \
+            --jq '.artifacts[] | select(.name == "console-web") | .name')
+          if [[ -n "$artifact" ]]; then
+            gh run download "$run" --name console-web --dir target/console-web
             echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
           else
+            # The run built nothing because the commit's key was already published.
             key="$(bash scripts/console-key.sh)"
             mkdir -p target/console-web
-            gh release download console-web --pattern "console-web-$key.tar.gz" --output - \
-              | tar -xzf - -C target/console-web
-            echo "Console key $key from the console-web release." >> "$GITHUB_STEP_SUMMARY"
+            archive="console-web-$key.tar.gz"
+            if ! gh release download console-web --pattern "$archive" --dir target; then
+              archive="console-preview-$key.tar.gz"
+              if ! gh release download console-web --pattern "$archive" --dir target; then
+                echo "Run $run built no console, and console key $key is not on the console-web release." >&2
+                exit 1
+              fi
+            fi
+            tar -xzf "target/$archive" -C target/console-web
+            echo "Console $archive from the console-web release." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "CONSOLE_WEB=$GITHUB_WORKSPACE/target/console-web" >> "$GITHUB_ENV"
       # How Cloudflare's build takes its console, against a stubbed release.
