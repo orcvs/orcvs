@@ -2,7 +2,7 @@
 
 `sequencer.orcvs` is the sequencer from [Learn Orca](https://metasyn.srht.site/learn-orca/)
 in Orcvs: ten voices, each reading a thirty-two-step row of Notes and playing it
-on a MIDI channel. It ships playing the 808 beat. Open it with
+on a MIDI channel. It ships playing the 808 beat and an acid bassline. Open it with
 **Help > Examples > Sequencer** and press Space to start Playback. Space pauses
 and resumes it, and Command Shift R (Ctrl Shift R outside macOS) rewinds every
 voice to step 0, as in Orca. The first MIDI output is chosen for you; change it
@@ -25,14 +25,16 @@ col  0         1         2         3         4         5         6         7    
  10      !~0877&>  01  ||f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  ||
  ...
  30    ~*0101    .+04~.0120
- 31      !~0977&>  01  ||                                                                ||
+ 31      !~0977&>  01  ||A1A1A2A1C2A1G2A1A1E2A1A2C3A1G2E2A1A1A2A1C2A1G2A1A1E2A1A2C3A1G2E2||
 ```
 
 The first three voices play the basic 4/4 808 beat over both bars, the beat the
 Beat example plays: the kick `C2` on every beat, the snare `D2` on beats 2 and 4,
 and the closed hat `f2` on every eighth. They play on channel `08`, where the
-Built-in Synth's kit picks each instrument from the Note's pitch class. Every
-other voice ships empty, on its Learn Orca channel, `03` to `09`. Each voice's
+Built-in Synth's kit picks each instrument from the Note's pitch class. The
+last voice plays a sixteen-step bassline twice on channel `09`, the Built-in
+Synth's 303-style voice, which sweeps its filter on every Note (ADR 0096). Every
+other voice ships empty, on its Learn Orca channel, `03` to `08`. Each voice's
 steps are one `||` Comment, so the Notes in it are text the Reads select rather
 than Functions. Step `s` of every voice is the pair at columns `20 + 2s` and
 `21 + 2s`, and the Comment on row 2 numbers every eighth step, `0` to `3`, as
@@ -92,7 +94,7 @@ voice sends nothing that Tick.
 - Orca reads half its voices' steps with `O` and half with `T`. Each Orcvs
   voice reads with `&>`.
 - Learn Orca's sequencer ships every step empty. This one ships the 808 beat
-  on its first three voices.
+  on its first three voices and an acid bassline on its last.
 - Orca's tenth voice plays on channel `a`, and no voice plays on `9`. Here the
   beat's three voices share channel `08` and the others are on channels `03`
   to `09`.

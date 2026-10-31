@@ -1,9 +1,9 @@
 # One Built-in Synth channel plays a 303-style voice
 
-Status: proposed. Opened with Toby on 2026-10-31 in `.scratch/acid-channel/`. It would amend
+Status: accepted. Settled with Toby on 2026-10-31 in `.scratch/acid-channel/`. It amends
 [ADR 0087](0087-the-site-plays-the-console-through-a-built-in-synth.md), whose channels share one
 envelope and which ignores every Control Change but All Sound Off and All Notes Off: on the acid
-channel the synth would also act on CC 70, 71, 74, 75 and 79 and on Reset All Controllers (CC 121).
+channel the synth also acts on CC 70, 71, 74, 75 and 79 and on Reset All Controllers (CC 121).
 [ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)'s global
 effects stay as they are, and CC 121 leaves them alone.
 
@@ -30,8 +30,8 @@ Toby chose `09` on 2026-10-31.
   Control Changes.
 - **Accent:** a Note On at or above velocity `78` is accented: louder, its filter opened further,
   and its envelope at the shortest decay. Below that, velocity sets loudness as it does on every
-  other channel. _Open: the threshold. `78` leaves `64`, `77` (Orca's default `f`) and the examples'
-  velocities unaccented and makes `7F` accented._
+  other channel. `78` leaves `64` and `77`, Orca's default `f`, unaccented and makes `7F`
+  accented.
 - **Its Control Changes, on that channel only**, after General MIDI's sound controllers:
 
   | CC | Sets | At load |
@@ -56,9 +56,10 @@ it starts the next one, so it never slides.
 **A tone channel's slot:** `02`, the saw the Knobs bassline already plays, or `03`, the square. Either
 loses a sound the synth has, while `09` only repeats the kit on `08`.
 
-**A Program Change that turns any tone channel into the acid voice.** A Source would have to send it
-before a run and again after every Stop, because the safety action resets the channel. The synth
-ignores Program Change today (ADR 0087: every other message is ignored).
+**A Program Change that turns any channel into the acid voice,** which would keep instruments apart
+from channels. A Source would have to send one before its first note, and which sound a channel
+plays would become state the Source does not show. A spare channel needs neither. The synth ignores
+Program Change (ADR 0087: every other message is ignored).
 
 **Accent and slide as Control Changes,** as some 303 clones take them. A Source would send a CC
 before each Play, which doubles every step. Velocity and note overlap already say it.
@@ -70,9 +71,9 @@ moving, which a sample cannot follow.
 
 ## Consequences
 
-- Channel `09` no longer plays the kit. No shipped example sounds on `09`: the Sequencer ships its
-  `09` voice empty, so a reader who fills it hears the acid voice. The Knobs bassline moves to `09`
-  from `02`.
+- Channel `09` no longer plays the kit; no shipped example played the kit there. The Sequencer's
+  `09` voice, the Tracker's fourth voice, moved from `03`, and the Knobs bassline, moved from `02`,
+  play a bassline on it, and the Knobs example's knobs turn its cutoff, resonance and decay.
 - The core gains one voice type and a per-channel controller state; every other channel keeps one
   shared envelope and ignores these controllers.
 - The Sound Module shows the channel's notes as it shows any channel's; it does not show the acid
@@ -80,6 +81,4 @@ moving, which a sample cannot follow.
 - A MIDI device on the same channel reads CC 70 to 79 as General MIDI's sound controllers: 71, 74
   and 75 are resonance, cutoff and decay on most synths, and 70 and 79 vary by device. A Source
   written for the acid channel usually only changes timbre elsewhere.
-- On acceptance, ADR 0087's Status line, `CONTEXT.md`'s Built-in Synth entry ("an 808-style kit
-  ... on channels `08`–`0F`") and `examples/knobs.md` ("the Built-in Synth's saw") name the acid
-  channel `09`.
+- ADR 0087's Status line and `CONTEXT.md`'s Built-in Synth entry name the acid channel.

@@ -2,7 +2,8 @@
 
 `tracker.orcvs` is the tracker from [Learn Orca](https://metasyn.srht.site/learn-orca/)
 in Orcvs: eight voices, each with its own Clock, reading a sixteen-step column
-of Notes and playing it on a MIDI channel. It ships playing the 808 beat. Open
+of Notes and playing it on a MIDI channel. It ships playing the 808 beat and an
+acid bassline. Open
 it with **Help > Examples > Tracker** and press Space to start Playback. Space
 pauses and resumes it, and Command Shift R (Ctrl Shift R outside macOS) rewinds
 every voice to step 0, as in Orca. The first MIDI output is chosen for you;
@@ -16,7 +17,7 @@ col  0         1         2         3         4         5         6         7
   1    || TRACKER ||
   2
   3                         ~*0101    .+0B~.0110        ~*0101    .+0B~.0110
-  4                           !~0377&v  01                !~0777&v  01
+  4                           !~0977&v  01                !~0777&v  01
   5
   6                  ~*0101    .+08~.0110        ~*0101    .+08~.0110
   7                    !~0877&v  01                !~0677&v  01
@@ -27,13 +28,13 @@ col  0         1         2         3         4         5         6         7
  12    ~*0101    .+02~.0110        ~*0101    .+02~.0110
  13      !~0877&v  01                !~0477&v  01
  14
- 15            ||C2|   |  |   |f2|   |  |   |  |   |  |   |  |   |  ||
- 16            ||  |   |  |   |  |   |  |   |  |   |  |   |  |   |  ||
- 17            ||  |   |  |   |f2|   |  |   |  |   |  |   |  |   |  ||
- 18            ||  |   |  |   |  |   |  |   |  |   |  |   |  |   |  ||
- 19            ||C2|   |D2|   |f2|   |  |   |  |   |  |   |  |   |  ||
+ 15            ||C2|   |  |   |f2|   |A1|   |  |   |  |   |  |   |  ||
+ 16            ||  |   |  |   |  |   |A1|   |  |   |  |   |  |   |  ||
+ 17            ||  |   |  |   |f2|   |A2|   |  |   |  |   |  |   |  ||
+ 18            ||  |   |  |   |  |   |A1|   |  |   |  |   |  |   |  ||
+ 19            ||C2|   |D2|   |f2|   |C2|   |  |   |  |   |  |   |  ||
  ...
- 30            ||  |   |  |   |  |   |  |   |  |   |  |   |  |   |  ||
+ 30            ||  |   |  |   |  |   |E2|   |  |   |  |   |  |   |  ||
 ```
 
 The pattern holds the basic 4/4 808 beat, the beat the Beat example plays: the
@@ -41,7 +42,10 @@ kick `C2` on every beat, steps 0, 4, 8 and 12; the snare `D2` on beats 2 and 4,
 steps 4 and 12; and the closed hat `f2` on every eighth, every even step. The
 three voices that play it, in columns 12, 19 and 26, play on channel `08`, where
 the Built-in Synth's kit picks each instrument from the Note's pitch class.
-Every other voice ships empty, on its Learn Orca channel, `03` to `07`.
+The fourth voice, in column 33, plays a sixteen-step bassline on channel `09`,
+the Built-in Synth's 303-style voice, which sweeps its filter on every Note
+(ADR 0096). Every other voice ships empty, on its Learn Orca channel, `04` to
+`07`.
 
 Each pattern row is one `||` Comment, so the Notes in it are text the Reads
 select rather than Functions. A single `|` either side marks each voice's
@@ -110,7 +114,7 @@ Each voice has its own Clock, as in Orca. Change a voice's modulus, for example
 
 - Learn Orca's tracker ships one Note, `3C` on channel `1`, and its voices play
   channels `0` to `7`. This one ships the 808 beat on channel `08` in place of
-  channels `00` to `02`.
+  channels `00` to `02`, and an acid bassline on channel `09` in place of `03`.
 - Orca's `H` halts the `*` below it, so the `*` stays and keeps banging. Orcvs's
   Halt `*!` locks only while a Bang activates it, and a locked `**` does not
   fire, so a Delay that bangs every Tick takes their place.
