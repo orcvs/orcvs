@@ -2,9 +2,9 @@
 
 Status: needs-triage
 
-**What to build:** The Built-in Synth plays one channel as a 303-style voice, as ADR 0096 decides
+**What to build:** The Built-in Synth plays channel `03` as a 303-style voice, as ADR 0096 decides
 it: mono, a bandlimited saw or square, a resonant 4-pole lowpass with its own decay envelope, accent
-from velocity, slide on overlapping notes, and four Control Changes on that channel. The core is
+from velocity, slide on overlapping notes, and five Control Changes on that channel. The core is
 shared, so the web worklet and native both get it.
 
 ## Acceptance criteria
@@ -23,7 +23,7 @@ shared, so the web worklet and native both get it.
 - [ ] The voice takes one of the sixteen voices while it sounds; a chord on the channel sounds as its
       last note.
 - [ ] Every other channel and every other controller behaves as ADR 0087 and 0088 decide.
-- [ ] The Knobs example's bassline plays the acid channel, with accents and slides written in, and
+- [ ] The Knobs example's bassline moves from `02` to the acid channel `03`, with accents and slides written in, and
       its guide says how.
 - [ ] `CONTEXT.md`'s Built-in Synth entry and ADR 0087's Status line name the acid channel.
 
@@ -31,5 +31,9 @@ shared, so the web worklet and native both get it.
 
 ### 2026-10-31 — Opened
 
-Prototype on branch `prototype/acid-channel` (`synth/prototype/acid/`). Which channel, and the
-accent threshold, are open in ADR 0096 until Toby settles them.
+Prototype on branch `prototype/acid-channel` (`synth/prototype/acid/`). The accent
+threshold is open in ADR 0096 until Toby settles it.
+
+### 2026-10-31 — Channel
+
+Toby chose channel `03` for the 303 and kept the 808 on `08`.
