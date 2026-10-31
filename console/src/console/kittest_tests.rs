@@ -374,19 +374,22 @@ fn toggle_overview(harness: &mut Harness<'_, Console>) {
 }
 
 ///
-/// A fresh console shows the Overview pinned to the window's bottom-right
-/// corner, over the Source and the bottom panel, with no margin, taking no
-/// width from the Source; View → Overview hides it and shows it again.
+/// A fresh console shows the Overview pinned to the Source's bottom-right
+/// corner, above the bottom panel, with no margin, taking no width from the
+/// Source; View → Overview hides it and shows it again.
 ///
 #[tokio::test]
-async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_menu_toggles_it() {
+async fn the_overview_starts_pinned_in_the_sources_bottom_right_corner_and_the_view_menu_toggles_it()
+ {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let overview = harness.get_by_label("Source overview").rect();
-    let window = Vec2::from(DEFAULT_VIEW_SIZE).to_pos2();
+    let with = source_rect(&harness);
+    // Within half a physical pixel each way: the picture's corner is rounded
+    // onto the pixel grid.
     assert!(
-        (overview.max - window).length() < 1e-3,
-        "the Overview {overview:?} is not in the window's corner {window:?}"
+        (overview.max - with.max).length() <= 0.5_f32.hypot(0.5),
+        "the Overview {overview:?} is not in the Source's corner {with:?}"
     );
     // The Overview's layer is the picture and its border and no more, so the
     // Source and the bottom panel beside it still take the pointer.
@@ -403,11 +406,6 @@ async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_me
             overview.max
         )),
         "the Overview's layer is not its bordered picture"
-    );
-    let with = source_rect(&harness);
-    assert!(
-        overview.bottom() > with.bottom(),
-        "the Overview {overview:?} does not reach over the bottom panel below {with:?}"
     );
 
     toggle_overview(&mut harness);
@@ -5419,8 +5417,7 @@ async fn the_panel_shows_an_engine_failure_in_its_own_status() {
 
 ///
 /// The Panel's status messages take a line of their own beneath its row,
-/// starting at its left edge, clear of the Overview in the window's
-/// bottom-right corner, with or without the Diagnostics readouts.
+/// starting at its left edge, with or without the Diagnostics readouts.
 ///
 #[tokio::test]
 async fn the_status_messages_sit_beneath_the_panel_row_from_its_left_edge() {

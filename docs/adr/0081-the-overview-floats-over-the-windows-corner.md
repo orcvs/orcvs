@@ -1,6 +1,6 @@
 # The Overview floats over the window's corner
 
-Status: accepted. Amends [ADR 0080](0080-the-overview-pans-over-a-cached-picture.md)'s placement of the Overview beside the Source View and its rejection of a floating overlay. Settled in `.scratch/overview-one-call/`.
+Status: accepted; its corner and its sizing are amended by [ADR 0096](0096-the-overview-sits-in-the-sources-corner-at-one-pixel-per-cell.md). Amends [ADR 0080](0080-the-overview-pans-over-a-cached-picture.md)'s placement of the Overview beside the Source View and its rejection of a floating overlay. Settled in `.scratch/overview-one-call/`.
 
 ADR 0080 docks the Overview beside the Source View and rejects a floating overlay because it covers Cells the performer is working on. Docked, the Overview took 260 points or more of width from the Source.
 
