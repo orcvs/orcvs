@@ -13,7 +13,7 @@ tones' shared on/off envelope, which is about a fifth of a 303.
 | Filter envelope: each note sweeps the cutoff down; decay and env-mod amount are knobs | No filter envelope |
 | Accent per step: louder, filter opens further, decays faster | Velocity scales loudness only |
 | Slide per step: mono voice, an overlapping note glides to its pitch (~60 ms) without retriggering | Sixteen-voice polyphony; every note retriggers |
-| Knobs: cutoff, resonance, env mod, decay, accent | Control Change 1 to 8 set global effects; every other controller is ignored (ADR 0087) |
+| Knobs: cutoff, resonance, env mod, decay, accent | Control Change 1 to 8 set global effects (ADR 0088), of which only `MD` sounds so far; every other controller is ignored (ADR 0087) |
 
 ## What the language already has
 
@@ -28,6 +28,6 @@ reach it, decided in [ADR 0096](../../docs/adr/0096-one-built-in-synth-channel-p
 
 ## Prototype
 
-Branch `prototype/acid-channel`, `synth/prototype/acid/`: renders the same sixteen-step line on the
-acid voice and on channel `02` as it is, at 130 BPM for eight bars. Renders and spectrograms are in
-the project files under `acid-channel/`.
+Branch `prototype/acid-channel` on `origin`, `synth/prototype/acid/`: renders the same sixteen-step
+line on the acid voice and on channel `02` as it is, at 130 BPM for eight bars. The renders are not
+in the repo; the branch's README says how to make them.

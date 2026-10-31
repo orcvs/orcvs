@@ -2,9 +2,10 @@
 
 Status: proposed. Opened with Toby on 2026-10-31 in `.scratch/acid-channel/`. It would amend
 [ADR 0087](0087-the-site-plays-the-console-through-a-built-in-synth.md), whose channels share one
-envelope and which ignores every Control Change but All Sound Off and All Notes Off, and leave
-[ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)'s effects as
-they are.
+envelope and which ignores every Control Change but All Sound Off and All Notes Off: on the acid
+channel the synth would also act on CC 70, 71, 74, 75 and 79 and on Reset All Controllers (CC 121).
+[ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)'s global
+effects stay as they are, and CC 121 leaves them alone.
 
 Acid basslines are the music a reader expects a sequencer like Orcvs to make, and the Built-in
 Synth cannot make one. A 303's sound is its filter: a resonant lowpass swept down by an envelope on
@@ -16,7 +17,8 @@ per-note envelope but loudness, and no voice that slides.
 **Channel `02` plays a 303-style voice.** _Open: `02`, which replaces today's saw, or a channel of
 its own; see below._
 
-- **One voice, mono.** A Note On while the channel's note is still held is legato: the pitch glides
+- **One voice, mono.** It takes one of ADR 0087's sixteen voices while it sounds, and a chord
+  played on the channel sounds as its last note, legato from the one before. A Note On while the channel's note is still held is legato: the pitch glides
   to the new note over about 60 ms and neither envelope restarts. A Note On with nothing held starts
   both envelopes. A Note Off for a note that is no longer the one sounding changes nothing, so a
   Timed Play's late Note Off cannot cut the note that replaced it.
@@ -40,7 +42,8 @@ its own; see below._
   | 79 | envelope depth (env mod) | `50` |
 
   The load values make a recognisable acid sound with no Control Change at all. Reset All
-  Controllers, which Stop's safety action sends, returns them.
+  Controllers (CC 121) on the channel, which Stop's safety action sends, returns these five to their
+  load values; it does not touch ADR 0088's global effects.
 
 **The language needs nothing new.** A Control Change every Tick turns the knobs, as the Knobs
 example turns the effects. Velocity carries accent. A Timed Play whose length runs past its step
@@ -59,8 +62,8 @@ sound, and the acid voice is one more thing a reader has to learn the number of.
 ## Rejected alternatives
 
 **A Program Change that turns any tone channel into the acid voice.** A Source would have to send it
-before a run and again after every Stop, because the safety action resets the channel; ADR 0087
-ignores Program Change for that reason.
+before a run and again after every Stop, because the safety action resets the channel. The synth
+ignores Program Change today (ADR 0087: every other message is ignored).
 
 **Accent and slide as Control Changes,** as some 303 clones take them. A Source would send a CC
 before each Play, which doubles every step. Velocity and note overlap already say it.
@@ -76,5 +79,8 @@ moving, which a sample cannot follow.
   shared envelope and ignores these controllers.
 - The Sound Module shows the channel's notes as it shows any channel's; it does not show the acid
   controllers. Showing them is the Sound Module's own decision.
-- A MIDI device on the same channel reads CC 70 to 79 as General MIDI's sound controllers, which most
-  devices treat as timbre, so a Source written for the acid channel stays harmless elsewhere.
+- A MIDI device on the same channel reads CC 70 to 79 as General MIDI's sound controllers: 71, 74
+  and 75 are resonance, cutoff and decay on most synths, and 70 and 79 vary by device. A Source
+  written for the acid channel usually only changes timbre elsewhere.
+- On acceptance, ADR 0087's Status line, `CONTEXT.md`'s Built-in Synth entry ("tones on channels
+  `00`–`07`") and `examples/knobs.md` ("the Built-in Synth's saw") name the acid channel.

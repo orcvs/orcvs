@@ -17,12 +17,15 @@ shared, so the web worklet and native both get it.
 - [ ] A Note On while the channel's note is held glides to its pitch without restarting either
       envelope; a Note Off for a note that is no longer sounding changes nothing.
 - [ ] The saw and square do not alias audibly at the top of the range (polyBLEP or better).
-- [ ] Reset All Controllers and All Notes Off return the channel to its load values and silence; the
-      output stays finite at every controller extreme.
+- [ ] Reset All Controllers (CC 121) on the channel returns its five controllers to their load values
+      and leaves ADR 0088's effects alone; All Notes Off silences it; the output stays finite at
+      every controller extreme.
+- [ ] The voice takes one of the sixteen voices while it sounds; a chord on the channel sounds as its
+      last note.
 - [ ] Every other channel and every other controller behaves as ADR 0087 and 0088 decide.
 - [ ] The Knobs example's bassline plays the acid channel, with accents and slides written in, and
       its guide says how.
-- [ ] `CONTEXT.md`'s Built-in Synth entry names the channel.
+- [ ] `CONTEXT.md`'s Built-in Synth entry and ADR 0087's Status line name the acid channel.
 
 ## Comments
 
