@@ -15,6 +15,10 @@ Cell belongs to ([spec](../spec.md), ADR 0100).
       Function ends after its operands.
 - [ ] A Comment, a Bang and a standalone Operand Literal are named by their Language Unit; an empty
       Cell leaves the line blank.
+- [ ] One line, never wrapped: text past the Panel's width is cut with an ellipsis, and hovering the
+      line shows it whole.
+- [ ] Out of scope: a Cell a diagnostic covers. `source-diagnostics/02` draws the diagnostic here,
+      with its own test; until then the line describes the Function as for any other Cell.
 - [ ] The Panel's monospace readout font: name and values in the strong text colour; summary, roles
       and Position in the weak text colour.
 - [ ] The text is a pure function of the Render Frame, the Cursor and the Function table, with its

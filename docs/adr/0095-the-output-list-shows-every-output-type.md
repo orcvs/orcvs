@@ -1,6 +1,6 @@
 # The Output list shows every output type
 
-Status: accepted. Settled with Toby on 2026-10-29 in `.scratch/output-list/`. [ADR 0096](0096-the-minimap-sits-in-the-sources-corner-at-one-pixel-per-cell.md) moves the Minimap into the Source's corner, above the Panel, so it no longer covers the status messages; the line beneath the Panel's row stands.
+Status: accepted. Settled with Toby on 2026-10-29 in `.scratch/output-list/`. [ADR 0096](0096-the-minimap-sits-in-the-sources-corner-at-one-pixel-per-cell.md) moves the Minimap into the Source's corner, above the Panel, so it no longer covers the status messages; the line beneath the Panel's row stands. [ADR 0100](0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md) supersedes that line: the messages become Toasts.
 
 The Panel's **O** is Output, not MIDI. Its list held the MIDI destinations with the UDP and OSC
 fields unlabelled at its foot, and its closed field named only the MIDI destination. The Panel's
