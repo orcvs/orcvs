@@ -793,4 +793,87 @@ mod tests {
         let ratio = loudness(0x7F) / loudness(0x00);
         assert!((0.7..1.4).contains(&ratio), "{ratio}");
     }
+
+    /// The amplitude of the `frequency` component of `samples`, by Goertzel.
+    fn amplitude_at(samples: &[f32], frequency: f32) -> f32 {
+        let coefficient = 2.0 * (std::f32::consts::TAU * frequency / RATE).cos();
+        let (mut previous, mut before) = (0.0f32, 0.0f32);
+        for &sample in samples {
+            let next = sample + coefficient * previous - before;
+            before = previous;
+            previous = next;
+        }
+        let power = previous * previous + before * before - coefficient * previous * before;
+        2.0 * power.max(0.0).sqrt() / samples.len() as f32
+    }
+
+    #[test]
+    fn raising_the_cutoff_opens_the_filter() {
+        let loudness = |cutoff| rms(&acid_after(&[[0xB9, 79, 0x00], [0xB9, 74, cutoff]]));
+
+        assert!(loudness(0x7F) > loudness(0x00) * 4.0);
+    }
+
+    #[test]
+    fn raising_the_resonance_sharpens_the_peak_at_the_cutoff() {
+        // Cutoff `40` is about 330 Hz, the sixth harmonic of A1's 55 Hz.
+        let peak = |resonance| {
+            let out = acid_after(&[[0xB9, 79, 0x00], [0xB9, 74, 0x40], [0xB9, 71, resonance]]);
+            let harmonic = |n: f32| amplitude_at(&out[seconds(0.05)..], 55.0 * n);
+            harmonic(6.0) / harmonic(1.0)
+        };
+
+        assert!(
+            peak(0x7F) > peak(0x00) * 3.0,
+            "{} against {}",
+            peak(0x7F),
+            peak(0x00)
+        );
+    }
+
+    #[test]
+    fn an_accented_note_takes_the_shortest_decay() {
+        let closing = |velocity| {
+            let mut synth = closed_acid(&[(79, 0x7F), (75, 0x7F)]);
+            synth.schedule(0, note_off(9, 45));
+            synth.schedule(1, note_on(9, 45, velocity));
+            let out = render(&mut synth, seconds(0.6));
+            rms(&out[seconds(0.5)..]) / rms(&out[seconds(0.05)..seconds(0.1)])
+        };
+
+        assert!(closing(0x7F) < closing(0x64) / 4.0);
+    }
+
+    #[test]
+    fn a_high_saw_folds_back_almost_nothing() {
+        // C7's twenty-third harmonic, 48 139 Hz, would fold back to 139 Hz,
+        // below the note and inside the filter's passband.
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, [0xB9, 74, 0x7F]);
+        synth.schedule(0, note_on(9, 96, 100));
+        let out = render(&mut synth, seconds(1.0));
+
+        let note = 440.0 * 2f32.powf(27.0 / 12.0);
+        let folded = amplitude_at(&out, 23.0 * note - RATE);
+        let fundamental = amplitude_at(&out, note);
+        assert!(
+            folded < fundamental * 1e-3,
+            "{folded} against {fundamental}"
+        );
+    }
+
+    #[test]
+    fn the_acid_voice_takes_one_of_the_sixteen_voices() {
+        let mut synth = Synth::new(RATE);
+        for note in 40..56 {
+            synth.schedule(u64::from(note), note_on(1, note, 100));
+        }
+        synth.schedule(100, note_on(9, 45, 100));
+        render(&mut synth, 200);
+
+        let sounding = synth.sounding();
+        assert_eq!(sounding.len(), VOICES);
+        assert!(!sounding.contains(&(1, 40)));
+        assert_eq!(sounding.last(), Some(&(9, 45)));
+    }
 }
