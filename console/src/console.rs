@@ -5,7 +5,7 @@
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `source_view`
 //! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays
-//! out; `overview` floats the Overview over the window's corner when it is
+//! out; `overview` floats the Overview over the Source's corner when it is
 //! open and answers where a press on it Pans the Source View; `repaint`
 //! schedules the next timed Render Frame; `diagnostics_panel` fills the
 //! Panel's Diagnostics readouts; `files` asks its discard question and titles
@@ -476,9 +476,6 @@ impl eframe::App for Console {
         };
         #[cfg(not(any(target_arch = "wasm32", test)))]
         let menu = self.show_menu_bar(root, appearance);
-        // The Overview fits below this. Nothing shown before the Overview
-        // may take room from the top, or it would overlap what does.
-        let below_menu = root.available_rect_before_wrap().top();
         // A File command chosen from the menu or by its chord, run once the
         // menu bar is done and the chords are read.
         let file_chord = self.route_keys(&ctx);
@@ -503,7 +500,7 @@ impl eframe::App for Console {
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
-        if let Some(centre) = self.show_overview(root, below_menu, revision, &frame, appearance) {
+        if let Some(centre) = self.show_overview(root, revision, &frame, appearance) {
             self.source_view.centre_on(centre);
         }
         let shown = self.source_view.shown();

@@ -1,10 +1,9 @@
 //! The Overview: the whole Grid, one texel per Cell in the Theme's colours,
-//! floating over the window's bottom-right corner.
+//! floating over the Source's bottom-right corner.
 
 use std::ops::Range;
 use std::sync::Arc;
 
-use egui::emath::GuiRounding as _;
 use egui::{
     Color32, ColorImage, CursorIcon, Painter, PointerButton, Rect, Response, Sense, Stroke,
     StrokeKind, TextureHandle, TextureOptions, Vec2,
@@ -155,51 +154,43 @@ fn outline_source_view(painter: &Painter, picture: Rect, source: &ShownSourceVie
 }
 
 ///
-/// Where the picture of `grid`'s extent lies in `window`: pinned so its
-/// corner is the window's bottom-right corner, on whole physical pixels.
+/// Where the picture of `grid`'s extent lies on `source`, the Source's rect:
+/// pinned so its corner is the last whole physical pixel inside the Source's
+/// bottom-right corner, so it never covers the bottom panel's line or leaves
+/// the window.
 ///
-/// It is square, at a whole number of physical pixels per texel, so every
-/// Cell is a crisp block of one size: the largest number up to the whole
-/// pixels per point that fits, with a `border` along its inner edges, in
-/// half the window's width and the height from `below_menu` to the window's
-/// bottom. It answers `None` where one pixel per texel does not fit.
+/// It is square at one physical pixel per texel, so every Cell is a crisp
+/// block of one pixel. It answers `None` where the picture, with a `border`
+/// along its inner edges, does not fit in half the Source's width and its
+/// whole height, which includes a Source not yet presented.
 ///
-fn place_picture(
-    window: Rect,
-    below_menu: f32,
-    border: f32,
-    grid: Grid,
-    pixels_per_point: f32,
-) -> Option<Rect> {
+fn place_picture(source: Rect, border: f32, grid: Grid, pixels_per_point: f32) -> Option<Rect> {
     let texels = extent(grid).size();
-    let room = Vec2::new(window.width() / 2.0, window.bottom() - below_menu) - Vec2::splat(border);
-    let pixels_per_texel = pixels_per_point
-        .floor()
-        .max(1.0)
-        .min((room * pixels_per_point / texels).min_elem().floor());
-    if pixels_per_texel < 1.0 {
-        return None;
-    }
-    let side = texels * pixels_per_texel / pixels_per_point;
-    Some(Rect::from_min_size(
-        (window.max - side).round_to_pixels(pixels_per_point),
-        side,
-    ))
+    let side = texels / pixels_per_point;
+    let room = Vec2::new(source.width() / 2.0, source.height()) - Vec2::splat(border);
+    (side.x <= room.x && side.y <= room.y).then(|| {
+        let corner = (source.max.to_vec2() * pixels_per_point).floor();
+        Rect::from_min_max(
+            ((corner - texels) / pixels_per_point).to_pos2(),
+            (corner / pixels_per_point).to_pos2(),
+        )
+    })
 }
 
 impl Console {
     ///
-    /// Shows the Overview pinned to the window's bottom-right corner, when it
-    /// is open and fits below `below_menu`, the menu bar's bottom, and answers
-    /// the centre a press or drag on it asks the Source View to Pan to. It
-    /// floats over the Source and the bottom panel, so it takes no width from
-    /// the Source, with no margin: the bottom panel's border along the two
-    /// edges that face the rest of the console, and the picture filling the
-    /// rest, placed by [`place_picture`].
+    /// Shows the Overview pinned to the Source's bottom-right corner, when it
+    /// is open and fits, and answers the centre a press or drag on it asks
+    /// the Source View to Pan to. It floats over the Source, so it takes no
+    /// width from it, and stays above the bottom panel, with no margin: the
+    /// bottom panel's border along the two edges that face the rest of the
+    /// Source, and the picture filling the rest, placed by [`place_picture`].
     ///
-    /// It marks the Region and the Cursor and outlines the Source View as the
-    /// Source was presented this Render Frame, so it is shown after the
-    /// Source. The picture is not clipped to fit: a press maps to a Pan only
+    /// It reads the Source's rect, and marks the Region and the Cursor and
+    /// outlines the Source View, as the Source was presented this Render
+    /// Frame, so it is shown after the Source: shown before, it would place
+    /// the picture on the last Render Frame's rect, or on none at all before
+    /// the Source's first. The picture is not clipped to fit: a press maps to a Pan only
     /// across the whole picture. Like every egui Area it is drawn from its
     /// second pass, the first only measuring it, and it does not fade in. It
     /// senses a drag and nothing else: sensing focus would put it in the Tab
@@ -208,7 +199,6 @@ impl Console {
     pub(super) fn show_overview(
         &mut self,
         root: &egui::Ui,
-        below_menu: f32,
         revision: RevisionId,
         frame: &RenderFrame,
         appearance: Appearance,
@@ -220,9 +210,9 @@ impl Console {
         let theme = self.themes.presented(appearance);
         // The line the bottom panel draws along its edge facing the Source.
         let border = crate::style::bar_separator(theme);
+        let source = self.source_view.shown();
         let rect = place_picture(
-            ctx.content_rect(),
-            below_menu,
+            source.console(),
             border.width,
             frame.grid(),
             ctx.pixels_per_point(),
@@ -234,7 +224,6 @@ impl Console {
         // per texel hold only while the texture is drawn from that extent.
         debug_assert_eq!(texture.size_vec2(), extent(frame.grid()).size());
         let texture = texture.id();
-        let source = self.source_view.shown();
         let overview = &mut self.overview;
         let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
         egui::Area::new(egui::Id::new("overview"))
@@ -389,8 +378,6 @@ mod tests {
     use egui::{Pos2, Rect, Vec2};
 
     use super::{draw_picture, place_picture};
-    use crate::console::menu_bar::TOP_PANEL_HEIGHT;
-    use crate::console::{DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
     use crate::theme::{Appearance, Theme};
     use crate::theme_registry::tests_support::default_theme;
 
@@ -527,53 +514,68 @@ mod tests {
     /// The bottom panel's separator, which borders the picture's inner edges.
     const BORDER: f32 = 1.0;
 
-    /// The picture's rect in a window of `size` at the origin.
+    /// The picture's rect on a Source of `size` below a menu bar.
     fn placed(size: Vec2, pixels_per_point: f32) -> Option<Rect> {
-        let window = Rect::from_min_size(Pos2::ZERO, size);
-        place_picture(
-            window,
-            TOP_PANEL_HEIGHT,
-            BORDER,
-            Grid::new(),
-            pixels_per_point,
-        )
+        place_picture(source(size), BORDER, Grid::new(), pixels_per_point)
+    }
+
+    fn source(size: Vec2) -> Rect {
+        Rect::from_min_size(Pos2::new(0.0, 52.0), size)
     }
 
     ///
-    /// The 256 by 256 Grid is 256 texels a side,
-    /// placed square at the window's bottom-right corner at a whole number of
-    /// physical pixels per texel, up to the whole pixels per point: one at 1×
-    /// and 1.5×, two at 2× and 3 at 3.5×.
+    /// `picture` lies inside `source`, its corner less than one physical pixel
+    /// from the Source's bottom-right corner on each axis, so it never covers
+    /// the bottom panel's line or leaves the window.
+    ///
+    fn assert_in_corner(picture: Rect, source: Rect, pixels_per_point: f32) {
+        assert!(
+            source.contains_rect(picture),
+            "at {pixels_per_point}×: the picture {picture:?} overshoots the Source {source:?}"
+        );
+        let gap = (source.max - picture.max) * pixels_per_point;
+        assert!(
+            gap.max_elem() < 1.0,
+            "at {pixels_per_point}×: the picture {picture:?} is {gap:?} physical pixels from the \
+             Source's corner"
+        );
+    }
+
+    ///
+    /// The 256 by 256 Grid is 256 texels a side, placed square in the Source's
+    /// bottom-right corner at one physical pixel per texel at every pixels per
+    /// point: 256 points a side at 1×, 128 at 2×.
     ///
     #[test]
-    fn the_picture_is_whole_physical_pixels_per_texel_up_to_the_whole_pixels_per_point() {
-        let window = Vec2::new(2000.0, 1400.0);
-        for (pixels_per_point, pixels_per_texel) in [(1.0, 1.0), (1.5, 1.0), (2.0, 2.0), (3.5, 3.0)]
-        {
-            let picture = placed(window, pixels_per_point)
+    fn the_picture_is_one_physical_pixel_per_texel_in_the_sources_corner() {
+        let size = Vec2::new(2000.0, 1400.0);
+        for (pixels_per_point, side) in [
+            (1.0, 256.0),
+            (1.5, 170.666_67),
+            (2.0, 128.0),
+            (3.5, 73.142_86),
+        ] {
+            let picture = placed(size, pixels_per_point)
                 .unwrap_or_else(|| panic!("at {pixels_per_point}×: the picture was not placed"));
-            let physical = picture.size() * pixels_per_point;
             assert!(
-                (physical - Vec2::splat(256.0 * pixels_per_texel)).length() < 1e-3,
-                "at {pixels_per_point}×: the picture is {physical:?} physical pixels"
+                (picture.size() - Vec2::splat(side)).length() < 1e-3,
+                "at {pixels_per_point}×: the picture is {:?} points",
+                picture.size()
             );
-            assert!(
-                (picture.max - window.to_pos2()).length() < 1e-3,
-                "at {pixels_per_point}×: the picture {picture:?} is not at the corner"
-            );
+            assert_in_corner(picture, source(size), pixels_per_point);
         }
     }
 
     ///
-    /// A window whose corner is not on a whole physical pixel gets the
+    /// A Source whose corner is not on a whole physical pixel gets the
     /// picture's corner rounded to one, so every texel lands on whole physical
     /// pixels, and keeps the picture's size.
     ///
     #[test]
     fn the_picture_is_placed_on_whole_physical_pixels_at_a_fractional_corner() {
         for pixels_per_point in [1.0, 1.25, 1.5, 2.0] {
-            let window = Vec2::new(1000.3, 700.7);
-            let picture = placed(window, pixels_per_point).expect("the picture fits");
+            let size = Vec2::new(1000.3, 620.9);
+            let picture = placed(size, pixels_per_point).expect("the picture fits");
             let physical = picture.min * pixels_per_point;
             assert_eq!(
                 physical,
@@ -581,67 +583,35 @@ mod tests {
                 "at {pixels_per_point}×: the corner {:?} is not on a whole physical pixel",
                 picture.min
             );
-            assert!(
-                (picture.max - window.to_pos2()).length() * pixels_per_point
-                    <= 0.5_f32.hypot(0.5) + 1e-3,
-                "at {pixels_per_point}×: the picture {picture:?} is not at the corner"
-            );
+            assert_in_corner(picture, source(size), pixels_per_point);
         }
     }
 
     ///
-    /// A window too small for the picture at its usual size gets it at the
-    /// largest whole number of physical pixels per texel that fits, in half the
-    /// window's width and the height below the menu bar, and no Overview
-    /// at all where one pixel per texel does not fit. A window that holds it
-    /// again gets it back at its usual size.
+    /// The picture and its one-point border fit in half the Source's width and
+    /// its whole height, or there is no Overview: at 1× a 256-point picture
+    /// needs a Source 514 points wide and 257 high, at 2× a 128-point one
+    /// needs 258 wide and 129 high. A Source not yet presented has no room.
     ///
     #[test]
-    fn the_overview_shrinks_to_whole_pixels_per_texel_that_fit_and_hides_below_one() {
-        let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
-        let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 255.0);
-        let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
-        let usual = Vec2::from(DEFAULT_VIEW_SIZE);
-        for (size, pixels_per_point, pixels_per_texel) in [
-            (narrow, 2.0, Some(1.0)),
-            (narrow, 1.5, Some(1.0)),
-            (narrow, 1.0, None),
-            (short, 2.0, Some(1.0)),
-            (short, 1.0, None),
-            (smallest, 1.0, None),
-            (smallest, 2.0, Some(1.0)),
-            (usual, 1.0, Some(1.0)),
-            (usual, 1.5, Some(1.0)),
-            (usual, 2.0, Some(2.0)),
+    fn the_overview_hides_where_one_pixel_per_texel_does_not_fit_in_the_source() {
+        for (size, pixels_per_point, shown) in [
+            (Vec2::new(514.0, 600.0), 1.0, true),
+            (Vec2::new(513.0, 600.0), 1.0, false),
+            (Vec2::new(1000.0, 257.0), 1.0, true),
+            (Vec2::new(1000.0, 256.0), 1.0, false),
+            (Vec2::new(258.0, 600.0), 2.0, true),
+            (Vec2::new(257.0, 600.0), 2.0, false),
+            (Vec2::new(1000.0, 129.0), 2.0, true),
+            (Vec2::new(1000.0, 128.0), 2.0, false),
+            // A Source not yet presented has no rect to place on.
+            (Vec2::ZERO, 2.0, false),
         ] {
-            let picture = placed(size, pixels_per_point);
-            match pixels_per_texel {
-                Some(pixels_per_texel) => {
-                    let picture = picture.unwrap_or_else(|| {
-                        panic!("{size:?} at {pixels_per_point}×: the Overview is hidden")
-                    });
-                    let physical = picture.size() * pixels_per_point;
-                    assert!(
-                        (physical - Vec2::splat(256.0 * pixels_per_texel)).length() < 1e-3,
-                        "{size:?} at {pixels_per_point}×: the picture is {physical:?} physical \
-                         pixels"
-                    );
-                    assert!(
-                        picture.left() >= size.x / 2.0,
-                        "{size:?} at {pixels_per_point}×: the picture {picture:?} takes more \
-                         than half the width"
-                    );
-                    assert!(
-                        (picture.max - size.to_pos2()).length() < 1e-3,
-                        "{size:?} at {pixels_per_point}×: the picture {picture:?} is not in the \
-                         window's bottom-right corner"
-                    );
-                }
-                None => assert_eq!(
-                    picture, None,
-                    "{size:?} at {pixels_per_point}×: the Overview was shown"
-                ),
-            }
+            assert_eq!(
+                placed(size, pixels_per_point).is_some(),
+                shown,
+                "a {size:?} Source at {pixels_per_point}×"
+            );
         }
     }
 }
