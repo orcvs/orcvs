@@ -1241,7 +1241,7 @@ mod tests {
             ("panel.border.width", "2.0000001", "0 to 2 points"),
             ("input.cursor.width", "7.5", "0 to 2 points"),
             ("panel.border.width", "1e300", "0 to 2 points"),
-            ("overview.source_view.width", "2.5", "0 to 2 points"),
+            ("minimap.source_view.width", "2.5", "0 to 2 points"),
         ];
         for (property, value, range) in cases {
             refuses(
@@ -1755,12 +1755,12 @@ mod tests {
         assert_eq!(resolved.source_function, built_ins[0].source_function);
         assert_eq!(resolved.grid_border_width, built_ins[0].grid_border_width);
         assert_eq!(
-            resolved.overview_source_view,
-            built_ins[0].overview_source_view
+            resolved.minimap_source_view,
+            built_ins[0].minimap_source_view
         );
         assert_eq!(
-            resolved.overview_source_view_width,
-            built_ins[0].overview_source_view_width
+            resolved.minimap_source_view_width,
+            built_ins[0].minimap_source_view_width
         );
     }
 
@@ -2222,8 +2222,8 @@ mod tests {
             (ColorKey::InputCursor, |theme| theme.input_cursor),
             (ColorKey::Error, |theme| theme.error),
             (ColorKey::Warning, |theme| theme.warning),
-            (ColorKey::OverviewSourceView, |theme| {
-                theme.overview_source_view
+            (ColorKey::MinimapSourceView, |theme| {
+                theme.minimap_source_view
             }),
             (ColorKey::ButtonForeground, |theme| theme.button_foreground),
             (ColorKey::ButtonBackground, |theme| theme.button_background),
@@ -2348,8 +2348,8 @@ mod tests {
             (ChromeWidthKey::InputCursor, |theme| {
                 theme.input_cursor_width.points()
             }),
-            (ChromeWidthKey::OverviewSourceView, |theme| {
-                theme.overview_source_view_width.points()
+            (ChromeWidthKey::MinimapSourceView, |theme| {
+                theme.minimap_source_view_width.points()
             }),
         ];
         assert_eq!(grid_fields.len(), CATALOGUE_COUNTS.grid_widths);
@@ -2477,7 +2477,7 @@ mod tests {
             (ColorKey::InputCursor, "input.cursor"),
             (ColorKey::Error, "error"),
             (ColorKey::Warning, "warning"),
-            (ColorKey::OverviewSourceView, "overview.source_view"),
+            (ColorKey::MinimapSourceView, "minimap.source_view"),
         ];
         assert_eq!(catalogue.len(), 48);
         for (key, name) in catalogue {
@@ -2520,8 +2520,8 @@ mod tests {
         );
         assert_eq!(ChromeWidthKey::InputCursor.name(), "input.cursor.width");
         assert_eq!(
-            ChromeWidthKey::OverviewSourceView.name(),
-            "overview.source_view.width"
+            ChromeWidthKey::MinimapSourceView.name(),
+            "minimap.source_view.width"
         );
     }
 }

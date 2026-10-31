@@ -363,12 +363,12 @@ The region of the Source's space the console shows, at the Source's own Cell siz
 _Avoid_: Canvas, camera, viewport, document, scroll position
 
 **Pan**:
-Moving the Source View across the Source, as far as the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan. A Pan is made by wheel, middle-drag, Alt-drag, or a press or drag on the Overview.
+Moving the Source View across the Source, as far as the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan. A Pan is made by wheel, middle-drag, Alt-drag, or a press or drag on the Minimap.
 _Avoid_: Scroll, drag
 
-**Overview**:
-A reduced picture of the whole Grid, one mark per Cell in the Theme's colours, floating over the Source's bottom-right corner, above the bottom panel. It shows where the Source View is, and a press or drag on it Pans the Source View there. It carries no content, holds no Positions, and moves no Cursor. The outline it draws is the Source View, as the Overview shows it.
-_Avoid_: minimap, map, thumbnail, navigator, viewport, scrollbar
+**Minimap**:
+A reduced picture of the whole Grid, one mark per Cell in the Theme's colours, floating over the Source's bottom-right corner, above the bottom panel. It shows where the Source View is, and a press or drag on it Pans the Source View there. It carries no content, holds no Positions, and moves no Cursor. The outline it draws is the Source View, as the Minimap shows it.
+_Avoid_: Overview, map, thumbnail, navigator, viewport, scrollbar
 
 **Zoom**:
 Enlarging or shrinking the whole console, Source Grid included, in fixed steps.

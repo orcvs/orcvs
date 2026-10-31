@@ -534,7 +534,7 @@ impl ScreenMap {
 
 ///
 /// Source Cells drawn on a picture: `extent` stretched over `picture`, for the
-/// Overview. Unlike a [`ScreenMap`] it is not Paint's arithmetic and need not
+/// Minimap. Unlike a [`ScreenMap`] it is not Paint's arithmetic and need not
 /// land bit for bit where Paint would: the picture is a drawing of its own.
 ///
 #[derive(Clone, Copy, Debug)]

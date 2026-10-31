@@ -350,7 +350,7 @@ impl Console {
                         "Diagnostics",
                         Some(super::input::DIAGNOSTICS_SHORTCUT),
                     );
-                    trailing_checkbox(ui, &mut self.overview_open, "Overview", None);
+                    trailing_checkbox(ui, &mut self.minimap_open, "Minimap", None);
                 });
                 ui.menu_button("Help", |ui| {
                     if ui.button("Function Reference").clicked() {

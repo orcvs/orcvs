@@ -65,14 +65,14 @@ pub use paint::{
 
 /// Test-only, under `test-source-shapes`: the shapes step, the presented
 /// Grid it places a Paint at, the Positions that Grid draws, the dark default
-/// Theme, the default window's Source area and the Overview's picture, for
+/// Theme, the default window's Source area and the Minimap's picture, for
 /// `console/benches/paint.rs`. Only this crate's own
 /// dev-dependency enables the feature, so no shipped build carries this
 /// module and the console's public surface is unchanged.
 #[cfg(feature = "test-source-shapes")]
 #[doc(hidden)]
 pub mod source_shapes {
-    pub use crate::console::overview::draw_picture;
+    pub use crate::console::minimap::draw_picture;
     pub use crate::console::shapes::SourceShapes;
     use crate::grid_viewport::GridViewport;
     pub use crate::grid_viewport::presented_grid;

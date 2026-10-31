@@ -85,7 +85,7 @@ impl GridWidth {
 }
 
 ///
-/// A chrome (panel/widget/selection/input-caret/Overview outline) stroke
+/// A chrome (panel/widget/selection/input-caret/Minimap outline) stroke
 /// width in display points: 0 to 2 inclusive (`schema.md`'s width catalogue).
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -100,7 +100,7 @@ impl ChromeWidth {
     }
 
     /// Consumed by `style.rs::style`'s chrome borders, input caret and IME
-    /// underline widths, and by the Source View's outline on the Overview.
+    /// underline widths, and by the Source View's outline on the Minimap.
     pub(crate) fn points(self) -> f32 {
         self.0
     }
@@ -188,7 +188,7 @@ macro_rules! style_catalogue {
                 InputCursor(input_cursor) => "input.cursor",
                 Error(error) => "error",
                 Warning(warning) => "warning",
-                OverviewSourceView(overview_source_view) => "overview.source_view",
+                MinimapSourceView(minimap_source_view) => "minimap.source_view",
                 ButtonForeground(button_foreground) => "button.foreground",
                 ButtonBackground(button_background) => "button.background",
                 ButtonBorder(button_border) => "button.border",
@@ -221,7 +221,7 @@ macro_rules! style_catalogue {
                 WidgetBorder(widget_border_width) => "widget.border.width",
                 WidgetInactiveBorder(widget_inactive_border_width) => "widget.inactive.border.width",
                 InputCursor(input_cursor_width) => "input.cursor.width",
-                OverviewSourceView(overview_source_view_width) => "overview.source_view.width",
+                MinimapSourceView(minimap_source_view_width) => "minimap.source_view.width",
             }
         }
     };
@@ -301,7 +301,7 @@ pub struct Theme {
 
     pub(crate) panel_border: Color32,
     /// The line along each bar's edge that faces the Source, and the
-    /// Overview's edges that do.
+    /// Minimap's edges that do.
     pub(crate) panel_separator: Color32,
     pub(crate) selection_background: Color32,
     pub(crate) selection_border: Color32,
@@ -317,8 +317,8 @@ pub struct Theme {
     pub(crate) input_cursor: Color32,
     pub(crate) error: Color32,
     pub(crate) warning: Color32,
-    /// The Source View's outline on the Overview.
-    pub(crate) overview_source_view: Color32,
+    /// The Source View's outline on the Minimap.
+    pub(crate) minimap_source_view: Color32,
     /// The Panel's Cell buttons, P and R: the glyph, fill and border of one
     /// at rest, and of one pressed, as P is while Playback plays.
     pub(crate) button_foreground: Color32,
@@ -362,7 +362,7 @@ pub struct Theme {
     pub(crate) widget_border_width: ChromeWidth,
     pub(crate) widget_inactive_border_width: ChromeWidth,
     pub(crate) input_cursor_width: ChromeWidth,
-    pub(crate) overview_source_view_width: ChromeWidth,
+    pub(crate) minimap_source_view_width: ChromeWidth,
 }
 
 impl Theme {
@@ -548,7 +548,7 @@ pub fn grayscale_dark() -> Theme {
         input_cursor: straight_rgba(0xE6_E6_E6_FF),
         error: straight_rgba(0xE6_E6_E6_FF),
         warning: straight_rgba(0xE6_E6_E6_FF),
-        overview_source_view: straight_rgba(0xFF_FF_FF_FF),
+        minimap_source_view: straight_rgba(0xFF_FF_FF_FF),
         button_foreground: straight_rgba(0xE6_E6_E6_FF),
         button_background: straight_rgba(0x44_44_44_FF),
         button_border: straight_rgba(0x44_44_44_FF),
@@ -584,7 +584,7 @@ pub fn grayscale_dark() -> Theme {
         widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
         input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
-        overview_source_view_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        minimap_source_view_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
     }
 }
 
@@ -670,7 +670,7 @@ pub fn grayscale_light() -> Theme {
         input_cursor: straight_rgba(0x19_19_19_FF),
         error: straight_rgba(0x19_19_19_FF),
         warning: straight_rgba(0x19_19_19_FF),
-        overview_source_view: straight_rgba(0x00_00_00_FF),
+        minimap_source_view: straight_rgba(0x00_00_00_FF),
         button_foreground: straight_rgba(0x19_19_19_FF),
         button_background: straight_rgba(0xBB_BB_BB_FF),
         button_border: straight_rgba(0xBB_BB_BB_FF),
@@ -706,7 +706,7 @@ pub fn grayscale_light() -> Theme {
         widget_border_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
         widget_inactive_border_width: ChromeWidth::from_points(0.0).expect("0.0 is within 0..=2"),
         input_cursor_width: ChromeWidth::from_points(2.0).expect("2.0 is within 0..=2"),
-        overview_source_view_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
+        minimap_source_view_width: ChromeWidth::from_points(1.0).expect("1.0 is within 0..=2"),
     }
 }
 
