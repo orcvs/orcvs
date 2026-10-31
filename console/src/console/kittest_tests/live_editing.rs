@@ -467,16 +467,16 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
 }
 
 ///
-/// The Tracker edits as the Melody does. Channel 3's voice, which
-/// ships empty, reads the column at x 33 from row 15, one step per row and
+/// The Tracker edits as the Melody does. Channel 4's voice, which
+/// ships empty, reads the column at x 40 from row 15, one step per row and
 /// one step per Tick: a typed step plays, clearing it rests that voice with
-/// no diagnostic at its Timed Play at (25, 4), typing it back restores it,
+/// no diagnostic at its Timed Play at (32, 13), typing it back restores it,
 /// and Save and a reopen keep the edits and start every voice at step 0.
 ///
 #[tokio::test]
 async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
-    const COLUMN: usize = 33;
-    const CHANNEL: u8 = 3;
+    const COLUMN: usize = 40;
+    const CHANNEL: u8 = 4;
     let step_row = |step: usize| 15 + step;
     let dir = TempDir::new();
     let (mut harness, path) = console_with(&dir, "tracker.orcvs", TRACKER);
@@ -505,7 +505,7 @@ async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
     assert!(
         diagnostics(&rest)
             .iter()
-            .all(|(anchor, _)| *anchor != (25, 4)),
+            .all(|(anchor, _)| *anchor != (32, 13)),
         "a cleared step is a silent rest: {:?}",
         rest.diagnostics
     );

@@ -296,11 +296,25 @@ fn beat(count: usize) -> Vec<(u8, usize, u8)> {
         .collect()
 }
 
-/// `text` with the shipped beat's Notes blanked, every step of it empty.
-fn without_the_beat(text: &str) -> String {
-    text.replace("C2", "  ")
-        .replace("D2", "  ")
-        .replace("f2", "  ")
+///
+/// The acid bassline over `count` steps on `voice`, as (voice, step, Note): A1
+/// A1 A2 A1 C2 A1 G2 A1 A1 E2 A1 A2 C3 A1 G2 E2, repeated.
+///
+fn bassline(voice: u8, count: usize) -> Vec<(u8, usize, u8)> {
+    const STEPS: [u8; 16] = [
+        33, 33, 45, 33, 36, 33, 43, 33, 33, 40, 33, 45, 48, 33, 43, 40,
+    ];
+    (0..count)
+        .map(|step| (voice, step, STEPS[step % STEPS.len()]))
+        .collect()
+}
+
+/// `text` with the shipped beat's and bassline's Notes blanked, every step of
+/// them empty.
+fn without_the_pattern(text: &str) -> String {
+    ["C2", "D2", "f2", "A1", "A2", "C3", "E2", "G2"]
+        .into_iter()
+        .fold(text.to_owned(), |text, note| text.replace(note, "  "))
 }
 
 /// `note` spelled as the Source writes it: its pitch letter, lowercase for a
@@ -333,8 +347,9 @@ fn comments_from(source: &SourceCommander, row: usize) -> Vec<(usize, usize, usi
 }
 
 /// The channel each Tracker voice plays on: the beat's three voices share
-/// the Built-in Synth's kit on `08`, and the others keep Learn Orca's.
-const TRACKER_CHANNELS: [u8; 8] = [8, 8, 8, 3, 4, 5, 6, 7];
+/// the Built-in Synth's kit on `08`, the bassline plays its acid voice on `09`,
+/// and the others keep Learn Orca's.
+const TRACKER_CHANNELS: [u8; 8] = [8, 8, 8, 9, 4, 5, 6, 7];
 
 ///
 /// The Tracker's voices in Source order: two staircases of four, voice
@@ -362,14 +377,14 @@ fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
 }
 
 #[test]
-fn the_tracker_plays_two_bars_of_the_808_beat() {
+fn the_tracker_plays_the_808_beat_and_the_acid_bassline() {
     // Kick, snare and hat on the first three voices, on the kit's channel
-    // `08`, and every other voice resting: every voice steps once a Tick
-    // through sixteen steps, at velocity `77`, the byte Orca's default `f`
-    // sends.
+    // `08`, the bassline on voice 3 on the acid channel `09`, and every other
+    // voice resting: every voice steps once a Tick through sixteen steps, at
+    // velocity `77`, the byte Orca's default `f` sends.
     assert_two_loops(
         include_bytes!("../../../../examples/tracker.orcvs"),
-        &orca_patch(&tracker_voices(&beat(16))),
+        &orca_patch(&tracker_voices(&[beat(16), bassline(3, 16)].concat())),
     );
 }
 
@@ -407,8 +422,8 @@ fn every_tracker_voice_plays_its_own_column_on_its_own_channel() {
         .map(|voice| (voice, 2 * usize::from(voice), 60 + voice))
         .collect();
     // The Notes are written into the shipped pattern rows' Comments, over
-    // their blank steps once the shipped beat is blanked too.
-    let text = without_the_beat(include_str!("../../../../examples/tracker.orcvs"));
+    // their blank steps once the shipped pattern is blanked too.
+    let text = without_the_pattern(include_str!("../../../../examples/tracker.orcvs"));
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
     for &(voice, step, note) in &notes {
         let column = 2 + 28 * usize::from(voice / 4) + 7 * usize::from(voice % 4) + 10;
@@ -430,8 +445,8 @@ fn every_tracker_voice_plays_its_own_column_on_its_own_channel() {
 fn a_half_typed_step_silences_only_its_own_voice() {
     // Clearing the `2` of the kick's step-0 `C2` leaves `C `, partial input
     // for its Read. The Read is diagnosed, its Timed Play is invalid with it
-    // and sends nothing, the hat still plays, and every other voice rests
-    // silently.
+    // and sends nothing, the hat and the bassline still play, and every other
+    // voice rests silently.
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/tracker.orcvs"))
             .expect("the shipped file is a Source File"),
@@ -459,19 +474,20 @@ fn a_half_typed_step_silences_only_its_own_voice() {
         ]
     );
     assert_eq!(plan.diagnostics.len(), 2, "{:?}", plan.diagnostics);
-    assert!(
-        matches!(
-            plan.play_commands.as_slice(),
-            [PlayCommand::Timed { channel, note, .. }]
-                if channel.value() == 8 && note.value() == 42
-        ),
-        "{:?}",
-        plan.play_commands
-    );
+    let played: Vec<(u8, u8)> = plan
+        .play_commands
+        .iter()
+        .map(|command| match command {
+            PlayCommand::Timed { channel, note, .. } => (channel.value(), note.value()),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(played, [(9, 33), (8, 42)]);
 }
 
 /// The channel each Sequencer voice plays on: the beat's three voices share
-/// the Built-in Synth's kit on `08`, and the others keep Learn Orca's.
+/// the Built-in Synth's kit on `08`, and the others keep Learn Orca's, the
+/// last of them the acid voice on `09`.
 const SEQUENCER_CHANNELS: [u8; 10] = [8, 8, 8, 3, 4, 5, 6, 7, 8, 9];
 
 ///
@@ -491,12 +507,13 @@ fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
 }
 
 #[test]
-fn the_sequencer_plays_the_808_beat_over_both_bars() {
+fn the_sequencer_plays_the_808_beat_and_the_acid_bassline_over_both_bars() {
     // Kick, snare and hat on the first three voices, on the kit's channel
-    // `08`, over both of its bars; every other voice rests, silently.
+    // `08`, and the bassline on the last, on the acid channel `09`, over both
+    // bars; every other voice rests, silently.
     assert_two_loops(
         include_bytes!("../../../../examples/sequencer.orcvs"),
-        &orca_patch(&sequencer_voices(&beat(32))),
+        &orca_patch(&sequencer_voices(&[beat(32), bassline(9, 32)].concat())),
     );
 }
 
@@ -509,7 +526,7 @@ fn every_sequencer_voice_plays_its_own_row_on_its_own_channel() {
         .map(|voice| (voice, 3 * usize::from(voice) + 1, 60 + voice))
         .collect();
     notes.extend([(0, 0, 72), (0, 31, 48)]);
-    let text = without_the_beat(include_str!("../../../../examples/sequencer.orcvs"));
+    let text = without_the_pattern(include_str!("../../../../examples/sequencer.orcvs"));
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
     for &(voice, step, note) in &notes {
         let row = &mut rows[4 + 3 * usize::from(voice)];
