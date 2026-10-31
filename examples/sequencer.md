@@ -33,7 +33,7 @@ Beat example plays: the kick `C2` on every beat, the snare `D2` on beats 2 and 4
 and the closed hat `f2` on every eighth. They play on channel `08`, where the
 Built-in Synth's kit picks each instrument from the Note's pitch class. The
 last voice plays a sixteen-step bassline twice on channel `09`, the Built-in
-Synth's 303-style voice, which sweeps its filter on every Note (ADR 0096). Every
+Synth's 303-style voice, which sweeps its filter on every Note (ADR 0097). Every
 other voice ships empty, on its Learn Orca channel, `03` to `08`. Each voice's
 steps are one `||` Comment, so the Notes in it are text the Reads select rather
 than Functions. Step `s` of every voice is the pair at columns `20 + 2s` and

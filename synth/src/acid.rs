@@ -1,4 +1,4 @@
-//! The acid channel, `9` (ADR 0096): one 303-style voice.
+//! The acid channel, `9` (ADR 0097): one 303-style voice.
 
 use std::f32::consts::TAU;
 

@@ -2,7 +2,7 @@
 
 Status: resolved
 
-**What to build:** The Built-in Synth plays channel `09` as a 303-style voice, as ADR 0096 decides
+**What to build:** The Built-in Synth plays channel `09` as a 303-style voice, as ADR 0097 decides
 it: mono, a bandlimited saw or square, a resonant 4-pole lowpass with its own decay envelope, accent
 from velocity, slide on overlapping notes, and five Control Changes on that channel.
 
@@ -31,7 +31,7 @@ from velocity, slide on overlapping notes, and five Control Changes on that chan
 ### 2026-10-31 — Opened
 
 Prototype on branch `prototype/acid-channel` (`synth/prototype/acid/`). The accent
-threshold is open in ADR 0096 until Toby settles it.
+threshold is open in ADR 0097 until Toby settles it.
 
 ### 2026-10-31 — Channel
 

@@ -2,7 +2,7 @@
 
 Status: accepted; when the audio context resumes is amended by [ADR 0089](0089-the-panel-plays-and-rewinds.md), which resumes it inside the reader's gesture. Settled with Toby on 2026-10-26 in `.scratch/orcvs-site/` (tickets 07 and 08).
 The research is `docs/research/tone-generation.md`. [ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)
-amends it: Control Change 1 to 8 set the synth's eight effects, which the sound module shows. [ADR 0096](0096-one-built-in-synth-channel-plays-a-303-style-voice.md)
+amends it: Control Change 1 to 8 set the synth's eight effects, which the sound module shows. [ADR 0097](0097-one-built-in-synth-channel-plays-a-303-style-voice.md)
 amends it: channel `09` plays a 303-style voice in place of the kit, with its own Control Changes.
 Ticket 16 amended when the audio context starts (2026-10-28).
 

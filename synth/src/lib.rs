@@ -28,7 +28,7 @@ const ACID_LEVEL: f32 = 0.3;
 
 /// The synth: sixteen voices, a frame clock, and the messages still to come.
 ///
-/// Channels `0`–`7` play tones, `9` the acid voice (ADR 0096), and `8` and
+/// Channels `0`–`7` play tones, `9` the acid voice (ADR 0097), and `8` and
 /// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 on
 /// any channel sets `MD`, vibrato on the whole mix. All Sound Off and All Notes
 /// Off release a channel's tones and its acid voice. The acid channel's own
