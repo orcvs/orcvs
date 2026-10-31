@@ -525,9 +525,6 @@ impl eframe::App for Console {
         if let Some(centre) = self.show_overview(root, below_menu, revision, &frame, appearance) {
             self.source_view.centre_on(centre);
         }
-        if panel::prototype_variant() == 7 {
-            self.show_prototype_toasts(&ctx, below_menu);
-        }
         let shown = self.source_view.shown();
 
         request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));
