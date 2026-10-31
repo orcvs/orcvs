@@ -44,7 +44,7 @@ three voices that play it, in columns 12, 19 and 26, play on channel `08`, where
 the Built-in Synth's kit picks each instrument from the Note's pitch class.
 The fourth voice, in column 33, plays a sixteen-step bassline on channel `09`,
 the Built-in Synth's 303-style voice, which sweeps its filter on every Note
-(ADR 0097). Every other voice ships empty, on its Learn Orca channel, `04` to
+(ADR 0099). Every other voice ships empty, on its Learn Orca channel, `04` to
 `07`.
 
 Each pattern row is one `||` Comment, so the Notes in it are text the Reads

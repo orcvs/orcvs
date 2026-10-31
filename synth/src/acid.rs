@@ -1,4 +1,4 @@
-//! The acid channel, `9` (ADR 0097): one 303-style voice.
+//! The acid channel, `9` (ADR 0099): one 303-style voice.
 
 use std::f32::consts::TAU;
 
@@ -56,11 +56,11 @@ impl Controls {
     }
 }
 
-/// The voice: a saw, or a square from waveform `40`, through a resonant four-pole lowpass, under a gate. Each
-/// struck note opens the filter by an envelope that decays; a note struck while
-/// the last is held slides to its pitch and leaves the envelope decaying. An
-/// accented note's envelope is at its shortest and also raises its loudness
-/// and opens the filter further.
+/// The voice: a saw, or a square from waveform `40`, through a resonant
+/// four-pole lowpass, under a gate. Each struck note opens the filter by an
+/// envelope that decays; a note struck while the last is held slides to its
+/// pitch and leaves the envelope decaying. An accented note's envelope is at
+/// its shortest and also raises its loudness and opens the filter further.
 pub(crate) struct Acid {
     frequency: f32,
     target: f32,
