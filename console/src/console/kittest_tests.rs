@@ -385,10 +385,11 @@ async fn the_overview_starts_pinned_in_the_sources_bottom_right_corner_and_the_v
     harness.run_steps(2);
     let overview = harness.get_by_label("Source overview").rect();
     let with = source_rect(&harness);
-    // Within half a physical pixel each way: the picture's corner is rounded
-    // onto the pixel grid.
+    // Inside the Source and less than a physical pixel from its corner: the
+    // picture's corner is the last whole pixel inside it.
+    let gap = with.max - overview.max;
     assert!(
-        (overview.max - with.max).length() <= 0.5_f32.hypot(0.5),
+        gap.min_elem() >= 0.0 && gap.max_elem() < 1.0,
         "the Overview {overview:?} is not in the Source's corner {with:?}"
     );
     // The Overview's layer is the picture and its border and no more, so the

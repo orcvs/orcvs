@@ -5,7 +5,7 @@
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `source_view`
 //! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays
-//! out; `overview` floats the Overview over the window's corner when it is
+//! out; `overview` floats the Overview over the Source's corner when it is
 //! open and answers where a press on it Pans the Source View; `repaint`
 //! schedules the next timed Render Frame; `diagnostics_panel` fills the
 //! Panel's Diagnostics readouts; `files` asks its discard question and titles

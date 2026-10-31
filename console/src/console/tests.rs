@@ -6198,6 +6198,15 @@ fn console_output_at(
 type TextureUpload = (egui::TextureId, Option<[usize; 2]>, [usize; 2]);
 
 ///
+/// Whether `picture` lies inside `source` with its corner less than one
+/// physical pixel from the Source's bottom-right corner on each axis.
+///
+fn in_corner(picture: Rect, source: Rect, pixels_per_point: f32) -> bool {
+    let gap = (source.max - picture.max) * pixels_per_point;
+    source.contains_rect(picture) && gap.max_elem() < 1.0
+}
+
+///
 /// The Overview's picture as painted: the one Mesh drawn from a texture other
 /// than the font atlas, its texture and the rectangle it covers.
 ///
@@ -6255,7 +6264,7 @@ async fn the_overview_draws_one_square_image_at_one_physical_pixel_per_texel() {
         );
         let source = source_area(&shapes, &default_theme(Appearance::Dark));
         assert!(
-            (image.max - source.max).length() * pixels_per_point <= 0.5_f32.hypot(0.5) + 1e-3,
+            in_corner(image, source, pixels_per_point),
             "{pixels_per_point}×: the image {image:?} is not in the Source's corner {source:?}"
         );
     }
@@ -6280,7 +6289,7 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
     let theme = default_theme(Appearance::Dark);
     let source = source_area(&shapes, &theme);
     assert!(
-        (picture.max - source.max).length() <= 0.5_f32.hypot(0.5),
+        in_corner(picture, source, 1.0),
         "the picture {picture:?} left the Source's corner {source:?}"
     );
 
@@ -6354,7 +6363,7 @@ async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() 
             "{size:?} at {pixels_per_point}×: the Overview returned at {image:?}"
         );
         assert!(
-            (image.max - source.max).length() * pixels_per_point <= 0.5_f32.hypot(0.5) + 1e-3,
+            in_corner(image, source, pixels_per_point),
             "{size:?} at {pixels_per_point}×: the Overview returned away from the Source's \
              corner at {image:?}"
         );

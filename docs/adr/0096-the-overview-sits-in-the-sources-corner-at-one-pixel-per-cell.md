@@ -44,7 +44,12 @@ area.
 
 ## Consequences
 
-- At 2× and above the picture is a quarter of ADR 0081's area. Each Cell is one physical pixel.
+- Each Cell is one physical pixel. At 2× the picture is a quarter of ADR 0081's area, and a ninth
+  at 3×.
+- A Source too small for the picture hides the Overview while the View menu keeps it ticked, as ADR
+  0081 already does for the window: under 514 points wide or 257 high at 1×, under 258 wide or 129
+  high at 2×. The room is the Source's, not the window's, so open docked Diagnostics take height
+  from it, and the console's smallest window, 300 by 220 points, never shows the Overview.
 - The bottom panel's row and its status line are never under the Overview, so ADR 0095's line
   beneath the Panel's row stays for its own reasons.
 - A phone-width web console holds the picture at 1 pixel per Cell. Its page settings still open
