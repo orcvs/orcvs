@@ -7,8 +7,8 @@ console shows that link, so a reader has no way to get one to send.
 
 ## Decision
 
-**`File → Copy Link` puts the site link that opens the running Source on the clipboard**, on native
-and on the web. A Source that is a shipped example unchanged links by its link name,
+**The top bar's share icon, `↗` beside the mode toggle, puts the site link that opens the running
+Source on the clipboard**, on native and on the web. Toby placed it there on 2026-10-31. A Source that is a shipped example unchanged links by its link name,
 `https://orcvs.com/?example=tracker`; any other Source links as its percent-encoded Source File
 text, `https://orcvs.com/#source=…`. Every byte but a letter, a digit or one of `-._~` is encoded,
 so the text survives any address bar or chat client. A Source whose encoded text is over the limit
@@ -18,6 +18,9 @@ The link always names `https://orcvs.com/`, the page that frames the console wit
 Synth, whichever page or build the console runs in.
 
 ## Considered options
+
+**`File → Copy Link`.** Shipped first in the same pull request; Toby asked for a share icon by the
+mode toggle instead.
 
 **A share control on the site, outside the console.** The site would have to ask the console what
 it is running, by message, and native would have no way to share.

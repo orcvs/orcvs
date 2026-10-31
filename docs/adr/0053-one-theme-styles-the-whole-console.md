@@ -192,6 +192,16 @@ restored at startup, operating-system appearance changes, the mode control and
 loaded documents each apply one Theme to the Source Grid and the chrome
 together.
 
+## Amendment, 2026-10-31: the mode is one toggle
+
+Toby, 2026-10-31: "I find the 3 buttons incredibly confusing. Why does anyone think this is better
+than a mode toggle." The mode control is one icon toggle at the right of the top bar. It shows the
+appearance the console shows, `☾` or `☼`, and a press holds the other appearance as egui's
+`ThemePreference::Dark` or `ThemePreference::Light`. Until the first press the preference is
+egui's default, `System`, so a console follows the operating system's appearance until the viewer
+chooses one; no control returns it to following the operating system. The rest of the second
+amendment's "The mode is a control" stands.
+
 ## Amendment, 2026-10-20: the Cursor's glyph colours are optional too
 
 "Optional fills distinguish absence from transparency" applies to four

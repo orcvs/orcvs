@@ -1,10 +1,10 @@
 # 28 — Copy a link to the running Source
 
 **What to build:** A reader can get the site link that opens what the console is running, so they
-can send it. `File → Copy Link` puts it on the clipboard (ADR 0097).
+can send it. The top bar's share icon, beside the mode toggle, puts it on the clipboard (ADR 0097).
 
 Toby (2026-10-31): "There is no way of copying or accessing the actual link. We should add a share
-button or something."
+button or something." Then: "Make it a share icon near the theme toggles."
 
 **Acceptance:**
 

@@ -76,10 +76,7 @@ fn browser(url: &str) -> std::process::Command {
 fn file_menu_item(ui: &mut egui::Ui, command: FileCommand) -> bool {
     let item = egui::Button::new(command.label());
     #[cfg(not(target_arch = "wasm32"))]
-    let item = match command.shortcut() {
-        Some(shortcut) => item.shortcut_text(ui.ctx().format_shortcut(&shortcut)),
-        None => item,
-    };
+    let item = item.shortcut_text(ui.ctx().format_shortcut(&command.shortcut()));
     ui.add(item).clicked()
 }
 
@@ -192,69 +189,56 @@ pub(super) enum AppearanceChange {
 }
 
 ///
-/// The mode control's glyphs: Follow the OS, Dark, Light. Each must be in the
-/// console's one font (`kittest_tests::the_mode_glyphs_are_in_the_console_font`).
+/// The mode toggle's glyphs, for the appearance the console shows: Dark,
+/// Light. Each must be in the console's one font
+/// (`kittest_tests::the_mode_glyphs_are_in_the_console_font`).
 ///
-pub(super) const MODE_GLYPHS: [&str; 3] = ["◐", "☾", "☼"];
+pub(super) const MODE_GLYPHS: [&str; 2] = ["☾", "☼"];
 
 ///
-/// The top bar's mode control: Follow the OS, Dark and Light as icon-only
-/// selectable buttons, each named for accessibility and explained on hover.
-/// Answers the choice a viewer made this frame, if any.
+/// The share icon's glyph, in the console's one font.
 ///
-/// Shown into a right-to-left layout, so the buttons are added in reverse.
+pub(super) const SHARE_GLYPH: &str = "↗";
+
+///
+/// The top bar's mode toggle: one icon showing the appearance the console
+/// shows, named for accessibility and toggled while it is dark. A press holds
+/// the other appearance; until the first press the console follows the OS.
+/// Answers the change a viewer made this frame, if any.
 ///
 fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
-    // Icon-sized and spaced as egui spaces them, not the bar's full height
-    // and menu gap: the mode opens no menu. The spacing is set in a scope of
-    // its own, so what the bar shows after the mode keeps the bar's spacing.
-    ui.scope(|ui| {
-        let global = ui.ctx().global_style();
-        ui.spacing_mut().interact_size.y = global.spacing.interact_size.y;
-        ui.spacing_mut().item_spacing.x = global.spacing.item_spacing.x;
-        let mode = ui.ctx().options(|options| options.theme_preference);
-        let system = ui.input(|input| input.raw.system_theme);
-        let choices = [
-            (
-                egui::ThemePreference::System,
-                "Follow the OS",
-                "Follow the operating system's appearance.",
-            ),
-            (
-                egui::ThemePreference::Dark,
-                "Dark",
-                "Always use the dark appearance.",
-            ),
-            (
-                egui::ThemePreference::Light,
-                "Light",
-                "Always use the light appearance.",
-            ),
-        ];
-        let mut change = None;
-        for ((preference, name, explanation), glyph) in choices.into_iter().zip(MODE_GLYPHS).rev() {
-            let selected = mode == preference;
-            let response = ui.selectable_label(selected, glyph);
-            response.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, name)
-            });
-            let response = response.on_hover_ui(|ui| {
-                ui.label(explanation);
-                if preference == egui::ThemePreference::System {
-                    ui.label(match system {
-                        Some(egui::Theme::Dark) => "The operating system's appearance is dark.",
-                        Some(egui::Theme::Light) => "The operating system's appearance is light.",
-                        None => "The operating system's appearance is unknown.",
-                    });
-                }
-            });
-            if response.clicked() {
-                change = Some(AppearanceChange::Mode(preference));
-            }
-        }
-        change
-    })
-    .inner
+    let dark = ui.ctx().theme() == egui::Theme::Dark;
+    let (glyph, other, explanation) = if dark {
+        (
+            MODE_GLYPHS[0],
+            egui::ThemePreference::Light,
+            "Switch to the light appearance.",
+        )
+    } else {
+        (
+            MODE_GLYPHS[1],
+            egui::ThemePreference::Dark,
+            "Switch to the dark appearance.",
+        )
+    };
+    let response = ui.selectable_label(false, glyph);
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, dark, "Dark mode")
+    });
+    let response = response.on_hover_text(explanation);
+    response.clicked().then_some(AppearanceChange::Mode(other))
+}
+
+///
+/// The top bar's share icon, named for accessibility and explained on hover.
+/// Answers whether a viewer pressed it this frame.
+///
+fn share_control(ui: &mut egui::Ui) -> bool {
+    let response = ui.selectable_label(false, SHARE_GLYPH);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Copy Link"));
+    response
+        .on_hover_text("Copy a link to this Source.")
+        .clicked()
 }
 
 impl Console {
@@ -286,7 +270,7 @@ pub(super) struct MenuBarChoice {
 impl Console {
     ///
     /// Shows the top bar: File, View and Help with its Examples, then at its
-    /// right edge the mode control and the Notices menu.
+    /// right edge the mode toggle, the share icon and the Notices menu.
     ///
     /// View's zoom items on native are egui's own, which step the whole UI's
     /// zoom as its chords do; the web's View menu has none. Help's Function
@@ -319,24 +303,19 @@ impl Console {
             ui.spacing_mut().interact_size.y = ui.available_height();
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = menu_bar_gap(ui);
-                // New, Open…, Save, Save As…, Copy Link and Quit on native;
-                // New and Copy Link on the web.
+                // New, Open…, Save, Save As… and Quit on native; New alone on
+                // the web.
                 ui.menu_button("File", |ui| {
                     if file_menu_item(ui, FileCommand::New) {
                         choice.file_command = Some(FileCommand::New);
                     }
                     #[cfg(not(target_arch = "wasm32"))]
-                    for command in [FileCommand::Open, FileCommand::Save, FileCommand::SaveAs] {
-                        if file_menu_item(ui, command) {
-                            choice.file_command = Some(command);
-                        }
-                    }
-                    ui.separator();
-                    if file_menu_item(ui, FileCommand::CopyLink) {
-                        choice.file_command = Some(FileCommand::CopyLink);
-                    }
-                    #[cfg(not(target_arch = "wasm32"))]
                     {
+                        for command in [FileCommand::Open, FileCommand::Save, FileCommand::SaveAs] {
+                            if file_menu_item(ui, command) {
+                                choice.file_command = Some(command);
+                            }
+                        }
                         ui.separator();
                         // Quit is a close request, asked about in `guard_close`.
                         // It shows no chord: on macOS the app menu's ⌘Q ends the
@@ -393,9 +372,24 @@ impl Console {
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Rightmost: the mode, which is a control rather than a
-                    // menu, and applied once the frame is done.
-                    choice.appearance_change = mode_control(ui);
+                    // Rightmost: the mode toggle, then the share icon, which
+                    // are controls rather than menus. Icon-sized and spaced
+                    // as egui spaces them, not the bar's full height and menu
+                    // gap; the spacing is set in a scope of its own, so what
+                    // the bar shows after them keeps the bar's spacing. The
+                    // mode is applied once the frame is done.
+                    let share = ui
+                        .scope(|ui| {
+                            let global = ui.ctx().global_style();
+                            ui.spacing_mut().interact_size.y = global.spacing.interact_size.y;
+                            ui.spacing_mut().item_spacing.x = global.spacing.item_spacing.x;
+                            choice.appearance_change = mode_control(ui);
+                            share_control(ui)
+                        })
+                        .inner;
+                    if share {
+                        self.copy_link();
+                    }
                     // Theme, settings and Source File notices sit
                     // in the bar until dismissed; `report` has already sent
                     // each to the developer console.

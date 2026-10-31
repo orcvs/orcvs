@@ -118,8 +118,8 @@ async fn the_top_bar_menus_sit_one_readout_group_gap_apart() {
 }
 
 ///
-/// The Notices menu sits the same gap left of the mode control, whose own
-/// buttons keep egui's tighter spacing.
+/// The Notices menu sits the same gap left of the share icon, which keeps
+/// egui's tighter spacing from the mode toggle beside it.
 ///
 #[tokio::test]
 async fn the_notices_sit_one_readout_group_gap_from_the_mode_control() {
@@ -135,14 +135,14 @@ async fn the_notices_sit_one_readout_group_gap_from_the_mode_control() {
     harness.run_steps(2);
     let (gap, padding) = label_gap(&harness);
     let notices = harness.get_by_label("Notices (1)").rect();
-    let [follow, dark] = ["Follow the OS", "Dark"].map(|mode| harness.get_by_label(mode).rect());
+    let [share, mode] = ["Copy Link", "Dark mode"].map(|icon| harness.get_by_label(icon).rect());
     assert!(
-        (follow.left() - notices.right() + padding - gap).abs() < 0.01,
-        "the notices are not {gap} from the mode control: {notices:?} {follow:?}"
+        (share.left() - notices.right() + padding - gap).abs() < 0.01,
+        "the notices are not {gap} from the share icon: {notices:?} {share:?}"
     );
     assert!(
-        dark.left() - follow.right() + padding < gap,
-        "the mode buttons take the menu gap: {follow:?} {dark:?}"
+        mode.left() - share.right() + padding < gap,
+        "the bar's icons take the menu gap: {share:?} {mode:?}"
     );
 }
 

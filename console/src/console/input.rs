@@ -128,7 +128,6 @@ pub(super) enum FileCommand {
     Save,
     #[cfg(not(target_arch = "wasm32"))]
     SaveAs,
-    CopyLink,
 }
 
 impl FileCommand {
@@ -146,24 +145,22 @@ impl FileCommand {
             Self::Save => "Save",
             #[cfg(not(target_arch = "wasm32"))]
             Self::SaveAs => "Save As…",
-            Self::CopyLink => "Copy Link",
         }
     }
 
     ///
     /// The chord that runs this command and that its File menu item shows:
-    /// what [`file_command`] answers. Copy Link has none.
+    /// what [`file_command`] answers.
     ///
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn shortcut(self) -> Option<egui::KeyboardShortcut> {
+    pub(super) fn shortcut(self) -> egui::KeyboardShortcut {
         let (modifiers, key) = match self {
             Self::New => (egui::Modifiers::COMMAND, Key::N),
             Self::Open => (egui::Modifiers::COMMAND, Key::O),
             Self::Save => (egui::Modifiers::COMMAND, Key::S),
             Self::SaveAs => (egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::S),
-            Self::CopyLink => return None,
         };
-        Some(egui::KeyboardShortcut::new(modifiers, key))
+        egui::KeyboardShortcut::new(modifiers, key)
     }
 }
 
@@ -210,11 +207,9 @@ fn toggles_diagnostics(event: &Event) -> bool {
 ///
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn file_command(event: &Event) -> Option<FileCommand> {
-    FileCommand::CHORDED.into_iter().find(|command| {
-        command
-            .shortcut()
-            .is_some_and(|shortcut| is_fresh_press_of(shortcut, event))
-    })
+    FileCommand::CHORDED
+        .into_iter()
+        .find(|command| is_fresh_press_of(command.shortcut(), event))
 }
 
 impl Console {

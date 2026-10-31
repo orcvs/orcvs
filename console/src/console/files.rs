@@ -87,9 +87,9 @@ impl Console {
 
     ///
     /// Puts the site link that opens the running Source on the clipboard:
-    /// `File → Copy Link`. A Source too large to link raises a notice.
+    /// the top bar's share icon. A Source too large to link raises a notice.
     ///
-    fn copy_link(&mut self) {
+    pub(super) fn copy_link(&mut self) {
         let mut link = None;
         self.orcvs
             .source()
@@ -303,7 +303,6 @@ impl Console {
             FileCommand::Save => self.save_file(),
             #[cfg(not(target_arch = "wasm32"))]
             FileCommand::SaveAs => self.save_file_as(),
-            FileCommand::CopyLink => self.copy_link(),
         }
     }
 
