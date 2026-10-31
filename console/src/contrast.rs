@@ -8,8 +8,8 @@
 //! Source Grid colour, so the two cannot independently drift.
 //! [`chrome`] does the same for the console's chrome: it reads every colour out of
 //! [`crate::style::style`], the `Style` [`crate::style::install`] registers,
-//! through the egui accessors the widgets themselves paint from —
-//! [`egui::Style::button_style`] among them — and composites each fill over
+//! from the `Visuals` fields egui's default widget styles paint from, and
+//! composites each fill over
 //! the surface it is painted on with [`egui::Color32::blend`], the same
 //! primitive every reused function above is itself built from.
 //!
@@ -29,7 +29,7 @@
 //! - A disabled widget: egui fades it to half opacity, and WCAG 2.1 SC 1.4.3
 //!   exempts the text of an inactive user-interface component.
 //! - `code.background`: nothing in the console paints a code span.
-//! - A state's strong `bg_fill`: egui 0.36.2 paints no text on one — it is a
+//! - A state's strong `bg_fill`: egui 0.37.0 paints no text on one — it is a
 //!   checkbox's box, a slider's rail, a colour swatch — so only the weak fill
 //!   every text-bearing widget uses is measured.
 //! - A popup, tooltip or window floating over another surface — the Source
@@ -54,8 +54,8 @@
 
 use std::fmt;
 
-use egui::widget_style::{Classes, HasClasses as _, SELECTED_CLASS, WidgetState};
-use egui::{Color32, Style};
+use egui::Color32;
+use egui::style::WidgetVisuals;
 use orcvs::render_frame::{PortalRole, PortalRoles};
 use orcvs::source::{OperandState, SourcePaint, Token};
 
@@ -358,25 +358,25 @@ const CHROME_STATES: usize = 17;
 /// background egui paints it for `theme`.
 ///
 /// Every colour is read out of [`crate::style::style`] — the `Style`
-/// [`crate::style::install`] registers for both egui appearance slots — and
-/// through the accessors egui's own widgets call when they paint it:
-/// [`egui::Style::button_style`], the function `Button::ui` itself calls
-/// for a button's fill and text colour; [`egui::Style::widget_style`],
-/// which `Checkbox` paints its label from; `Visuals::text_color`,
-/// `weak_text_color` and `text_edit_bg_color`; and `Visuals::selection`, which
-/// `text_selection::paint_text_selection` recolours selected glyphs and
-/// fills their background from. A `style` mapping that changes which Theme
-/// key a `Visuals` field reads therefore changes what this measures with
-/// it, rather than leaving a second, hand-kept copy of the mapping here to
-/// drift from the one painting uses.
+/// [`crate::style::install`] registers for both egui appearance slots — from
+/// the `Visuals` fields egui's default widget styles paint from
+/// (`egui-0.37.0/src/theme/default_style.rs`): a button's text is its state's
+/// [`egui::style::WidgetVisuals::text_color`] on the state's `weak_bg_fill`;
+/// a selected button swaps in `Visuals::selection`'s stroke colour and fill;
+/// a checkbox's frameless label is its state's `text_color`;
+/// `Visuals::text_color`, `weak_text_color` and `text_edit_bg_color` are read
+/// as they are; and `Visuals::selection` is what
+/// `text_selection::paint_text_selection` recolours selected glyphs and fills
+/// their background from. A `style` mapping that changes which Theme key a
+/// `Visuals` field reads therefore changes what this measures with it.
 ///
-/// Every text-bearing widget fill in egui 0.36.2 is the state's
-/// `weak_bg_fill` — `button_style`'s frame, `ComboBox`, and the active
-/// window's title bar alike; a state's strong `bg_fill` carries no text
-/// (a checkbox's box, a slider's rail, a colour swatch), which is why only
-/// the weak fill is measured. An open widget is measured the way
-/// `SubMenuButton::ui` paints one: it swaps `widgets.open` in for
-/// `widgets.inactive` while its button draws.
+/// Every text-bearing widget fill in egui 0.37.0 is the state's
+/// `weak_bg_fill` — a button's frame, `ComboBox`, and the active window's
+/// title bar alike; a state's strong `bg_fill` carries no text (a checkbox's
+/// box, a slider's rail, a colour swatch), which is why only the weak fill is
+/// measured. An open widget is measured the way `SubMenuButton::ui` paints
+/// one: it swaps `widgets.open` in for `widgets.inactive` while its button
+/// draws.
 ///
 /// Each fill is composited in paint order over the opaque window backdrop
 /// `Console::clear_color` clears to — the panel over the backdrop, the
@@ -388,24 +388,20 @@ const CHROME_STATES: usize = 17;
 fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
     let installed = style(theme);
     let visuals = &installed.visuals;
-    let plain = Classes::default();
+    let widgets = &visuals.widgets;
 
     let panel = theme.window_background.blend(visuals.panel_fill);
     let input = panel.blend(visuals.text_edit_bg_color());
-    let button = |painting: &Style, classes: &Classes, state: WidgetState| {
-        let drawn = painting.button_style(classes, state);
-        (drawn.text_style.color, panel.blend(drawn.frame.fill))
-    };
-    let frameless = |state: WidgetState| installed.widget_style(&plain, state).text.color;
+    let button = |state: &WidgetVisuals| (state.text_color(), panel.blend(state.weak_bg_fill));
 
-    let (inactive_text, inactive_fill) = button(&installed, &plain, WidgetState::Inactive);
-    let (hovered_text, hovered_fill) = button(&installed, &plain, WidgetState::Hovered);
-    let (active_text, active_fill) = button(&installed, &plain, WidgetState::Active);
-    let mut open_style = installed.clone();
-    open_style.visuals.widgets.inactive = open_style.visuals.widgets.open;
-    let (open_text, open_fill) = button(&open_style, &plain, WidgetState::Inactive);
-    let selected = Classes::default().with_class(SELECTED_CLASS);
-    let (selected_text, selected_fill) = button(&installed, &selected, WidgetState::Inactive);
+    let (inactive_text, inactive_fill) = button(&widgets.inactive);
+    let (hovered_text, hovered_fill) = button(&widgets.hovered);
+    let (active_text, active_fill) = button(&widgets.active);
+    let (open_text, open_fill) = button(&widgets.open);
+    let (selected_text, selected_fill) = (
+        visuals.selection.stroke.color,
+        panel.blend(visuals.selection.bg_fill),
+    );
     let selection = visuals.selection;
 
     [
@@ -430,13 +426,13 @@ fn chrome(theme: &Theme) -> [(Role, State, Color32, Color32); CHROME_STATES] {
         (
             Role::TextActive,
             State::HoveredFrameless,
-            frameless(WidgetState::Hovered),
+            widgets.hovered.text_color(),
             panel,
         ),
         (
             Role::TextActive,
             State::ActiveFrameless,
-            frameless(WidgetState::Active),
+            widgets.active.text_color(),
             panel,
         ),
         (

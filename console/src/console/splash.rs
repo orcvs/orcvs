@@ -133,7 +133,7 @@ impl Splash {
         let rect = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
-            egui::Id::new("splash"),
+            egui::Id::unique("splash"),
         ));
         painter.rect_filled(rect, 0.0, theme.window_background.gamma_multiply(opacity));
 

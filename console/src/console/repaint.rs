@@ -94,9 +94,6 @@ pub(super) fn moving_run_clock(
 ///
 pub(super) fn request_timed_repaint(ctx: &egui::Context, run_clock: Option<Duration>) {
     if let Some(run_clock) = run_clock {
-        ctx.request_repaint_after(until_next(
-            run_clock,
-            Duration::from_secs_f32(ctx.input(|input| input.predicted_dt).max(0.0)),
-        ));
+        ctx.request_repaint_after(until_next(run_clock));
     }
 }

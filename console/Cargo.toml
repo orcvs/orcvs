@@ -54,11 +54,11 @@ test-source-shapes = []
 # integration: the feature pulls `egui_inspection` in and
 # `eframe::maybe_attach_inspection_plugin` attaches the plugin from
 # `glow_integration`/`wgpu_integration` at start
-# (`eframe-0.36.2/src/lib.rs:214-222`). The console writes no server of its own.
+# (`eframe-0.37.0/src/lib.rs:214-222`). The console writes no server of its own.
 #
 # The feature alone changes nothing a viewer can see. `egui_inspection` reads
 # `EGUI_INSPECTION` at start and binds nothing when the variable is unset, empty,
-# `0` or `false` (`egui_inspection-0.36.2/src/lib.rs:40-50`), so a build carrying
+# `0` or `false` (`egui_inspection-0.37.0/src/lib.rs:40-51`), so a build carrying
 # the feature and launched without the variable behaves exactly like one without
 # it. Deliberate activation is the variable, not the build.
 #
@@ -96,13 +96,13 @@ release-capture = ["persistence", "egui_kittest/snapshot", "egui_kittest/wgpu"]
 orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 # Keep both Linux window backends explicit because disabling eframe defaults removes them.
 #
-# `=0.36.2` rather than `0.36.2`. A caret requirement reads "0.36.2 or any later
-# 0.36", and the console's own reasoning is written against this one release and
+# `=0.37.0` rather than `0.37.0`. A caret requirement reads "0.37.0 or any later
+# 0.37", and the console's own reasoning is written against this one release and
 # cites its sources: the one-frame `GlyphTable` against `Fonts::begin_pass`
-# recreating the font atlas, the web clear colour and the storage key against
+# clearing the font atlas, the web clear colour and the storage key against
 # eframe's runners, the repaint tests against `InputState::wants_repaint_after`,
 # and the Theme's colour composition against `ecolor` and egui's `Visuals`.
-# `grep -rn '0\.36\.2' console/src` lists every such citation. A patch release
+# `grep -rn '0\.37\.0' console/src` lists every such citation. A patch release
 # that arrives without anyone deciding to takes those citations out from under
 # the code that depends on them, and without an exact pin only the lockfile holds
 # the version. Moving the stack is a decision taken on its own, which re-reads
@@ -110,7 +110,12 @@ orcvs = { path = "../orcvs", version = "0.1.0", default-features = false }
 #
 # `.agents/skills/egui/references/guide.md` records the release this stack is
 # read against and what moving it costs.
+#
+# `clipboard` is egui-winit's system clipboard on native: without it copy, cut,
+# paste and Copy Link reach only egui's own buffer, never the OS. eframe's
+# native runner has it only when this feature is named.
 eframe = { version = "=0.37.0", default-features = false, features = [
+    "clipboard",
     "glow",
     "wayland",
     "x11",
@@ -227,7 +232,7 @@ web-sys = { version = "0.3", features = [
 # position but it cannot find the menu item a viewer would click.
 #
 # `eframe` is the only feature enabled, and it is the load-bearing one: it is
-# what `Harness::build_eframe` is behind (`egui_kittest-0.36.2/src/builder.rs:208-235`),
+# what `Harness::build_eframe` is behind (`egui_kittest-0.37.0/src/builder.rs:287-313`),
 # and without it the harness can only be given a closure — a second, test-only
 # UI, which this repository's own policy refuses. It pulls `eframe/accesskit`
 # with it, so a `cargo test` build of `eframe` carries `accesskit_winit` that a
@@ -236,7 +241,7 @@ web-sys = { version = "0.3", features = [
 #
 # `snapshot` and `wgpu` are off here and on only under the `release-capture`
 # feature above. Both exist to render a frame to an image, `snapshot` has no
-# renderer without `wgpu` (`egui_kittest-0.36.2/src/renderer.rs:36-45`), and
+# renderer without `wgpu` (`egui_kittest-0.37.0/src/renderer.rs:37-46`), and
 # `wgpu` puts the whole wgpu and naga tree into the graph and a GPU adapter into
 # the run. The ordinary test build and every gate but the merge tier's compile
 # of the captures do without both: the
@@ -247,7 +252,7 @@ web-sys = { version = "0.3", features = [
 # Confined to the non-WASM target table for the reason `proptest` is: the
 # invariants these tests hold are platform-independent, `cargo clippy
 # --all-targets --target wasm32-unknown-unknown` compiles this crate's unit tests,
-# and a browser build has no business resolving a test harness. `=0.36.2` for the
+# and a browser build has no business resolving a test harness. `=0.37.0` for the
 # reason `egui` and `eframe` carry it — the harness has to be the one that matches
 # the egui it drives.
 egui_kittest = { version = "=0.37.0", default-features = false, features = ["eframe"] }

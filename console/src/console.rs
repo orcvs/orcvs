@@ -312,7 +312,7 @@ impl Console {
             minimap_open: config.minimap_open,
             minimap: Minimap::default(),
             #[cfg(test)]
-            bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
+            bpm_widget_id: egui::Id::unique(BPM_FIELD_ID),
             keyboard_elsewhere: false,
             #[cfg(any(target_arch = "wasm32", test))]
             painted_backdrop: themes
@@ -369,7 +369,7 @@ impl Console {
     ///
     /// The web runner's clear colour: the backdrop of the Theme the frame it
     /// clears under was painted from. eframe's web runner asks
-    /// `clear_color` after the frame (`eframe-0.36.2/src/web/app_runner.rs`,
+    /// `clear_color` after the frame (`eframe-0.37.0/src/web/app_runner.rs`,
     /// `paint` after `logic`), so the active style can already be the one a
     /// View menu change in that frame switched to.
     ///

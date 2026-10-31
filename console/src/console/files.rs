@@ -371,7 +371,7 @@ impl Console {
         let Some(confirmation) = self.discard_confirmation.take() else {
             return;
         };
-        let modal = egui::Modal::new(egui::Id::new(DISCARD_CONFIRMATION_ID)).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::unique(DISCARD_CONFIRMATION_ID)).show(ctx, |ui| {
             ui.set_max_width(DISCARD_CONFIRMATION_WIDTH);
             ui.label(confirmation.question);
             // `add_space` adds to the item spacing.

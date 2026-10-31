@@ -175,7 +175,7 @@ fn presented_source(harness: &Harness<'_, Console>) -> GridViewport {
 /// lie below the bottom bar rather than between the bars.
 fn source_rect(harness: &Harness<'_, Console>) -> egui::Rect {
     let panel = |name| {
-        egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new(name))
+        egui::containers::panel::PanelState::load(&harness.ctx, super::tests::panel_id(name))
             .expect("the console's bars are present")
             .outer_rect
     };
@@ -241,9 +241,12 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let panel_rect = |harness: &Harness<'_, Console>| {
-        egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("bottom_panel"))
-            .expect("the bottom Panel is present")
-            .outer_rect
+        egui::containers::panel::PanelState::load(
+            &harness.ctx,
+            super::tests::panel_id("bottom_panel"),
+        )
+        .expect("the bottom Panel is present")
+        .outer_rect
     };
     assert!(
         !harness.state().diagnostics_open,
@@ -323,6 +326,7 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
 
     harness.get_by_label("View").click();
     harness.step();
+    harness.run_steps(1);
     harness.get_by_label("Diagnostics").click();
     harness.run_steps(3);
     assert!(!harness.state().diagnostics_open);
@@ -369,6 +373,7 @@ async fn a_console_starts_with_the_minimap_and_the_diagnostics_its_settings_open
 fn toggle_minimap(harness: &mut Harness<'_, Console>) {
     harness.get_by_label("View").click();
     harness.step();
+    harness.run_steps(1);
     harness.get_by_label("Minimap").click();
     harness.run_steps(3);
 }
@@ -399,7 +404,7 @@ async fn the_minimap_starts_pinned_in_the_sources_bottom_right_corner_and_the_vi
         .points();
     let area = harness
         .ctx
-        .memory(|memory| memory.area_rect(egui::Id::new("minimap")));
+        .memory(|memory| memory.area_rect(egui::Id::unique("minimap")));
     assert_eq!(
         area,
         Some(egui::Rect::from_min_max(
@@ -895,12 +900,14 @@ async fn docked_diagnostics_report_the_current_source_region_after_view_changes(
     assert_region(&harness);
     harness.get_by_label("View").click();
     harness.step();
+    harness.run_steps(1);
     harness.get_by_label("Diagnostics").click();
     harness.step();
     assert!(!harness.state().diagnostics_open);
 
     harness.get_by_label("View").click();
     harness.step();
+    harness.run_steps(1);
     harness.get_by_label("Diagnostics").click();
     harness.step();
     assert_region(&harness);
@@ -1258,9 +1265,12 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 #[tokio::test]
 async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
-    let top = egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("top_panel"))
-        .expect("the console shows its top bar")
-        .outer_rect;
+    let top = egui::containers::panel::PanelState::load(
+        &harness.ctx,
+        super::tests::panel_id("top_panel"),
+    )
+    .expect("the console shows its top bar")
+    .outer_rect;
     assert_eq!(
         top.height(),
         super::panel::BOTTOM_PANEL_HEIGHT,
@@ -1382,7 +1392,9 @@ async fn the_bar_icons_explain_themselves_on_hover() {
         (COPY_LINK, "Copy a link to this Source"),
     ] {
         harness.get_by_label(label).hover();
-        harness.run_steps(3);
+        // Three 0.25 s steps pass the 0.5 s tooltip delay; the tooltip
+        // shows on the pass after.
+        harness.run_steps(4);
         assert!(
             harness
                 .query_all_by_label_contains(explanation)
@@ -1393,7 +1405,7 @@ async fn the_bar_icons_explain_themselves_on_hover() {
     }
     choose_mode(&mut harness, egui::ThemePreference::Light);
     harness.get_by_label(DARK_MODE).hover();
-    harness.run_steps(3);
+    harness.run_steps(4);
     assert!(
         harness
             .query_all_by_label_contains("Switch to the dark appearance")
@@ -1404,41 +1416,23 @@ async fn the_bar_icons_explain_themselves_on_hover() {
 }
 
 ///
-/// Each of the top bar's glyphs is in the console's one font, which
-/// otherwise draws its replacement glyph.
+/// Each of the top bar's glyphs is in the console's one font. The harness
+/// panics on a glyph no installed font draws (`egui_kittest`'s default
+/// `MissingGlyphPolicy::Panic`), so laying each one out is the check.
 ///
 #[tokio::test]
 async fn the_bar_glyphs_are_in_the_console_font() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let font = egui::FontId::proportional(14.0);
-    let uv = |text: &str| {
-        let galley = harness.ctx.fonts_mut(|fonts| {
-            fonts.layout_no_wrap(text.to_owned(), font.clone(), egui::Color32::WHITE)
-        });
-        galley.rows[0].row.glyphs[0].uv_rect
-    };
-    let replacement = uv("💻");
-    assert_eq!(
-        uv("🌙"),
-        replacement,
-        "the probe no longer tells a missing glyph from a present one"
-    );
-    assert_ne!(
-        uv("A"),
-        replacement,
-        "the probe no longer tells a missing glyph from a present one"
-    );
     for glyph in [
         super::menu_bar::DARK_GLYPH,
         super::menu_bar::LIGHT_GLYPH,
         super::menu_bar::SHARE_GLYPH,
     ] {
-        assert_ne!(
-            uv(glyph),
-            replacement,
-            "{glyph:?} is not in the console font and would draw as a replacement glyph"
-        );
+        harness.ctx.fonts_mut(|fonts| {
+            fonts.layout_no_wrap(glyph.to_owned(), font.clone(), egui::Color32::WHITE)
+        });
     }
 }
 
@@ -2261,7 +2255,7 @@ async fn hit_testing_holds_across_cell_border_widths_and_zoom_factors() {
 
 ///
 /// The key eframe stores egui memory under in its storage, which it does not
-/// export (`eframe-0.36.2/src/native/epi_integration.rs`,
+/// export (`eframe-0.37.0/src/native/epi_integration.rs`,
 /// `STORAGE_EGUI_MEMORY_KEY`). The console never reads or writes it: eframe
 /// saves and loads under its own constant, so this spelling only has to agree
 /// with itself across the test's save and restore.
@@ -3091,7 +3085,7 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 /// because something asked for it, or does not run at all — a fixed count
 /// would paper over a missing repaint request by supplying the frame anyway.
 ///
-/// It runs regardless: pinned egui 0.36.2's own `InputState::wants_repaint_after`
+/// It runs regardless: pinned egui 0.37.0's own `InputState::wants_repaint_after`
 /// answers an immediate repaint for any pass whose `RawInput` carries events —
 /// which the click's own resolving `PointerButton` release does — and
 /// `Context::request_repaint_after` answers that with *two* repaints rather than
@@ -4530,7 +4524,7 @@ async fn the_help_menu_offers_the_sites_learn_and_reference_pages() {
     harness.get_by_label("Help").click();
     harness.step();
     harness.run_steps(1);
-    let examples = harness.get_by_label("Examples ⏵").rect();
+    let examples = harness.get_by_label("Examples").rect();
     let learn = menu_item(&harness, "Learn").rect();
     let reference = menu_item(&harness, "Reference").rect();
     assert!(
@@ -4546,8 +4540,7 @@ fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {
     harness.get_by_label("Help").click();
     harness.step();
     harness.run_steps(1);
-    // egui labels a submenu's button with its arrow.
-    harness.get_by_label("Examples ⏵").hover();
+    harness.get_by_label("Examples").hover();
     harness.step();
     harness.run_steps(1);
     harness.get_by_label(name).click();

@@ -552,6 +552,7 @@ fn wheel_at(point: Pos2, delta: Vec2) -> Vec<Event> {
         Event::PointerMoved(point),
         Event::MouseWheel {
             unit: MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta,
             phase: TouchPhase::Move,
             modifiers: Modifiers::NONE,
@@ -568,6 +569,7 @@ fn command_wheel_at(point: Pos2) -> Vec<Event> {
         Event::PointerMoved(point),
         Event::MouseWheel {
             unit: MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: Vec2::new(0.0, 80.0),
             phase: TouchPhase::Move,
             modifiers: Modifiers::COMMAND,
@@ -712,6 +714,15 @@ pub(super) fn start_console(
 ) -> Console {
     Console::new(cc, themes, config, crate::linked_source::Opening::Stored)
         .expect("the test runtime")
+}
+
+///
+/// The id egui gives the root Ui's Panel shown under `salt`: a Panel's id is
+/// its parent Ui's scope id salted with its own (`egui-0.37.0/src/containers/panel.rs`,
+/// `Panel::id`), and the console shows its bars on the root Ui.
+///
+pub(super) fn panel_id(salt: &str) -> egui::Id {
+    egui::ViewportId::ROOT.root_ui_id().with(salt)
 }
 
 ///
@@ -954,10 +965,10 @@ fn painted_strokes(ctx: &egui::Context) -> Vec<(Color32, Rect)> {
         egui::LayerId::background(),
         egui::LayerId::new(egui::Order::Background, egui::Id::NULL),
         egui::LayerId::new(egui::Order::Middle, egui::Id::NULL),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
-        egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
-        egui::LayerId::new(egui::Order::Middle, egui::Id::new("top_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("bottom_panel")),
+        egui::LayerId::new(egui::Order::Middle, panel_id("bottom_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("top_panel")),
+        egui::LayerId::new(egui::Order::Middle, panel_id("top_panel")),
     ];
     ctx.graphics(|graphics| {
         for layer in layers {
@@ -994,9 +1005,9 @@ fn painted_text(ctx: &egui::Context) -> String {
     let mut text = String::new();
     let layers = [
         egui::LayerId::background(),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
-        egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("bottom_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("top_panel")),
+        egui::LayerId::new(egui::Order::Middle, panel_id("bottom_panel")),
     ];
     ctx.graphics(|graphics| {
         for layer in layers {
@@ -1326,7 +1337,7 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         "Scan belongs in the Output menu, not on the closed Panel in {text:?}"
     );
 
-    let panel = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("bottom_panel"))
+    let panel = egui::containers::panel::PanelState::load(&ctx, panel_id("bottom_panel"))
         .expect("the bottom Panel was not shown");
     assert!(
         (panel.outer_rect.bottom() - screen.bottom()).abs() < 0.5,
@@ -1503,14 +1514,13 @@ async fn a_stopped_console_requests_no_repaint_on_a_quiet_pass() {
 }
 
 ///
-/// egui subtracts `predicted_dt` from every timed request. With a
-/// predicted frame longer than any Run Clock remainder, an uncompensated
-/// remainder saturates to an immediate Render Frame on every pass — the
-/// back-to-back redraw `until_next` adds `predicted_dt` to prevent. The
-/// compensated request survives the subtraction as the remainder itself.
+/// egui wakes after the delay a timed request names, whatever frame time it
+/// predicts: with a predicted frame longer than a second, the Run Clock
+/// request is still the remainder to the next whole second, never stretched
+/// past it nor collapsed to an immediate Render Frame.
 ///
 #[tokio::test]
-async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_time() {
+async fn a_playing_console_requests_the_run_clock_remainder_whatever_the_predicted_frame_time() {
     use eframe::App as _;
 
     let (ctx, mut console, mut host) = fresh_console();
@@ -1536,7 +1546,7 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
     );
 
     // A publish or focus wake can still ask for an immediate pass while
-    // settling; a compensated Run Clock request is the only timed one.
+    // settling; the Run Clock request is the only timed one.
     let mut delays = Vec::new();
     for _ in 0..8 {
         let input = egui::RawInput {
@@ -2244,7 +2254,7 @@ async fn the_compact_bars_take_their_height_and_the_source_the_rest() {
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     let panel = |id: &str| {
-        egui::containers::panel::PanelState::load(&ctx, egui::Id::new(id))
+        egui::containers::panel::PanelState::load(&ctx, panel_id(id))
             .unwrap_or_else(|| panic!("the console showed no {id}"))
             .outer_rect
     };
@@ -2450,9 +2460,9 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
             let mut spans = Vec::new();
             let layers = [
                 egui::LayerId::background(),
-                egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
-                egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
-                egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
+                egui::LayerId::new(egui::Order::Background, panel_id("bottom_panel")),
+                egui::LayerId::new(egui::Order::Background, panel_id("top_panel")),
+                egui::LayerId::new(egui::Order::Middle, panel_id("bottom_panel")),
             ];
             ctx.graphics(|graphics| {
                 for layer in layers {

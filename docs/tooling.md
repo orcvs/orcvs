@@ -163,13 +163,13 @@ only, and none of those bindings in `orcvs`.
 
 A third `console` feature is off by default and is the only one no tier would otherwise compile.
 `inspection` forwards to `eframe/inspection`, which pulls in `egui_inspection` and attaches its
-plugin at start (`eframe-0.36.2/src/lib.rs:214-222`). It is development tooling rather than product:
+plugin at start (`eframe-0.37.0/src/lib.rs:214-222`). It is development tooling rather than product:
 what it offers is an external process reading the console's AccessKit tree, injecting input,
 resizing the window and taking screenshots, which is full control of the running application with no
 authentication in the protocol at all. That is why it ships off, and why the feature alone is not
 enough to turn it on — `egui_inspection` binds nothing unless `EGUI_INSPECTION` is set, so a build
 carrying the feature and launched without the variable behaves exactly like a build without it
-(`egui_inspection-0.36.2/src/lib.rs:26-50`).
+(`egui_inspection-0.37.0/src/lib.rs:20-51`).
 
 Being off by default is exactly why the tier has to compile it by name, and `mise run
 check_inspection` is that line: one `cargo clippy --package console --all-targets --features
@@ -198,12 +198,12 @@ the rest would take. `scripts/check-tooling-contract.sh` pins the task, its call
 convenience. It writes `EGUI_INSPECTION=127.0.0.1:5719` out in full instead of the `EGUI_INSPECTION=1`
 the upstream README suggests: a command-level assignment replaces any inherited `EGUI_INSPECTION`
 value, and `1` itself resolves to loopback (`bind_addr_from_env` in
-`egui_inspection-0.36.2/src/lib.rs:40-50`). The literal is self-documenting and greppable, the port
+`egui_inspection-0.37.0/src/lib.rs:40-51`). The literal is self-documenting and greppable, the port
 is selectable, and the contract counts each assignment in `mise.toml` and requires every one of them
 to name the loopback host, so a bare `1` fails it as repository policy rather than because that
 spelling is unsafe. And it builds, then runs the built binary under a `HOME` and `XDG_DATA_HOME` of
 `target/inspection`, because eframe derives its storage directory from those
-(`eframe-0.36.2/src/native/file_storage.rs:17-40`) and `console` saves the current Source revision
+(`eframe-0.37.0/src/native/file_storage.rs:17-41`) and `console` saves the current Source revision
 every thirty seconds — a smoke test launched without that override would overwrite whatever Source
 the developer last had open. The binary it then launches is the one that build reported, through
 `--message-format=json-render-diagnostics`, rather than a written-down `./target/debug/console`: a
@@ -217,7 +217,7 @@ one.
 **The storage redirect works on macOS and Linux only.** Those are the two platforms eframe resolves
 its storage directory from the environment on. On Windows it calls
 `SHGetKnownFolderPath(FOLDERID_RoamingAppData)` instead
-(`eframe-0.36.2/src/native/file_storage.rs:37,46-90`), which is a shell known-folder lookup and not
+(`eframe-0.37.0/src/native/file_storage.rs:38,46-90`), which is a shell known-folder lookup and not
 an environment variable at all, so neither `HOME`, `XDG_DATA_HOME` nor `%APPDATA%` moves it. A
 `mise run inspect` on Windows writes the developer's real `app.ron` under
 `%APPDATA%\Orcvs\data`, and the contract assertion above cannot tell — it reads the assignment, not
@@ -225,8 +225,8 @@ the platform. Development and both CI tiers run on macOS and Linux, so this is a
 rather than a guard: on Windows, close the console before inspecting, or expect the Source to be
 overwritten.
 
-`mise run install_egui_mcp` installs the bridge the agent side attaches through: `egui_mcp` 0.2.0
-from crates.io, `--locked`, which is the release requiring `egui_inspection ^0.36.0`. It is the one
+`mise run install_egui_mcp` installs the bridge the agent side attaches through: `egui_mcp` 0.3.0
+from crates.io, `--locked`, which is the release requiring `egui_inspection ^0.37.0`. It is the one
 pinned tool that `[tools]` does not hold, because it is a cargo binary rather than a mise-managed
 one, so the version lives in the task and the contract pins its shape there — including that it is
 not installed from a git branch, which would make "the version that worked" unanswerable.
@@ -514,7 +514,7 @@ anything compiles them.
   drives the shipped `eframe::App` through `Harness::build_eframe`, which is what lets a test find a
   control by the label a viewer reads instead of by a position the test computed. Feature `eframe`
   and nothing else in every gate: `snapshot` has no renderer without `wgpu`
-  (`egui_kittest-0.36.2/src/renderer.rs:36-45`), and pulling the wgpu tree into the dev graph — and
+  (`egui_kittest-0.37.0/src/renderer.rs:37-46`), and pulling the wgpu tree into the dev graph — and
   a working GPU into every job that runs the console's tests — buys coverage the `Shape`-level
   assertions in `console::tests` already hold at a finer grain. No snapshot test compares against a
   baseline. The two features are on only under `console`'s `release-capture` feature, for the

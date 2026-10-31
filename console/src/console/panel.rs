@@ -145,8 +145,7 @@ pub(super) fn reserved_monospace(ui: &mut egui::Ui, text: &str, width: f32) -> e
     ui.painter().galley(pos, galley, ui.visuals().text_color());
     // A painted galley has no AccessKit node of its own; name the slot as
     // the Label it reads as.
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), text));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), text));
     response
 }
 
@@ -196,7 +195,7 @@ fn cell_button(
         FontId::new(glyph_size(cell), font_family.clone()),
         foreground,
     );
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
     response
 }
 
@@ -247,14 +246,15 @@ fn apply_panel_field_spacing(ui: &mut egui::Ui) {
 }
 
 ///
-/// A typed field `width_text` wide that commits on Enter or when focus leaves,
-/// not while typing. `commit` is handed the text when it differs from
-/// `current` and answers whether it took it; text it did not take, and Escape,
-/// put `current` back.
+/// A typed field `width_text` wide, named `name` in the AccessKit tree, that
+/// commits on Enter or when focus leaves, not while typing. `commit` is handed
+/// the text when it differs from `current` and answers whether it took it;
+/// text it did not take, and Escape, put `current` back.
 ///
 fn add_committed_field(
     ui: &mut egui::Ui,
     id: egui::Id,
+    name: &str,
     width_text: &str,
     current: &str,
     commit: impl FnOnce(&str) -> bool,
@@ -270,13 +270,17 @@ fn add_committed_field(
     if !ctx.memory(|memory| memory.has_focus(id)) {
         text = current.to_owned();
     }
-    let response = ui.add_sized(
-        size,
-        egui::TextEdit::singleline(&mut text)
-            .id(id)
-            .font(egui::TextStyle::Monospace)
-            .margin(BPM_FIELD_MARGIN),
-    );
+    let response = ui
+        .add_sized(
+            size,
+            egui::TextEdit::singleline(&mut text)
+                .id(id)
+                .font(egui::TextStyle::Monospace)
+                .margin(BPM_FIELD_MARGIN),
+        )
+        // The Panel's visible label is a single letter, or a Grid cell beside the
+        // field; neither names it in the AccessKit tree.
+        .accessible_name(name);
     if response.clicked() {
         select_all_text(&ctx, id, &text);
     }
@@ -297,7 +301,8 @@ fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
     let mut committed = false;
     let response = add_committed_field(
         ui,
-        egui::Id::new(BPM_FIELD_ID),
+        egui::Id::unique(BPM_FIELD_ID),
+        "BPM",
         "000",
         &bpm.to_string(),
         |text| match parse_panel_bpm(text) {
@@ -625,7 +630,8 @@ impl Console {
                     });
                 // A click on the field also closes an open list; only the click
                 // that leaves the list showing opened it.
-                combo.response.clicked() && combo.inner.is_some()
+                let response = combo.response.accessible_name("Output");
+                response.clicked() && combo.inner.is_some()
             })
             .inner;
         scan |= opened && console_midi::AVAILABLE && destinations.is_empty();
@@ -667,11 +673,18 @@ fn network_fields(ui: &mut egui::Ui, network: &mut crate::network::NetworkSettin
         for ((label, field, width_text), id) in fields.into_iter().zip(NETWORK_FIELD_IDS) {
             panel_label(ui, label);
             let current = network.text(field);
-            add_committed_field(ui, egui::Id::new(id), width_text, &current, |text| {
-                let committed = network.commit(field, text);
-                changed |= committed;
-                committed
-            });
+            add_committed_field(
+                ui,
+                egui::Id::unique(id),
+                label,
+                width_text,
+                &current,
+                |text| {
+                    let committed = network.commit(field, text);
+                    changed |= committed;
+                    committed
+                },
+            );
             ui.end_row();
         }
     });
