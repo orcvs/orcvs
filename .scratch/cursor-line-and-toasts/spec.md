@@ -63,6 +63,10 @@ records it and supersedes ADR 0095's growing status line.
   raises a new Toast, even one that returns to an earlier text.
 - **How long.** A Toast fades out after `[toasts] seconds`, default 5, 1 to 60. `×` removes it at
   once. A faded or dismissed Toast does not return while its key is remembered (see Identity).
+- **The standing signal.** While any of the five sources reports a message, the Panel's **O**
+  readout is drawn in the error colour, whether its Toast is showing, faded or dismissed, and it
+  returns to its ordinary colour when every source is clear. Toby chose this on 2026-10-31 so a
+  failure that outlives its Toast stays visible without a line of its own.
 - **Settings.** `[toasts] seconds` is read like every other key (ADR 0091 on the web), documented in
   `console/src/config.rs`'s header, and an out-of-range or mistyped value is the usual notice with
   the default applied.
