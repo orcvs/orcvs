@@ -184,30 +184,29 @@ const THEME_NOTICE_HEIGHT: f32 = 320.0;
 ///
 #[derive(Debug)]
 pub(super) enum AppearanceChange {
-    /// Follow the operating system's appearance, or hold dark or light.
+    /// Hold dark or light.
     Mode(egui::ThemePreference),
 }
 
 ///
-/// The mode toggle's glyphs, for the appearance the console shows: Dark,
-/// Light. Each must be in the console's one font
-/// (`kittest_tests::the_mode_glyphs_are_in_the_console_font`).
+/// The top bar's glyphs: the mode toggle's for a dark and a light console,
+/// and the share icon's. Each must be in the console's one font
+/// (`kittest_tests::the_bar_glyphs_are_in_the_console_font`).
 ///
-pub(super) const MODE_GLYPHS: [&str; 2] = ["☾", "☼"];
-
-///
-/// The share icon's glyph, in the console's one font.
-///
+pub(super) const DARK_GLYPH: &str = "☾";
+pub(super) const LIGHT_GLYPH: &str = "☼";
 pub(super) const SHARE_GLYPH: &str = "↗";
 
 ///
-/// `glyph` at the size the top bar's icons take: these glyphs sit small in
-/// their em, so at the menus' text size they read far smaller than the menus'
-/// labels.
+/// A top bar icon showing `glyph`, framed only while hovered or pressed and
+/// without a selected state of its own. It takes the bar's icon size: these
+/// glyphs sit small in their em, so at the menus' text size they read far
+/// smaller than the menus' labels.
 ///
-fn icon(ui: &egui::Ui, glyph: &str) -> egui::RichText {
+fn icon_button(ui: &mut egui::Ui, glyph: &str) -> egui::Response {
     let size = egui::TextStyle::Button.resolve(ui.style()).size;
-    egui::RichText::new(glyph).size(ICON_SCALE * size)
+    let text = egui::RichText::new(glyph).size(ICON_SCALE * size);
+    ui.add(egui::Button::new(text).frame_when_inactive(false))
 }
 
 /// How many times the menus' text size the top bar's icons are drawn at.
@@ -219,22 +218,21 @@ const ICON_SCALE: f32 = 1.75;
 /// the other appearance; until the first press the console follows the OS.
 /// Answers the change a viewer made this frame, if any.
 ///
-fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
-    let dark = ui.ctx().theme() == egui::Theme::Dark;
-    let (glyph, other, explanation) = if dark {
-        (
-            MODE_GLYPHS[0],
+fn mode_control(ui: &mut egui::Ui, appearance: Appearance) -> Option<AppearanceChange> {
+    let (glyph, other, explanation) = match appearance {
+        Appearance::Dark => (
+            DARK_GLYPH,
             egui::ThemePreference::Light,
             "Switch to the light appearance.",
-        )
-    } else {
-        (
-            MODE_GLYPHS[1],
+        ),
+        Appearance::Light => (
+            LIGHT_GLYPH,
             egui::ThemePreference::Dark,
             "Switch to the dark appearance.",
-        )
+        ),
     };
-    let response = ui.selectable_label(false, icon(ui, glyph));
+    let response = icon_button(ui, glyph);
+    let dark = appearance == Appearance::Dark;
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, dark, "Dark mode")
     });
@@ -247,7 +245,7 @@ fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
 /// Answers whether a viewer pressed it this frame.
 ///
 fn share_control(ui: &mut egui::Ui) -> bool {
-    let response = ui.selectable_label(false, icon(ui, SHARE_GLYPH));
+    let response = icon_button(ui, SHARE_GLYPH);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Copy Link"));
     response
         .on_hover_text("Copy a link to this Source.")
@@ -396,7 +394,7 @@ impl Console {
                             let global = ui.ctx().global_style();
                             ui.spacing_mut().interact_size.y = global.spacing.interact_size.y;
                             ui.spacing_mut().item_spacing.x = global.spacing.item_spacing.x;
-                            choice.appearance_change = mode_control(ui);
+                            choice.appearance_change = mode_control(ui, appearance);
                             share_control(ui)
                         })
                         .inner;

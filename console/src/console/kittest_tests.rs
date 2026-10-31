@@ -1213,21 +1213,18 @@ fn console_with_settings_moved() -> Harness<'static, Console> {
 const MOVED_CELL: Vec2 = Vec2::new(10.0, 15.0);
 
 ///
-/// Clicks the top bar's mode button named `label`, then runs the frame the
-/// click lands in and the frame that presents it.
+/// Presses the top bar's mode toggle until it holds `preference`, running
+/// the frame each press lands in and the frame that presents it.
 ///
-fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
-    let preference = match label {
-        "Dark" => egui::ThemePreference::Dark,
-        "Light" => egui::ThemePreference::Light,
-        _ => panic!("the mode toggle holds Dark or Light, not {label:?}"),
+fn choose_mode(harness: &mut Harness<'_, Console>, preference: egui::ThemePreference) {
+    // From following the OS, a press holds the appearance the OS does not
+    // show, so holding the one it shows takes a second press.
+    let presses = match (harness.ctx.theme(), preference) {
+        (egui::Theme::Dark, egui::ThemePreference::Light)
+        | (egui::Theme::Light, egui::ThemePreference::Dark) => 1,
+        _ => 2,
     };
-    // A toggle from following the OS holds the appearance the OS does not
-    // show, so reaching either can take two presses.
-    for _ in 0..2 {
-        if harness.ctx.options(|options| options.theme_preference) == preference {
-            return;
-        }
+    for _ in 0..presses {
         harness.get_by_label(DARK_MODE).click();
         harness.step();
         harness.run_steps(1);
@@ -1235,7 +1232,7 @@ fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
         preference,
-        "two presses of the mode toggle did not hold {label}"
+        "the mode toggle did not hold {preference:?}"
     );
 }
 
@@ -1256,7 +1253,8 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 ///
 /// The top bar is the compact bottom Panel's height. Its menu buttons fill
 /// that height with their labels centred, so a menu opens from the bar's
-/// bottom edge; the mode buttons, which open no menu, sit centred in it.
+/// bottom edge; the share icon and mode toggle, which open no menu, sit
+/// centred in it.
 ///
 #[tokio::test]
 async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
@@ -1321,9 +1319,14 @@ async fn the_mode_toggle_flips_the_appearance() {
         [share, toggle]
             .iter()
             .all(|icon| icon.height() <= file.height() + 1.0 && icon.width() < 2.0 * file.height()),
-        "an icon is wider than an icon: {share:?} {toggle:?}"
+        "an icon is wider than an icon's width: {share:?} {toggle:?}"
     );
 
+    assert_eq!(
+        harness.get_by_label(COPY_LINK).accesskit_node().toggled(),
+        None,
+        "the share icon is announced as a toggle"
+    );
     assert!(
         radio_selected(&harness, DARK_MODE),
         "following a dark OS is not shown dark"
@@ -1389,7 +1392,7 @@ async fn the_bar_icons_explain_themselves_on_hover() {
             "hovering {label:?} did not explain it"
         );
     }
-    choose_mode(&mut harness, "Light");
+    choose_mode(&mut harness, egui::ThemePreference::Light);
     harness.get_by_label(DARK_MODE).hover();
     harness.run_steps(3);
     assert!(
@@ -1402,11 +1405,11 @@ async fn the_bar_icons_explain_themselves_on_hover() {
 }
 
 ///
-/// Each mode glyph and the share glyph has a glyph of its own in the
-/// console's one font, which otherwise draws its replacement glyph.
+/// Each of the top bar's glyphs is in the console's one font, which
+/// otherwise draws its replacement glyph.
 ///
 #[tokio::test]
-async fn the_mode_glyphs_are_in_the_console_font() {
+async fn the_bar_glyphs_are_in_the_console_font() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let font = egui::FontId::proportional(14.0);
@@ -1427,10 +1430,11 @@ async fn the_mode_glyphs_are_in_the_console_font() {
         replacement,
         "the probe no longer tells a missing glyph from a present one"
     );
-    for glyph in super::menu_bar::MODE_GLYPHS
-        .into_iter()
-        .chain([super::menu_bar::SHARE_GLYPH])
-    {
+    for glyph in [
+        super::menu_bar::DARK_GLYPH,
+        super::menu_bar::LIGHT_GLYPH,
+        super::menu_bar::SHARE_GLYPH,
+    ] {
         assert_ne!(
             uv(glyph),
             replacement,
@@ -1441,8 +1445,9 @@ async fn the_mode_glyphs_are_in_the_console_font() {
 
 ///
 /// The mode control, under an OS in dark appearance: holding Light presents
-/// the light default whatever the OS says, and holding Dark the dark one. The frame a choice is made in is still wholly the old Theme;
-/// the next is wholly the new one. The mode is egui's `ThemePreference`,
+/// the light default whatever the OS says, and holding Dark the dark one.
+/// The frame a choice is made in is still wholly the old Theme; the next is
+/// wholly the new one. The mode is egui's `ThemePreference`,
 /// which eframe persists with egui memory.
 ///
 #[tokio::test]
@@ -1455,7 +1460,7 @@ async fn the_mode_switches_source_and_chrome_together() {
         "following a dark OS",
     );
 
-    choose_mode(&mut harness, "Light");
+    choose_mode(&mut harness, egui::ThemePreference::Light);
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
         egui::ThemePreference::Light
@@ -1468,7 +1473,7 @@ async fn the_mode_switches_source_and_chrome_together() {
         "holding Light",
     );
 
-    choose_mode(&mut harness, "Dark");
+    choose_mode(&mut harness, egui::ThemePreference::Dark);
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
@@ -1733,7 +1738,7 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
         "a dark OS again",
     );
 
-    choose_mode(&mut harness, "Dark");
+    choose_mode(&mut harness, egui::ThemePreference::Dark);
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(2);
     assert_frame_presents(
@@ -2385,7 +2390,7 @@ async fn a_mode_survives_a_save_and_a_restart() {
     {
         let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
         harness.run_steps(2);
-        choose_mode(&mut harness, "Light");
+        choose_mode(&mut harness, egui::ThemePreference::Light);
         assert_eq!(
             harness.ctx.options(|options| options.theme_preference),
             egui::ThemePreference::Light,

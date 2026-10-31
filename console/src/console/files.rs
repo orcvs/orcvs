@@ -90,11 +90,12 @@ impl Console {
     /// the top bar's share icon. A Source too large to link raises a notice.
     ///
     pub(super) fn copy_link(&mut self) {
-        let mut link = None;
+        // The text is copied out under the lock, and linked after it.
+        let mut text = String::new();
         self.orcvs
             .source()
-            .read_source(|source| link = Some(crate::linked_source::link(source)));
-        match link.expect("read_source reads the Source") {
+            .read_source(|source| text = orcvs::source::file::write(source));
+        match crate::linked_source::link(&text) {
             Ok(link) => self.ctx.copy_text(link),
             #[cfg(not(target_arch = "wasm32"))]
             Err(refusal) => self.file_notice(refusal),

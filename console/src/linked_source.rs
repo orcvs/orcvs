@@ -13,6 +13,7 @@
 //! holds until the next frame opens it.
 //!
 
+#[cfg(any(target_arch = "wasm32", test))]
 use orcvs::source::Source;
 
 /// The site page a link opens: it frames the console with the link's address.
@@ -142,12 +143,11 @@ fn percent_decoded(text: &str) -> Option<Vec<u8>> {
 }
 
 ///
-/// The site link that opens `source`: by its link name when it is a shipped
-/// example unchanged, otherwise as percent-encoded Source File text. Refused
+/// The site link that opens the Source File `text`: by its link name when it
+/// is a shipped example unchanged, otherwise as percent-encoded text. Refused
 /// when that text is over the limit a link's console reads.
 ///
-pub(crate) fn link(source: &Source) -> Result<String, String> {
-    let text = orcvs::source::file::write(source);
+pub(crate) fn link(text: &str) -> Result<String, String> {
     if let Some(example) = crate::examples::EXAMPLES
         .iter()
         .find(|example| orcvs::source::file::write(&example.source()) == text)
@@ -344,7 +344,7 @@ mod tests {
             .find(|example| example.name == "Tracker")
             .expect("the Tracker is shipped");
         assert_eq!(
-            link(&tracker.source()),
+            link(&file::write(&tracker.source())),
             Ok("https://orcvs.com/?example=tracker".to_owned())
         );
     }
@@ -357,7 +357,7 @@ mod tests {
     fn any_other_source_links_as_text_that_opens_it_again() {
         let text = "*+ &#%=?\n./\n";
         let source = file::read(text.as_bytes()).expect("a Source File");
-        let address = link(&source).expect("a link");
+        let address = link(&file::write(&source)).expect("a link");
         let (search, fragment) = address
             .strip_prefix("https://orcvs.com/")
             .and_then(|rest| rest.split_once('#'))
@@ -373,7 +373,7 @@ mod tests {
     fn a_source_whose_link_is_over_the_limit_is_refused() {
         let text = format!("{}\n", "*".repeat(255)).repeat(SOURCE_TEXT_LIMIT / 256 / 3 + 1);
         let source = file::read(text.as_bytes()).expect("a Source File");
-        let refusal = link(&source).expect_err("a link over the limit");
+        let refusal = link(&file::write(&source)).expect_err("a link over the limit");
         assert!(refusal.contains("limit"), "{refusal}");
     }
 }

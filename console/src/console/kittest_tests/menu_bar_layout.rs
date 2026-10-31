@@ -122,7 +122,7 @@ async fn the_top_bar_menus_sit_one_readout_group_gap_apart() {
 /// egui's tighter spacing from the mode toggle beside it.
 ///
 #[tokio::test]
-async fn the_notices_sit_one_readout_group_gap_from_the_mode_control() {
+async fn the_notices_sit_one_readout_group_gap_from_the_share_icon() {
     use crate::theme_registry::ThemeRegistry;
     use crate::theme_registry::tests_support::TempDir;
 

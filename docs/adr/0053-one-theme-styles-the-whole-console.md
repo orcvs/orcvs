@@ -200,7 +200,8 @@ appearance the console shows, `☾` or `☼`, and a press holds the other appear
 `ThemePreference::Dark` or `ThemePreference::Light`. Until the first press the preference is
 egui's default, `System`, so a console follows the operating system's appearance until the viewer
 chooses one; no control returns it to following the operating system. The rest of the second
-amendment's "The mode is a control" stands.
+amendment's "The mode is a control" stands. egui's own `Theme::small_toggle_button` is the same
+control; the console's names itself for accessibility and applies the change once the frame is done.
 
 ## Amendment, 2026-10-20: the Cursor's glyph colours are optional too
 
