@@ -1009,13 +1009,11 @@ async fn no_menu_offers_a_setting() {
                 "the {menu} menu offers {setting:?}"
             );
         }
-        for mode in ["Follow the OS", "Dark", "Light"] {
-            assert_eq!(
-                harness.query_all_by_label(mode).count(),
-                1,
-                "the {menu} menu offers a {mode:?} mode beside the top bar's"
-            );
-        }
+        assert_eq!(
+            harness.query_all_by_label(DARK_MODE).count(),
+            1,
+            "the {menu} menu offers a mode beside the top bar's"
+        );
         harness.key_press(egui::Key::Escape);
         harness.step();
         harness.run_steps(1);
@@ -1214,14 +1212,34 @@ fn console_with_settings_moved() -> Harness<'static, Console> {
 const MOVED_CELL: Vec2 = Vec2::new(10.0, 15.0);
 
 ///
-/// Clicks the top bar's mode button named `label`, then runs the frame the
-/// click lands in and the frame that presents it.
+/// Presses the top bar's mode toggle until it holds `preference`, running
+/// the frame each press lands in and the frame that presents it.
 ///
-fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
-    harness.get_by_label(label).click();
-    harness.step();
-    harness.run_steps(1);
+fn choose_mode(harness: &mut Harness<'_, Console>, preference: egui::ThemePreference) {
+    // From following the OS, a press holds the appearance the OS does not
+    // show, so holding the one it shows takes a second press.
+    let presses = match (harness.ctx.theme(), preference) {
+        (egui::Theme::Dark, egui::ThemePreference::Light)
+        | (egui::Theme::Light, egui::ThemePreference::Dark) => 1,
+        _ => 2,
+    };
+    for _ in 0..presses {
+        harness.get_by_label(DARK_MODE).click();
+        harness.step();
+        harness.run_steps(1);
+    }
+    assert_eq!(
+        harness.ctx.options(|options| options.theme_preference),
+        preference,
+        "the mode toggle did not hold {preference:?}"
+    );
 }
+
+/// The mode toggle's accessible name: shown toggled while the console is dark.
+const DARK_MODE: &str = "Dark mode";
+
+/// The share icon's accessible name.
+const COPY_LINK: &str = "Copy Link";
 
 ///
 /// Whether the control labelled `label` — a View menu radio button or a mode
@@ -1234,7 +1252,8 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 ///
 /// The top bar is the compact bottom Panel's height. Its menu buttons fill
 /// that height with their labels centred, so a menu opens from the bar's
-/// bottom edge; the mode buttons, which open no menu, sit centred in it.
+/// bottom edge; the share icon and mode toggle, which open no menu, sit
+/// centred in it.
 ///
 #[tokio::test]
 async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
@@ -1258,10 +1277,10 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
             "{label} does not span the top bar's height: {rect:?} in {top:?}"
         );
     }
-    for label in ["Follow the OS", "Dark", "Light"] {
+    for label in [COPY_LINK, DARK_MODE] {
         let rect = harness.get_by_label(label).rect();
         assert!(
-            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() / 2.0,
+            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() * 0.75,
             "{label} is not an icon centred in the top bar: {rect:?} in {top:?}"
         );
     }
@@ -1277,125 +1296,119 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
 }
 
 ///
-/// The mode is three named icon buttons at the right of the top bar —
-/// Follow the OS, Dark, Light — and each sets egui's `ThemePreference` and is
-/// then shown selected.
+/// The mode is one icon toggle at the right of the top bar, with the share
+/// icon just left of it. Each press holds the appearance the console is not
+/// showing, and the toggle is shown toggled while the console is dark.
 ///
 #[tokio::test]
-async fn each_mode_button_sets_the_preference_and_is_shown_selected() {
+async fn the_mode_toggle_flips_the_appearance() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
 
-    let buttons =
-        ["Follow the OS", "Dark", "Light"].map(|label| harness.get_by_label(label).rect());
+    let [share, toggle] = [COPY_LINK, DARK_MODE].map(|label| harness.get_by_label(label).rect());
     assert!(
-        buttons
-            .windows(2)
-            .all(|pair| pair[0].max.x <= pair[1].min.x),
-        "the mode buttons are not Follow the OS, Dark, Light from left to right: {buttons:?}"
+        share.max.x <= toggle.min.x,
+        "the share icon is not left of the mode toggle: {share:?} {toggle:?}"
     );
-    let right_edge = DEFAULT_VIEW_SIZE[0];
     assert!(
-        right_edge - buttons[2].max.x < 16.0,
-        "the mode control is not at the right of the top bar: {buttons:?}"
+        DEFAULT_VIEW_SIZE[0] - toggle.max.x < 16.0,
+        "the mode toggle is not at the right of the top bar: {toggle:?}"
     );
     let file = harness.get_by_label("File").rect();
     assert!(
-        buttons
+        [share, toggle]
             .iter()
-            .all(|button| button.height() <= file.height() + 1.0
-                && button.width() < 2.0 * file.height()),
-        "a mode button is wider than an icon: {buttons:?}"
+            .all(|icon| icon.height() <= file.height() + 1.0 && icon.width() < 2.0 * file.height()),
+        "an icon is wider than an icon's width: {share:?} {toggle:?}"
     );
 
-    for (label, preference) in [
-        ("Light", egui::ThemePreference::Light),
-        ("Dark", egui::ThemePreference::Dark),
-        ("Follow the OS", egui::ThemePreference::System),
+    assert_eq!(
+        harness.get_by_label(COPY_LINK).accesskit_node().toggled(),
+        None,
+        "the share icon is announced as a toggle"
+    );
+    assert!(
+        radio_selected(&harness, DARK_MODE),
+        "following a dark OS is not shown dark"
+    );
+    for (preference, dark) in [
+        (egui::ThemePreference::Light, false),
+        (egui::ThemePreference::Dark, true),
+        (egui::ThemePreference::Light, false),
     ] {
-        choose_mode(&mut harness, label);
+        harness.get_by_label(DARK_MODE).click();
+        harness.step();
+        harness.run_steps(1);
         assert_eq!(
             harness.ctx.options(|options| options.theme_preference),
             preference,
-            "the {label:?} button did not set the mode"
+            "the toggle did not hold {preference:?}"
         );
-        for other in ["Follow the OS", "Dark", "Light"] {
-            assert_eq!(
-                radio_selected(&harness, other),
-                other == label,
-                "after choosing {label:?}, {other:?} is shown with the wrong selection"
-            );
-        }
+        assert_eq!(radio_selected(&harness, DARK_MODE), dark);
     }
 }
 
 ///
 /// A preference eframe restored before the first frame — egui memory holds
-/// it, and the console never sets one at startup — is the button shown
-/// selected.
+/// it, and the console never sets one at startup — is the appearance the
+/// toggle shows.
 ///
 #[tokio::test]
-async fn a_restored_mode_is_the_one_shown_selected() {
-    for (preference, label) in [
-        (egui::ThemePreference::System, "Follow the OS"),
-        (egui::ThemePreference::Dark, "Dark"),
-        (egui::ThemePreference::Light, "Light"),
+async fn a_restored_mode_is_the_one_the_toggle_shows() {
+    for (preference, dark) in [
+        (egui::ThemePreference::System, true),
+        (egui::ThemePreference::Dark, true),
+        (egui::ThemePreference::Light, false),
     ] {
-        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
         harness.ctx.set_theme(preference);
         harness.run_steps(2);
-        for other in ["Follow the OS", "Dark", "Light"] {
-            assert_eq!(
-                radio_selected(&harness, other),
-                other == label,
-                "restoring {preference:?} showed {other:?} with the wrong selection"
-            );
-        }
-    }
-}
-
-///
-/// Hovering a mode button says what it does; Follow the OS also says what
-/// the operating system's appearance is right now, as egui's own
-/// `ThemePreference::radio_buttons` does.
-///
-#[tokio::test]
-async fn each_mode_button_explains_itself_on_hover() {
-    for (system, word) in [(egui::Theme::Dark, "dark"), (egui::Theme::Light, "light")] {
-        let mut harness = console_under_os_appearance(system, ThemeRegistry::built_in());
-        for (label, explanation) in [
-            ("Follow the OS", "Follow the operating system's appearance"),
-            ("Dark", "Always use the dark appearance"),
-            ("Light", "Always use the light appearance"),
-        ] {
-            harness.get_by_label(label).hover();
-            harness.run_steps(3);
-            assert!(
-                harness
-                    .query_all_by_label_contains(explanation)
-                    .next()
-                    .is_some(),
-                "hovering {label:?} did not explain it"
-            );
-        }
-        harness.get_by_label("Follow the OS").hover();
-        harness.run_steps(3);
-        let current = format!("The operating system's appearance is {word}");
-        assert!(
-            harness
-                .query_all_by_label_contains(&current)
-                .next()
-                .is_some(),
-            "hovering Follow the OS under a {word} OS did not say so"
+        assert_eq!(
+            radio_selected(&harness, DARK_MODE),
+            dark,
+            "restoring {preference:?} showed the wrong appearance"
         );
     }
 }
 
 ///
-/// Each mode glyph has a glyph of its own in the console's one font, which
+/// Hovering the mode toggle says which appearance a press switches to, and
+/// hovering the share icon says what it copies.
+///
+#[tokio::test]
+async fn the_bar_icons_explain_themselves_on_hover() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
+    for (label, explanation) in [
+        (DARK_MODE, "Switch to the light appearance"),
+        (COPY_LINK, "Copy a link to this Source"),
+    ] {
+        harness.get_by_label(label).hover();
+        harness.run_steps(3);
+        assert!(
+            harness
+                .query_all_by_label_contains(explanation)
+                .next()
+                .is_some(),
+            "hovering {label:?} did not explain it"
+        );
+    }
+    choose_mode(&mut harness, egui::ThemePreference::Light);
+    harness.get_by_label(DARK_MODE).hover();
+    harness.run_steps(3);
+    assert!(
+        harness
+            .query_all_by_label_contains("Switch to the dark appearance")
+            .next()
+            .is_some(),
+        "hovering the toggle while light did not say it switches to dark"
+    );
+}
+
+///
+/// Each of the top bar's glyphs is in the console's one font, which
 /// otherwise draws its replacement glyph.
 ///
 #[tokio::test]
-async fn the_mode_glyphs_are_in_the_console_font() {
+async fn the_bar_glyphs_are_in_the_console_font() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let font = egui::FontId::proportional(14.0);
@@ -1416,7 +1429,11 @@ async fn the_mode_glyphs_are_in_the_console_font() {
         replacement,
         "the probe no longer tells a missing glyph from a present one"
     );
-    for glyph in super::menu_bar::MODE_GLYPHS {
+    for glyph in [
+        super::menu_bar::DARK_GLYPH,
+        super::menu_bar::LIGHT_GLYPH,
+        super::menu_bar::SHARE_GLYPH,
+    ] {
         assert_ne!(
             uv(glyph),
             replacement,
@@ -1427,9 +1444,9 @@ async fn the_mode_glyphs_are_in_the_console_font() {
 
 ///
 /// The mode control, under an OS in dark appearance: holding Light presents
-/// the light default whatever the OS says, and Follow the OS returns to the OS's
-/// appearance. The frame a choice is made in is still wholly the old Theme;
-/// the next is wholly the new one. The mode is egui's `ThemePreference`,
+/// the light default whatever the OS says, and holding Dark the dark one.
+/// The frame a choice is made in is still wholly the old Theme; the next is
+/// wholly the new one. The mode is egui's `ThemePreference`,
 /// which eframe persists with egui memory.
 ///
 #[tokio::test]
@@ -1442,7 +1459,7 @@ async fn the_mode_switches_source_and_chrome_together() {
         "following a dark OS",
     );
 
-    choose_mode(&mut harness, "Light");
+    choose_mode(&mut harness, egui::ThemePreference::Light);
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
         egui::ThemePreference::Light
@@ -1455,17 +1472,13 @@ async fn the_mode_switches_source_and_chrome_together() {
         "holding Light",
     );
 
-    choose_mode(&mut harness, "Follow the OS");
-    assert_eq!(
-        harness.ctx.options(|options| options.theme_preference),
-        egui::ThemePreference::System
-    );
+    choose_mode(&mut harness, egui::ThemePreference::Dark);
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
         &default_theme(Appearance::Dark),
         &[default_theme(Appearance::Light)],
-        "following a dark OS again",
+        "holding Dark",
     );
 }
 
@@ -1483,7 +1496,7 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
     harness.state_mut().diagnostics_open = true;
     harness.run_steps(1);
 
-    harness.get_by_label("Light").click();
+    harness.get_by_label(DARK_MODE).click();
     harness.step();
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
@@ -1518,7 +1531,7 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
 async fn the_web_backdrop_is_the_theme_its_frame_was_painted_from() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
 
-    harness.get_by_label("Light").click();
+    harness.get_by_label(DARK_MODE).click();
     harness.step();
     assert_frame_paints(
         &harness,
@@ -1724,7 +1737,7 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
         "a dark OS again",
     );
 
-    choose_mode(&mut harness, "Dark");
+    choose_mode(&mut harness, egui::ThemePreference::Dark);
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(2);
     assert_frame_presents(
@@ -1797,10 +1810,10 @@ async fn theme_notices_sit_at_the_right_of_the_top_bar() {
         notices.min.x > help.max.x && notices.center().x > width / 2.0,
         "the notices are not right-aligned: {notices:?} beside Help at {help:?}"
     );
-    let mode = harness.get_by_label("Follow the OS").rect();
+    let mode = harness.get_by_label(COPY_LINK).rect();
     assert!(
         notices.max.x <= mode.min.x,
-        "the notices are not left of the mode control: {notices:?}, {mode:?}"
+        "the notices are not left of the share icon: {notices:?}, {mode:?}"
     );
 }
 
@@ -2376,7 +2389,7 @@ async fn a_mode_survives_a_save_and_a_restart() {
     {
         let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
         harness.run_steps(2);
-        choose_mode(&mut harness, "Light");
+        choose_mode(&mut harness, egui::ThemePreference::Light);
         assert_eq!(
             harness.ctx.options(|options| options.theme_preference),
             egui::ThemePreference::Light,
@@ -4572,6 +4585,34 @@ async fn the_help_menu_opens_every_shipped_example() {
             example.name
         );
     }
+}
+
+///
+/// The top bar's share icon puts the site link that opens the running Source
+/// on the clipboard: an example opened from Help links by its name.
+///
+#[tokio::test]
+async fn copy_link_puts_the_link_to_the_running_source_on_the_clipboard() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    choose_example(&mut harness, "Tracker");
+
+    harness.get_by_label(COPY_LINK).click();
+    harness.step();
+    let copied =
+        harness
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                egui::OutputCommand::CopyText(copied) => Some(copied.clone()),
+                _ => None,
+            });
+    assert_eq!(
+        copied.as_deref(),
+        Some("https://orcvs.com/?example=tracker")
+    );
 }
 
 ///
