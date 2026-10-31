@@ -86,6 +86,25 @@ impl Console {
     }
 
     ///
+    /// Puts the site link that opens the running Source on the clipboard:
+    /// the top bar's share icon. A Source too large to link raises a notice.
+    ///
+    pub(super) fn copy_link(&mut self) {
+        // The text is copied out under the lock, and linked after it.
+        let mut text = String::new();
+        self.orcvs
+            .source()
+            .read_source(|source| text = orcvs::source::file::write(source));
+        match crate::linked_source::link(&text) {
+            Ok(link) => self.ctx.copy_text(link),
+            #[cfg(not(target_arch = "wasm32"))]
+            Err(refusal) => self.file_notice(refusal),
+            #[cfg(target_arch = "wasm32")]
+            Err(refusal) => self.themes.notice(refusal),
+        }
+    }
+
+    ///
     /// Opens an empty Source on the one Grid: `File → New`.
     ///
     fn new_source(&mut self) {
