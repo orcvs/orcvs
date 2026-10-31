@@ -305,7 +305,7 @@ assert_contains "$root_dir/rust-toolchain.toml" '^targets = .*"x86_64-pc-windows
 # The launcher binds loopback, and this is the assertion that keeps it there.
 # `bind_addr_from_env` maps `1`/`true` to `127.0.0.1:5719` and anything else
 # that is not empty/`0`/`false` to a `host:port`
-# (`egui_inspection-0.36.2/src/lib.rs:40-50`). A command-level assignment
+# (`egui_inspection-0.37.0/src/lib.rs:40-51`). A command-level assignment
 # replaces any inherited value; `1` is not unsafe. The contract still rejects a
 # bare `1` as policy: the launcher writes the literal host:port so the bind is
 # greppable and the port is selectable, and what binds is full unauthenticated
@@ -659,20 +659,23 @@ assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_tab
 # than to a control server written here.
 assert_toml_table_contains "$root_dir/console/Cargo.toml" "$console_features_table" '^[[:space:]]*inspection[[:space:]]*=[[:space:]]*[[]"eframe/inspection"[]]$'
 # The egui stack is pinned exactly, not by caret. The `console` module cites
-# `egui-0.36.2`, `epaint-0.36.2` and `emath-0.36.2` by file and line as the
+# `egui-0.37.0`, `epaint-0.37.0` and `emath-0.37.0` by file and line as the
 # evidence for the atlas budget, the owned transform, and the drag-pan branch it
 # replaces, and a caret requirement lets a patch release move all of that with
-# nothing but a lockfile holding the version — which is how this workspace once
-# resolved 0.36.2 under a `0.36.1` requirement, before the pin was made exact.
+# nothing but a lockfile holding the version.
 #
 # The requirements move together or not at all. A bump that moves one and leaves
 # the others is the same drift by another route: it puts the console's cited
 # release and the toolkit it links against out of step, and it is what a
 # dependency bot produces by default. `egui_kittest` is pinned here for the
 # reason its own comment gives — the harness has to be the egui it drives.
-assert_contains "$root_dir/console/Cargo.toml" '^eframe = [{] version = "=0[.]36[.]2",'
-assert_contains "$root_dir/console/Cargo.toml" '^egui = [{] version = "=0[.]36[.]2",'
-assert_contains "$root_dir/console/Cargo.toml" '^egui_kittest = [{] version = "=0[.]36[.]2",'
+assert_contains "$root_dir/console/Cargo.toml" '^eframe = [{] version = "=0[.]37[.]0",'
+assert_contains "$root_dir/console/Cargo.toml" '^egui = [{] version = "=0[.]37[.]0",'
+assert_contains "$root_dir/console/Cargo.toml" '^egui_kittest = [{] version = "=0[.]37[.]0",'
+# The native console's copy, paste and Copy Link reach the OS clipboard only
+# through eframe's `clipboard` feature; nothing fails to compile or test
+# without it.
+assert_contains "$root_dir/console/Cargo.toml" '^    "clipboard",$'
 # `egui_kittest` stays a dev-dependency of the non-WASM target table, for the
 # reason `proptest` does one file over: the UI invariants it holds are
 # platform-independent, `check_wasm` compiles this crate's test targets for

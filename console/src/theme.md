@@ -435,10 +435,10 @@ below it is reported and does not fail. There are no accepted exceptions: a
 state below the floor of a role held to it fails the gate.
 
 The console chrome's states (`.scratch/theming/issues/11`) are read from
-`style::style` — the `Style` `style::install` registers — through the egui
-accessors the widgets paint from (`egui::Style::button_style` for a button's
-fill and text, `widget_style` for a frameless label, `Visuals::selection` for
-selected text), and composited over the surface each is painted on down to
+`style::style` — the `Style` `style::install` registers — from the `Visuals`
+fields egui's default widget styles paint from (a state's `text_color` and
+`weak_bg_fill` for a button, its `text_color` for a frameless label,
+`Visuals::selection` for selected text), and composited over the surface each is painted on down to
 the window backdrop, so the report and the chrome's painting read one
 mapping. Left
 out, as `contrast::validate`'s own scope states: disabled widgets (egui fades

@@ -226,7 +226,7 @@ impl Console {
         let texture = texture.id();
         let minimap = &mut self.minimap;
         let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
-        egui::Area::new(egui::Id::new("minimap"))
+        egui::Area::new(egui::Id::unique("minimap"))
             .fixed_pos(bordered.min)
             .movable(false)
             .fade_in(false)
@@ -246,7 +246,7 @@ impl Console {
                     .vline(rect.left() - inset, bordered.y_range(), border);
                 let response = ui.allocate_rect(rect, Sense::DRAG);
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source minimap")
+                    egui::WidgetInfo::labeled(egui::Role::Unknown, true, "Source minimap")
                 });
                 ui.painter().image(
                     texture,

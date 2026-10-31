@@ -33,14 +33,13 @@ pub(super) const ALPHABET_LAST: u8 = b'~';
 ///
 /// A galley's `RowVisuals::mesh` holds *texel* coordinates into the live font
 /// atlas, normalised against that atlas's size at tessellation
-/// (`epaint-0.36.2/src/text/text_layout_types.rs`, `tessellator.rs`), and
-/// `Fonts::begin_pass` (`epaint-0.36.2/src/text/fonts.rs`) replaces the whole
-/// `FontsImpl` — a fresh atlas with empty glyph caches — whenever the text
-/// options change or the atlas passes its fill ratio. A galley held across that
-/// recreate indexes unrelated texels and paints a *different character*. Atlas
-/// *growth* is safe, because it only extends the image height and every texel
-/// keeps its coordinates; *recreation* is what corrupts, and `font_image_size()`
-/// cannot tell the two apart.
+/// (`epaint-0.37.0/src/text/text_layout_types.rs`, `tessellator.rs`), and
+/// `Fonts::begin_pass` (`epaint-0.37.0/src/text/fonts.rs`) clears the atlas's
+/// glyphs and every galley cache whenever the text options change or the atlas
+/// passes its fill ratio. A galley held across that clear indexes unrelated
+/// texels and paints a *different character*. Atlas *growth* is safe, because
+/// it only extends the image height and every texel keeps its coordinates; the
+/// *clear* is what corrupts, and `font_image_size()` cannot tell the two apart.
 ///
 /// epaint's own `GalleyCache` is the memo, and it is the only cache in the
 /// stack that `begin_pass` invalidates alongside the atlas. An
@@ -69,7 +68,7 @@ impl GlyphTable {
     /// Lays the alphabet out for this Render Frame, inside a single
     /// `ctx.fonts_mut` closure.
     ///
-    /// One galley per character, never one per row: egui 0.36 shapes through
+    /// One galley per character, never one per row: egui 0.37 shapes through
     /// harfrust with `liga` and `calt` enabled and does not apply
     /// `extra_letter_spacing` within a shaping cluster, so a row laid out as one
     /// galley would let a ligature consume two Cells and shift the rest of the
