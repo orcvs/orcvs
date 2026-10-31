@@ -11,7 +11,7 @@ but this needs checking in the dashboard.
 **Status:** ready-for-human
 
 In the Cloudflare dashboard: Workers & Pages → `orcvs` → Settings → Build → Build watch paths.
-Leave them unset (build on every push), or add `console/*`, `orcvs/*`, `lang/*`, `synth/*`,
+Leave them unset (build on every push), or add `console/*`, `orcvs/*`, `lang/*`, `synth/*`, `examples/*`,
 `scripts/stage-synth.sh`, `.cargo/config.toml`, `Cargo.toml`, `Cargo.lock`,
 `rust-toolchain.toml` and `.github/workflows/console-web.yml` to the site's own paths.
 
