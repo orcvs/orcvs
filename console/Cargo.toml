@@ -116,6 +116,10 @@ eframe = { version = "=0.36.2", default-features = false, features = [
     "x11",
 ] }
 egui = { version = "=0.36.2", default-features = false }
+# Decodes the bundled logo on both targets. eframe already depends on this
+# release with `png` alone on native and the web, so it adds no crate; eframe's
+# own PNG helper is native-only.
+image = { version = "0.25.6", default-features = false, features = ["png"] }
 # The Theme document decoder (`theme_document.rs`, `.scratch/theming/issues/07`).
 # A Theme document is TOML and nothing else, as ADR 0053 records: `toml`'s own
 # Serde deserializer decodes it straight into a derived, strict document type.

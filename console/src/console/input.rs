@@ -338,7 +338,8 @@ impl Console {
     pub(super) fn latch_keyboard_owner(&mut self, ctx: &egui::Context) {
         self.keyboard_elsewhere = ctx.egui_wants_keyboard_input()
             || egui::Popup::is_any_open(ctx)
-            || self.discard_confirmation.is_some();
+            || self.discard_confirmation.is_some()
+            || self.about_logo.is_some();
     }
 }
 

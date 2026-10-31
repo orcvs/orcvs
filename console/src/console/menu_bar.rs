@@ -379,6 +379,10 @@ impl Console {
                             open_link(ui.ctx(), url);
                         }
                     }
+                    ui.separator();
+                    if ui.button("About").clicked() {
+                        self.open_about(ui.ctx());
+                    }
                 });
                 // Notices are status, not menus: they sit at the bar's right
                 // edge. Right to left, so what is shown first is rightmost.

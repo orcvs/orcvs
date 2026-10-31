@@ -4540,6 +4540,49 @@ async fn the_help_menu_offers_the_sites_learn_and_reference_pages() {
 }
 
 ///
+/// `Help → About` shows the version over the console until Escape, and holds
+/// the keys while it shows: a character or an arrow reaches neither the Grid
+/// nor the Cursor behind it.
+///
+#[tokio::test]
+async fn help_about_shows_the_version_and_holds_the_keys_until_escape() {
+    let version = concat!("v", env!("CARGO_PKG_VERSION"));
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    assert!(harness.query_by_label(version).is_none());
+    let written = cells(harness.state());
+    let cursor_before = cursor(harness.state());
+
+    choose_in_menu(&mut harness, "Help", "About");
+    harness.get_by_label("O R C V S");
+    harness.get_by_label(version);
+
+    harness.event(Event::Text("y".to_owned()));
+    harness.key_press(Key::ArrowRight);
+    harness.step();
+    harness.run_steps(1);
+    harness.get_by_label(version);
+    assert_eq!(
+        cells(harness.state()),
+        written,
+        "a character typed under About wrote the Source"
+    );
+    assert_eq!(
+        cursor(harness.state()),
+        cursor_before,
+        "an arrow pressed under About moved the Cursor"
+    );
+
+    harness.key_press(Key::Escape);
+    harness.step();
+    harness.run_steps(2);
+    assert!(
+        harness.query_by_label(version).is_none(),
+        "Escape left the About box showing"
+    );
+}
+
+///
 /// Opens `Help → Examples` and clicks the example named `name` in it.
 ///
 fn choose_example(harness: &mut Harness<'_, Console>, name: &str) {

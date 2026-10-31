@@ -12,10 +12,12 @@
 //! the window; `input` latches the keyboard owner; and a View menu appearance
 //! change applies last, once every widget of the frame has been styled.
 
+mod about;
 mod diagnostics_panel;
 mod files;
 mod glyphs;
 mod input;
+mod logo;
 mod menu_bar;
 pub(crate) mod minimap;
 mod panel;
@@ -131,6 +133,9 @@ pub struct Console {
     /// The question asked before discarding the Source, while it is showing.
     /// It holds the keys, as an open popup does.
     discard_confirmation: Option<DiscardConfirmation>,
+    /// The logo the About box shows, while it is open. It holds the keys, as
+    /// the discard confirmation does.
+    about_logo: Option<egui::TextureHandle>,
     /// The open Source File, if any, and the Cells it last held: what the
     /// window title names and what "unsaved" compares against.
     #[cfg(not(target_arch = "wasm32"))]
@@ -320,6 +325,7 @@ impl Console {
                 .window_background,
             themes,
             discard_confirmation: None,
+            about_logo: None,
             #[cfg(not(target_arch = "wasm32"))]
             source_file,
             #[cfg(not(target_arch = "wasm32"))]
@@ -517,6 +523,7 @@ impl eframe::App for Console {
         }
 
         self.show_discard_confirmation(&ctx);
+        self.show_about(&ctx, appearance);
         #[cfg(not(target_arch = "wasm32"))]
         self.show_title(&ctx);
 
