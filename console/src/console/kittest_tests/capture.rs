@@ -693,3 +693,98 @@ async fn prototype_cursor_info_layouts() {
         }
     }
 }
+
+// PROTOTYPE (throwaway): today's Panel at a desktop size, in each of its
+// message states, with and without the Diagnostics readouts.
+#[tokio::test]
+async fn prototype_current_panel() {
+    use orcvs::playback::{OutputAdapterError, PlaybackDiagnostic};
+    let out = PathBuf::from(required("ORCVS_CAPTURE_DIR"));
+    std::fs::create_dir_all(&out).expect("the capture directory");
+    let viewport = Viewport {
+        name: "desktop",
+        size: Vec2::new(1440.0, 900.0),
+    };
+    crate::console::panel::PROTOTYPE_VARIANT.store(0, std::sync::atomic::Ordering::Relaxed);
+    let midi = || {
+        PlaybackDiagnostic::OutputFailure(OutputAdapterError::new(
+            "MIDI output lost: IAC Driver Bus 1",
+        ))
+    };
+    let network = || {
+        PlaybackDiagnostic::NetworkFailure(OutputAdapterError::new(
+            "UDP send to 127.0.0.1:49161 failed: connection refused",
+        ))
+    };
+    let engine = || PlaybackDiagnostic::ClockFailure {
+        message: "Playback clock stopped".to_owned(),
+    };
+    let states: [(&str, Vec<PlaybackDiagnostic>); 5] = [
+        ("1-none", vec![]),
+        ("2-midi", vec![midi()]),
+        ("3-network", vec![network()]),
+        ("4-engine", vec![engine()]),
+        ("5-all", vec![midi(), network(), engine()]),
+    ];
+    for (mode, _theme) in modes() {
+        for diagnostics_open in [false, true] {
+            for (name, diagnostics) in &states {
+                let dir = IsolatedRonDir::new();
+                let storage = stored_start(dir.path(), mode);
+                let render_state = create_render_state(
+                    default_wgpu_setup(),
+                    egui_wgpu::RendererOptions::PREDICTABLE,
+                );
+                let mut harness = capture_harness(
+                    viewport,
+                    mode,
+                    &storage,
+                    dir.path().join(CONFIG_FILE),
+                    render_state,
+                );
+                harness.run_steps(2);
+                harness.state_mut().playback_status = Default::default();
+                super::quiet_midi(harness.state_mut());
+                harness.state_mut().diagnostics_open = diagnostics_open;
+                let slots = |d: &PlaybackDiagnostic| match d {
+                    PlaybackDiagnostic::OutputFailure(_) => 1,
+                    PlaybackDiagnostic::NetworkFailure(_) => 3,
+                    _ => 4,
+                };
+                let mut fake: [Option<&'static str>; 5] = [None; 5];
+                for d in diagnostics {
+                    fake[slots(d)] = Some(match d {
+                        PlaybackDiagnostic::OutputFailure(_) => {
+                            "MIDI output lost: IAC Driver Bus 1"
+                        }
+                        PlaybackDiagnostic::NetworkFailure(_) => {
+                            "UDP send to 127.0.0.1:49161 failed: connection refused"
+                        }
+                        _ => "Playback clock stopped",
+                    });
+                }
+                *crate::console::panel::PROTOTYPE_STATUSES.lock().unwrap() = Some(fake);
+                harness.run_steps(4);
+                let image = harness
+                    .render()
+                    .expect("the wgpu renderer rendered the frame");
+                let file = format!(
+                    "current-{}-{}-{name}.png",
+                    if mode == egui::Theme::Dark {
+                        "dark"
+                    } else {
+                        "light"
+                    },
+                    if diagnostics_open {
+                        "diagnostics"
+                    } else {
+                        "plain"
+                    },
+                );
+                image
+                    .save(out.join(file))
+                    .expect("the prototype image was written");
+            }
+        }
+    }
+}
