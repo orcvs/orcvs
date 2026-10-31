@@ -11,8 +11,12 @@ and the Panel's growing status line goes ([spec](../spec.md), ADR 0100).
 - [ ] A Toast is an `egui::Area` anchored to the corner: a popup frame outlined in the error colour,
       the output's label (`MIDI`, `UDP/OSC`, `ENGINE`) in the weak text colour, a `×` button, and
       the message in the error colour, wrapped.
-- [ ] `×` removes the Toast. It does not return for the same message; a changed message, or one
-      that clears and comes back, raises a new Toast.
+- [ ] A Toast is keyed by its message source (one of the five slots) and its text. `×` removes it and
+      remembers the key until that source reports no message on a frame or a different text; the
+      next message from that source then raises a new Toast.
+- [ ] 380 points wide, the message wrapped to at most three lines, then cut with an ellipsis and shown
+      whole on hover. A stack that would reach the Minimap's top edge drops its oldest Toasts.
+- [ ] A Toast takes the pointer over its own frame only; keyboard input always reaches the Source.
 - [ ] `show_statuses` and the status height go. The Panel's height is the same with no message and
       with every message.
 - [ ] Kittests drive the shipped console: find a Toast's label and message beneath the menu bar,
