@@ -201,6 +201,19 @@ pub(super) const MODE_GLYPHS: [&str; 2] = ["☾", "☼"];
 pub(super) const SHARE_GLYPH: &str = "↗";
 
 ///
+/// `glyph` at the size the top bar's icons take: these glyphs sit small in
+/// their em, so at the menus' text size they read far smaller than the menus'
+/// labels.
+///
+fn icon(ui: &egui::Ui, glyph: &str) -> egui::RichText {
+    let size = egui::TextStyle::Button.resolve(ui.style()).size;
+    egui::RichText::new(glyph).size(ICON_SCALE * size)
+}
+
+/// How many times the menus' text size the top bar's icons are drawn at.
+const ICON_SCALE: f32 = 1.75;
+
+///
 /// The top bar's mode toggle: one icon showing the appearance the console
 /// shows, named for accessibility and toggled while it is dark. A press holds
 /// the other appearance; until the first press the console follows the OS.
@@ -221,7 +234,7 @@ fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
             "Switch to the dark appearance.",
         )
     };
-    let response = ui.selectable_label(false, glyph);
+    let response = ui.selectable_label(false, icon(ui, glyph));
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, dark, "Dark mode")
     });
@@ -234,7 +247,7 @@ fn mode_control(ui: &mut egui::Ui) -> Option<AppearanceChange> {
 /// Answers whether a viewer pressed it this frame.
 ///
 fn share_control(ui: &mut egui::Ui) -> bool {
-    let response = ui.selectable_label(false, SHARE_GLYPH);
+    let response = ui.selectable_label(false, icon(ui, SHARE_GLYPH));
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Copy Link"));
     response
         .on_hover_text("Copy a link to this Source.")

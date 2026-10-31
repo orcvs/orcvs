@@ -1283,7 +1283,7 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
     for label in [COPY_LINK, DARK_MODE] {
         let rect = harness.get_by_label(label).rect();
         assert!(
-            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() / 2.0,
+            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() * 0.75,
             "{label} is not an icon centred in the top bar: {rect:?} in {top:?}"
         );
     }
