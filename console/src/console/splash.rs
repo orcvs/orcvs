@@ -5,9 +5,9 @@
 //! console and the logo fades over the running Grid.
 //!
 
-use egui::{Align2, Color32, FontId, Pos2, Rect, Vec2, ViewportCommand, pos2, vec2};
+use egui::{Align2, FontId, Pos2, Rect, Vec2, ViewportCommand, pos2, vec2};
 
-use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN};
+use super::{Console, DEFAULT_VIEW_SIZE, DEFAULT_VIEW_SIZE_MIN, logo};
 use crate::theme::{Appearance, Theme};
 use crate::window_geometry::WindowGeometry;
 
@@ -19,9 +19,6 @@ pub(crate) const HOLD_SECONDS: f64 = 1.5;
 
 /// How long the logo takes to fade over the console.
 pub(crate) const FADE_SECONDS: f64 = 0.35;
-
-/// The logo's side, in points, which fits the splash window.
-const LOGO_SIDE: f32 = 270.0;
 
 pub(super) struct Splash {
     logo: egui::TextureHandle,
@@ -43,16 +40,8 @@ pub(super) struct Splash {
 
 impl Splash {
     pub(super) fn new(ctx: &egui::Context, console_window: Option<WindowGeometry>) -> Self {
-        // The window icon's own decoder, so the logo adds no dependency.
-        let logo =
-            eframe::icon_data::from_png_bytes(include_bytes!("../../assets/logo-splash.png"))
-                .expect("the bundled logo is a PNG");
-        let image = egui::ColorImage::from_rgba_unmultiplied(
-            [logo.width as usize, logo.height as usize],
-            &logo.rgba,
-        );
         Self {
-            logo: ctx.load_texture("logo-splash", image, egui::TextureOptions::LINEAR),
+            logo: logo::texture(ctx),
             console_window,
             opened_at: None,
             ended_at: None,
@@ -137,26 +126,25 @@ impl Splash {
         ));
         painter.rect_filled(rect, 0.0, theme.window_background.gamma_multiply(opacity));
 
-        let logo = Rect::from_center_size(self.logo_centre(ctx), Vec2::splat(LOGO_SIDE));
-        // The logo is white on transparent: untinted it is the artwork on a
-        // dark backdrop, and tinted black it reads on a light one.
-        let ink = match appearance {
-            Appearance::Dark => Color32::WHITE,
-            Appearance::Light => Color32::BLACK,
-        };
+        let logo_rect = Rect::from_center_size(self.logo_centre(ctx), Vec2::splat(logo::SIDE));
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-        painter.image(self.logo.id(), logo, uv, ink.gamma_multiply(opacity));
+        painter.image(
+            self.logo.id(),
+            logo_rect,
+            uv,
+            logo::ink(appearance).gamma_multiply(opacity),
+        );
         painter.text(
-            pos2(logo.center().x, logo.bottom() + 18.0),
+            pos2(logo_rect.center().x, logo_rect.bottom() + 18.0),
             Align2::CENTER_TOP,
-            "O R C V S",
+            logo::NAME,
             FontId::monospace(18.0),
             theme.text.gamma_multiply(opacity),
         );
         painter.text(
-            pos2(logo.center().x, logo.bottom() + 46.0),
+            pos2(logo_rect.center().x, logo_rect.bottom() + 46.0),
             Align2::CENTER_TOP,
-            concat!("v", env!("CARGO_PKG_VERSION")),
+            logo::VERSION,
             FontId::monospace(12.0),
             theme.text_muted.gamma_multiply(opacity),
         );
