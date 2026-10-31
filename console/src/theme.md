@@ -103,7 +103,7 @@ egui's own default.
 
 The border widths are Theme properties too, in display points, and each
 built-in's table below records its widths. `schema.md` lists them with the
-chrome widths. `overview.source_view.width` is a chrome width, and
+chrome widths. `minimap.source_view.width` is a chrome width, and
 `widget.inactive.border.width` 0 keeps an idle widget's border absent.
 `cell.selection.border.width` is accepted and read by nothing: the Cursor's
 outline is its Cell's edges, at `cursor.border.width`.
@@ -212,8 +212,8 @@ property out.
 | `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
 | `diagnostic.border.width`, `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
-| `overview.source_view` | `#FFFFFF` |
-| `overview.source_view.width` | 1 |
+| `minimap.source_view` | `#FFFFFF` |
+| `minimap.source_view.width` | 1 |
 
 ### The Grayscale Light built-in Theme
 
@@ -255,8 +255,8 @@ property out.
 | `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
 | `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
-| `overview.source_view` | `#000000` |
-| `overview.source_view.width` | 1 |
+| `minimap.source_view` | `#000000` |
+| `minimap.source_view.width` | 1 |
 
 ### Shipped Themes
 

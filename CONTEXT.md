@@ -323,7 +323,7 @@ The Cells a UDP or OSC Function sends: every Cell from the end of its spelling t
 _Avoid_: Text value, message value, string literal
 
 **Built-in Synth**:
-The synth a page that frames the console offers it as a MIDI destination, so an example sounds with no MIDI device. Per ADR 0087 it plays each message at its Tick's planned time plus a fixed delay: tones on channels `00`–`07`, an 808-style kit synthesised without recordings on channels `08`–`0F` with the instrument picked by the Note's pitch class, sixteen voices at once, loudness from velocity alone. Control Change 1 to 8 on any channel set its eight global effects (ADR 0088). It is listed after every MIDI port and chosen like one, and a Linked or small console picks it.
+The synth a page that frames the console offers it as a MIDI destination, so an example sounds with no MIDI device. Per ADR 0087 it plays each message at its Tick's planned time plus a fixed delay: tones on channels `00`–`07`, an 808-style kit synthesised without recordings on channels `08` and `0A`–`0F` with the instrument picked by the Note's pitch class, sixteen voices at once, loudness from velocity alone. Control Change 1 to 8 on any channel set its eight global effects (ADR 0088). Channel `09` is the acid channel (ADR 0099): one 303-style voice that slides between overlapping notes, accents from velocity `78`, and takes Control Change 70, 71, 74, 75 and 79 on that channel. It is listed after every MIDI port and chosen like one, and a Linked or small console picks it.
 _Avoid_: internal synth, sound module, Pilot, Enfer
 
 **Sound Module**:
@@ -363,12 +363,12 @@ The region of the Source's space the console shows, at the Source's own Cell siz
 _Avoid_: Canvas, camera, viewport, document, scroll position
 
 **Pan**:
-Moving the Source View across the Source, as far as the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan. A Pan is made by wheel, middle-drag, Alt-drag, or a press or drag on the Overview.
+Moving the Source View across the Source, as far as the Grid's edges and no further. An axis on which the whole Source already shows has nowhere to Pan. A Pan is made by wheel, middle-drag, Alt-drag, or a press or drag on the Minimap.
 _Avoid_: Scroll, drag
 
-**Overview**:
-A reduced picture of the whole Grid, one mark per Cell in the Theme's colours, floating over the window's bottom-right corner. It shows where the Source View is, and a press or drag on it Pans the Source View there. It carries no content, holds no Positions, and moves no Cursor. The outline it draws is the Source View, as the Overview shows it.
-_Avoid_: minimap, map, thumbnail, navigator, viewport, scrollbar
+**Minimap**:
+A reduced picture of the whole Grid, one mark per Cell in the Theme's colours, floating over the Source's bottom-right corner, above the bottom panel. It shows where the Source View is, and a press or drag on it Pans the Source View there. It carries no content, holds no Positions, and moves no Cursor. The outline it draws is the Source View, as the Minimap shows it.
+_Avoid_: Overview, map, thumbnail, navigator, viewport, scrollbar
 
 **Zoom**:
 Enlarging or shrinking the whole console, Source Grid included, in fixed steps.

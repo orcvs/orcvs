@@ -8,7 +8,7 @@ ADR 0047 set the Grid two Cells in from the console, and let a Pan reach two Cel
 
 ## Decision
 
-**The Source View shows the Grid and nothing past it.** At a Pan of zero the Grid's top-left Cell rests on the console's top-left. A Pan stops where the Grid's far edge meets the console's, and a Cursor follow to an edge Cell brings that Cell flush with the console's edge. The extent the Source View and the Overview are measured against is the Grid itself, so the Overview's picture is one texel per Cell of the Grid. On an axis where the Grid is smaller than the console, it rests at the top-left and has nowhere to Pan, as before.
+**The Source View shows the Grid and nothing past it.** At a Pan of zero the Grid's top-left Cell rests on the console's top-left. A Pan stops where the Grid's far edge meets the console's, and a Cursor follow to an edge Cell brings that Cell flush with the console's edge. The extent the Source View and the Minimap are measured against is the Grid itself, so the Minimap's picture is one texel per Cell of the Grid. On an axis where the Grid is smaller than the console, it rests at the top-left and has nowhere to Pan, as before.
 
 ## Rejected alternatives
 

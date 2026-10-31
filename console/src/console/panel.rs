@@ -507,8 +507,7 @@ impl Console {
 
     ///
     /// The status messages on a line of their own beneath the Panel's row,
-    /// from its left edge, so the Overview over the window's bottom-right
-    /// corner does not cover them. `height` is the line the frame reserved.
+    /// from its left edge. `height` is the line the frame reserved.
     /// A message too long for what is left of the line is cut short with an
     /// ellipsis and shown whole on hover.
     ///

@@ -987,7 +987,7 @@ pub fn style(theme: &Theme) -> Style {
 
 ///
 /// The line along each bar's edge that faces the Source, and along the
-/// Overview's edges that do: `panel.separator` at `panel.separator.width`.
+/// Minimap's edges that do: `panel.separator` at `panel.separator.width`.
 /// The console draws it in place of egui's own panel separator line, so
 /// `panel.border` keeps windows, menus, popups and `Ui::separator`.
 ///

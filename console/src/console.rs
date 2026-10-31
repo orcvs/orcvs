@@ -5,7 +5,7 @@
 //! keys; `menu_bar` shows the top bar; `files` runs the File command and, on
 //! native, guards the close; `panel` shows the bottom Panel; `source_view`
 //! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays
-//! out; `overview` floats the Overview over the window's corner when it is
+//! out; `minimap` floats the Minimap over the Source's corner when it is
 //! open and answers where a press on it Pans the Source View; `repaint`
 //! schedules the next timed Render Frame; `diagnostics_panel` fills the
 //! Panel's Diagnostics readouts; `files` asks its discard question and titles
@@ -17,7 +17,7 @@ mod files;
 mod glyphs;
 mod input;
 mod menu_bar;
-pub(crate) mod overview;
+pub(crate) mod minimap;
 mod panel;
 mod repaint;
 pub(crate) mod shapes;
@@ -31,7 +31,7 @@ pub use splash::SPLASH_WINDOW;
 use self::diagnostics_panel::{TimingReadouts, show_diagnostics};
 use self::files::DiscardConfirmation;
 use self::menu_bar::TOP_PANEL_HEIGHT;
-use self::overview::Overview;
+use self::minimap::Minimap;
 use self::panel::BOTTOM_PANEL_HEIGHT;
 #[cfg(test)]
 use self::panel::BPM_FIELD_ID;
@@ -100,9 +100,9 @@ pub struct Console {
     /// Whether the View menu shows Diagnostics. Off at start and not saved.
     diagnostics_open: bool,
     diagnostics_timing: TimingReadouts,
-    /// Whether the View menu shows the Overview. On at start and not saved.
-    overview_open: bool,
-    overview: Overview,
+    /// Whether the View menu shows the Minimap. On at start and not saved.
+    minimap_open: bool,
+    minimap: Minimap,
     /// The BPM field's widget id, so a later pass can find the rectangle it
     /// occupied and so focus is the same id the field is shown under.
     #[cfg(test)]
@@ -309,8 +309,8 @@ impl Console {
             source_view: SourceView::new(config.cell),
             diagnostics_open: config.diagnostics_open,
             diagnostics_timing: TimingReadouts::default(),
-            overview_open: config.overview_open,
-            overview: Overview::default(),
+            minimap_open: config.minimap_open,
+            minimap: Minimap::default(),
             #[cfg(test)]
             bpm_widget_id: egui::Id::new(BPM_FIELD_ID),
             keyboard_elsewhere: false,
@@ -476,9 +476,6 @@ impl eframe::App for Console {
         };
         #[cfg(not(any(target_arch = "wasm32", test)))]
         let menu = self.show_menu_bar(root, appearance);
-        // The Overview fits below this. Nothing shown before the Overview
-        // may take room from the top, or it would overlap what does.
-        let below_menu = root.available_rect_before_wrap().top();
         // A File command chosen from the menu or by its chord, run once the
         // menu bar is done and the chords are read.
         let file_chord = self.route_keys(&ctx);
@@ -487,7 +484,7 @@ impl eframe::App for Console {
         }
         #[cfg(not(target_arch = "wasm32"))]
         self.guard_close(&ctx);
-        // Read before the Render Frame, so the Overview's picture can never
+        // Read before the Render Frame, so the Minimap's picture can never
         // be marked with a revision newer than the Cells it was drawn from.
         let revision = self.orcvs.source().revision();
         let frame = self.orcvs.render_frame();
@@ -503,7 +500,7 @@ impl eframe::App for Console {
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
-        if let Some(centre) = self.show_overview(root, below_menu, revision, &frame, appearance) {
+        if let Some(centre) = self.show_minimap(root, revision, &frame, appearance) {
             self.source_view.centre_on(centre);
         }
         let shown = self.source_view.shown();

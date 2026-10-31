@@ -332,14 +332,14 @@ async fn the_view_menu_docks_diagnostics_below_playback_and_restores_source_spac
 }
 
 ///
-/// A console started with `[overview] open = false` and
-/// `[diagnostics] open = true` shows the Diagnostics and no Overview, and the
-/// View menu still opens the Overview.
+/// A console started with `[minimap] open = false` and
+/// `[diagnostics] open = true` shows the Diagnostics and no Minimap, and the
+/// View menu still opens the Minimap.
 ///
 #[tokio::test]
-async fn a_console_starts_with_the_overview_and_the_diagnostics_its_settings_open() {
+async fn a_console_starts_with_the_minimap_and_the_diagnostics_its_settings_open() {
     let config = crate::config::Config {
-        overview_open: false,
+        minimap_open: false,
         diagnostics_open: true,
         ..crate::config::Config::default()
     };
@@ -351,97 +351,96 @@ async fn a_console_starts_with_the_overview_and_the_diagnostics_its_settings_ope
     );
     harness.run_steps(2);
     assert!(
-        harness.query_by_label("Source overview").is_none(),
-        "the Overview showed though its setting closed it"
+        harness.query_by_label("Source minimap").is_none(),
+        "the Minimap showed though its setting closed it"
     );
     assert!(
         harness.query_by_label("Visible Source region").is_some(),
         "the Diagnostics did not show though their setting opened them"
     );
 
-    toggle_overview(&mut harness);
-    assert!(harness.query_by_label("Source overview").is_some());
+    toggle_minimap(&mut harness);
+    assert!(harness.query_by_label("Source minimap").is_some());
 }
 
 ///
-/// Ticks or unticks the View menu's "Overview" checkbox.
+/// Ticks or unticks the View menu's "Minimap" checkbox.
 ///
-fn toggle_overview(harness: &mut Harness<'_, Console>) {
+fn toggle_minimap(harness: &mut Harness<'_, Console>) {
     harness.get_by_label("View").click();
     harness.step();
-    harness.get_by_label("Overview").click();
+    harness.get_by_label("Minimap").click();
     harness.run_steps(3);
 }
 
 ///
-/// A fresh console shows the Overview pinned to the window's bottom-right
-/// corner, over the Source and the bottom panel, with no margin, taking no
-/// width from the Source; View → Overview hides it and shows it again.
+/// A fresh console shows the Minimap pinned to the Source's bottom-right
+/// corner, above the bottom panel, with no margin, taking no width from the
+/// Source; View → Minimap hides it and shows it again.
 ///
 #[tokio::test]
-async fn the_overview_starts_pinned_over_the_bottom_right_corner_and_the_view_menu_toggles_it() {
+async fn the_minimap_starts_pinned_in_the_sources_bottom_right_corner_and_the_view_menu_toggles_it()
+{
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
-    let overview = harness.get_by_label("Source overview").rect();
-    let window = Vec2::from(DEFAULT_VIEW_SIZE).to_pos2();
+    let minimap = harness.get_by_label("Source minimap").rect();
+    let with = source_rect(&harness);
+    // Inside the Source and less than a physical pixel from its corner: the
+    // picture's corner is the last whole pixel inside it.
+    let gap = with.max - minimap.max;
     assert!(
-        (overview.max - window).length() < 1e-3,
-        "the Overview {overview:?} is not in the window's corner {window:?}"
+        gap.min_elem() >= 0.0 && gap.max_elem() < 1.0,
+        "the Minimap {minimap:?} is not in the Source's corner {with:?}"
     );
-    // The Overview's layer is the picture and its border and no more, so the
+    // The Minimap's layer is the picture and its border and no more, so the
     // Source and the bottom panel beside it still take the pointer.
     let border = default_theme(Appearance::Dark)
         .panel_separator_width
         .points();
     let area = harness
         .ctx
-        .memory(|memory| memory.area_rect(egui::Id::new("overview")));
+        .memory(|memory| memory.area_rect(egui::Id::new("minimap")));
     assert_eq!(
         area,
         Some(egui::Rect::from_min_max(
-            overview.min - Vec2::splat(border),
-            overview.max
+            minimap.min - Vec2::splat(border),
+            minimap.max
         )),
-        "the Overview's layer is not its bordered picture"
-    );
-    let with = source_rect(&harness);
-    assert!(
-        overview.bottom() > with.bottom(),
-        "the Overview {overview:?} does not reach over the bottom panel below {with:?}"
+        "the Minimap's layer is not its bordered picture"
     );
 
-    toggle_overview(&mut harness);
+    toggle_minimap(&mut harness);
     assert!(
-        harness.query_by_label("Source overview").is_none(),
-        "unticking left the Overview showing"
+        harness.query_by_label("Source minimap").is_none(),
+        "unticking left the Minimap showing"
     );
     assert_eq!(
         source_rect(&harness),
         with,
-        "hiding the Overview resized the Source"
+        "hiding the Minimap resized the Source"
     );
 
-    toggle_overview(&mut harness);
-    assert_eq!(harness.get_by_label("Source overview").rect(), overview);
+    toggle_minimap(&mut harness);
+    assert_eq!(harness.get_by_label("Source minimap").rect(), minimap);
     assert_eq!(source_rect(&harness), with);
 }
 
 ///
-/// The Overview is one labelled node with no node per Cell. It senses a drag
+/// The Minimap is one labelled node with no node per Cell. It senses a drag
 /// alone, so it is not focusable, and Tab still steps the Cursor.
 ///
 #[tokio::test]
-async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
+async fn the_minimap_is_one_labelled_node_that_tab_never_focuses() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
 
-    let overview = harness.get_by_label("Source overview");
+    let minimap = harness.get_by_label("Source minimap");
     assert_eq!(
-        overview.children().count(),
+        minimap.children().count(),
         0,
-        "the Overview exposes child nodes"
+        "the Minimap exposes child nodes"
     );
-    let rect = overview.rect();
+    let rect = minimap.rect();
     let senses: Vec<_> = harness.ctx.viewport(|viewport| {
         viewport
             .prev_pass
@@ -457,7 +456,7 @@ async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
     assert_eq!(
         senses,
         [egui::Sense::DRAG],
-        "the Overview senses more than a drag"
+        "the Minimap senses more than a drag"
     );
 
     let before = cursor(harness.state());
@@ -465,8 +464,8 @@ async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
         harness.key_press(Key::Tab);
         harness.run_steps(1);
         assert!(
-            !harness.get_by_label("Source overview").is_focused(),
-            "Tab focused the Overview"
+            !harness.get_by_label("Source minimap").is_focused(),
+            "Tab focused the Minimap"
         );
     }
     assert_ne!(
@@ -477,10 +476,10 @@ async fn the_overview_is_one_labelled_node_that_tab_never_focuses() {
 }
 
 ///
-/// The Overview's picture as the last Render Frame placed it.
+/// The Minimap's picture as the last Render Frame placed it.
 ///
-fn overview_picture(harness: &Harness<'_, Console>) -> egui::Rect {
-    harness.get_by_label("Source overview").rect()
+fn minimap_picture(harness: &Harness<'_, Console>) -> egui::Rect {
+    harness.get_by_label("Source minimap").rect()
 }
 
 ///
@@ -491,21 +490,21 @@ fn source_view_centre(harness: &Harness<'_, Console>) -> SourceCellPoint {
 }
 
 ///
-/// The Overview's map from Source Cells onto its picture.
+/// The Minimap's map from Source Cells onto its picture.
 ///
-fn overview_map(harness: &Harness<'_, Console>) -> PictureMap {
+fn minimap_map(harness: &Harness<'_, Console>) -> PictureMap {
     PictureMap::new(
         harness.state().source_view.shown().extent(),
-        overview_picture(harness),
+        minimap_picture(harness),
     )
 }
 
 ///
-/// The Source View as the Overview outlines it, before the outline is
+/// The Source View as the Minimap outlines it, before the outline is
 /// clipped to the picture.
 ///
-fn source_view_on_overview(harness: &Harness<'_, Console>) -> egui::Rect {
-    overview_map(harness).rect_to_picture(harness.state().source_view.shown().shown())
+fn source_view_on_minimap(harness: &Harness<'_, Console>) -> egui::Rect {
+    minimap_map(harness).rect_to_picture(harness.state().source_view.shown().shown())
 }
 
 ///
@@ -538,11 +537,11 @@ fn primary(harness: &mut Harness<'_, Console>, at: Pos2, pressed: bool) {
 }
 
 ///
-/// A console in the default window with the Overview showing and a Region
+/// A console in the default window with the Minimap showing and a Region
 /// of three Cells at the top-left, so a gesture that touched the Region or
 /// the Cursor would show.
 ///
-fn console_with_overview_and_region() -> Harness<'static, Console> {
+fn console_with_minimap_and_region() -> Harness<'static, Console> {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     for _ in 0..2 {
@@ -565,18 +564,18 @@ fn console_with_overview_and_region() -> Harness<'static, Console> {
 ///
 /// A press outside the Source View's outline centres the Source View on the
 /// pressed point the next Render Frame, with the button still held. The
-/// Cursor and the Region stay where they were, the Overview takes no focus,
+/// Cursor and the Region stay where they were, the Minimap takes no focus,
 /// and once released the Source View stays where the press put it rather
 /// than Panning back to the Cursor.
 ///
 #[tokio::test]
 async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays() {
-    let mut harness = console_with_overview_and_region();
+    let mut harness = console_with_minimap_and_region();
     let cursor_before = cursor(harness.state());
     let region_before = harness.state().orcvs.region();
 
-    let picture = overview_picture(&harness);
-    let outline = source_view_on_overview(&harness);
+    let picture = minimap_picture(&harness);
+    let outline = source_view_on_minimap(&harness);
     let press = picture.center();
     assert!(
         !outline.contains(press),
@@ -589,12 +588,12 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
     assert_near(
         &harness,
         source_view_centre(&harness),
-        overview_map(&harness).to_cells(press),
+        minimap_map(&harness).to_cells(press),
         "the press did not centre the Source View on the pressed point",
     );
     assert!(
-        !harness.get_by_label("Source overview").is_focused(),
-        "the press focused the Overview"
+        !harness.get_by_label("Source minimap").is_focused(),
+        "the press focused the Minimap"
     );
 
     // The same press keeps following the drag, centring on the pointer.
@@ -605,7 +604,7 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
     assert_near(
         &harness,
         source_view_centre(&harness),
-        overview_map(&harness).to_cells(dragged_to),
+        minimap_map(&harness).to_cells(dragged_to),
         "the Source View did not follow the drag after the press",
     );
 
@@ -642,11 +641,11 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
 ///
 #[tokio::test]
 async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_without_a_jump() {
-    let mut harness = console_with_overview_and_region();
+    let mut harness = console_with_minimap_and_region();
     let cursor_before = cursor(harness.state());
     let region_before = harness.state().orcvs.region();
 
-    let outline = source_view_on_overview(&harness);
+    let outline = source_view_on_minimap(&harness);
     let press = outline.center() + Vec2::new(outline.width() / 4.0, outline.height() / 4.0);
     let centre_before = source_view_centre(&harness);
     harness.event(Event::PointerMoved(press));
@@ -664,10 +663,10 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
     harness.event(Event::PointerMoved(press + drag));
     harness.step();
     harness.step();
-    // Worked by hand from the texel count rather than through the Overview's
+    // Worked by hand from the texel count rather than through the Minimap's
     // map: the picture is 256 texels across and down, one for each Column and
     // Row.
-    let scale = Vec2::splat(256.0) / overview_picture(&harness).size();
+    let scale = Vec2::splat(256.0) / minimap_picture(&harness).size();
     assert_near(
         &harness,
         source_view_centre(&harness),
@@ -694,9 +693,9 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
 /// Pan does: the console's far corner rests on the extent's.
 ///
 #[tokio::test]
-async fn a_drag_from_the_overview_past_the_grid_stops_at_its_far_corner() {
-    let mut harness = console_with_overview_and_region();
-    let picture = overview_picture(&harness);
+async fn a_drag_from_the_minimap_past_the_grid_stops_at_its_far_corner() {
+    let mut harness = console_with_minimap_and_region();
+    let picture = minimap_picture(&harness);
     let press = picture.center();
     harness.event(Event::PointerMoved(press));
     primary(&mut harness, press, true);
@@ -718,20 +717,20 @@ async fn a_drag_from_the_overview_past_the_grid_stops_at_its_far_corner() {
 }
 
 ///
-/// The Overview shows a grab hand on hover and a grabbing hand while held.
+/// The Minimap shows a grab hand on hover and a grabbing hand while held.
 ///
 #[tokio::test]
-async fn the_overview_shows_a_grab_hand_and_a_grabbing_hand_while_held() {
-    let mut harness = console_with_overview_and_region();
+async fn the_minimap_shows_a_grab_hand_and_a_grabbing_hand_while_held() {
+    let mut harness = console_with_minimap_and_region();
     let cursor_icon = |harness: &Harness<'_, Console>| harness.output().platform_output.cursor_icon;
-    let over = overview_picture(&harness).center();
+    let over = minimap_picture(&harness).center();
 
     harness.event(Event::PointerMoved(over));
     harness.step();
     assert_eq!(
         cursor_icon(&harness),
         CursorIcon::Grab,
-        "hovering the Overview did not offer a grab"
+        "hovering the Minimap did not offer a grab"
     );
 
     primary(&mut harness, over, true);
@@ -739,7 +738,7 @@ async fn the_overview_shows_a_grab_hand_and_a_grabbing_hand_while_held() {
     assert_eq!(
         cursor_icon(&harness),
         CursorIcon::Grabbing,
-        "holding the Overview did not show a grabbing hand"
+        "holding the Minimap did not show a grabbing hand"
     );
 
     primary(&mut harness, over, false);
@@ -1010,13 +1009,11 @@ async fn no_menu_offers_a_setting() {
                 "the {menu} menu offers {setting:?}"
             );
         }
-        for mode in ["Follow the OS", "Dark", "Light"] {
-            assert_eq!(
-                harness.query_all_by_label(mode).count(),
-                1,
-                "the {menu} menu offers a {mode:?} mode beside the top bar's"
-            );
-        }
+        assert_eq!(
+            harness.query_all_by_label(DARK_MODE).count(),
+            1,
+            "the {menu} menu offers a mode beside the top bar's"
+        );
         harness.key_press(egui::Key::Escape);
         harness.step();
         harness.run_steps(1);
@@ -1215,14 +1212,34 @@ fn console_with_settings_moved() -> Harness<'static, Console> {
 const MOVED_CELL: Vec2 = Vec2::new(10.0, 15.0);
 
 ///
-/// Clicks the top bar's mode button named `label`, then runs the frame the
-/// click lands in and the frame that presents it.
+/// Presses the top bar's mode toggle until it holds `preference`, running
+/// the frame each press lands in and the frame that presents it.
 ///
-fn choose_mode(harness: &mut Harness<'_, Console>, label: &str) {
-    harness.get_by_label(label).click();
-    harness.step();
-    harness.run_steps(1);
+fn choose_mode(harness: &mut Harness<'_, Console>, preference: egui::ThemePreference) {
+    // From following the OS, a press holds the appearance the OS does not
+    // show, so holding the one it shows takes a second press.
+    let presses = match (harness.ctx.theme(), preference) {
+        (egui::Theme::Dark, egui::ThemePreference::Light)
+        | (egui::Theme::Light, egui::ThemePreference::Dark) => 1,
+        _ => 2,
+    };
+    for _ in 0..presses {
+        harness.get_by_label(DARK_MODE).click();
+        harness.step();
+        harness.run_steps(1);
+    }
+    assert_eq!(
+        harness.ctx.options(|options| options.theme_preference),
+        preference,
+        "the mode toggle did not hold {preference:?}"
+    );
 }
+
+/// The mode toggle's accessible name: shown toggled while the console is dark.
+const DARK_MODE: &str = "Dark mode";
+
+/// The share icon's accessible name.
+const COPY_LINK: &str = "Copy Link";
 
 ///
 /// Whether the control labelled `label` — a View menu radio button or a mode
@@ -1235,7 +1252,8 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 ///
 /// The top bar is the compact bottom Panel's height. Its menu buttons fill
 /// that height with their labels centred, so a menu opens from the bar's
-/// bottom edge; the mode buttons, which open no menu, sit centred in it.
+/// bottom edge; the share icon and mode toggle, which open no menu, sit
+/// centred in it.
 ///
 #[tokio::test]
 async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
@@ -1259,10 +1277,10 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
             "{label} does not span the top bar's height: {rect:?} in {top:?}"
         );
     }
-    for label in ["Follow the OS", "Dark", "Light"] {
+    for label in [COPY_LINK, DARK_MODE] {
         let rect = harness.get_by_label(label).rect();
         assert!(
-            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() / 2.0,
+            (rect.center().y - top.center().y).abs() <= 1.0 && rect.height() < top.height() * 0.75,
             "{label} is not an icon centred in the top bar: {rect:?} in {top:?}"
         );
     }
@@ -1278,125 +1296,119 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
 }
 
 ///
-/// The mode is three named icon buttons at the right of the top bar —
-/// Follow the OS, Dark, Light — and each sets egui's `ThemePreference` and is
-/// then shown selected.
+/// The mode is one icon toggle at the right of the top bar, with the share
+/// icon just left of it. Each press holds the appearance the console is not
+/// showing, and the toggle is shown toggled while the console is dark.
 ///
 #[tokio::test]
-async fn each_mode_button_sets_the_preference_and_is_shown_selected() {
+async fn the_mode_toggle_flips_the_appearance() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
 
-    let buttons =
-        ["Follow the OS", "Dark", "Light"].map(|label| harness.get_by_label(label).rect());
+    let [share, toggle] = [COPY_LINK, DARK_MODE].map(|label| harness.get_by_label(label).rect());
     assert!(
-        buttons
-            .windows(2)
-            .all(|pair| pair[0].max.x <= pair[1].min.x),
-        "the mode buttons are not Follow the OS, Dark, Light from left to right: {buttons:?}"
+        share.max.x <= toggle.min.x,
+        "the share icon is not left of the mode toggle: {share:?} {toggle:?}"
     );
-    let right_edge = DEFAULT_VIEW_SIZE[0];
     assert!(
-        right_edge - buttons[2].max.x < 16.0,
-        "the mode control is not at the right of the top bar: {buttons:?}"
+        DEFAULT_VIEW_SIZE[0] - toggle.max.x < 16.0,
+        "the mode toggle is not at the right of the top bar: {toggle:?}"
     );
     let file = harness.get_by_label("File").rect();
     assert!(
-        buttons
+        [share, toggle]
             .iter()
-            .all(|button| button.height() <= file.height() + 1.0
-                && button.width() < 2.0 * file.height()),
-        "a mode button is wider than an icon: {buttons:?}"
+            .all(|icon| icon.height() <= file.height() + 1.0 && icon.width() < 2.0 * file.height()),
+        "an icon is wider than an icon's width: {share:?} {toggle:?}"
     );
 
-    for (label, preference) in [
-        ("Light", egui::ThemePreference::Light),
-        ("Dark", egui::ThemePreference::Dark),
-        ("Follow the OS", egui::ThemePreference::System),
+    assert_eq!(
+        harness.get_by_label(COPY_LINK).accesskit_node().toggled(),
+        None,
+        "the share icon is announced as a toggle"
+    );
+    assert!(
+        radio_selected(&harness, DARK_MODE),
+        "following a dark OS is not shown dark"
+    );
+    for (preference, dark) in [
+        (egui::ThemePreference::Light, false),
+        (egui::ThemePreference::Dark, true),
+        (egui::ThemePreference::Light, false),
     ] {
-        choose_mode(&mut harness, label);
+        harness.get_by_label(DARK_MODE).click();
+        harness.step();
+        harness.run_steps(1);
         assert_eq!(
             harness.ctx.options(|options| options.theme_preference),
             preference,
-            "the {label:?} button did not set the mode"
+            "the toggle did not hold {preference:?}"
         );
-        for other in ["Follow the OS", "Dark", "Light"] {
-            assert_eq!(
-                radio_selected(&harness, other),
-                other == label,
-                "after choosing {label:?}, {other:?} is shown with the wrong selection"
-            );
-        }
+        assert_eq!(radio_selected(&harness, DARK_MODE), dark);
     }
 }
 
 ///
 /// A preference eframe restored before the first frame — egui memory holds
-/// it, and the console never sets one at startup — is the button shown
-/// selected.
+/// it, and the console never sets one at startup — is the appearance the
+/// toggle shows.
 ///
 #[tokio::test]
-async fn a_restored_mode_is_the_one_shown_selected() {
-    for (preference, label) in [
-        (egui::ThemePreference::System, "Follow the OS"),
-        (egui::ThemePreference::Dark, "Dark"),
-        (egui::ThemePreference::Light, "Light"),
+async fn a_restored_mode_is_the_one_the_toggle_shows() {
+    for (preference, dark) in [
+        (egui::ThemePreference::System, true),
+        (egui::ThemePreference::Dark, true),
+        (egui::ThemePreference::Light, false),
     ] {
-        let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+        let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
         harness.ctx.set_theme(preference);
         harness.run_steps(2);
-        for other in ["Follow the OS", "Dark", "Light"] {
-            assert_eq!(
-                radio_selected(&harness, other),
-                other == label,
-                "restoring {preference:?} showed {other:?} with the wrong selection"
-            );
-        }
-    }
-}
-
-///
-/// Hovering a mode button says what it does; Follow the OS also says what
-/// the operating system's appearance is right now, as egui's own
-/// `ThemePreference::radio_buttons` does.
-///
-#[tokio::test]
-async fn each_mode_button_explains_itself_on_hover() {
-    for (system, word) in [(egui::Theme::Dark, "dark"), (egui::Theme::Light, "light")] {
-        let mut harness = console_under_os_appearance(system, ThemeRegistry::built_in());
-        for (label, explanation) in [
-            ("Follow the OS", "Follow the operating system's appearance"),
-            ("Dark", "Always use the dark appearance"),
-            ("Light", "Always use the light appearance"),
-        ] {
-            harness.get_by_label(label).hover();
-            harness.run_steps(3);
-            assert!(
-                harness
-                    .query_all_by_label_contains(explanation)
-                    .next()
-                    .is_some(),
-                "hovering {label:?} did not explain it"
-            );
-        }
-        harness.get_by_label("Follow the OS").hover();
-        harness.run_steps(3);
-        let current = format!("The operating system's appearance is {word}");
-        assert!(
-            harness
-                .query_all_by_label_contains(&current)
-                .next()
-                .is_some(),
-            "hovering Follow the OS under a {word} OS did not say so"
+        assert_eq!(
+            radio_selected(&harness, DARK_MODE),
+            dark,
+            "restoring {preference:?} showed the wrong appearance"
         );
     }
 }
 
 ///
-/// Each mode glyph has a glyph of its own in the console's one font, which
+/// Hovering the mode toggle says which appearance a press switches to, and
+/// hovering the share icon says what it copies.
+///
+#[tokio::test]
+async fn the_bar_icons_explain_themselves_on_hover() {
+    let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
+    for (label, explanation) in [
+        (DARK_MODE, "Switch to the light appearance"),
+        (COPY_LINK, "Copy a link to this Source"),
+    ] {
+        harness.get_by_label(label).hover();
+        harness.run_steps(3);
+        assert!(
+            harness
+                .query_all_by_label_contains(explanation)
+                .next()
+                .is_some(),
+            "hovering {label:?} did not explain it"
+        );
+    }
+    choose_mode(&mut harness, egui::ThemePreference::Light);
+    harness.get_by_label(DARK_MODE).hover();
+    harness.run_steps(3);
+    assert!(
+        harness
+            .query_all_by_label_contains("Switch to the dark appearance")
+            .next()
+            .is_some(),
+        "hovering the toggle while light did not say it switches to dark"
+    );
+}
+
+///
+/// Each of the top bar's glyphs is in the console's one font, which
 /// otherwise draws its replacement glyph.
 ///
 #[tokio::test]
-async fn the_mode_glyphs_are_in_the_console_font() {
+async fn the_bar_glyphs_are_in_the_console_font() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     let font = egui::FontId::proportional(14.0);
@@ -1417,7 +1429,11 @@ async fn the_mode_glyphs_are_in_the_console_font() {
         replacement,
         "the probe no longer tells a missing glyph from a present one"
     );
-    for glyph in super::menu_bar::MODE_GLYPHS {
+    for glyph in [
+        super::menu_bar::DARK_GLYPH,
+        super::menu_bar::LIGHT_GLYPH,
+        super::menu_bar::SHARE_GLYPH,
+    ] {
         assert_ne!(
             uv(glyph),
             replacement,
@@ -1428,9 +1444,9 @@ async fn the_mode_glyphs_are_in_the_console_font() {
 
 ///
 /// The mode control, under an OS in dark appearance: holding Light presents
-/// the light default whatever the OS says, and Follow the OS returns to the OS's
-/// appearance. The frame a choice is made in is still wholly the old Theme;
-/// the next is wholly the new one. The mode is egui's `ThemePreference`,
+/// the light default whatever the OS says, and holding Dark the dark one.
+/// The frame a choice is made in is still wholly the old Theme; the next is
+/// wholly the new one. The mode is egui's `ThemePreference`,
 /// which eframe persists with egui memory.
 ///
 #[tokio::test]
@@ -1443,7 +1459,7 @@ async fn the_mode_switches_source_and_chrome_together() {
         "following a dark OS",
     );
 
-    choose_mode(&mut harness, "Light");
+    choose_mode(&mut harness, egui::ThemePreference::Light);
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
         egui::ThemePreference::Light
@@ -1456,17 +1472,13 @@ async fn the_mode_switches_source_and_chrome_together() {
         "holding Light",
     );
 
-    choose_mode(&mut harness, "Follow the OS");
-    assert_eq!(
-        harness.ctx.options(|options| options.theme_preference),
-        egui::ThemePreference::System
-    );
+    choose_mode(&mut harness, egui::ThemePreference::Dark);
     harness.run_steps(1);
     assert_frame_presents(
         &harness,
         &default_theme(Appearance::Dark),
         &[default_theme(Appearance::Light)],
-        "following a dark OS again",
+        "holding Dark",
     );
 }
 
@@ -1484,7 +1496,7 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
     harness.state_mut().diagnostics_open = true;
     harness.run_steps(1);
 
-    harness.get_by_label("Light").click();
+    harness.get_by_label(DARK_MODE).click();
     harness.step();
     assert_eq!(
         harness.ctx.options(|options| options.theme_preference),
@@ -1519,7 +1531,7 @@ async fn the_frame_a_mode_is_chosen_in_keeps_one_theme() {
 async fn the_web_backdrop_is_the_theme_its_frame_was_painted_from() {
     let mut harness = console_under_os_appearance(egui::Theme::Dark, ThemeRegistry::built_in());
 
-    harness.get_by_label("Light").click();
+    harness.get_by_label(DARK_MODE).click();
     harness.step();
     assert_frame_paints(
         &harness,
@@ -1725,7 +1737,7 @@ async fn an_os_appearance_change_switches_source_and_chrome_together() {
         "a dark OS again",
     );
 
-    choose_mode(&mut harness, "Dark");
+    choose_mode(&mut harness, egui::ThemePreference::Dark);
     harness.input_mut().system_theme = Some(egui::Theme::Light);
     harness.run_steps(2);
     assert_frame_presents(
@@ -1798,10 +1810,10 @@ async fn theme_notices_sit_at_the_right_of_the_top_bar() {
         notices.min.x > help.max.x && notices.center().x > width / 2.0,
         "the notices are not right-aligned: {notices:?} beside Help at {help:?}"
     );
-    let mode = harness.get_by_label("Follow the OS").rect();
+    let mode = harness.get_by_label(COPY_LINK).rect();
     assert!(
         notices.max.x <= mode.min.x,
-        "the notices are not left of the mode control: {notices:?}, {mode:?}"
+        "the notices are not left of the share icon: {notices:?}, {mode:?}"
     );
 }
 
@@ -2377,7 +2389,7 @@ async fn a_mode_survives_a_save_and_a_restart() {
     {
         let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
         harness.run_steps(2);
-        choose_mode(&mut harness, "Light");
+        choose_mode(&mut harness, egui::ThemePreference::Light);
         assert_eq!(
             harness.ctx.options(|options| options.theme_preference),
             egui::ThemePreference::Light,
@@ -4576,6 +4588,34 @@ async fn the_help_menu_opens_every_shipped_example() {
 }
 
 ///
+/// The top bar's share icon puts the site link that opens the running Source
+/// on the clipboard: an example opened from Help links by its name.
+///
+#[tokio::test]
+async fn copy_link_puts_the_link_to_the_running_source_on_the_clipboard() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    choose_example(&mut harness, "Tracker");
+
+    harness.get_by_label(COPY_LINK).click();
+    harness.step();
+    let copied =
+        harness
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                egui::OutputCommand::CopyText(copied) => Some(copied.clone()),
+                _ => None,
+            });
+    assert_eq!(
+        copied.as_deref(),
+        Some("https://orcvs.com/?example=tracker")
+    );
+}
+
+///
 /// An example asks before discarding unsaved changes, and cancelling
 /// changes nothing.
 ///
@@ -5419,8 +5459,7 @@ async fn the_panel_shows_an_engine_failure_in_its_own_status() {
 
 ///
 /// The Panel's status messages take a line of their own beneath its row,
-/// starting at its left edge, clear of the Overview in the window's
-/// bottom-right corner, with or without the Diagnostics readouts.
+/// starting at its left edge, with or without the Diagnostics readouts.
 ///
 #[tokio::test]
 async fn the_status_messages_sit_beneath_the_panel_row_from_its_left_edge() {
