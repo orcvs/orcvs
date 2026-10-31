@@ -378,6 +378,14 @@ _Avoid_: Scale, pinch, fit
 The console's performer-facing telemetry surface for one running Orcvs. It is static: it does not move.
 _Avoid_: HUD, toolbar, dock, egui Panel
 
+**Cursor Line**:
+The Panel's one permanent line beneath its row, describing what the Cursor's Cell belongs to: the Function's name, spelling and what it answers, its operands, and its answer with the Output Portal it is written to; or the diagnostic that covers the Cell. It keeps its height whether or not it has anything to say.
+_Avoid_: status line, tooltip, hint, inspector
+
+**Toast**:
+One standing failure, from MIDI, UDP/OSC or the playback engine, floating in the window's top-right corner beneath the menu bar until it fades after the configured seconds or is dismissed.
+_Avoid_: notification, popup, alert, status message
+
 **Readout**:
 One labelled value on the Panel.
 _Avoid_: widget, field, metric, status item
