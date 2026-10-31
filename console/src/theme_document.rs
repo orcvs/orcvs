@@ -1477,6 +1477,24 @@ mod tests {
     }
 
     ///
+    /// ADR 0098: `overview.*` names no Theme key, so a Theme that sets one is
+    /// refused like any unknown key rather than leaving the Minimap's outline
+    /// at its built-in style without a word.
+    ///
+    #[test]
+    fn the_overview_keys_are_refused() {
+        for (property, value) in [
+            ("overview.source_view", quoted("#FFFFFF")),
+            ("overview.source_view.width", "1".to_owned()),
+        ] {
+            refuses(
+                &style(&[(property, &value)]),
+                &[&format!("unknown field `{property}`"), "in `style`"],
+            );
+        }
+    }
+
+    ///
     /// The error explains the valid key. `serde`'s refusal lists
     /// the valid property names, colours first, as far as the message cap
     /// allows; a near miss is not singled out.
