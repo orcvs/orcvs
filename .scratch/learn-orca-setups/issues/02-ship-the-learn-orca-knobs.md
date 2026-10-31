@@ -31,3 +31,10 @@ its nested Read east selects from the knob's Comment of presets. Orca's `Z` with
 its value, so the port gives the Interpolation a rate of `04`. Test:
 `playback::tests::shipped_knobs::the_knobs_glide_to_each_preset_selected_and_hold_it`. The audible
 check is `03`.
+
+### 2026-10-31 — Superseded in part by 04
+
+`04` points the knobs at the Built-in Synth's effects, controllers `01` to `08`, replaces the
+presets with a Clock per knob and adds a bassline. The controllers `41` to `48` above and the test name
+record what this ticket shipped. The test is now
+`playback::tests::shipped_knobs::the_knobs_sweep_the_effects_over_the_bassline`.
