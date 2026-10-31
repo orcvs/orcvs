@@ -686,7 +686,7 @@ impl Console {
         appearance: Appearance,
     ) {
         let theme = self.themes.presented(appearance);
-        let shown = egui::CentralPanel::default()
+        egui::CentralPanel::default()
             .frame(source_panel_frame(theme.grid_background))
             .show(root, |ui| {
                 let selection =
@@ -698,10 +698,6 @@ impl Console {
                     selection.apply(&mut self.orcvs);
                 }
             });
-        // PROTOTYPE: the Source's rect, for the Overview variants.
-        let rect = shown.response.rect;
-        root.ctx()
-            .data_mut(|data| data.insert_temp(egui::Id::new("proto_source_rect"), rect));
     }
 }
 
