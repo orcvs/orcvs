@@ -1,6 +1,6 @@
 # The Output list shows every output type
 
-Status: accepted. Settled with Toby on 2026-10-29 in `.scratch/output-list/`.
+Status: accepted. Settled with Toby on 2026-10-29 in `.scratch/output-list/`. [ADR 0096](0096-the-overview-sits-in-the-sources-corner-at-one-pixel-per-cell.md) moves the Overview into the Source's corner, above the Panel, so it no longer covers the status messages; the line beneath the Panel's row stands.
 
 The Panel's **O** is Output, not MIDI. Its list held the MIDI destinations with the UDP and OSC
 fields unlabelled at its foot, and its closed field named only the MIDI destination. The Panel's

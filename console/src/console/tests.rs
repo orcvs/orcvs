@@ -6198,6 +6198,15 @@ fn console_output_at(
 type TextureUpload = (egui::TextureId, Option<[usize; 2]>, [usize; 2]);
 
 ///
+/// Whether `picture` lies inside `source` with its corner less than one
+/// physical pixel from the Source's bottom-right corner on each axis.
+///
+fn in_corner(picture: Rect, source: Rect, pixels_per_point: f32) -> bool {
+    let gap = (source.max - picture.max) * pixels_per_point;
+    source.contains_rect(picture) && gap.max_elem() < 1.0
+}
+
+///
 /// The Overview's picture as painted: the one Mesh drawn from a texture other
 /// than the font atlas, its texture and the rectangle it covers.
 ///
@@ -6219,13 +6228,13 @@ fn overview_image(shapes: &[Shape]) -> Option<(egui::TextureId, Rect)> {
 }
 
 ///
-/// The Overview's 256 by 256 Grid is 256 texels a side, drawn square at a whole
-/// number of physical pixels per texel on whole physical pixels: one at 1× and
-/// 1.5×, two at 2×.
+/// The Overview's 256 by 256 Grid is 256 texels a side, drawn square at one
+/// physical pixel per texel on whole physical pixels, at every pixels per
+/// point, in the Source's bottom-right corner.
 ///
 #[tokio::test]
-async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel() {
-    for (pixels_per_point, pixels_per_texel) in [(1.0, 1.0), (1.5, 1.0), (2.0, 2.0)] {
+async fn the_overview_draws_one_square_image_at_one_physical_pixel_per_texel() {
+    for pixels_per_point in [1.0, 1.5, 2.0] {
         let (ctx, mut console, mut host) = fresh_console();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
         // An egui Area is drawn from its second pass; the first measures it.
@@ -6245,7 +6254,7 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
         // Within float error of a point that is a fraction of a pixel.
         let whole = |pixels: Vec2, expected: Vec2| (pixels - expected).length() < 1e-3;
         assert!(
-            whole(physical, Vec2::splat(256.0 * pixels_per_texel)),
+            whole(physical, Vec2::splat(256.0)),
             "{pixels_per_point}×: the image is {physical:?} physical pixels"
         );
         let corner = (image.min * pixels_per_point).to_vec2();
@@ -6253,17 +6262,19 @@ async fn the_overview_draws_one_square_image_at_whole_physical_pixels_per_texel(
             whole(corner, corner.round()),
             "{pixels_per_point}×: the image's corner {corner:?} is off the pixel grid"
         );
+        let source = source_area(&shapes, &default_theme(Appearance::Dark));
         assert!(
-            whole(image.max.to_vec2(), screen.max.to_vec2()),
-            "{pixels_per_point}×: the image {image:?} is not in the window's bottom-right corner"
+            in_corner(image, source, pixels_per_point),
+            "{pixels_per_point}×: the image {image:?} is not in the Source's corner {source:?}"
         );
     }
 }
 
 ///
 /// The Overview is bordered as the bottom panel is: the Theme's panel
-/// separator, along the two edges that face the rest of the console, just
-/// outside the picture, which stays in the window's corner.
+/// separator, along the two edges that face the rest of the Source, just
+/// outside the picture, which stays in the Source's corner above the bottom
+/// panel.
 ///
 #[tokio::test]
 async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
@@ -6275,12 +6286,13 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
         (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     }
     let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
-    assert_eq!(
-        picture.max, screen.max,
-        "the picture left the window's corner"
+    let theme = default_theme(Appearance::Dark);
+    let source = source_area(&shapes, &theme);
+    assert!(
+        in_corner(picture, source, 1.0),
+        "the picture {picture:?} left the Source's corner {source:?}"
     );
 
-    let theme = default_theme(Appearance::Dark);
     let stroke = crate::style::bar_separator(&theme);
     let width = stroke.width;
     let corner = picture.min - Vec2::splat(width);
@@ -6305,9 +6317,9 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
 }
 
 ///
-/// A window too small for the picture at its usual size shrinks or hides the
-/// Overview without changing the View menu's choice, so it returns at its
-/// usual size once the window holds it again, at each pixels per point.
+/// A window too small for the picture hides the Overview without changing
+/// the View menu's choice, so it returns at its usual size once the window
+/// holds it again, at each pixels per point.
 ///
 #[tokio::test]
 async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() {
@@ -6338,22 +6350,22 @@ async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() 
                     pixels_per_point,
                 );
             }
-            overview_image(&shapes).map(|(_, image)| image)
+            let source = source_area(&shapes, &default_theme(Appearance::Dark));
+            overview_image(&shapes).map(|(_, image)| (image, source))
         };
 
         pass(size);
-        let image = pass(Vec2::from(DEFAULT_VIEW_SIZE)).unwrap_or_else(|| {
+        let (image, source) = pass(Vec2::from(DEFAULT_VIEW_SIZE)).unwrap_or_else(|| {
             panic!("{size:?} at {pixels_per_point}×: the Overview did not return")
         });
-        let usual = 256.0 * pixels_per_point.floor().max(1.0);
         assert!(
-            (image.size() * pixels_per_point - Vec2::splat(usual)).length() < 1e-3,
+            (image.size() * pixels_per_point - Vec2::splat(256.0)).length() < 1e-3,
             "{size:?} at {pixels_per_point}×: the Overview returned at {image:?}"
         );
         assert!(
-            (image.max - Vec2::from(DEFAULT_VIEW_SIZE).to_pos2()).length() < 1e-3,
-            "{size:?} at {pixels_per_point}×: the Overview returned away from the corner at \
-             {image:?}"
+            in_corner(image, source, pixels_per_point),
+            "{size:?} at {pixels_per_point}×: the Overview returned away from the Source's \
+             corner at {image:?}"
         );
         assert!(
             console.overview_open,
@@ -6406,7 +6418,7 @@ async fn a_press_on_the_overview_answers_a_centre_and_leaves_the_source_view_to_
     let mut answered = None;
     let mut output = ctx.run_ui(input, |root| {
         let appearance = Appearance::from(root.ctx().theme());
-        answered = console.show_overview(root, TOP_PANEL_HEIGHT, revision, &frame, appearance);
+        answered = console.show_overview(root, revision, &frame, appearance);
     });
     output.textures_delta.clear();
     output.drop_without_applying_deltas();
