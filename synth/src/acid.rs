@@ -140,12 +140,16 @@ impl Acid {
         let g = 1.0 - (-TAU * cutoff * dt).exp();
         // Below `4`, the feedback at which the ladder would self-oscillate.
         let feedback = f32::from(controls.resonance) / 127.0 * 3.3;
-        let mut x = (wave - feedback * self.stages[3]).tanh();
+        // At half level the wave leaves the input's saturation room for the
+        // feedback.
+        let mut x = (0.5 * wave - feedback * self.stages[3]).tanh();
         for stage in &mut self.stages {
             *stage += g * (x - stage.tanh());
             x = *stage;
         }
-        Some(self.stages[3] * self.gate * (1.0 + accent))
+        // The feedback takes as much from the passband as it adds at the
+        // cutoff, so it is given back to keep the note about as loud.
+        Some(self.stages[3] * (1.0 + feedback) * self.gate * (1.0 + accent))
     }
 }
 

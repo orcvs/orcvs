@@ -785,4 +785,12 @@ mod tests {
             assert_eq!(rms(&out[seconds(2.5)..]), 0.0, "{value}");
         }
     }
+
+    #[test]
+    fn resonance_keeps_the_note_about_as_loud() {
+        let loudness = |resonance| rms(&acid_after(&[[0xB9, 71, resonance]]));
+
+        let ratio = loudness(0x7F) / loudness(0x00);
+        assert!((0.7..1.4).contains(&ratio), "{ratio}");
+    }
 }
