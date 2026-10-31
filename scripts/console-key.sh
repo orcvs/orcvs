@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # Prints the key of the web console the checked-out commit builds: one hash over the git objects
-# of the paths in `.github/workflows/console-web.yml`'s path filter, which are the paths the console
-# is built from. Two commits share a key exactly when they build the same console. The workflow
-# publishes each console under its key, and the site's production build waits for its own
-# (ADR 0093).
+# of the paths below, which are the paths the console is built from. Two commits share a key
+# exactly when they build the same console. `.github/workflows/console-web.yml` publishes each
+# console under its key, and every Cloudflare build of the site waits for its own (ADR 0093,
+# ADR 0101). A path the console build reads that is missing here lets two different consoles share
+# a key.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# Each entry is a file or a directory followed by `/**`. Anything else, or no entry at all, would
-# key the console by the wrong paths, so it fails instead.
-mapfile -t paths < <(awk '/^    paths:$/ { list = 1; next } !/^      - / { list = 0 } list' \
-  .github/workflows/console-web.yml | sed -E "s/^      - '([^']+)'$/\1/; s|/[*][*]$||" | sort -u)
-if (( ${#paths[@]} == 0 )) || printf '%s\n' "${paths[@]}" | grep -qE "[*?'\"]"; then
-  echo "console-web.yml's path filter is not a list of quoted files and directories." >&2
-  exit 1
-fi
+paths=(
+  console
+  orcvs
+  lang
+  synth
+  examples
+  scripts/stage-synth.sh
+  scripts/console-key.sh
+  .cargo/config.toml
+  Cargo.toml
+  Cargo.lock
+  rust-toolchain.toml
+  mise.toml
+  .github/workflows/console-web.yml
+)
 git ls-tree HEAD -- "${paths[@]}" | git hash-object --stdin

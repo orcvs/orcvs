@@ -36,31 +36,36 @@ that only those gates would catch — a wasm-only build break, a feature-off bui
 workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
 
 The web console and the site build separately, and GitHub Actions deploys neither.
-`.github/workflows/console-web.yml`, path-filtered to the console, the crates under it, the
-Built-in Synth and the toolchain and tool pins, runs `mise run console_web_build`: one release Trunk
-build with relative URLs into `target/console-web/`, kept as the `console-web` artifact. Trunk's
-post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly module and stages
-it beside the console with `synth/web/`'s AudioWorklet and page scripts (ADR 0087). On `main` it also publishes the
-build on the public `console-web` release twice: as `console-web-<key>.tar.gz`, where the key from
-`scripts/console-key.sh` hashes the paths in the workflow's own path filter, and as the rolling
-`console-web.tar.gz`. It keeps the newest 20 keyed archives.
+`.github/workflows/console-web.yml` runs on a push to any branch except `gh-pages` and the merge
+queue's. Its first job takes the console key from `scripts/console-key.sh`, one hash over the paths
+the console is built from: the console, the crates under it, the Built-in Synth, the shipped
+examples and the toolchain and tool pins. When `console-web-<key>.tar.gz` is already on the public
+`console-web` release the run builds nothing. Otherwise it runs `mise run console_web_build`: one
+release Trunk build with relative URLs into `target/console-web/`, kept as the `console-web`
+artifact. Trunk's post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly
+module and stages it beside the console with `synth/web/`'s AudioWorklet and page scripts (ADR 0087).
+The build is published on the release as `console-web-<key>.tar.gz` from `main` and as
+`console-preview-<key>.tar.gz` from any other branch, except Dependabot's read-only ones, and an
+archive is never replaced. On `main` the run then copies `main`'s keyed archive to the rolling
+`console-web.tar.gz` and keeps the newest 50 archives of each kind (ADR 0101).
 
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
 `site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
 the directory `CONSOLE_WEB` names, relative to `site/`, and Astro builds the site around it into
-`site/dist/`; nothing in the site build compiles the console. The production build waits up to 15
-minutes for the console keyed to its own commit and fails without it (ADR 0093); any other build
-takes the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
+`site/dist/`; nothing in the site build compiles the console. Every Cloudflare build waits up to 15
+minutes for the console keyed to its own commit and fails without it (ADR 0093, ADR 0101):
+production for `main`'s archive only, a preview for either. A local build and a `dependabot/`
+branch's build take the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
 release, and the site workflow runs it. A push to `main` deploys, and a pull
 request gets Cloudflare's preview URL. `site/.node-version` is the Node pin Cloudflare's build
 reads, and a site test holds it equal to `mise.toml`'s.
 
 `.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it renders,
 runs `mise run site_build`, which is the same `npm ci && npm run build` in `site/`, then the
-Playwright suite, and deploys nothing. Its build job takes the console
-from the `console-web` run for the same commit when that commit changed the console, and otherwise
-lets the script download the published one. `mise run site_test` serves `site/dist/` and runs the
+Playwright suite, and deploys nothing. It builds a pull request's head, as Cloudflare's preview
+does, with the console that commit builds: the `console-web` run's build for the same commit, or the
+archive under its key when that run found it already published. `mise run site_test` serves `site/dist/` and runs the
 Playwright tests in Chromium. None of these is part of `check_pull_request`, and neither workflow
 is a required check.
 
