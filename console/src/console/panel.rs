@@ -34,12 +34,6 @@ fn source_reserve(ui: &egui::Ui, cell: Vec2) -> f32 {
 pub(crate) static PROTOTYPE_VARIANT: std::sync::atomic::AtomicU8 =
     std::sync::atomic::AtomicU8::new(u8::MAX);
 
-// PROTOTYPE (throwaway): the five status slots a capture shows in place of
-// the live ones, because the engine clears a failure its next observation
-// does not repeat.
-pub(crate) static PROTOTYPE_STATUSES: std::sync::Mutex<Option<[Option<&'static str>; 5]>> =
-    std::sync::Mutex::new(None);
-
 pub(crate) fn prototype_variant() -> u8 {
     use std::sync::atomic::Ordering;
     let variant = PROTOTYPE_VARIANT.load(Ordering::Relaxed);
@@ -532,9 +526,6 @@ impl Console {
 
     /// The status messages the Panel can show, in the order it shows them.
     fn statuses(&self) -> [Option<&str>; 5] {
-        if let Some(fake) = *PROTOTYPE_STATUSES.lock().expect("prototype statuses") {
-            return fake;
-        }
         [
             self.midi.status(),
             self.playback_status.midi(),
