@@ -252,6 +252,84 @@ impl Console {
             Vec<[egui::Pos2; 2]>,
             Option<Stroke>,
         ) = match variant {
+            // PROTOTYPE: e, f and g draw one physical pixel per texel.
+            'e' | 'f' | 'g' => {
+                let side = texels / ppp;
+                let inset = border.width / 2.0;
+                match variant {
+                    'e' => {
+                        let rect = Rect::from_min_size(
+                            (egui::pos2(window.right(), source_rect.bottom()) - side)
+                                .round_to_pixels(ppp),
+                            side,
+                        );
+                        let bordered =
+                            Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
+                        (
+                            rect,
+                            bordered,
+                            Some(theme.panel_background),
+                            vec![
+                                [
+                                    egui::pos2(bordered.left(), rect.top() - inset),
+                                    egui::pos2(bordered.right(), rect.top() - inset),
+                                ],
+                                [
+                                    egui::pos2(rect.left() - inset, bordered.top()),
+                                    egui::pos2(rect.left() - inset, bordered.bottom()),
+                                ],
+                            ],
+                            None,
+                        )
+                    }
+                    'f' => {
+                        let rect = Rect::from_min_size(
+                            (source_rect.max - 2.0 * cell - side).round_to_pixels(ppp),
+                            side,
+                        );
+                        let mat = Rect::from_min_max(rect.min - cell, rect.max + cell);
+                        (
+                            rect,
+                            mat.expand(border.width),
+                            Some(theme.panel_background),
+                            vec![
+                                [mat.left_top(), mat.right_top()],
+                                [mat.right_top(), mat.right_bottom()],
+                                [mat.right_bottom(), mat.left_bottom()],
+                                [mat.left_bottom(), mat.left_top()],
+                            ],
+                            None,
+                        )
+                    }
+                    _ => {
+                        let rect = Rect::from_min_size(
+                            egui::pos2(window.right() - side.x, below_menu + border.width)
+                                .round_to_pixels(ppp),
+                            side,
+                        );
+                        let bordered = Rect::from_min_max(
+                            egui::pos2(rect.left() - border.width, below_menu),
+                            egui::pos2(window.right(), rect.bottom() + border.width),
+                        );
+                        (
+                            rect,
+                            bordered,
+                            Some(theme.panel_background),
+                            vec![
+                                [
+                                    egui::pos2(bordered.left(), rect.bottom() + inset),
+                                    egui::pos2(bordered.right(), rect.bottom() + inset),
+                                ],
+                                [
+                                    egui::pos2(rect.left() - inset, bordered.top()),
+                                    egui::pos2(rect.left() - inset, bordered.bottom()),
+                                ],
+                            ],
+                            None,
+                        )
+                    }
+                }
+            }
             'b' => {
                 let room = Vec2::new(
                     if narrow {
@@ -483,7 +561,7 @@ pub fn draw_picture(frame: &RenderFrame, theme: &Theme, picture: &mut ColorImage
             .map(|cell| cell_texel(&mut colours, cell, CursorPlacement::Plain)),
     );
     // PROTOTYPE: every variant but the shipped one draws the sector seams.
-    if proto_variant() != '0' {
+    if matches!(proto_variant(), 'a' | 'b' | 'c' | 'd') {
         let spacing = frame.sector_seam_spacing().cells();
         for (index, pixel) in pixels.iter_mut().enumerate() {
             if (index % width) % spacing == 0 || (index / width) % spacing == 0 {
