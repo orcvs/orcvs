@@ -316,19 +316,24 @@ impl Console {
             ui.spacing_mut().interact_size.y = ui.available_height();
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = menu_bar_gap(ui);
-                // New, Open…, Save, Save As… and Quit on native; New alone on
-                // the web.
+                // New, Open…, Save, Save As…, Copy Link and Quit on native;
+                // New and Copy Link on the web.
                 ui.menu_button("File", |ui| {
                     if file_menu_item(ui, FileCommand::New) {
                         choice.file_command = Some(FileCommand::New);
                     }
                     #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        for command in [FileCommand::Open, FileCommand::Save, FileCommand::SaveAs] {
-                            if file_menu_item(ui, command) {
-                                choice.file_command = Some(command);
-                            }
+                    for command in [FileCommand::Open, FileCommand::Save, FileCommand::SaveAs] {
+                        if file_menu_item(ui, command) {
+                            choice.file_command = Some(command);
                         }
+                    }
+                    ui.separator();
+                    if ui.button("Copy Link").clicked() {
+                        self.copy_link(ui.ctx());
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
                         ui.separator();
                         // Quit is a close request, asked about in `guard_close`.
                         // It shows no chord: on macOS the app menu's ⌘Q ends the

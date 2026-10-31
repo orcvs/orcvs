@@ -47,7 +47,6 @@ impl Example {
     /// The name a link gives for this example: its name in lowercase, with a
     /// hyphen for each space, so `Melody` is `melody`.
     ///
-    #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn link_name(&self) -> String {
         self.name.to_ascii_lowercase().replace(' ', "-")
     }

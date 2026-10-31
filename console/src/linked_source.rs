@@ -13,14 +13,15 @@
 //! holds until the next frame opens it.
 //!
 
-#[cfg(any(target_arch = "wasm32", test))]
 use orcvs::source::Source;
+
+/// The site page a link opens: it frames the console with the link's address.
+const SITE: &str = "https://orcvs.com/";
 
 ///
 /// The most bytes of `#source=` text read, counted before decoding, so an
 /// oversized link is refused without decoding it.
 ///
-#[cfg(any(target_arch = "wasm32", test))]
 pub(crate) const SOURCE_TEXT_LIMIT: usize = 16 * 1024;
 
 ///
@@ -140,9 +141,45 @@ fn percent_decoded(text: &str) -> Option<Vec<u8>> {
     Some(decoded)
 }
 
+///
+/// The site link that opens `source`: by its link name when it is a shipped
+/// example unchanged, otherwise as percent-encoded Source File text. Refused
+/// when that text is over the limit a link's console reads.
+///
+pub(crate) fn link(source: &Source) -> Result<String, String> {
+    let text = orcvs::source::file::write(source);
+    if let Some(example) = crate::examples::EXAMPLES
+        .iter()
+        .find(|example| orcvs::source::file::write(&example.source()) == text)
+    {
+        return Ok(format!("{SITE}?example={}", example.link_name()));
+    }
+    let encoded: String = text.bytes().map(percent_encoded).collect();
+    if encoded.len() > SOURCE_TEXT_LIMIT {
+        return Err(format!(
+            "this Source is too large to link: its link would be {} bytes, over the limit of {SOURCE_TEXT_LIMIT}",
+            encoded.len()
+        ));
+    }
+    Ok(format!("{SITE}#source={encoded}"))
+}
+
+///
+/// `byte` as it stands in a link's `#source=` text: itself when it is a
+/// letter, a digit or one of `-._~`, which a URL never reads as anything
+/// else, otherwise `%` and two hex digits.
+///
+fn percent_encoded(byte: u8) -> String {
+    if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+        char::from(byte).to_string()
+    } else {
+        format!("%{byte:02X}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Opening, SOURCE_TEXT_LIMIT, opening, source_message};
+    use super::{Opening, SOURCE_TEXT_LIMIT, link, opening, source_message};
     use orcvs::source::file;
 
     fn linked(search: &str, fragment: &str) -> Result<String, String> {
@@ -298,5 +335,42 @@ mod tests {
             let expected = file::read(&text).map(|source| file::write(&source));
             assert_eq!(linked("", &fragment).ok(), expected.ok(), "{text:?}");
         }
+    }
+
+    #[test]
+    fn an_unchanged_example_links_by_its_name() {
+        let tracker = &crate::examples::EXAMPLES[2];
+        assert_eq!(
+            link(&tracker.source()),
+            Ok("https://orcvs.com/?example=tracker".to_owned())
+        );
+    }
+
+    ///
+    /// Any other Source links as its text, which the console at that link
+    /// opens as the same Source, `&`, `#`, `%`, spaces and lines included.
+    ///
+    #[test]
+    fn any_other_source_links_as_text_that_opens_it_again() {
+        let text = "*+ &#%=?\n./\n";
+        let source = file::read(text.as_bytes()).expect("a Source File");
+        let address = link(&source).expect("a link");
+        let (search, fragment) = address
+            .strip_prefix("https://orcvs.com/")
+            .and_then(|rest| rest.split_once('#'))
+            .expect("a link to the site with a fragment");
+        assert_eq!(search, "");
+        assert_eq!(
+            linked(search, &format!("#{fragment}")),
+            Ok(file::write(&source))
+        );
+    }
+
+    #[test]
+    fn a_source_whose_link_is_over_the_limit_is_refused() {
+        let text = format!("{}\n", "*".repeat(255)).repeat(SOURCE_TEXT_LIMIT / 256 / 3 + 1);
+        let source = file::read(text.as_bytes()).expect("a Source File");
+        let refusal = link(&source).expect_err("a link over the limit");
+        assert!(refusal.contains("limit"), "{refusal}");
     }
 }

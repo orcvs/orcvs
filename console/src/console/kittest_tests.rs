@@ -4576,6 +4576,37 @@ async fn the_help_menu_opens_every_shipped_example() {
 }
 
 ///
+/// `File → Copy Link` puts the site link that opens the running Source on
+/// the clipboard: an example opened from Help links by its name.
+///
+#[tokio::test]
+async fn copy_link_puts_the_link_to_the_running_source_on_the_clipboard() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    choose_example(&mut harness, "Tracker");
+
+    harness.get_by_label("File").click();
+    harness.step();
+    harness.run_steps(1);
+    menu_item(&harness, "Copy Link").click();
+    harness.step();
+    let copied =
+        harness
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                egui::OutputCommand::CopyText(copied) => Some(copied.clone()),
+                _ => None,
+            });
+    assert_eq!(
+        copied.as_deref(),
+        Some("https://orcvs.com/?example=tracker")
+    );
+}
+
+///
 /// An example asks before discarding unsaved changes, and cancelling
 /// changes nothing.
 ///
