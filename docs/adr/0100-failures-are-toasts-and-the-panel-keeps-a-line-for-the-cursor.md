@@ -17,6 +17,10 @@ names the output it belongs to (`MIDI`, `UDP/OSC` or `ENGINE`), carries the mess
 button, and fades after `[toasts] seconds`. egui has no toast widget, so a Toast is an `egui::Area`
 anchored to the corner; no dependency is added.
 
+**A failure that outlives its Toast still shows.** While any message stands, the Panel's **O**
+readout is drawn in the error colour, so a faded or dismissed Toast never leaves a broken output
+unsignalled, and the Panel gains no line for it.
+
 **The Panel keeps one permanent line for the Cursor.** The Cursor Line sits beneath the Panel's row
 and is there whether or not it has anything to say, so the Panel's height never depends on what it
 shows. The Diagnostics readouts still add their own height when the viewer opens them.

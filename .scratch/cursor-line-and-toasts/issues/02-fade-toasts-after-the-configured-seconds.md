@@ -12,7 +12,11 @@ Blocked by: 01
       usual notice and the default applies.
 - [ ] A Toast fades out once its seconds have passed since it was raised, and a faded Toast does not
       return for the same message.
+- [ ] While any source reports a message, the Panel's **O** readout is drawn in the error colour,
+      whether its Toast is showing, faded or dismissed; it returns to its ordinary colour when every
+      source is clear.
 - [ ] The console asks egui for a repaint while a Toast is showing or fading, and for none once the
       last one has gone.
 - [ ] Tests: the settings reader's cases for the key, and a kittest that advances past the
-      configured seconds and finds the Toast gone.
+      configured seconds, finds the Toast gone and the **O** readout still in the error colour, then
+      clears the message and finds it back in its ordinary colour.
