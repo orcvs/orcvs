@@ -1,4 +1,4 @@
-//! The Overview: the whole Grid, one texel per Cell in the Theme's colours,
+//! The Minimap: the whole Grid, one texel per Cell in the Theme's colours,
 //! floating over the Source's bottom-right corner.
 
 use std::ops::Range;
@@ -19,14 +19,14 @@ use crate::style::{CellColours, CursorPlacement};
 use crate::theme::{Appearance, Theme, ThemeIdentity};
 
 ///
-/// The Overview's picture, kept across Render Frames, and the texture it is
+/// The Minimap's picture, kept across Render Frames, and the texture it is
 /// drawn from.
 ///
 /// The texture holds no galley, only the Theme's colours, so nothing it holds
 /// goes stale when egui rebuilds the font atlas.
 ///
 #[derive(Default)]
-pub(super) struct Overview {
+pub(super) struct Minimap {
     /// The picture, shared with the texture update in flight. Once the
     /// renderer has taken that update this is the only owner again, so the
     /// next redraw writes in place rather than copying.
@@ -41,7 +41,7 @@ pub(super) struct Overview {
     grab: Vec2,
 }
 
-impl Overview {
+impl Minimap {
     ///
     /// Redraws the picture and updates the texture when `revision`, the Theme
     /// or `appearance` differs from what the picture was drawn from, and
@@ -78,7 +78,7 @@ impl Overview {
         }
         self.texture.get_or_insert_with(|| {
             ctx.load_texture(
-                "overview",
+                "minimap",
                 Arc::clone(&self.picture),
                 TextureOptions::NEAREST,
             )
@@ -86,7 +86,7 @@ impl Overview {
     }
 }
 
-impl Overview {
+impl Minimap {
     ///
     /// The centre a press or drag on `response` asks the Source View to Pan
     /// to: on the press frame the grab is fixed from where the press landed
@@ -146,8 +146,8 @@ fn outline_source_view(painter: &Painter, picture: Rect, source: &ShownSourceVie
         PictureMap::new(source.extent(), picture).rect_to_picture(outline),
         0.0,
         Stroke::new(
-            theme.overview_source_view_width.points(),
-            theme.overview_source_view,
+            theme.minimap_source_view_width.points(),
+            theme.minimap_source_view,
         ),
         StrokeKind::Inside,
     );
@@ -179,7 +179,7 @@ fn place_picture(source: Rect, border: f32, grid: Grid, pixels_per_point: f32) -
 
 impl Console {
     ///
-    /// Shows the Overview pinned to the Source's bottom-right corner, when it
+    /// Shows the Minimap pinned to the Source's bottom-right corner, when it
     /// is open and fits, and answers the centre a press or drag on it asks
     /// the Source View to Pan to. It floats over the Source, so it takes no
     /// width from it, and stays above the bottom panel, with no margin: the
@@ -196,14 +196,14 @@ impl Console {
     /// senses a drag and nothing else: sensing focus would put it in the Tab
     /// order, where a focused widget keeps every key from the Source.
     ///
-    pub(super) fn show_overview(
+    pub(super) fn show_minimap(
         &mut self,
         root: &egui::Ui,
         revision: RevisionId,
         frame: &RenderFrame,
         appearance: Appearance,
     ) -> Option<SourceCellPoint> {
-        if !self.overview_open {
+        if !self.minimap_open {
             return None;
         }
         let ctx = root.ctx().clone();
@@ -218,15 +218,15 @@ impl Console {
             ctx.pixels_per_point(),
         )?;
         let texture = self
-            .overview
+            .minimap
             .texture(&ctx, revision, frame, theme, appearance);
         // `place_picture` sized the picture from the extent, so whole pixels
         // per texel hold only while the texture is drawn from that extent.
         debug_assert_eq!(texture.size_vec2(), extent(frame.grid()).size());
         let texture = texture.id();
-        let overview = &mut self.overview;
+        let minimap = &mut self.minimap;
         let bordered = Rect::from_min_max(rect.min - Vec2::splat(border.width), rect.max);
-        egui::Area::new(egui::Id::new("overview"))
+        egui::Area::new(egui::Id::new("minimap"))
             .fixed_pos(bordered.min)
             .movable(false)
             .fade_in(false)
@@ -246,7 +246,7 @@ impl Console {
                     .vline(rect.left() - inset, bordered.y_range(), border);
                 let response = ui.allocate_rect(rect, Sense::DRAG);
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source overview")
+                    egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Source minimap")
                 });
                 ui.painter().image(
                     texture,
@@ -257,7 +257,7 @@ impl Console {
                 let painter = ui.painter_at(rect);
                 mark_region_and_cursor(&painter, rect, frame, theme);
                 outline_source_view(&painter, rect, &source, theme);
-                overview.requested_centre(&response, rect, &source)
+                minimap.requested_centre(&response, rect, &source)
             })
             .inner
     }
@@ -272,7 +272,7 @@ impl Console {
 /// the Source leaves untinted inside a Region, such as a Portal's, and an
 /// opaque `region.background` hides the texels it covers. The Cursor keeps
 /// its border inside a spanning Region, where the Source shows only the
-/// Region's, so the Overview always shows where the Cursor is. The Cursor's
+/// Region's, so the Minimap always shows where the Cursor is. The Cursor's
 /// Cell is the texel the picture would draw for it at the Cursor's placement,
 /// so its fill is the one the Source gives it.
 ///
@@ -322,7 +322,7 @@ fn mark_region_and_cursor(painter: &Painter, picture: Rect, frame: &RenderFrame,
 /// the displayed foreground where the Cell is occupied, otherwise the
 /// displayed background. Both are composited down to the console's opaque
 /// surface, as the Source shows them, so every texel is opaque and the
-/// floating Overview never shows the Source beneath it. The Cursor and the
+/// floating Minimap never shows the Source beneath it. The Cursor and the
 /// Region are not drawn, so moving them changes no texel.
 ///
 /// `picture`'s pixels are cleared and refilled, so a picture redrawn at the
@@ -589,12 +589,12 @@ mod tests {
 
     ///
     /// The picture and its one-point border fit in half the Source's width and
-    /// its whole height, or there is no Overview: at 1× a 256-point picture
+    /// its whole height, or there is no Minimap: at 1× a 256-point picture
     /// needs a Source 514 points wide and 257 high, at 2× a 128-point one
     /// needs 258 wide and 129 high. A Source not yet presented has no room.
     ///
     #[test]
-    fn the_overview_hides_where_one_pixel_per_texel_does_not_fit_in_the_source() {
+    fn the_minimap_hides_where_one_pixel_per_texel_does_not_fit_in_the_source() {
         for (size, pixels_per_point, shown) in [
             (Vec2::new(514.0, 600.0), 1.0, true),
             (Vec2::new(513.0, 600.0), 1.0, false),

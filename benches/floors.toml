@@ -168,11 +168,11 @@ runner = "ubuntu-latest (GitHub Actions hosted runner)"
 source = "Local criterion runs (bench task settings) on a 4-core 2.8 GHz Xeon cloud container: 1.67 ms at 8x8, 395 us at 16x16. About twice the first, not yet CI-measured."
 
 [[floor]]
-name = "paint_overview/picture/256x256"
+name = "paint_minimap/picture/256x256"
 max_ns = 2200000
 runner = "ubuntu-latest (GitHub Actions hosted runner)"
 # `draw_picture` over a whole 256 by 256 Render Frame into a reused picture: the
-# walk the Overview makes once per Source revision, every Tick during Playback.
+# walk the Minimap makes once per Source revision, every Tick during Playback.
 source = "CI pull-request run on ubuntu-latest: 1.11 ms (actions run 40041333383). About twice that figure."
 
 # `empty` and `single` price what one Paint pays before its first Cell: the

@@ -121,13 +121,13 @@
     <canvas id="the_canvas_id"></canvas>
     <!-- The console's settings, as `~/.orcvs/config.toml` holds them on native, read once at
          startup while data-media matches (ADR 0091, `console/src/config.rs`). A phone gets
-         larger Cells, so it shows fewer of them, and no Overview. -->
+         larger Cells, so it shows fewer of them, and no Minimap. -->
     <script type="application/toml" id="orcvs_config" data-media="(max-width: 600px)">
 [cell]
 width = 24
 height = 36
 
-[overview]
+[minimap]
 open = false
     </script>
 

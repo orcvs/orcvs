@@ -1,9 +1,11 @@
 # An Overview (minimap) of the Source Grid in egui
 
-Status: decided in [ADR 0080](../adr/0080-the-overview-pans-over-a-cached-picture.md) and `CONTEXT.md`,
+Status: decided in [ADR 0080](../adr/0080-the-minimap-pans-over-a-cached-picture.md) and `CONTEXT.md`,
 which settle the term and the design below; this note keeps the research behind them. "Minimap" is
 the request's word. §6 proposed **Overview** as the domain term, because "map" collides with
-Language Map and the glossary avoids "viewport", "scroll" and "drag". Citations are `path:line` in this repository, or in the egui `0.36.2` crates
+Language Map and the glossary avoids "viewport", "scroll" and "drag"; [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md)
+makes the term **Minimap**, so this note's "Overview" and its `.scratch/overview/` citations name
+the same element. Citations are `path:line` in this repository, or in the egui `0.36.2` crates
 (`egui-0.36.2/…`, `epaint-0.36.2/…`, `egui_glow-0.36.2/…`, `egui-wgpu-0.36.2/…` from the cargo
 registry; `egui_demo_lib/…` from `emilk/egui` tag `0.36.2`, commit `49682f8b`). Prior art cites the
 upstream repository and file.

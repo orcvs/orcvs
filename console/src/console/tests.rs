@@ -5472,7 +5472,7 @@ fn the_shown_source_view_maps_the_grids_corner_where_paint_drew_it() {
 }
 
 ///
-/// The Overview outlines the Source View exactly where the clamp has
+/// The Minimap outlines the Source View exactly where the clamp has
 /// somewhere to Pan: on a console a point narrower or shorter than the extent
 /// and not on one as large as it, on each axis alone.
 ///
@@ -6207,10 +6207,10 @@ fn in_corner(picture: Rect, source: Rect, pixels_per_point: f32) -> bool {
 }
 
 ///
-/// The Overview's picture as painted: the one Mesh drawn from a texture other
+/// The Minimap's picture as painted: the one Mesh drawn from a texture other
 /// than the font atlas, its texture and the rectangle it covers.
 ///
-fn overview_image(shapes: &[Shape]) -> Option<(egui::TextureId, Rect)> {
+fn minimap_image(shapes: &[Shape]) -> Option<(egui::TextureId, Rect)> {
     let images: Vec<_> = shapes
         .iter()
         .filter_map(|shape| match shape {
@@ -6228,12 +6228,12 @@ fn overview_image(shapes: &[Shape]) -> Option<(egui::TextureId, Rect)> {
 }
 
 ///
-/// The Overview's 256 by 256 Grid is 256 texels a side, drawn square at one
+/// The Minimap's 256 by 256 Grid is 256 texels a side, drawn square at one
 /// physical pixel per texel on whole physical pixels, at every pixels per
 /// point, in the Source's bottom-right corner.
 ///
 #[tokio::test]
-async fn the_overview_draws_one_square_image_at_one_physical_pixel_per_texel() {
+async fn the_minimap_draws_one_square_image_at_one_physical_pixel_per_texel() {
     for pixels_per_point in [1.0, 1.5, 2.0] {
         let (ctx, mut console, mut host) = fresh_console();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
@@ -6249,7 +6249,7 @@ async fn the_overview_draws_one_square_image_at_one_physical_pixel_per_texel() {
                 pixels_per_point,
             );
         }
-        let (_, image) = overview_image(&shapes).expect("the Overview drew no image");
+        let (_, image) = minimap_image(&shapes).expect("the Minimap drew no image");
         let physical = image.size() * pixels_per_point;
         // Within float error of a point that is a fraction of a pixel.
         let whole = |pixels: Vec2, expected: Vec2| (pixels - expected).length() < 1e-3;
@@ -6271,13 +6271,13 @@ async fn the_overview_draws_one_square_image_at_one_physical_pixel_per_texel() {
 }
 
 ///
-/// The Overview is bordered as the bottom panel is: the Theme's panel
+/// The Minimap is bordered as the bottom panel is: the Theme's panel
 /// separator, along the two edges that face the rest of the Source, just
 /// outside the picture, which stays in the Source's corner above the bottom
 /// panel.
 ///
 #[tokio::test]
-async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
+async fn the_minimap_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     // An egui Area is drawn from its second pass; the first measures it.
@@ -6285,7 +6285,7 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
     for _ in 0..2 {
         (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     }
-    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let (_, picture) = minimap_image(&shapes).expect("the Minimap drew no image");
     let theme = default_theme(Appearance::Dark);
     let source = source_area(&shapes, &theme);
     assert!(
@@ -6317,12 +6317,12 @@ async fn the_overview_is_bordered_on_its_inner_edges_as_the_bottom_panel_is() {
 }
 
 ///
-/// A window too small for the picture hides the Overview without changing
+/// A window too small for the picture hides the Minimap without changing
 /// the View menu's choice, so it returns at its usual size once the window
 /// holds it again, at each pixels per point.
 ///
 #[tokio::test]
-async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() {
+async fn a_hidden_minimap_returns_at_its_usual_size_once_the_window_holds_it() {
     let narrow = Vec2::new(500.0, DEFAULT_VIEW_SIZE[1]);
     let short = Vec2::new(DEFAULT_VIEW_SIZE[0], TOP_PANEL_HEIGHT + 255.0);
     let smallest = Vec2::from(DEFAULT_VIEW_SIZE_MIN);
@@ -6336,7 +6336,7 @@ async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() 
         (smallest, 2.0),
     ] {
         let (ctx, mut console, mut host) = fresh_console();
-        console.overview_open = true;
+        console.minimap_open = true;
         let mut pass = |size: Vec2| {
             let screen = Rect::from_min_size(Pos2::ZERO, size);
             let mut shapes = Vec::new();
@@ -6351,45 +6351,45 @@ async fn a_hidden_overview_returns_at_its_usual_size_once_the_window_holds_it() 
                 );
             }
             let source = source_area(&shapes, &default_theme(Appearance::Dark));
-            overview_image(&shapes).map(|(_, image)| (image, source))
+            minimap_image(&shapes).map(|(_, image)| (image, source))
         };
 
         pass(size);
         let (image, source) = pass(Vec2::from(DEFAULT_VIEW_SIZE)).unwrap_or_else(|| {
-            panic!("{size:?} at {pixels_per_point}×: the Overview did not return")
+            panic!("{size:?} at {pixels_per_point}×: the Minimap did not return")
         });
         assert!(
             (image.size() * pixels_per_point - Vec2::splat(256.0)).length() < 1e-3,
-            "{size:?} at {pixels_per_point}×: the Overview returned at {image:?}"
+            "{size:?} at {pixels_per_point}×: the Minimap returned at {image:?}"
         );
         assert!(
             in_corner(image, source, pixels_per_point),
-            "{size:?} at {pixels_per_point}×: the Overview returned away from the Source's \
+            "{size:?} at {pixels_per_point}×: the Minimap returned away from the Source's \
              corner at {image:?}"
         );
         assert!(
-            console.overview_open,
+            console.minimap_open,
             "{size:?} at {pixels_per_point}×: closed"
         );
     }
 }
 
 ///
-/// A press on the Overview's picture answers the centre it asks the Source
+/// A press on the Minimap's picture answers the centre it asks the Source
 /// View to Pan to and leaves the Source View as it was: the Pan moves only
 /// once that centre is passed to `SourceView::centre_on`, as `Console::ui`
 /// does.
 ///
 #[tokio::test]
-async fn a_press_on_the_overview_answers_a_centre_and_leaves_the_source_view_to_apply_it() {
+async fn a_press_on_the_minimap_answers_a_centre_and_leaves_the_source_view_to_apply_it() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    console.overview_open = true;
+    console.minimap_open = true;
     let mut shapes = Vec::new();
     for _ in 0..2 {
         (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     }
-    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let (_, picture) = minimap_image(&shapes).expect("the Minimap drew no image");
     let source = console.source_view.shown();
     let map = PictureMap::new(source.extent(), picture);
     let press = picture.center();
@@ -6418,7 +6418,7 @@ async fn a_press_on_the_overview_answers_a_centre_and_leaves_the_source_view_to_
     let mut answered = None;
     let mut output = ctx.run_ui(input, |root| {
         let appearance = Appearance::from(root.ctx().theme());
-        answered = console.show_overview(root, revision, &frame, appearance);
+        answered = console.show_minimap(root, revision, &frame, appearance);
     });
     output.textures_delta.clear();
     output.drop_without_applying_deltas();
@@ -6451,19 +6451,19 @@ async fn a_press_on_the_overview_answers_a_centre_and_leaves_the_source_view_to_
 }
 
 ///
-/// The picture is uploaded when the Overview is first shown and again, as one
+/// The picture is uploaded when the Minimap is first shown and again, as one
 /// whole-image update in place, only when the Source or the appearance
 /// changes; a Render Frame where neither did uploads nothing, even when the
 /// Cursor moved or the Region changed.
 ///
 #[tokio::test]
-async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_changes() {
+async fn the_minimap_uploads_its_picture_only_when_the_source_or_appearance_changes() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let mut textures = open_overview(&ctx, screen, &mut console, &mut host);
+    let mut textures = open_minimap(&ctx, screen, &mut console, &mut host);
     let (shapes, drawn) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     textures.extend(drawn);
-    let (texture, _) = overview_image(&shapes).expect("the Overview drew no image");
+    let (texture, _) = minimap_image(&shapes).expect("the Minimap drew no image");
     let uploads = |textures: &[TextureUpload]| {
         textures
             .iter()
@@ -6509,9 +6509,9 @@ async fn the_overview_uploads_its_picture_only_when_the_source_or_appearance_cha
         "an appearance change did not update the whole picture in place"
     );
     assert_eq!(
-        overview_image(&shapes).map(|(id, _)| id),
+        minimap_image(&shapes).map(|(id, _)| id),
         Some(texture),
-        "the Overview drew from a second texture"
+        "the Minimap drew from a second texture"
     );
 }
 
@@ -6531,8 +6531,8 @@ fn source_area(shapes: &[Shape], theme: &Theme) -> Rect {
 }
 
 ///
-/// The Source View as the Overview draws it in `theme`: each rectangle inside
-/// the Overview's picture stroked in the Theme's outline colour and width.
+/// The Source View as the Minimap draws it in `theme`: each rectangle inside
+/// the Minimap's picture stroked in the Theme's outline colour and width.
 ///
 fn source_view_outlines(
     shapes: &[Shape],
@@ -6540,8 +6540,8 @@ fn source_view_outlines(
     theme: &Theme,
 ) -> Vec<egui::epaint::RectShape> {
     let stroke = egui::Stroke::new(
-        theme.overview_source_view_width.points(),
-        theme.overview_source_view,
+        theme.minimap_source_view_width.points(),
+        theme.minimap_source_view,
     );
     shapes
         .iter()
@@ -6555,8 +6555,8 @@ fn source_view_outlines(
 }
 
 ///
-/// Where `console`'s Source View falls on the Overview's `picture`, unclipped:
-/// the console's Source Cells through the Overview's map.
+/// Where `console`'s Source View falls on the Minimap's `picture`, unclipped:
+/// the console's Source Cells through the Minimap's map.
 ///
 fn unclipped_outline(console: &Console, picture: Rect) -> Rect {
     let shown = console.source_view.shown();
@@ -6574,24 +6574,24 @@ fn assert_near(actual: Rect, expected: Rect, situation: &str) {
 }
 
 ///
-/// Opens the Overview and runs the pass that measures it: an egui Area is
+/// Opens the Minimap and runs the pass that measures it: an egui Area is
 /// drawn from its second pass. The uploads of that pass are returned.
 ///
-fn open_overview(
+fn open_minimap(
     ctx: &egui::Context,
     screen: Rect,
     console: &mut Console,
     host: &mut eframe::Frame,
 ) -> Vec<TextureUpload> {
-    console.overview_open = true;
+    console.minimap_open = true;
     console_output_at(ctx, screen, Vec::new(), console, host, 1.0).1
 }
 
 ///
-/// One pass of an open Overview: the outline it stroked, if any, the picture
+/// One pass of an open Minimap: the outline it stroked, if any, the picture
 /// and the Source panel's area.
 ///
-fn overview_pass(
+fn minimap_pass(
     ctx: &egui::Context,
     screen: Rect,
     events: Vec<Event>,
@@ -6599,7 +6599,7 @@ fn overview_pass(
     host: &mut eframe::Frame,
 ) -> (Option<egui::epaint::RectShape>, Rect, Rect) {
     let (shapes, _) = console_output_at(ctx, screen, events, console, host, 1.0);
-    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let (_, picture) = minimap_image(&shapes).expect("the Minimap drew no image");
     let theme = default_theme(Appearance::Dark);
     let mut outlines = source_view_outlines(&shapes, picture, &theme);
     assert!(outlines.len() <= 1, "more than one outline: {outlines:?}");
@@ -6607,18 +6607,18 @@ fn overview_pass(
 }
 
 ///
-/// The Overview outlines the part of the extent the Source View shows, in the
+/// The Minimap outlines the part of the extent the Source View shows, in the
 /// Theme's colour and width, and the outline follows a wheel Pan the Render
 /// Frame it happens: it moves against the Pan by the Pan scaled to the
 /// picture.
 ///
-/// Worked by hand from the texel count rather than through the Overview's
+/// Worked by hand from the texel count rather than through the Minimap's
 /// map: the picture is 256 square texels across, one for each Column, so the
 /// outline starts as many texels in as the Pan has moved Cells and spans as
 /// many texels as the console holds Cells.
 ///
 #[tokio::test]
-async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
+async fn the_minimap_outlines_the_source_view_where_a_pan_leaves_it() {
     fn unclipped_outline(pan: Vec2, console: Vec2, cell: Vec2, picture: Rect) -> Rect {
         let texel = picture.width() / 256.0;
         Rect::from_min_size(picture.min + -pan / cell * texel, console / cell * texel)
@@ -6627,25 +6627,25 @@ async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let theme = default_theme(Appearance::Dark);
-    open_overview(&ctx, screen, &mut console, &mut host);
+    open_minimap(&ctx, screen, &mut console, &mut host);
     let cell = snapped_cell(console.source_view.cell, 1.0);
     // The Pan as Paint drew it: the Grid's corner, on whole physical pixels.
     let drawn_pan =
         |console: &Console, area: Rect| console.source_view.shown().viewport().rect.min - area.min;
 
-    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let before = outline.expect("the Overview drew no outline");
-    assert_eq!(before.stroke.color, theme.overview_source_view);
+    let (outline, picture, area) = minimap_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let before = outline.expect("the Minimap drew no outline");
+    assert_eq!(before.stroke.color, theme.minimap_source_view);
     assert_eq!(
         before.stroke.width,
-        theme.overview_source_view_width.points()
+        theme.minimap_source_view_width.points()
     );
     let expected = unclipped_outline(drawn_pan(&console, area), area.size(), cell, picture);
     assert_near(before.rect, expected, "at rest");
 
     let wheel = wheel_at(area.center(), Vec2::new(-240.0, -180.0));
-    let (outline, picture, area) = overview_pass(&ctx, screen, wheel, &mut console, &mut host);
-    let after = outline.expect("the Overview drew no outline after a Pan");
+    let (outline, picture, area) = minimap_pass(&ctx, screen, wheel, &mut console, &mut host);
+    let after = outline.expect("the Minimap drew no outline after a Pan");
     let pan = drawn_pan(&console, area);
     assert_ne!(pan, Vec2::ZERO, "the wheel did not Pan");
     let expected = unclipped_outline(pan, area.size(), cell, picture);
@@ -6659,17 +6659,17 @@ async fn the_overview_outlines_the_source_view_where_a_pan_leaves_it() {
 }
 
 ///
-/// The Overview marks the Region's Cells and then the Cursor's Cell over its
+/// The Minimap marks the Region's Cells and then the Cursor's Cell over its
 /// picture, each in the Theme's fill and border for it, and the Source View's
 /// outline over both. A Region of one Cell is the Cursor's Cell and gets no
 /// mark of its own.
 ///
-/// Worked by hand from the texel count rather than through the Overview's
+/// Worked by hand from the texel count rather than through the Minimap's
 /// map: the picture is 256 square texels across, one for each Cell.
 ///
 #[tokio::test]
-async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_the_outline() {
-    fn overview_cells(picture: Rect, columns: Range<usize>, rows: Range<usize>) -> Rect {
+async fn the_minimap_marks_the_region_and_the_cursor_between_the_picture_and_the_outline() {
+    fn minimap_cells(picture: Rect, columns: Range<usize>, rows: Range<usize>) -> Rect {
         let texel = picture.width() / 256.0;
         let corner =
             |column: usize, row: usize| picture.min + Vec2::new(column as f32, row as f32) * texel;
@@ -6682,7 +6682,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let theme = default_theme(Appearance::Dark);
-    open_overview(&ctx, screen, &mut console, &mut host);
+    open_minimap(&ctx, screen, &mut console, &mut host);
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the grid");
     console.orcvs.select(at(9, 7));
@@ -6692,7 +6692,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
         |a: Rect, b: Rect| (a.min - b.min).length() < 1e-3 && (a.max - b.max).length() < 1e-3;
 
     let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
-    let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+    let (_, picture) = minimap_image(&shapes).expect("the Minimap drew no image");
     let mark_at = |rect: Rect, situation: &str| {
         let found: Vec<_> = shapes
             .iter()
@@ -6707,8 +6707,8 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
     };
     // An inside stroke half a texel wide or wider covers a one-texel side
     // entirely, leaving no fill to show.
-    let texel = overview_cells(picture, 0..1, 0..1).width();
-    let (region_at, region) = mark_at(overview_cells(picture, 9..13, 7..9), "the Region mark");
+    let texel = minimap_cells(picture, 0..1, 0..1).width();
+    let (region_at, region) = mark_at(minimap_cells(picture, 9..13, 7..9), "the Region mark");
     // The Region's mark shows where the Region is, so it is the Theme's
     // `region.background` itself rather than any one Cell's Region fill.
     assert_eq!(region.fill, theme.region_background);
@@ -6719,7 +6719,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
         region.stroke.width
     );
     assert_eq!(region.stroke_kind, egui::StrokeKind::Inside);
-    let (cursor_at, cursor) = mark_at(overview_cells(picture, 12..13, 8..9), "the Cursor mark");
+    let (cursor_at, cursor) = mark_at(minimap_cells(picture, 12..13, 8..9), "the Cursor mark");
     // The Cursor's mark is filled as the Source fills the Cursor's empty Cell
     // inside a spanning Region.
     let region_cursor_fill = crate::style::CellColours::new(&theme)
@@ -6742,10 +6742,10 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
     let image_at = shapes
         .iter()
         .position(|shape| matches!(shape, Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::default()))
-        .expect("the Overview drew no image");
+        .expect("the Minimap drew no image");
     let outline = source_view_outlines(&shapes, picture, &theme)
         .pop()
-        .expect("the Overview drew no outline");
+        .expect("the Minimap drew no outline");
     let outline_at = shapes
         .iter()
         .position(|shape| matches!(shape, Shape::Rect(rect) if *rect == outline))
@@ -6762,14 +6762,14 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
         .filter_map(|shape| match shape {
             Shape::Rect(mark)
                 if picture.contains_rect(mark.rect)
-                    && mark.stroke.color != theme.overview_source_view =>
+                    && mark.stroke.color != theme.minimap_source_view =>
             {
                 Some(mark.rect)
             }
             _ => None,
         })
         .collect();
-    let expected = overview_cells(picture, 30..31, 20..21);
+    let expected = minimap_cells(picture, 30..31, 20..21);
     assert!(
         matches!(marks[..], [mark] if near(mark, expected)),
         "a one-Cell Region marked {marks:?}, not the Cursor's Cell alone at {expected:?}"
@@ -6777,7 +6777,7 @@ async fn the_overview_marks_the_region_and_the_cursor_between_the_picture_and_th
 }
 
 ///
-/// The Overview's Cursor mark fill on the empty Cell at column 12, row 8, in a
+/// The Minimap's Cursor mark fill on the empty Cell at column 12, row 8, in a
 /// Theme inheriting the dark default with `style` added: first as the far corner of
 /// a Region from column 9, row 7, then with the Region collapsed to it.
 ///
@@ -6806,13 +6806,13 @@ fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
     );
     let mut host = eframe::Frame::_new_kittest();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    open_overview(&ctx, screen, &mut console, &mut host);
+    open_minimap(&ctx, screen, &mut console, &mut host);
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the grid");
 
     let mut cursor_fill = |console: &mut Console| {
         let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), console, &mut host, 1.0);
-        let (_, picture) = overview_image(&shapes).expect("the Overview drew no image");
+        let (_, picture) = minimap_image(&shapes).expect("the Minimap drew no image");
         let cell = PictureMap::new(console.source_view.shown().extent(), picture)
             .rect_to_picture(SourceCellRect::cell(at(12, 8)));
         shapes
@@ -6826,7 +6826,7 @@ fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
                 }
                 _ => None,
             })
-            .expect("the Overview drew no Cursor mark")
+            .expect("the Minimap drew no Cursor mark")
     };
     console.orcvs.select(at(9, 7));
     console.orcvs.extend(at(12, 8));
@@ -6841,7 +6841,7 @@ fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
 /// Region is one Cell.
 ///
 #[tokio::test]
-async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell() {
+async fn the_minimap_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell() {
     let (in_region, alone) = cursor_mark_fills(
         "\"cursor.background\" = \"#102030\"\n\"region.cursor.background\" = \"#405060\"\n",
     );
@@ -6862,7 +6862,7 @@ async fn the_overview_fills_the_cursor_mark_as_the_source_fills_the_cursors_cell
 /// Cell base, inside a spanning Region or not, so the Cursor mark does too.
 ///
 #[tokio::test]
-async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_fills_are_cleared() {
+async fn the_minimap_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_fills_are_cleared() {
     let (in_region, alone) = cursor_mark_fills(
         "\"cell.background\" = \"#203040\"\n\"cursor.background\" = \"none\"\n\
          \"region.cursor.background\" = \"none\"\n",
@@ -6878,17 +6878,17 @@ async fn the_overview_fills_the_cursor_mark_with_the_cell_base_when_the_cursor_f
 /// The window is twice the default, so zoomed in it still holds the picture.
 ///
 #[tokio::test]
-async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
+async fn the_minimap_outline_shrinks_as_the_performer_zooms_in() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, 2.0 * Vec2::from(DEFAULT_VIEW_SIZE));
-    open_overview(&ctx, screen, &mut console, &mut host);
-    let (before, _, _) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let before = before.expect("the Overview drew no outline");
+    open_minimap(&ctx, screen, &mut console, &mut host);
+    let (before, _, _) = minimap_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let before = before.expect("the Minimap drew no outline");
 
     ctx.set_zoom_factor(2.0);
     let zoomed_in = Rect::from_min_size(Pos2::ZERO, screen.size() / 2.0);
-    let (after, picture, _) = overview_pass(&ctx, zoomed_in, Vec::new(), &mut console, &mut host);
-    let after = after.expect("the Overview drew no outline zoomed in");
+    let (after, picture, _) = minimap_pass(&ctx, zoomed_in, Vec::new(), &mut console, &mut host);
+    let after = after.expect("the Minimap drew no outline zoomed in");
     let expected = unclipped_outline(&console, picture);
     assert_near(after.rect, expected, "zoomed in");
     assert!(
@@ -6904,16 +6904,16 @@ async fn the_overview_outline_shrinks_as_the_performer_zooms_in() {
 /// clipped to the picture's edges; on the other it is not.
 ///
 #[tokio::test]
-async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
+async fn the_minimap_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
     let (ctx, mut console, mut host) = fresh_console();
-    // Wide enough for the extent's 256 Columns beside the Overview, and the
+    // Wide enough for the extent's 256 Columns beside the Minimap, and the
     // default height, which shows a few Rows.
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, DEFAULT_VIEW_SIZE[1]));
-    open_overview(&ctx, screen, &mut console, &mut host);
+    open_minimap(&ctx, screen, &mut console, &mut host);
     let cell = snapped_cell(console.source_view.cell, 1.0);
-    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let (outline, picture, area) = minimap_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
-    let outline = outline.expect("the Overview drew no outline").rect;
+    let outline = outline.expect("the Minimap drew no outline").rect;
     let extent = console.source_view.shown().extent().size() * cell;
     assert!(
         area.width() >= extent.x && area.height() < extent.y,
@@ -6938,15 +6938,15 @@ async fn the_overview_outline_is_clipped_on_an_axis_with_nowhere_to_pan() {
 
 ///
 /// A console that shows the whole extent on both axes has nowhere to Pan, so
-/// the Overview draws no outline over its picture.
+/// the Minimap draws no outline over its picture.
 ///
 #[tokio::test]
-async fn the_overview_draws_no_outline_when_neither_axis_can_pan() {
+async fn the_minimap_draws_no_outline_when_neither_axis_can_pan() {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(4000.0, 6000.0));
-    open_overview(&ctx, screen, &mut console, &mut host);
+    open_minimap(&ctx, screen, &mut console, &mut host);
     let cell = snapped_cell(console.source_view.cell, 1.0);
-    let (outline, picture, area) = overview_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let (outline, picture, area) = minimap_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     let extent = console.source_view.shown().extent().size() * cell;
     assert!(

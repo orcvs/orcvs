@@ -15,7 +15,7 @@
 
 ### Shipped, 2026-10-23
 
-ADR 0080, `docs/adr/0080-the-overview-pans-over-a-cached-picture.md`, records the four decisions and
+ADR 0080, `docs/adr/0080-the-minimap-pans-over-a-cached-picture.md`, records the four decisions and
 the four rejected alternatives. ADR 0045 carries a dated amendment adding the Overview to its Pan
 gestures. `CONTEXT.md` gains **Overview**, and **Pan** names it as a way to Pan. The outline's Theme
 key is spelled when ticket 03 adds it to the schema.

@@ -44,7 +44,7 @@ const EDGE_SCROLL_REACH: f32 = 4.0;
 /// merely redrew the Cursor.
 ///
 /// `shown` is derived each frame from the Pan and the console's top-left, so
-/// Paint, the Overview and Diagnostics read one presentation.
+/// Paint, the Minimap and Diagnostics read one presentation.
 ///
 pub(super) struct SourceView {
     pub(super) pan: Vec2,
@@ -293,7 +293,7 @@ fn at_rest(cell: Vec2) -> ScreenMap {
 /// along it. `None` where the console shows the whole extent, so there is
 /// nowhere to Pan.
 ///
-/// The clamp and [`pannable`] both ask this, so the Overview outlines the
+/// The clamp and [`pannable`] both ask this, so the Minimap outlines the
 /// Source View exactly where it can Pan.
 ///
 fn slack(console: f32, extent: f32) -> Option<f32> {
@@ -590,7 +590,7 @@ pub(super) fn source_panel_frame(background: Color32) -> egui::Frame {
 }
 
 ///
-/// The Source View as one Render Frame presented it, for the Overview and the
+/// The Source View as one Render Frame presented it, for the Minimap and the
 /// Diagnostics to read: the map Paint drew the Source under, the console area
 /// it was drawn in and the extent it Pans over.
 ///

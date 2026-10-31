@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-- [x] `docs/adr/0081-the-overview-floats-over-the-windows-corner.md` exists in the repository's ADR format and amends ADR 0080.
+- [x] `docs/adr/0081-the-minimap-floats-over-the-windows-corner.md` exists in the repository's ADR format and amends ADR 0080.
 - [x] ADR 0080's status line references it. (`docs/adr/README.md` keeps no list of ADRs, so it has nothing to reference it from.)
 - [x] No module doc or comment in `console` calls the Overview docked.
 - [x] `RUSTDOCFLAGS="-D warnings" cargo doc --package console --no-deps --document-private-items --locked` passes.

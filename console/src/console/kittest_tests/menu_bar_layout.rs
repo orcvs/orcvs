@@ -43,11 +43,11 @@ fn boxes_in(harness: &Harness<'_, Console>, item: egui::Rect) -> Vec<egui::Rect>
 }
 
 ///
-/// View → Overview's check box trails its label, as View → Diagnostics' does,
+/// View → Minimap's check box trails its label, as View → Diagnostics' does,
 /// and the item spans the menu as Diagnostics does.
 ///
 #[tokio::test]
-async fn the_overview_item_trails_its_check_box_as_diagnostics_does() {
+async fn the_minimap_item_trails_its_check_box_as_diagnostics_does() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
     harness.get_by_label("View").click();
@@ -55,13 +55,13 @@ async fn the_overview_item_trails_its_check_box_as_diagnostics_does() {
     harness.run_steps(1);
 
     let diagnostics = menu_item(&harness, "Diagnostics").rect();
-    let overview = harness.get_by_label("Overview");
+    let minimap = harness.get_by_label("Minimap");
     assert_eq!(
-        overview.accesskit_node().role(),
+        minimap.accesskit_node().role(),
         egui::accesskit::Role::CheckBox
     );
-    let overview = overview.rect();
-    for (label, item) in [("Diagnostics", diagnostics), ("Overview", overview)] {
+    let minimap = minimap.rect();
+    for (label, item) in [("Diagnostics", diagnostics), ("Minimap", minimap)] {
         let boxes = boxes_in(&harness, item);
         assert_eq!(
             boxes.len(),
@@ -75,9 +75,9 @@ async fn the_overview_item_trails_its_check_box_as_diagnostics_does() {
         );
     }
     assert_eq!(
-        (overview.left(), overview.right()),
+        (minimap.left(), minimap.right()),
         (diagnostics.left(), diagnostics.right()),
-        "the Overview item is not laid out across the menu as Diagnostics is"
+        "the Minimap item is not laid out across the menu as Diagnostics is"
     );
 }
 

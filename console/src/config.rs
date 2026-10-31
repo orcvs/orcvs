@@ -11,8 +11,8 @@
 //! width = 12              # points, 8–64
 //! height = 18             # points, 8–64
 //!
-//! [overview]
-//! open = true             # whether the Overview is open at startup
+//! [minimap]
+//! open = true             # whether the Minimap is open at startup
 //!
 //! [diagnostics]
 //! open = false            # whether the Diagnostics are open at startup
@@ -48,8 +48,8 @@ pub(crate) struct Config {
     pub(crate) theme_selection: ThemeSelection,
     /// The Source Cell's width and height in points, before snapping.
     pub(crate) cell: Vec2,
-    /// Whether the Overview is open when the console starts.
-    pub(crate) overview_open: bool,
+    /// Whether the Minimap is open when the console starts.
+    pub(crate) minimap_open: bool,
     /// Whether the Diagnostics are open when the console starts.
     pub(crate) diagnostics_open: bool,
     /// One message per problem, in the order found, for the Theme notice
@@ -62,7 +62,7 @@ impl Default for Config {
         Self {
             theme_selection: ThemeSelection::default(),
             cell: CELL_SIZE,
-            overview_open: true,
+            minimap_open: true,
             diagnostics_open: false,
             notices: Vec::new(),
         }
@@ -125,13 +125,13 @@ fn parse(text: &str, origin: &str) -> Config {
     let mut light = None;
     let mut width = None;
     let mut height = None;
-    let mut overview_open = None;
+    let mut minimap_open = None;
     let mut diagnostics_open = None;
     for (section, value) in &table {
         let Some(keys) = value.as_table() else {
             if matches!(
                 section.as_str(),
-                "theme" | "cell" | "overview" | "diagnostics"
+                "theme" | "cell" | "minimap" | "diagnostics"
             ) {
                 notice(format!(
                     "`{section}` must be a table; its keys use their defaults"
@@ -148,7 +148,7 @@ fn parse(text: &str, origin: &str) -> Config {
                 ("theme", "light") => light = identity(&name, value, &mut notice),
                 ("cell", "width") => width = points(&name, value, &mut notice),
                 ("cell", "height") => height = points(&name, value, &mut notice),
-                ("overview", "open") => overview_open = open(&name, value, &mut notice),
+                ("minimap", "open") => minimap_open = open(&name, value, &mut notice),
                 ("diagnostics", "open") => {
                     diagnostics_open = open(&name, value, &mut notice);
                 }
@@ -166,8 +166,8 @@ fn parse(text: &str, origin: &str) -> Config {
     if let Some(height) = height {
         config.cell.y = height;
     }
-    if let Some(open) = overview_open {
-        config.overview_open = open;
+    if let Some(open) = minimap_open {
+        config.minimap_open = open;
     }
     if let Some(open) = diagnostics_open {
         config.diagnostics_open = open;
@@ -232,11 +232,11 @@ mod tests {
     #[test]
     fn the_page_settings_are_read_as_the_file_is_and_named_in_a_notice() {
         let config = Config::from_page(Some(
-            "[cell]\nwidth = 24\nheight = 36\n[overview]\nopen = false\n",
+            "[cell]\nwidth = 24\nheight = 36\n[minimap]\nopen = false\n",
         ));
         assert!(config.notices.is_empty(), "{:?}", config.notices);
         assert_eq!(config.cell, Vec2::new(24.0, 36.0));
-        assert!(!config.overview_open);
+        assert!(!config.minimap_open);
 
         let config = Config::from_page(Some("[cell]\nwidth = 99\n"));
         assert_eq!(config.cell, CELL_SIZE);
@@ -251,7 +251,7 @@ mod tests {
 
         let config = Config::from_page(None);
         assert_eq!(config.cell, CELL_SIZE);
-        assert!(config.overview_open);
+        assert!(config.minimap_open);
         assert!(config.notices.is_empty(), "{:?}", config.notices);
     }
 }
@@ -335,7 +335,7 @@ mod native {
         fn assert_defaults(config: &Config) {
             assert_eq!(config.theme_selection, ThemeSelection::default());
             assert_eq!(config.cell, CELL_SIZE);
-            assert!(config.overview_open);
+            assert!(config.minimap_open);
             assert!(!config.diagnostics_open);
         }
 
@@ -372,14 +372,14 @@ mod native {
         }
 
         #[test]
-        fn the_overview_and_the_diagnostics_open_as_the_file_says() {
-            let config = read("[overview]\nopen = false\n[diagnostics]\nopen = true\n");
+        fn the_minimap_and_the_diagnostics_open_as_the_file_says() {
+            let config = read("[minimap]\nopen = false\n[diagnostics]\nopen = true\n");
             assert!(config.notices.is_empty(), "{:?}", config.notices);
-            assert!(!config.overview_open);
+            assert!(!config.minimap_open);
             assert!(config.diagnostics_open);
 
-            let config = read("[overview]\nopen = \"no\"\n[diagnostics]\nopen = 1\n");
-            assert!(mentions(&config, "`overview.open`"), "{:?}", config.notices);
+            let config = read("[minimap]\nopen = \"no\"\n[diagnostics]\nopen = 1\n");
+            assert!(mentions(&config, "`minimap.open`"), "{:?}", config.notices);
             assert!(
                 mentions(&config, "`diagnostics.open`"),
                 "{:?}",

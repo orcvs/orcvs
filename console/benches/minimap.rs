@@ -1,8 +1,8 @@
-//! Benchmark for the Overview's picture.
+//! Benchmark for the Minimap's picture.
 //!
 //! `draw_picture` draws it, one texel per Cell, from a whole Render Frame: the
-//! cost the Overview pays once per Source revision, which during Playback is
-//! every Tick. It redraws one picture in place, as the Overview does, so the
+//! cost the Minimap pays once per Source revision, which during Playback is
+//! every Tick. It redraws one picture in place, as the Minimap does, so the
 //! number is the per-Cell walk and not an allocation.
 //!
 //! Run with `mise run bench`. The `--output-format bencher` flag it passes is not
@@ -69,8 +69,8 @@ fn populated_app() -> Orcvs<()> {
     orcvs
 }
 
-fn overview_picture(c: &mut Criterion) {
-    let mut group = c.benchmark_group("paint_overview");
+fn minimap_picture(c: &mut Criterion) {
+    let mut group = c.benchmark_group("paint_minimap");
     let theme = dark_default_theme();
     let frame = populated_app().render_frame();
     let grid = frame.grid();
@@ -92,5 +92,5 @@ fn overview_picture(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, overview_picture);
+criterion_group!(benches, minimap_picture);
 criterion_main!(benches);
