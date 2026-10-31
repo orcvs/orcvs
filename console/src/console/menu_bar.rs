@@ -76,7 +76,10 @@ fn browser(url: &str) -> std::process::Command {
 fn file_menu_item(ui: &mut egui::Ui, command: FileCommand) -> bool {
     let item = egui::Button::new(command.label());
     #[cfg(not(target_arch = "wasm32"))]
-    let item = item.shortcut_text(ui.ctx().format_shortcut(&command.shortcut()));
+    let item = match command.shortcut() {
+        Some(shortcut) => item.shortcut_text(ui.ctx().format_shortcut(&shortcut)),
+        None => item,
+    };
     ui.add(item).clicked()
 }
 
@@ -329,8 +332,8 @@ impl Console {
                         }
                     }
                     ui.separator();
-                    if ui.button("Copy Link").clicked() {
-                        self.copy_link(ui.ctx());
+                    if file_menu_item(ui, FileCommand::CopyLink) {
+                        choice.file_command = Some(FileCommand::CopyLink);
                     }
                     #[cfg(not(target_arch = "wasm32"))]
                     {

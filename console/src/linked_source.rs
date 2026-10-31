@@ -339,7 +339,10 @@ mod tests {
 
     #[test]
     fn an_unchanged_example_links_by_its_name() {
-        let tracker = &crate::examples::EXAMPLES[2];
+        let tracker = crate::examples::EXAMPLES
+            .iter()
+            .find(|example| example.name == "Tracker")
+            .expect("the Tracker is shipped");
         assert_eq!(
             link(&tracker.source()),
             Ok("https://orcvs.com/?example=tracker".to_owned())

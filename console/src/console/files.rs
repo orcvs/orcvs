@@ -89,13 +89,13 @@ impl Console {
     /// Puts the site link that opens the running Source on the clipboard:
     /// `File → Copy Link`. A Source too large to link raises a notice.
     ///
-    pub(super) fn copy_link(&mut self, ctx: &egui::Context) {
-        let mut link = Err(String::new());
+    fn copy_link(&mut self) {
+        let mut link = None;
         self.orcvs
             .source()
-            .read_source(|source| link = crate::linked_source::link(source));
-        match link {
-            Ok(link) => ctx.copy_text(link),
+            .read_source(|source| link = Some(crate::linked_source::link(source)));
+        match link.expect("read_source reads the Source") {
+            Ok(link) => self.ctx.copy_text(link),
             #[cfg(not(target_arch = "wasm32"))]
             Err(refusal) => self.file_notice(refusal),
             #[cfg(target_arch = "wasm32")]
@@ -303,6 +303,7 @@ impl Console {
             FileCommand::Save => self.save_file(),
             #[cfg(not(target_arch = "wasm32"))]
             FileCommand::SaveAs => self.save_file_as(),
+            FileCommand::CopyLink => self.copy_link(),
         }
     }
 
