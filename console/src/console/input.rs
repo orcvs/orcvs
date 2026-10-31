@@ -257,9 +257,9 @@ impl Console {
             escape: true,
         };
 
-        if ctx
-            .memory(|memory| memory.had_focus_last_frame(egui::Id::new(super::panel::BPM_FIELD_ID)))
-        {
+        if ctx.memory(|memory| {
+            memory.had_focus_last_frame(egui::Id::unique(super::panel::BPM_FIELD_ID))
+        }) {
             ctx.input_mut(|i| keep_digits_in_text_events(&mut i.events));
         }
         if self.keyboard_elsewhere {

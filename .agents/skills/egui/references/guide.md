@@ -17,26 +17,26 @@ cargo tree --package console --locked --all-features --prefix none -e normal,dev
 
 | Crate | Version | Where it is declared | What it is for |
 | --- | --- | --- | --- |
-| `egui` | `=0.36.2` | `console/Cargo.toml` `[dependencies]` | The toolkit. `default-features = false`. |
-| `eframe` | `=0.36.2` | `console/Cargo.toml` `[dependencies]` | Windowing and the `App` loop. `glow`, `wayland`, `x11`; no `wgpu`. |
-| `epaint`, `emath`, `ecolor` | 0.36.2 | `Cargo.lock` | egui's own crates. Held at 0.36.2 by the lockfile. |
-| `egui_inspection` | 0.36.2 | `Cargo.lock`, through `eframe/inspection` | The inspection plugin and wire protocol. Reached only by `console/inspection`. |
-| `egui_kittest` | `=0.36.2` | `console/Cargo.toml`, non-WASM `dev-dependencies` | The UI test harness. Feature `eframe`; `snapshot` and `wgpu` only under `console/release-capture`. |
-| `egui_mcp` | 0.2.0 | `mise run install_egui_mcp`, `.mcp.json`, `.codex/config.toml` | The MCP server an agent attaches through. Not a workspace dependency. |
+| `egui` | `=0.37.0` | `console/Cargo.toml` `[dependencies]` | The toolkit. `default-features = false`. |
+| `eframe` | `=0.37.0` | `console/Cargo.toml` `[dependencies]` | Windowing and the `App` loop. `clipboard`, `glow`, `wayland`, `x11`; no `wgpu`. |
+| `epaint`, `emath`, `ecolor` | 0.37.0 | `Cargo.lock` | egui's own crates. Held at 0.37.0 by the lockfile. |
+| `egui_inspection` | 0.37.0 | `Cargo.lock`, through `eframe/inspection` | The inspection plugin and wire protocol. Reached only by `console/inspection`. |
+| `egui_kittest` | `=0.37.0` | `console/Cargo.toml`, non-WASM `dev-dependencies` | The UI test harness. Feature `eframe`; `snapshot` and `wgpu` only under `console/release-capture`. |
+| `egui_mcp` | 0.3.0 | `mise run install_egui_mcp`, `.mcp.json`, `.codex/config.toml` | The MCP server an agent attaches through. Not a workspace dependency. |
 
 The second command is the duplicate check: one version of each egui crate.
 Multiple `accesskit_consumer` entries inside `accesskit_winit` are expected
 (dev and inspection only); a *second egui version* is a fault. The three
-direct requirements are exact (`=0.36.2`). Pins are exact; moving the stack
+direct requirements are exact (`=0.37.0`). Pins are exact; moving the stack
 is its own ticket — it re-reads every upstream citation the `console` crate
-takes from this release (`grep -rn '0\.36\.2' console/src` lists them; the
-load-bearing one is `Fonts::begin_pass`, `epaint-0.36.2/src/text/fonts.rs:728-742`,
+takes from this release (`grep -rn '0\.37\.0' console/src` lists them; the
+load-bearing one is `Fonts::begin_pass`, `epaint-0.37.0/src/text/fonts.rs:177-190`,
 behind the one-frame `GlyphTable` in `console/src/console/glyphs.rs`), re-runs
 the geometry and painting tests in `console::tests`, and moves `egui_kittest` with it. `epaint`,
 `emath` and `ecolor` are held by the lockfile; if they drift,
-`cargo update epaint --precise 0.36.2` (and the same for the other two) is
-the repair. `egui_mcp`'s version is its own: 0.2.0 requires
-`egui_inspection ^0.36.0` and `egui ^0.36.0`.
+`cargo update epaint --precise 0.37.0` (and the same for the other two) is
+the repair. `egui_mcp`'s version is its own: 0.3.0 requires
+`egui_inspection ^0.37.0` and `egui ^0.37.0`.
 
 ## Provenance
 
@@ -57,31 +57,31 @@ Orcvs first — the contract, the domain model, the decisions:
 
 Then the framework, at the pinned release:
 
-- <https://docs.rs/egui/0.36.2/egui/>
-- <https://docs.rs/eframe/0.36.2/eframe/>
-- <https://docs.rs/egui_kittest/0.36.2/egui_kittest/>
-- <https://docs.rs/egui_inspection/0.36.2/egui_inspection/>
-- <https://github.com/emilk/egui/tree/0.36.2>
+- <https://docs.rs/egui/0.37.0/egui/>
+- <https://docs.rs/eframe/0.37.0/eframe/>
+- <https://docs.rs/egui_kittest/0.37.0/egui_kittest/>
+- <https://docs.rs/egui_inspection/0.37.0/egui_inspection/>
+- <https://github.com/emilk/egui/tree/0.37.0>
 
 Then upstream examples and demos, as patterns to read rather than code to copy:
 
-- <https://github.com/emilk/egui/tree/0.36.2/examples>
-- <https://github.com/emilk/egui/tree/0.36.2/crates/egui_demo_lib>
-- <https://github.com/emilk/egui/blob/0.36.2/crates/egui_demo_lib/src/demo/toggle_switch.rs>
+- <https://github.com/emilk/egui/tree/0.37.0/examples>
+- <https://github.com/emilk/egui/tree/0.37.0/crates/egui_demo_lib>
+- <https://github.com/emilk/egui/blob/0.37.0/crates/egui_demo_lib/src/demo/toggle_switch.rs>
   — the custom-widget lifecycle in one file: `allocate_exact_size`, `interact`,
   `mark_changed` on a real change, `widget_info` for the semantic report, then
   paint, and only when `is_rect_visible`.
-- <https://github.com/emilk/egui/tree/0.36.2/crates/egui_kittest>
-- <https://github.com/emilk/egui/tree/0.36.2/crates/egui_inspection>
+- <https://github.com/emilk/egui/tree/0.37.0/crates/egui_kittest>
+- <https://github.com/emilk/egui/tree/0.37.0/crates/egui_inspection>
 
 Then the inspection bridge:
 
-- <https://docs.rs/egui_mcp/0.2.0/egui_mcp/>
-- <https://github.com/rerun-io/kittest_inspector/tree/main/crates/egui_mcp>
-  — 0.2.0 is commit `3833079a6a07798c3de9ddd2a48d0fc6712daac3`, path
+- <https://docs.rs/egui_mcp/0.3.0/egui_mcp/>
+- <https://github.com/rerun-io/egui_crates/tree/main/crates/egui_mcp>
+  — 0.3.0 is commit `f2d4cb78ece9669a3c3b0c1299427fcbcc810954`, path
   `crates/egui_mcp`, which is what the published crate records in
   `.cargo_vcs_info.json`. Read the tree at that commit rather than at `main`:
-  <https://github.com/rerun-io/kittest_inspector/tree/3833079a6a07798c3de9ddd2a48d0fc6712daac3/crates/egui_mcp>.
+  <https://github.com/rerun-io/egui_crates/tree/f2d4cb78ece9669a3c3b0c1299427fcbcc810954/crates/egui_mcp>.
 
 Third-party guidance, adapted rather than followed:
 
@@ -140,13 +140,13 @@ one is arguing with an ADR, which is a ticket rather than an edit.
 Development-only. `console/inspection` forwards to `eframe/inspection`, which is
 upstream's own integration — the feature pulls `egui_inspection` in and
 `eframe::maybe_attach_inspection_plugin` attaches the plugin at start
-(`eframe-0.36.2/src/lib.rs:214-222`). The console writes no server.
+(`eframe-0.37.0/src/lib.rs:214-222`). The console writes no server.
 
 Two things have to be true before anything listens: the feature has to be
 compiled in, and `EGUI_INSPECTION` has to be set to something truthy at run
 time. Neither is true of a shipped build. `bind_addr_from_env` treats unset,
 empty, `0` and `false` as off, `1` and `true` as `127.0.0.1:5719`, and anything
-else as a `host:port` to bind (`egui_inspection-0.36.2/src/lib.rs:26-50`).
+else as a `host:port` to bind (`egui_inspection-0.37.0/src/lib.rs:20-51`).
 
 **Inspection is full, unauthenticated control of the running console.** Whatever
 connects can inject input, read the widget tree, resize the window and take
@@ -201,7 +201,7 @@ would ignore `CARGO_TARGET_DIR` and `build.target-dir` — with `HOME` and
 That redirect isolates storage on macOS and Linux only. eframe resolves its
 storage directory from `HOME` on macOS and `XDG_DATA_HOME` on Linux, but on
 Windows from `SHGetKnownFolderPath(FOLDERID_RoamingAppData)`
-(`eframe-0.36.2/src/native/file_storage.rs:37,46-90`) — a shell known-folder
+(`eframe-0.37.0/src/native/file_storage.rs:38,46-90`) — a shell known-folder
 lookup, not an environment variable — so no assignment moves it there. On
 Windows an inspection session writes the real `%APPDATA%\Orcvs\data`. See
 `docs/tooling.md`.
@@ -298,7 +298,7 @@ way to make a painted Cell findable.
 `console::kittest_tests` (`console/src/console/kittest_tests.rs`) drives the
 shipped `Console` through `Harness::build_eframe`, which calls `App::logic` and
 `App::ui` with no wrapper of its own
-(`egui_kittest-0.36.2/src/app_kind.rs:36-44`). It is a child module of
+(`egui_kittest-0.37.0/src/app_kind.rs:49-55`). It is a child module of
 `console::console`, so it reads the private fields the assertions are about,
 and it holds three things:
 
@@ -355,7 +355,7 @@ cargo nextest run --package console --locked -E 'test(kittest_tests)'
 ### Why there is no snapshot test, and where the renderer is on
 
 `egui_kittest`'s `snapshot` feature has no renderer of its own
-(`egui_kittest-0.36.2/src/renderer.rs:36-45`); producing an image needs the
+(`egui_kittest-0.37.0/src/renderer.rs:37-46`); producing an image needs the
 `wgpu` feature as well. That puts the wgpu and naga trees into the graph and a
 working GPU into the run, for coverage the `Shape`-level assertions in
 `console::tests` already hold at a finer grain — they can say *which* Shape, in

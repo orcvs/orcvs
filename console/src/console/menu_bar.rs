@@ -94,7 +94,7 @@ fn trailing_checkbox(
         egui::KeyboardShortcut,
     >,
 ) -> egui::Response {
-    let box_id = egui::Id::new(("orcvs-trailing-checkbox", label));
+    let box_id = egui::IdSalt::new("orcvs-trailing-checkbox");
     let box_size = egui::Vec2::splat(ui.spacing().icon_width);
     let item = egui::Button::new(label);
     #[cfg(not(target_arch = "wasm32"))]
@@ -112,16 +112,14 @@ fn trailing_checkbox(
         response.mark_changed();
     }
     let enabled = ui.is_enabled();
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, *checked, label)
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, enabled, *checked, label));
     if let Some(rect) = box_rect {
         // Painted as `egui::Checkbox` paints its box and mark, which lays its
         // box out before its label and so cannot trail one
         // (`tests::the_trailing_box_paints_as_egui_paints_a_checkbox`).
-        let style = ui
-            .style()
-            .checkbox_style(&Default::default(), response.widget_state());
+        let style: egui::widget_style::CheckboxStyle =
+            ui.widget_style(response.id, &Default::default());
         let big = egui::Rect::from_center_size(rect.center(), box_size);
         let small = egui::Rect::from_center_size(big.center(), egui::Vec2::splat(style.check_size));
         ui.painter().add(egui::epaint::RectShape::new(
@@ -233,9 +231,8 @@ fn mode_control(ui: &mut egui::Ui, appearance: Appearance) -> Option<AppearanceC
     };
     let response = icon_button(ui, glyph);
     let dark = appearance == Appearance::Dark;
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, dark, "Dark mode")
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, dark, "Dark mode"));
     let response = response.on_hover_text(explanation);
     response.clicked().then_some(AppearanceChange::Mode(other))
 }
@@ -246,7 +243,7 @@ fn mode_control(ui: &mut egui::Ui, appearance: Appearance) -> Option<AppearanceC
 ///
 fn share_control(ui: &mut egui::Ui) -> bool {
     let response = icon_button(ui, SHARE_GLYPH);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Copy Link"));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Copy Link"));
     response
         .on_hover_text("Copy a link to this Source.")
         .clicked()
@@ -471,13 +468,18 @@ mod tests {
     /// The box and mark `add` paints, the mark placed relative to the box's
     /// centre, so two boxes at different places compare equal.
     ///
-    fn box_shapes(ctx: &egui::Context, add: impl FnMut(&mut egui::Ui)) -> Vec<String> {
-        let mut output = ctx.run_ui(egui::RawInput::default(), add);
+    fn box_shapes(ctx: &egui::Context, mut add: impl FnMut(&mut egui::Ui)) -> Vec<String> {
+        let mut style = None;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            add(ui);
+            style = Some(ui.widget_style::<egui::widget_style::CheckboxStyle>(
+                egui::Id::NULL,
+                &Default::default(),
+            ));
+        });
         // The font atlas upload has no renderer here.
         output.textures_delta.clear();
-        let style = ctx
-            .global_style()
-            .checkbox_style(&Default::default(), Default::default());
+        let style = style.expect("the pass ran");
         let frame = style.checkbox_frame;
         let mut shapes = Vec::new();
         let mut centre = None;
