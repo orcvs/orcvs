@@ -10,6 +10,7 @@ mod chorus;
 mod delay;
 mod drum;
 mod glide;
+mod reverb;
 mod tilt;
 mod tone;
 mod vibrato;
@@ -20,6 +21,7 @@ use acid::{Acid, Controls};
 use chorus::Chorus;
 use delay::Delay;
 use drum::{Drum, Instrument};
+use reverb::{Reverb, Room};
 use tilt::Tilt;
 use tone::Tone;
 use vibrato::Vibrato;
@@ -35,6 +37,12 @@ const ACID_LEVEL: f32 = 0.3;
 
 /// How far into its course `OF` starts each new sound at `7F`, in seconds.
 const MAX_OFFSET: f32 = 0.1;
+/// `R1`'s room: about two thirds of a second to fall 60 dB.
+const SMALL: Room = Room {
+    size: 0.6,
+    feedback: 0.85,
+};
+
 /// The share of its own length a sound keeps at `LN` `00`; `7F` keeps all of
 /// it.
 const SHORTEST: f32 = 0.02;
@@ -48,8 +56,8 @@ const FADE: f32 = 0.005;
 /// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 to
 /// 8 on any channel set the effects (ADR 0088): `MD`, vibrato on the whole mix,
 /// `OF`, how far into its course each new sound starts, `LN`, how long it
-/// decays, `DL`, an echo of the whole mix, `CH`, a chorus on it, and `EQ`,
-/// one tilt. All Sound Off and All Notes
+/// decays, `DL`, an echo of the whole mix, `CH`, a chorus on it, `EQ`, one
+/// tilt, and `R1`, a small reverb. All Sound Off and All Notes
 /// Off release a channel's tones and its acid voice. The acid channel's own
 /// Control Changes and Reset All Controllers set its controls; every other
 /// Control Change, Pitch Bend and Program Change is ignored.
@@ -66,6 +74,7 @@ pub struct Synth {
     tilt: Tilt,
     chorus: Chorus,
     delay: Delay,
+    small: Reverb,
     /// `OF`, `00`–`7F`.
     offset: u8,
     /// `LN`, `00`–`7F`.
@@ -132,6 +141,7 @@ impl Synth {
             tilt: Tilt::new(sample_rate),
             chorus: Chorus::new(sample_rate),
             delay: Delay::new(sample_rate),
+            small: Reverb::new(sample_rate, SMALL),
             offset: 0,
             length: 0x7F,
             acid: Controls::default(),
@@ -176,7 +186,8 @@ impl Synth {
             let mix = self.vibrato.process(mix);
             let mix = self.tilt.process(mix);
             let mix = self.chorus.process(mix);
-            *sample = self.delay.process(mix).tanh();
+            let mix = self.delay.process(mix);
+            *sample = self.small.process(mix).tanh();
             self.frame += 1;
         }
     }
@@ -192,6 +203,7 @@ impl Synth {
             0xB0 if data1 == 4 => self.delay.set(data2),
             0xB0 if data1 == 5 => self.chorus.set(data2),
             0xB0 if data1 == 6 => self.tilt.set(data2),
+            0xB0 if data1 == 7 => self.small.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             0xB0 if channel == acid::CHANNEL => self.acid.set(data1, data2),
@@ -550,9 +562,9 @@ mod tests {
         let mut plain = Synth::new(RATE);
         plain.schedule(0, note_on(0, 69, 100));
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
-        // Control Change 2 to 8 set effects whose sound has not landed yet, and
+        // Control Change 8 sets an effect whose sound has not landed yet, and
         // the acid controls act on the acid channel alone.
-        for controller in (7..=8).chain([70, 71, 74, 75, 79, 121]) {
+        for controller in [8, 70, 71, 74, 75, 79, 121] {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
         synth.schedule(0, [0xC0, 5, 0]);
@@ -741,6 +753,27 @@ mod tests {
 
         assert!(tilted(0x00) < 0.7 * flat, "{} against {flat}", tilted(0x00));
         assert!(tilted(0x7F) > 1.3 * flat, "{} against {flat}", tilted(0x7F));
+    }
+
+    #[test]
+    fn the_small_reverb_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            blip(&[[0xB0, 7, 0x00]], seconds(1.0)),
+            blip(&[], seconds(1.0))
+        );
+    }
+
+    #[test]
+    fn the_small_reverb_rings_after_the_mix_and_dies_away() {
+        let dry = blip(&[], seconds(1.0));
+        let wet = blip(&[[0xB1, 7, 0x7F]], seconds(4.0));
+
+        assert!(wet.iter().all(|s| s.is_finite()));
+        let tone = rms(&dry[..seconds(0.05)]);
+        let tail = seconds(0.25)..seconds(0.35);
+        assert_eq!(rms(&dry[tail.clone()]), 0.0);
+        assert!(rms(&wet[tail]) > 0.01 * tone);
+        assert!(rms(&wet[seconds(3.5)..]) < 1e-5 * tone);
     }
 
     #[test]
