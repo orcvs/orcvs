@@ -86,6 +86,13 @@ impl Tone {
         self.held = false;
     }
 
+    /// Jumps `seconds` into a held tone. Its phases stay where they are: a
+    /// sound joined late fades in, so its first cycles go unheard.
+    pub(crate) fn jump(&mut self, seconds: f32) {
+        self.envelope = (self.envelope + seconds / ATTACK).min(1.0);
+        self.time += seconds;
+    }
+
     /// The next sample, or `None` once the release has finished.
     pub(crate) fn sample(&mut self, dt: f32) -> Option<f32> {
         self.envelope = if self.held {
@@ -131,5 +138,28 @@ impl Tone {
         let value = (self.modulator * TAU).sin();
         self.modulator = (self.modulator + ratio * self.frequency * dt).fract();
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn peak_of_first_cycle(tone: &mut Tone) -> f32 {
+        // One cycle of A440 at 48 kHz.
+        (0..110)
+            .filter_map(|_| tone.sample(1.0 / 48_000.0))
+            .fold(0.0, |peak, s| s.abs().max(peak))
+    }
+
+    #[test]
+    fn a_tone_jumped_past_its_attack_sounds_at_full_loudness_at_once() {
+        assert!(peak_of_first_cycle(&mut Tone::new(0, 69, 1.0)) < 0.5);
+
+        // An hour costs what a tenth of a second does.
+        let mut tone = Tone::new(0, 69, 1.0);
+        tone.jump(3_600.0);
+        assert!(tone.is_held());
+        assert!(peak_of_first_cycle(&mut tone) > 0.99);
     }
 }

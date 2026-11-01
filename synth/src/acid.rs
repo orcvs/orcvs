@@ -110,6 +110,26 @@ impl Acid {
         self.held = false;
     }
 
+    /// Jumps `seconds` into a held note under `controls`. Its oscillator and
+    /// filter stay where they are: a sound joined late fades in, so its first
+    /// cycles go unheard.
+    pub(crate) fn jump(&mut self, seconds: f32, controls: &Controls) {
+        self.gate += (1.0 - self.gate) * (1.0 - (-seconds / GATE).exp());
+        self.frequency = self.target;
+        self.envelope *= (-seconds / self.decay(controls)).exp();
+    }
+
+    /// The filter envelope's time constant under `controls`: 200 ms at decay
+    /// `0` to 2 s at `127`, times the note's length.
+    fn decay(&self, controls: &Controls) -> f32 {
+        self.length
+            * if self.accented {
+                0.2
+            } else {
+                0.2 * 10f32.powf(f32::from(controls.decay) / 127.0)
+            }
+    }
+
     /// The next sample under `controls`, or `None` once the gate has closed.
     pub(crate) fn sample(&mut self, dt: f32, controls: &Controls) -> Option<f32> {
         let goal = if self.held { 1.0 } else { 0.0 };
@@ -126,14 +146,7 @@ impl Acid {
             wave -= saw((self.phase + 0.5).fract(), step);
         }
 
-        // 200 ms at decay `0` to 2 s at `127`, times the note's length.
-        let decay = self.length
-            * if self.accented {
-                0.2
-            } else {
-                0.2 * 10f32.powf(f32::from(controls.decay) / 127.0)
-            };
-        self.envelope *= (-dt / decay).exp();
+        self.envelope *= (-dt / self.decay(controls)).exp();
         let accent = if self.accented { self.envelope } else { 0.0 };
         // 40 Hz at cutoff `0` to about 2.6 kHz at `127`, which the envelope
         // raises by up to four and a half octaves and accent by one and a half
@@ -179,5 +192,35 @@ fn blep(phase: f32, step: f32) -> f32 {
         t * t + 2.0 * t + 1.0
     } else {
         0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// How much of the voice's level is in its sample-to-sample change, once
+    /// its filter has settled.
+    fn brightness(acid: &mut Acid) -> f32 {
+        let samples: Vec<f32> = (0..3_400)
+            .filter_map(|_| acid.sample(1.0 / 48_000.0, &Controls::default()))
+            .skip(1_000)
+            .collect();
+        let rms = |values: &mut dyn Iterator<Item = f32>| values.map(|s| s * s).sum::<f32>().sqrt();
+        rms(&mut samples.windows(2).map(|pair| pair[1] - pair[0]))
+            / rms(&mut samples.iter().copied())
+    }
+
+    #[test]
+    fn an_acid_note_jumped_past_its_decay_plays_with_its_filter_closed() {
+        let fresh = brightness(&mut Acid::new(45, 100, 1.0));
+
+        // An hour costs what a tenth of a second does.
+        let mut acid = Acid::new(45, 100, 1.0);
+        acid.jump(3_600.0, &Controls::default());
+        assert!(acid.is_held());
+        let jumped = brightness(&mut acid);
+
+        assert!(jumped < 0.5 * fresh, "{jumped} against {fresh}");
     }
 }

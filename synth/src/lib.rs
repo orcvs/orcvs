@@ -123,6 +123,22 @@ impl Sound {
         }
     }
 
+    /// Jumps `seconds` into its course under `acid`, at a cost that does not
+    /// grow with `seconds`, and answers whether it still sounds there.
+    fn jump(&mut self, seconds: f32, acid: &Controls) -> bool {
+        match self {
+            Self::Tone(tone) => {
+                tone.jump(seconds);
+                true
+            }
+            Self::Drum(drum) => drum.jump(seconds),
+            Self::Acid(sound) => {
+                sound.jump(seconds, acid);
+                true
+            }
+        }
+    }
+
     /// The next sample at its voice's level, or `None` once it has finished.
     fn sample(&mut self, dt: f32, acid: &Controls) -> Option<f32> {
         match self {
@@ -263,14 +279,11 @@ impl Synth {
             }
             Sound::Drum(Drum::new(instrument, self.sample_rate, length))
         };
-        // `OF` plays the sound's first frames unheard. A sound that ends
-        // within them never sounds.
-        let skip = (MAX_OFFSET * self.sample_rate * f32::from(self.offset) / 127.0) as usize;
-        let dt = 1.0 / self.sample_rate;
-        for _ in 0..skip {
-            if sound.sample(dt, &self.acid).is_none() {
-                return;
-            }
+        // `OF` jumps the sound into its course. A sound that ends there never
+        // sounds.
+        let offset = MAX_OFFSET * f32::from(self.offset) / 127.0;
+        if !sound.jump(offset, &self.acid) {
+            return;
         }
         // A free voice ranks first, then the oldest.
         let slot = (0..VOICES)
@@ -281,7 +294,7 @@ impl Synth {
             note,
             started: self.started,
             level: f32::from(velocity) / 127.0,
-            fade: if skip > 0 { 0.0 } else { 1.0 },
+            fade: if offset > 0.0 { 0.0 } else { 1.0 },
             sound,
         });
     }
