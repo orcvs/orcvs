@@ -65,6 +65,13 @@ pub(crate) struct MidiDeviceSelection {
     ///
     discovery_pending: bool,
     ///
+    /// Whether the current destination was picked automatically while
+    /// discovery was pending, from the destinations that need no MIDI access.
+    /// Once discovery settles, such a pick gives way to the first destination,
+    /// as if access had been answered at once.
+    ///
+    picked_while_pending: bool,
+    ///
     /// The request the selection owns until opening completes. Scan, another
     /// choice and Source replacement drop it, releasing its claim. Playback
     /// keeps its installed connection until a new request succeeds.
@@ -90,6 +97,7 @@ impl MidiDeviceSelection {
             status: None,
             auto_select_attempted: false,
             discovery_pending: false,
+            picked_while_pending: false,
             opening: None,
             installing: None,
         }
@@ -163,6 +171,7 @@ impl MidiDeviceSelection {
     ) {
         if origin == SelectionOrigin::User {
             self.auto_select_attempted = true;
+            self.picked_while_pending = false;
         }
         let installed = self.selected_destination_id();
         if self
@@ -270,21 +279,32 @@ impl MidiDeviceSelection {
     /// gone from the new list — a Scan must not steal a choice the user has
     /// made.
     ///
+    /// The one exception is a pick made while discovery was pending: once it
+    /// settles, the first destination replaces it unless the user has chosen
+    /// since.
+    ///
     pub(crate) fn auto_select_first_if_unselected(&mut self) {
-        // A pending discovery has not listed every port yet, so nothing is
-        // first until it settles.
-        if self.auto_select_attempted
-            || self.discovery_pending
-            || self.selected_destination_id().is_some()
-        {
-            return;
-        }
         let first_id = self
             .destinations()
             .first()
             .map(|destination| destination.id.clone());
+        if self.picked_while_pending && !self.discovery_pending {
+            self.picked_while_pending = false;
+            if let Some(id) = first_id
+                && self.selected_destination_id().as_ref() != Some(&id)
+            {
+                self.select_destination_with_origin(&id, SelectionOrigin::Auto);
+            }
+            return;
+        }
+        if self.auto_select_attempted || self.selected_destination_id().is_some() {
+            return;
+        }
         if let Some(id) = first_id {
             self.auto_select_attempted = true;
+            // A pending discovery lists only what needs no MIDI access, so
+            // its pick holds until discovery settles.
+            self.picked_while_pending = self.discovery_pending;
             self.select_destination_with_origin(&id, SelectionOrigin::Auto);
         }
     }

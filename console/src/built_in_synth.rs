@@ -443,16 +443,104 @@ mod tests {
         assert_eq!(backend.destinations(), Ok(vec![port(), synth()]));
     }
 
+    ///
+    /// MIDI ports whose discovery answer a test changes, as a browser's
+    /// pending access request settles.
+    ///
+    #[derive(Clone)]
+    struct SettlingPorts(Arc<Mutex<Result<Vec<MidiDestination>, MidiError>>>);
+
+    impl SettlingPorts {
+        fn pending() -> Self {
+            Self(Arc::new(Mutex::new(Err(MidiError::pending("waiting")))))
+        }
+
+        fn settle(&self, ports: Vec<MidiDestination>) {
+            *self.0.lock().unwrap() = Ok(ports);
+        }
+    }
+
+    impl MidiBackend for SettlingPorts {
+        fn destinations(&mut self) -> Result<Vec<MidiDestination>, MidiError> {
+            self.0.lock().unwrap().clone()
+        }
+
+        fn connect(
+            &mut self,
+            destination_id: &MidiDestinationId,
+        ) -> Result<MidiConnectionRequest, MidiError> {
+            Ports(self.0.lock().unwrap().clone()).connect(destination_id)
+        }
+    }
+
+    fn settling_selection(ports: &SettlingPorts, page: &FakePage) -> (Orcvs, MidiDeviceSelection) {
+        let orcvs = Orcvs::with_shape(10, 3).expect("the test runtime");
+        let mut midi = MidiDeviceSelection::new(
+            orcvs.midi_selection_handle(),
+            Box::new(WithBuiltInSynth::new(ports.clone(), page.clone())),
+        );
+        midi.refresh_destinations();
+        (orcvs, midi)
+    }
+
+    ///
+    /// A browser can leave MIDI access pending for good, as Firefox does when
+    /// its permission prompt is dismissed, so the synth, which needs no
+    /// access, plays in the meantime. Once access is granted, a port comes
+    /// first, as it would have had access been granted at once.
+    ///
     #[tokio::test]
-    async fn pending_midi_access_lists_the_synth_without_picking_it() {
+    async fn pending_midi_access_plays_through_the_synth_until_a_port_is_granted() {
         let page = FakePage::default();
-        let (_orcvs, mut midi) = selection(Err(MidiError::pending("waiting")), &page);
-        let mut announcements = SynthAnnouncements::new(page.clone(), false);
         page.announce(Announcement::Available);
+        let ports = SettlingPorts::pending();
+        let (_orcvs, mut midi) = settling_selection(&ports, &page);
+        let mut announcements = SynthAnnouncements::new(page.clone(), false);
         frame(&mut announcements, &mut midi).await;
 
         assert_eq!(midi.destinations(), [synth()]);
-        assert_eq!(midi.selected_destination_id(), None);
+        assert_eq!(midi.selected_destination_id(), Some(synth().id));
+
+        ports.settle(vec![port()]);
+        frame(&mut announcements, &mut midi).await;
+        frame(&mut announcements, &mut midi).await;
+
+        assert_eq!(midi.destinations(), [port(), synth()]);
+        assert_eq!(midi.selected_destination_id(), Some(port().id));
+    }
+
+    #[tokio::test]
+    async fn refused_midi_access_keeps_the_synth_picked_while_pending() {
+        let page = FakePage::default();
+        page.announce(Announcement::Available);
+        let ports = SettlingPorts::pending();
+        let (_orcvs, mut midi) = settling_selection(&ports, &page);
+        let mut announcements = SynthAnnouncements::new(page.clone(), false);
+        frame(&mut announcements, &mut midi).await;
+
+        ports.settle(Vec::new());
+        frame(&mut announcements, &mut midi).await;
+        frame(&mut announcements, &mut midi).await;
+
+        assert_eq!(midi.selected_destination_id(), Some(synth().id));
+    }
+
+    #[tokio::test]
+    async fn a_synth_the_performer_picked_while_pending_stays_picked() {
+        let page = FakePage::default();
+        page.announce(Announcement::Available);
+        let ports = SettlingPorts::pending();
+        let (_orcvs, mut midi) = settling_selection(&ports, &page);
+        let mut announcements = SynthAnnouncements::new(page.clone(), false);
+        frame(&mut announcements, &mut midi).await;
+        midi.select_destination(&synth().id);
+        frame(&mut announcements, &mut midi).await;
+
+        ports.settle(vec![port()]);
+        frame(&mut announcements, &mut midi).await;
+        frame(&mut announcements, &mut midi).await;
+
+        assert_eq!(midi.selected_destination_id(), Some(synth().id));
     }
 
     #[tokio::test]
