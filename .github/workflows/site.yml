@@ -4,11 +4,10 @@ name: Site
 # installs the dependencies and runs `npm run build` in `site/`. This workflow
 # does the same through `mise run site_build`, which is exactly those two
 # commands, runs the Playwright suite against the result, and deploys nothing. The console is the
-# one its commit builds: the `console-web` workflow's build for the same commit, or, when that run
-# found the console already published, the archive under the commit's console key, as Cloudflare's
-# build takes it. Path-filtered to what the site itself is built from: the site, the tool pins, and
-# the repository docs it renders, and to the console key and the workflow that publishes it, which
-# the console script's test covers.
+# one its commit builds: the `console-web` workflow's build for the same commit, or otherwise the
+# archive under the commit's console key, as Cloudflare's build takes it. Path-filtered to what the site itself is built from: the site, the tool pins, and
+# the repository docs it renders, and to the console key and the filter it reads, which the console
+# script's test covers.
 #
 # Repeated under both triggers because Actions does not support YAML anchors.
 on:
@@ -59,9 +58,9 @@ jobs:
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
-      # The console this commit builds, waiting for its Console web run to finish: that run's build,
-      # or the published archive under the commit's key when the run found it already published.
-      # Without a run, the build's `prebuild` step downloads the rolling console.
+      # The console this commit builds, as Cloudflare's build takes it: the build of the commit's
+      # Console web run, waiting for it to finish, or, when the commit changed nothing in the console
+      # or its run found the console already published, the archive under the commit's key.
       - name: Download this commit's web console
         env:
           GH_TOKEN: ${{ github.token }}
@@ -71,25 +70,23 @@ jobs:
           set -o pipefail
           run=$(gh run list --workflow console-web.yml --commit "$HEAD_SHA" --limit 1 \
             --json databaseId --jq '.[0].databaseId // empty')
-          if [[ -z "$run" ]]; then
-            echo "Console from the rolling console-web release." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          artifact=""
+          if [[ -n "$run" ]]; then
+            gh run watch "$run" --exit-status > /dev/null
+            artifact=$(gh api "repos/$GH_REPO/actions/runs/$run/artifacts" \
+              --jq '.artifacts[] | select(.name == "console-web") | .name')
           fi
-          gh run watch "$run" --exit-status > /dev/null
-          artifact=$(gh api "repos/$GH_REPO/actions/runs/$run/artifacts" \
-            --jq '.artifacts[] | select(.name == "console-web") | .name')
           if [[ -n "$artifact" ]]; then
             gh run download "$run" --name console-web --dir target/console-web
             echo "Console from run $run." >> "$GITHUB_STEP_SUMMARY"
           else
-            # The run built nothing because the commit's key was already published.
             key="$(bash scripts/console-key.sh)"
             mkdir -p target/console-web
             archive="console-web-$key.tar.gz"
             if ! gh release download console-web --pattern "$archive" --dir target; then
               archive="console-preview-$key.tar.gz"
               if ! gh release download console-web --pattern "$archive" --dir target; then
-                echo "Run $run built no console, and console key $key is not on the console-web release." >&2
+                echo "Console key $key is not on the console-web release and no run built it." >&2
                 exit 1
               fi
             fi

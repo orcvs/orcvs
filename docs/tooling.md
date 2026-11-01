@@ -37,17 +37,18 @@ workflow lint — reaches `main`, and the push run, which runs everything, is wh
 
 The web console and the site build separately, and GitHub Actions deploys neither.
 `.github/workflows/console-web.yml` runs on a push to any branch except `gh-pages` and the merge
-queue's. Its first job takes the console key from `scripts/console-key.sh`, one hash over the paths
-the console is built from: the console, the crates under it, the Built-in Synth, the shipped
-examples and the toolchain and tool pins. When `console-web-<key>.tar.gz` is already on the public
-`console-web` release the run builds nothing. Otherwise it runs `mise run console_web_build`: one
+queue's that changes what the console is built from: the console, the crates under it, the Built-in
+Synth, the shipped examples and the toolchain and tool pins. Its first job takes the console key
+from `scripts/console-key.sh`, one hash over the paths in the workflow's own path filter. When an
+archive of that key is already on the public `console-web` release the run builds nothing. Otherwise it runs `mise run console_web_build`: one
 release Trunk build with relative URLs into `target/console-web/`, kept as the `console-web`
 artifact. Trunk's post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly
 module and stages it beside the console with `synth/web/`'s AudioWorklet and page scripts (ADR 0087).
 The build is published on the release as `console-web-<key>.tar.gz` from `main` and as
 `console-preview-<key>.tar.gz` from any other branch, except Dependabot's read-only ones, and an
 archive is never replaced. On `main` the run then copies `main`'s keyed archive to the rolling
-`console-web.tar.gz` and keeps the newest 50 archives of each kind (ADR 0101).
+`console-web.tar.gz` and keeps the newest 100 of `main`'s archives and 50 of the branches'
+(ADR 0101). A branch that changes nothing in the console takes `main`'s archive of its key.
 
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
@@ -64,8 +65,8 @@ reads, and a site test holds it equal to `mise.toml`'s.
 `.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it renders,
 runs `mise run site_build`, which is the same `npm ci && npm run build` in `site/`, then the
 Playwright suite, and deploys nothing. It builds a pull request's head, as Cloudflare's preview
-does, with the console that commit builds: the `console-web` run's build for the same commit, or the
-archive under its key when that run found it already published. `mise run site_test` serves `site/dist/` and runs the
+does, with the console that commit builds: the `console-web` run's build for the same commit, or
+otherwise the archive under its key. `mise run site_test` serves `site/dist/` and runs the
 Playwright tests in Chromium. None of these is part of `check_pull_request`, and neither workflow
 is a required check.
 

@@ -1,7 +1,7 @@
 name: Console web
 
-# Builds the release web console (`mise run console_web_build`) for every pushed commit whose
-# console is not yet published, and keeps it as the `console-web` artifact. Its URLs are relative,
+# Builds the release web console (`mise run console_web_build`) for every push that changes it,
+# unless a console with the same key is already published, and keeps it as the `console-web` artifact. Its URLs are relative,
 # so the same build serves from any path: the site's `/play/`, or a download. Each build is
 # published on the `console-web` release, which is public and never expires, under the console key
 # `scripts/console-key.sh` prints: as `console-web-<key>.tar.gz` from `main`, and as
@@ -10,16 +10,32 @@ name: Console web
 # `console-web.tar.gz` is then pointed at `main`'s key. Every Cloudflare build of the site,
 # production or preview, waits for its own commit's key and never compiles the console (ADR 0093,
 # ADR 0101).
-#
-# Runs on every branch rather than behind a path filter, so a branch that changes nothing in the
-# console still finds its key published, however far behind `main` it is. `gh-pages` holds only
-# the benchmark series and the merge queue's branches are never previewed.
+# Path-filtered to what the console is compiled from: the console, the crates under it, the
+# Built-in Synth staged beside it, the shipped examples it embeds, and the toolchain and tool pins.
+# `scripts/console-key.sh` reads this filter, so a path added here is in the key. A branch that
+# changes none of them runs nothing, and its preview takes the console `main` published under the
+# same key. `gh-pages` holds only the benchmark series and the merge queue's branches are never
+# previewed.
 on:
   workflow_dispatch:
   push:
     branches-ignore:
       - gh-pages
       - 'gh-readonly-queue/**'
+    paths:
+      - 'console/**'
+      - 'orcvs/**'
+      - 'lang/**'
+      - 'synth/**'
+      - 'examples/**'
+      - 'scripts/stage-synth.sh'
+      - 'scripts/console-key.sh'
+      - '.cargo/config.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'mise.toml'
+      - '.github/workflows/console-web.yml'
 
 permissions:
   contents: read
@@ -138,11 +154,13 @@ jobs:
           echo "Published $ARCHIVE." >> "$GITHUB_STEP_SUMMARY"
 
   # Points the rolling console that local builds take at the console of `main`'s tip, and keeps the
-  # newest 50 archives of each kind, never `main`'s own. Runs finish out of commit order, and a
-  # queued run can displace another, so every run copies `main`'s keyed archive rather than its own
-  # build: whichever run goes last leaves the rolling console matching `main`. It runs whether this
-  # commit's console was built here or was already published. A pruned archive is built again by
-  # the next run that needs it, because every run looks for its archive before trusting it.
+  # newest 100 of `main`'s archives and 50 of the branches', never `main`'s current key. A branch
+  # that changes nothing in the console takes `main`'s archive of its key; when that branch is so
+  # far behind that the archive is pruned, running this workflow on the branch builds it again.
+  # Runs finish out of commit order, and a queued run can displace another, so every run copies
+  # `main`'s keyed archive rather than its own build: whichever run goes last leaves the rolling
+  # console matching `main`. It runs whether this commit's console was built here or was already
+  # published.
   latest:
     needs: [key, build, publish]
     if: >-
@@ -174,7 +192,7 @@ jobs:
             --notes "The web console of main (key $key), and the consoles of recent keys. The site's build downloads its console from here."
           gh release upload console-web console-web.tar.gz --clobber
           assets="$(bash scripts/console-assets.sh)"
-          for kind in web preview; do
-            grep -E "^console-$kind-[0-9a-f]+[.]tar[.]gz " <<< "$assets" | grep -v "^console-web-${key}[.]" \
-              | sort -k2 -r | tail -n +51 | cut -d' ' -f1 || true
+          for kept in web:100 preview:50; do
+            grep -E "^console-${kept%:*}-[0-9a-f]+[.]tar[.]gz " <<< "$assets" | grep -v "^console-web-${key}[.]" \
+              | sort -k2 -r | tail -n +$(( ${kept#*:} + 1 )) | cut -d' ' -f1 || true
           done | while read -r name; do gh release delete-asset console-web "$name" --yes; done

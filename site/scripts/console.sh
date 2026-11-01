@@ -42,7 +42,8 @@ elif [[ -n "${WORKERS_CI_BRANCH:-}" && "$WORKERS_CI_BRANCH" != dependabot/* ]]; 
   done
   if [[ ! -f public/play/index.html ]]; then
     echo "The console this commit builds (key $key) was not published on the console-web release" \
-      "within 15 minutes. Check the commit's Console web run, then retry this build." >&2
+      "within 15 minutes. Check the commit's Console web run, or run Console web on this branch," \
+      "then retry this build." >&2
     exit 1
   fi
 elif [[ ! -f public/play/index.html ]]; then

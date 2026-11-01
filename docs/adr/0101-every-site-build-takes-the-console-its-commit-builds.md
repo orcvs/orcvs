@@ -9,11 +9,15 @@ change, such as the 303 voice in #340, cannot be heard on its preview until it m
 
 ## Decision
 
-**Every pushed commit's console is published under its key.** `console-web.yml` runs on a push to
-any branch except `gh-pages` and the merge queue's. Its first job computes the commit's console key
-and lists the `console-web` release, reading every page and failing on any API error other than a
-missing release. When the key is already published the run builds nothing, because one key is one
-console. Otherwise it builds the console and publishes it.
+**A push that changes the console publishes it under its key.** `console-web.yml` keeps ADR 0093's
+path filter and runs on a push to any branch except `gh-pages` and the merge queue's, so it runs
+only when the push changes a path the console is built from (Toby, 2026-11-01). Its first job
+computes the commit's console key and lists the `console-web` release, reading every page and
+failing on any API error other than a missing release. When the key is already published the run
+builds nothing, because one key is one console. Otherwise it builds the console and publishes it.
+
+**A branch that changes nothing in the console takes `main`'s.** Its key is the key of the `main`
+commit it branched from, which `main` published when it last changed the console.
 
 **Branches publish under their own name.** `main` publishes `console-web-<key>.tar.gz`, as before.
 Any other branch publishes `console-preview-<key>.tar.gz`. `main` counts only its own archives as
@@ -31,15 +35,12 @@ any build where `WORKERS_CI_BRANCH` is set. Production waits for `main`'s archiv
 either. Dependabot's pushes get a read-only token and cannot publish, so a `dependabot/` branch's
 build takes the rolling console, as a local build does.
 
-**The key's paths live in `scripts/console-key.sh`.** The workflow has no path filter left for the
-key to read, and needs none: it runs for every commit and checks the key itself. The list is the
-same set of paths as ADR 0093's filter, so keys published before this change stay valid. The
-console script's test fails when a workspace member, a file a crate embeds from outside itself, or
-a script a Trunk hook runs is missing from it.
+**The key still reads the path filter.** The console script's test fails when a workspace member,
+a file a crate embeds from outside itself, or a script a Trunk hook runs is missing from it.
 
-**The release keeps the newest 50 archives of each kind**, and never prunes `main`'s current key.
-A pruned key is rebuilt by the next commit that needs it, because every run checks for its key
-before trusting it.
+**The release keeps the newest 100 of `main`'s archives and 50 of the branches'**, and never prunes
+`main`'s current key. A branch so far behind `main` that its key was pruned rebuilds it by running
+Console web on the branch, which the failed preview's message names.
 
 ## Considered options
 
@@ -51,13 +52,15 @@ that started with the push has already taken the rolling console by the time any
 
 **Publish from the `pull_request` trigger.** Cloudflare builds a branch on push, before a pull
 request exists, and the `pull_request` run builds the merge with `main` rather than the head
-Cloudflare builds. A path filter also skips branches that change nothing in the console, whose key
-may have been pruned.
+Cloudflare builds.
+
+**Run on every push and skip by key.** It needs no path filter and never meets a pruned key, but
+every push of every branch runs a job for a console it did not change.
 
 ## Consequences
 
-- Every push runs a job of a few seconds. A push that changes the console builds it, as a pull
-  request into `main` already did; stacked branches now build too.
+- A push that changes the console builds it, as a pull request into `main` already did; stacked
+  branches now build too. Any other push runs nothing.
 - A preview of a console change waits for its console build, a few minutes warm.
 - A push superseded by a newer one on the same branch still builds, so a branch pushed several
   times quickly builds several consoles.
