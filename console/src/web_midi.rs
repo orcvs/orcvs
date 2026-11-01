@@ -17,7 +17,10 @@ use orcvs::midi::{
 };
 
 mod ports;
+mod requests;
 use ports::Ports;
+#[cfg(target_arch = "wasm32")]
+use requests::{AccessRequests, RequestId};
 
 use crate::console_midi::DESTINATION_GONE;
 
@@ -29,8 +32,7 @@ type Completion = Box<dyn FnOnce(Result<(), MidiError>) + Send>;
 /// request unanswered without showing a prompt, and only a fresh request,
 /// which Scan sends, prompts again.
 ///
-pub(crate) const ACCESS_PENDING: &str =
-    "waiting for the browser to grant MIDI access; Scan asks again";
+pub const ACCESS_PENDING: &str = "waiting for the browser to grant MIDI access; Scan asks again";
 
 ///
 /// The message a connect answers when there is no MIDI access to open a port
@@ -92,8 +94,8 @@ pub(crate) trait WebMidiAccess: Clone + Send + 'static {
     fn close(&self, id: &str, complete: Completion);
 
     ///
-    /// Sends the browser a fresh access request while the earlier one is
-    /// unanswered. Whichever request the browser answers first settles access.
+    /// Sends the browser a fresh access request while access is pending. Which
+    /// answers settle access is `requests::AccessRequests`'s to say.
     ///
     fn ask_again(&self);
 }
@@ -168,8 +170,8 @@ mod browser {
     use web_sys::{MidiAccess, MidiOutput, MidiPortDeviceState};
 
     use super::{
-        AccessStatus, Completion, DESTINATION_GONE, Ports, WebMidiAccess, WebMidiBackend,
-        WebMidiOutput,
+        AccessRequests, AccessStatus, Completion, DESTINATION_GONE, Ports, RequestId,
+        WebMidiAccess, WebMidiBackend, WebMidiOutput,
     };
 
     ///
@@ -178,22 +180,21 @@ mod browser {
     const PORT_REFUSED: &str = "the browser could not open the MIDI destination";
 
     ///
-    /// The page's one request for MIDI access and its answer.
+    /// The page's requests for MIDI access and their answer.
     ///
     enum Access {
         NotRequested,
+        /// The browser has no Web MIDI to ask. Final.
+        Unsupported,
         ///
-        /// The browser has answered none of the page's `outstanding` requests.
-        /// `answered` resolves, through `settle`, once it has and the answer
-        /// is stored here, so whoever awaits it reads the answer.
+        /// `answered` resolves, through `settle`, once `requests` first settles
+        /// and the answer is stored, so whoever awaits it reads the answer.
         ///
-        Pending {
+        Requested {
+            requests: AccessRequests<MidiAccess>,
             answered: js_sys::Promise,
             settle: js_sys::Function,
-            outstanding: usize,
         },
-        Granted(MidiAccess),
-        Unavailable,
     }
 
     thread_local! {
@@ -243,22 +244,23 @@ mod browser {
                         let answered = js_sys::Promise::new(&mut |resolve, _reject| {
                             settle = Some(resolve);
                         });
-                        *access = Access::Pending {
+                        let (requests, id) = AccessRequests::first();
+                        *access = Access::Requested {
+                            requests,
                             answered,
                             settle: settle.expect("a Promise runs its executor at once"),
-                            outstanding: 1,
                         };
-                        Some(promise)
+                        Some((promise, id))
                     }
                     Err(reason) => {
                         log::warn!("Web MIDI is unavailable: {reason:?}");
-                        *access = Access::Unavailable;
+                        *access = Access::Unsupported;
                         None
                     }
                 }
             });
-            if let Some(promise) = first {
-                wasm_bindgen_futures::spawn_local(store_answer(promise));
+            if let Some((promise, id)) = first {
+                wasm_bindgen_futures::spawn_local(store_answer(promise, id));
             }
         }
 
@@ -269,8 +271,10 @@ mod browser {
         ///
         pub(crate) fn answered() -> Option<js_sys::Promise> {
             ACCESS.with(|access| match &*access.borrow() {
-                Access::Pending { answered, .. } => Some(answered.clone()),
-                Access::NotRequested | Access::Granted(_) | Access::Unavailable => None,
+                Access::Requested {
+                    requests, answered, ..
+                } if requests.status() == AccessStatus::Pending => Some(answered.clone()),
+                Access::NotRequested | Access::Unsupported | Access::Requested { .. } => None,
             })
         }
 
@@ -297,15 +301,13 @@ mod browser {
     }
 
     ///
-    /// Awaits one access request and stores its answer while access is still
-    /// pending. A grant settles access at once. A refusal settles it only once
-    /// no other request is outstanding, so a stale request's refusal cannot
-    /// pre-empt the prompt a fresh one is showing.
+    /// Awaits request `id` and stores its answer by the rules in
+    /// `AccessRequests`, resolving `answered` when that changes access.
     ///
-    async fn store_answer(promise: js_sys::Promise) {
+    async fn store_answer(promise: js_sys::Promise, id: RequestId) {
         let answer = wasm_bindgen_futures::JsFuture::from(promise).await;
-        let next = match answer.map(JsCast::dyn_into::<MidiAccess>) {
-            Ok(Ok(granted)) => Some(Access::Granted(granted)),
+        let granted = match answer.map(JsCast::dyn_into::<MidiAccess>) {
+            Ok(Ok(granted)) => Some(granted),
             Ok(Err(other)) => {
                 log::warn!("Web MIDI answered something other than access: {other:?}");
                 None
@@ -316,28 +318,24 @@ mod browser {
             }
         };
         let settle = ACCESS.with(|access| {
-            let mut access = access.borrow_mut();
-            let Access::Pending {
-                settle,
-                outstanding,
-                ..
-            } = &mut *access
+            let Access::Requested {
+                requests, settle, ..
+            } = &mut *access.borrow_mut()
             else {
                 return None;
             };
-            *outstanding -= 1;
-            let next = match next {
-                Some(granted) => granted,
-                None if *outstanding == 0 => Access::Unavailable,
-                None => return None,
-            };
-            let settle = settle.clone();
-            *access = next;
-            Some(settle)
+            requests.answer(id, granted).then(|| settle.clone())
         });
         if let Some(settle) = settle {
             let _ = settle.call0(&wasm_bindgen::JsValue::UNDEFINED);
         }
+    }
+
+    fn with_granted<T>(read: impl FnOnce(&MidiAccess) -> T) -> Option<T> {
+        ACCESS.with(|access| match &*access.borrow() {
+            Access::Requested { requests, .. } => requests.granted().map(read),
+            Access::NotRequested | Access::Unsupported => None,
+        })
     }
 
     fn finish(promise: js_sys::Promise, complete: Completion) {
@@ -361,21 +359,13 @@ mod browser {
         });
     }
 
-    fn with_granted<T>(read: impl FnOnce(&MidiAccess) -> T) -> Option<T> {
-        ACCESS.with(|access| match &*access.borrow() {
-            Access::Granted(granted) => Some(read(granted)),
-            _ => None,
-        })
-    }
-
     impl WebMidiAccess for BrowserMidi {
         fn status(&self) -> AccessStatus {
             ACCESS.with(|access| match &*access.borrow() {
-                Access::Pending { .. } => AccessStatus::Pending,
-                Access::Granted(_) => AccessStatus::Granted,
+                Access::Requested { requests, .. } => requests.status(),
                 // A thread that never requested has no access to read, which
                 // is the same answer as a browser that has none.
-                Access::NotRequested | Access::Unavailable => AccessStatus::Unavailable,
+                Access::NotRequested | Access::Unsupported => AccessStatus::Unavailable,
             })
         }
 
@@ -433,23 +423,22 @@ mod browser {
 
         fn ask_again(&self) {
             let asked = ACCESS.with(|access| {
-                let mut access = access.borrow_mut();
-                let Access::Pending { outstanding, .. } = &mut *access else {
+                let Access::Requested { requests, .. } = &mut *access.borrow_mut() else {
                     return None;
                 };
+                if requests.status() != AccessStatus::Pending {
+                    return None;
+                }
                 match request_midi_access() {
-                    Ok(promise) => {
-                        *outstanding += 1;
-                        Some(promise)
-                    }
+                    Ok(promise) => requests.ask_again().map(|id| (promise, id)),
                     Err(reason) => {
                         log::warn!("Web MIDI refused a fresh access request: {reason:?}");
                         None
                     }
                 }
             });
-            if let Some(promise) = asked {
-                wasm_bindgen_futures::spawn_local(store_answer(promise));
+            if let Some((promise, id)) = asked {
+                wasm_bindgen_futures::spawn_local(store_answer(promise, id));
             }
         }
     }

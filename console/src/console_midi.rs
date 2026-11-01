@@ -5,6 +5,8 @@
 //!
 //! [`MidiSelectionHandle::install`]: orcvs::midi::MidiSelectionHandle::install
 
+#[cfg(target_arch = "wasm32")]
+pub use crate::web_midi::ACCESS_PENDING;
 pub use backend::ConsoleMidiBackend;
 #[cfg(target_arch = "wasm32")]
 pub use backend::request_access_within;
