@@ -5,6 +5,8 @@
 //!
 //! [`MidiSelectionHandle::install`]: orcvs::midi::MidiSelectionHandle::install
 
+#[cfg(target_arch = "wasm32")]
+pub use crate::web_midi::ACCESS_PENDING;
 pub use backend::ConsoleMidiBackend;
 #[cfg(target_arch = "wasm32")]
 pub use backend::request_access_within;
@@ -225,6 +227,10 @@ mod backend {
 
         fn destinations_while_pending(&mut self) -> Vec<MidiDestination> {
             self.0.destinations_while_pending()
+        }
+
+        fn request_access_again(&mut self) {
+            self.0.request_access_again();
         }
 
         fn connect(
