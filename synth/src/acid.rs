@@ -69,11 +69,13 @@ pub(crate) struct Acid {
     gate: f32,
     envelope: f32,
     accented: bool,
+    /// The share of its decay the filter envelope keeps.
+    length: f32,
     stages: [f32; 4],
 }
 
 impl Acid {
-    pub(crate) fn new(note: u8, velocity: u8) -> Self {
+    pub(crate) fn new(note: u8, velocity: u8, length: f32) -> Self {
         Self {
             frequency: pitch(note),
             target: pitch(note),
@@ -82,18 +84,20 @@ impl Acid {
             gate: 0.0,
             envelope: 1.0,
             accented: velocity >= ACCENT,
+            length,
             stages: [0.0; 4],
         }
     }
 
-    /// Plays `note`: legato from the note held, or struck afresh once the
-    /// last has been released.
-    pub(crate) fn play(&mut self, note: u8, velocity: u8) {
+    /// Plays `note`: legato from the note held, or struck afresh, with
+    /// `length`, once the last has been released.
+    pub(crate) fn play(&mut self, note: u8, velocity: u8, length: f32) {
         self.target = pitch(note);
         if !self.held {
             self.frequency = self.target;
             self.envelope = 1.0;
             self.accented = velocity >= ACCENT;
+            self.length = length;
         }
         self.held = true;
     }
@@ -122,12 +126,13 @@ impl Acid {
             wave -= saw((self.phase + 0.5).fract(), step);
         }
 
-        // 200 ms at decay `0` to 2 s at `127`.
-        let decay = if self.accented {
-            0.2
-        } else {
-            0.2 * 10f32.powf(f32::from(controls.decay) / 127.0)
-        };
+        // 200 ms at decay `0` to 2 s at `127`, times the note's length.
+        let decay = self.length
+            * if self.accented {
+                0.2
+            } else {
+                0.2 * 10f32.powf(f32::from(controls.decay) / 127.0)
+            };
         self.envelope *= (-dt / decay).exp();
         let accent = if self.accented { self.envelope } else { 0.0 };
         // 40 Hz at cutoff `0` to about 2.6 kHz at `127`, which the envelope

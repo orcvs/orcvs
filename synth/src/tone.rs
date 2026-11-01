@@ -6,8 +6,8 @@ const ATTACK: f32 = 0.005;
 const RELEASE: f32 = 0.15;
 
 /// One tone: a waveform its channel picks, under one shared envelope that
-/// rises over 5 ms, holds while the note is held, and falls over 150 ms once
-/// it is released.
+/// rises over 5 ms, holds while the note is held, and falls over 150 ms times
+/// its length once it is released.
 pub(crate) struct Tone {
     shape: Shape,
     frequency: f32,
@@ -16,6 +16,7 @@ pub(crate) struct Tone {
     time: f32,
     envelope: f32,
     held: bool,
+    release: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -63,7 +64,8 @@ impl Shape {
 }
 
 impl Tone {
-    pub(crate) fn new(channel: u8, note: u8) -> Self {
+    /// A tone whose release lasts `length` of its full 150 ms.
+    pub(crate) fn new(channel: u8, note: u8, length: f32) -> Self {
         Self {
             shape: Shape::of(channel),
             frequency: 440.0 * 2f32.powf((f32::from(note) - 69.0) / 12.0),
@@ -72,6 +74,7 @@ impl Tone {
             time: 0.0,
             envelope: 0.0,
             held: true,
+            release: RELEASE * length,
         }
     }
 
@@ -88,7 +91,7 @@ impl Tone {
         self.envelope = if self.held {
             (self.envelope + dt / ATTACK).min(1.0)
         } else {
-            self.envelope - dt / RELEASE
+            self.envelope - dt / self.release
         };
         if self.envelope <= 0.0 && !self.held {
             return None;
