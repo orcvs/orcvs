@@ -42,6 +42,11 @@ const SMALL: Room = Room {
     size: 0.6,
     feedback: 0.85,
 };
+/// `R2`'s room: about two seconds to fall 60 dB.
+const LARGE: Room = Room {
+    size: 1.0,
+    feedback: 0.92,
+};
 
 /// The share of its own length a sound keeps at `LN` `00`; `7F` keeps all of
 /// it.
@@ -57,7 +62,7 @@ const FADE: f32 = 0.005;
 /// 8 on any channel set the effects (ADR 0088): `MD`, vibrato on the whole mix,
 /// `OF`, how far into its course each new sound starts, `LN`, how long it
 /// decays, `DL`, an echo of the whole mix, `CH`, a chorus on it, `EQ`, one
-/// tilt, and `R1`, a small reverb. All Sound Off and All Notes
+/// tilt, and `R1` and `R2`, a small and a large reverb. All Sound Off and All Notes
 /// Off release a channel's tones and its acid voice. The acid channel's own
 /// Control Changes and Reset All Controllers set its controls; every other
 /// Control Change, Pitch Bend and Program Change is ignored.
@@ -75,6 +80,7 @@ pub struct Synth {
     chorus: Chorus,
     delay: Delay,
     small: Reverb,
+    large: Reverb,
     /// `OF`, `00`–`7F`.
     offset: u8,
     /// `LN`, `00`–`7F`.
@@ -142,6 +148,7 @@ impl Synth {
             chorus: Chorus::new(sample_rate),
             delay: Delay::new(sample_rate),
             small: Reverb::new(sample_rate, SMALL),
+            large: Reverb::new(sample_rate, LARGE),
             offset: 0,
             length: 0x7F,
             acid: Controls::default(),
@@ -187,7 +194,8 @@ impl Synth {
             let mix = self.tilt.process(mix);
             let mix = self.chorus.process(mix);
             let mix = self.delay.process(mix);
-            *sample = self.small.process(mix).tanh();
+            let mix = self.small.process(mix);
+            *sample = self.large.process(mix).tanh();
             self.frame += 1;
         }
     }
@@ -204,6 +212,7 @@ impl Synth {
             0xB0 if data1 == 5 => self.chorus.set(data2),
             0xB0 if data1 == 6 => self.tilt.set(data2),
             0xB0 if data1 == 7 => self.small.set(data2),
+            0xB0 if data1 == 8 => self.large.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             0xB0 if channel == acid::CHANNEL => self.acid.set(data1, data2),
@@ -562,9 +571,8 @@ mod tests {
         let mut plain = Synth::new(RATE);
         plain.schedule(0, note_on(0, 69, 100));
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
-        // Control Change 8 sets an effect whose sound has not landed yet, and
-        // the acid controls act on the acid channel alone.
-        for controller in [8, 70, 71, 74, 75, 79, 121] {
+        // The acid controls act on the acid channel alone.
+        for controller in [70, 71, 74, 75, 79, 121] {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
         synth.schedule(0, [0xC0, 5, 0]);
@@ -774,6 +782,27 @@ mod tests {
         assert_eq!(rms(&dry[tail.clone()]), 0.0);
         assert!(rms(&wet[tail]) > 0.01 * tone);
         assert!(rms(&wet[seconds(3.5)..]) < 1e-5 * tone);
+    }
+
+    #[test]
+    fn the_large_reverb_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            blip(&[[0xB0, 8, 0x00]], seconds(1.0)),
+            blip(&[], seconds(1.0))
+        );
+    }
+
+    #[test]
+    fn the_large_reverb_rings_longer_than_the_small_and_dies_away() {
+        let tone = rms(&blip(&[], seconds(0.05)));
+        let small = blip(&[[0xB0, 7, 0x7F]], seconds(1.2));
+        let large = blip(&[[0xBE, 8, 0x7F]], seconds(10.0));
+
+        assert!(large.iter().all(|s| s.is_finite()));
+        let late = seconds(1.0)..seconds(1.2);
+        assert!(rms(&large[late.clone()]) > 0.01 * tone);
+        assert!(rms(&large[late.clone()]) > 100.0 * rms(&small[late]));
+        assert!(rms(&large[seconds(9.5)..]) < 1e-5 * tone);
     }
 
     #[test]
