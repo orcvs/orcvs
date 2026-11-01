@@ -6,13 +6,16 @@
 use std::collections::VecDeque;
 
 mod acid;
+mod delay;
 mod drum;
+mod glide;
 mod tone;
 mod vibrato;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
 use acid::{Acid, Controls};
+use delay::Delay;
 use drum::{Drum, Instrument};
 use tone::Tone;
 use vibrato::Vibrato;
@@ -40,8 +43,8 @@ const FADE: f32 = 0.005;
 /// Channels `0`–`7` play tones, `9` the acid voice (ADR 0099), and `8` and
 /// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 to
 /// 8 on any channel set the effects (ADR 0088): `MD`, vibrato on the whole mix,
-/// `OF`, how far into its course each new sound starts, and `LN`, how long it
-/// decays. All Sound Off and All Notes
+/// `OF`, how far into its course each new sound starts, `LN`, how long it
+/// decays, and `DL`, an echo of the whole mix. All Sound Off and All Notes
 /// Off release a channel's tones and its acid voice. The acid channel's own
 /// Control Changes and Reset All Controllers set its controls; every other
 /// Control Change, Pitch Bend and Program Change is ignored.
@@ -55,6 +58,7 @@ pub struct Synth {
     /// they were scheduled in.
     queue: VecDeque<(u64, [u8; 3])>,
     vibrato: Vibrato,
+    delay: Delay,
     /// `OF`, `00`–`7F`.
     offset: u8,
     /// `LN`, `00`–`7F`.
@@ -118,6 +122,7 @@ impl Synth {
             // audio thread rarely allocates.
             queue: VecDeque::with_capacity(64),
             vibrato: Vibrato::new(sample_rate),
+            delay: Delay::new(sample_rate),
             offset: 0,
             length: 0x7F,
             acid: Controls::default(),
@@ -159,7 +164,8 @@ impl Synth {
                     None => *slot = None,
                 }
             }
-            *sample = self.vibrato.process(mix).tanh();
+            let mix = self.vibrato.process(mix);
+            *sample = self.delay.process(mix).tanh();
             self.frame += 1;
         }
     }
@@ -172,6 +178,7 @@ impl Synth {
             0xB0 if data1 == 1 => self.vibrato.set(data2),
             0xB0 if data1 == 2 => self.offset = data2,
             0xB0 if data1 == 3 => self.length = data2,
+            0xB0 if data1 == 4 => self.delay.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             0xB0 if channel == acid::CHANNEL => self.acid.set(data1, data2),
@@ -532,7 +539,7 @@ mod tests {
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
         // Control Change 2 to 8 set effects whose sound has not landed yet, and
         // the acid controls act on the acid channel alone.
-        for controller in (4..=8).chain([70, 71, 74, 75, 79, 121]) {
+        for controller in (5..=8).chain([70, 71, 74, 75, 79, 121]) {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
         synth.schedule(0, [0xC0, 5, 0]);
@@ -635,6 +642,37 @@ mod tests {
         let late = seconds(0.1)..;
         let brightness = |samples: &[f32]| amplitude_at(samples, 4.0 * 110.0);
         assert!(brightness(&short[late.clone()]) < 0.5 * brightness(&full[late]));
+    }
+
+    /// A 50 ms tone after `messages`, then `frames` in all.
+    fn blip(messages: &[[u8; 3]], frames: usize) -> Vec<f32> {
+        let mut synth = Synth::new(RATE);
+        for &message in messages {
+            synth.schedule(0, message);
+        }
+        synth.schedule(0, note_on(0, 69, 100));
+        synth.schedule(seconds(0.05) as u64, note_off(0, 69));
+        render(&mut synth, frames)
+    }
+
+    #[test]
+    fn delay_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            blip(&[[0xB0, 4, 0x00]], seconds(1.0)),
+            blip(&[], seconds(1.0))
+        );
+    }
+
+    #[test]
+    fn delay_echoes_the_mix_and_the_echoes_die_away() {
+        let dry = blip(&[], seconds(1.0));
+        let wet = blip(&[[0xB2, 4, 0x7F]], seconds(6.0));
+
+        assert!(wet.iter().all(|s| s.is_finite()));
+        let echo = seconds(0.375)..seconds(0.425);
+        assert_eq!(rms(&dry[echo.clone()]), 0.0);
+        assert!(rms(&wet[echo]) > 0.02);
+        assert!(rms(&wet[seconds(5.5)..]) < 1e-4);
     }
 
     #[test]
