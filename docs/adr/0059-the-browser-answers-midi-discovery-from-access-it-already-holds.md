@@ -42,3 +42,11 @@ While A is installed and B is opening, the Output readout continues to name A an
 - `console::console_midi::AVAILABLE` is true for the browser build, so the Panel enables the destination ComboBox, offers Scan, and shows Playback failures beside it. A browser that has no Web MIDI shows the ComboBox with the empty copy rather than a disabled one, because whether a browser has Web MIDI is known only at run time.
 - A target that is neither native nor the browser still builds the silent backend, which lists nothing and refuses every connect.
 - A human with a browser and a MIDI device still has to confirm audible output. The fake proves the bytes and the lifecycle; it cannot prove that a browser's Web MIDI implementation delivers them.
+
+## Amendment, 2026-11-01: a Scan asks again while access is unanswered
+
+**A browser can leave the access request unanswered for good, so the performer's Scan sends a fresh one.** Firefox grants Web MIDI by installing a site permission add-on. When its install prompt is dismissed without an answer, the request it belongs to never settles, and returning to the page shows no prompt either: the console reads "waiting for the browser to grant MIDI access" with nothing the performer can do about it. A fresh `requestMIDIAccess` call is a new request, and the browser prompts for it.
+
+`MidiBackend::request_access_again` asks the MIDI service again while an earlier request is unanswered, and does nothing otherwise. The console calls it on Scan only. Panel frames still rediscover without asking again, so a page never sends a request the performer did not ask for, and a settled answer is still final: a refusal is not asked again, for the reason the Unavailable bullet above gives. The pending message names Scan, because a browser that shows no prompt gives the performer no other way forward.
+
+Every request counts as outstanding until it settles. The first grant settles access. A refusal settles it as Unavailable only once no other request is outstanding, so a stale request's refusal cannot overwrite the answer to the prompt a fresh one is showing. The kept Promise that wakes the Panel and ends the entry point's wait resolves on whichever answer settles access, so neither waits on a particular request.

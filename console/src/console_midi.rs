@@ -227,6 +227,10 @@ mod backend {
             self.0.destinations_while_pending()
         }
 
+        fn request_access_again(&mut self) {
+            self.0.request_access_again();
+        }
+
         fn connect(
             &mut self,
             destination_id: &MidiDestinationId,

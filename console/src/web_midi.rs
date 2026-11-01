@@ -25,9 +25,12 @@ type Completion = Box<dyn FnOnce(Result<(), MidiError>) + Send>;
 
 ///
 /// The message discovery and connect answer while the browser has not yet
-/// granted or refused access.
+/// granted or refused access. It names Scan because a browser can leave the
+/// request unanswered without showing a prompt, and only a fresh request,
+/// which Scan sends, prompts again.
 ///
-pub(crate) const ACCESS_PENDING: &str = "waiting for the browser to grant MIDI access";
+pub(crate) const ACCESS_PENDING: &str =
+    "waiting for the browser to grant MIDI access; Scan asks again";
 
 ///
 /// The message a connect answers when there is no MIDI access to open a port
@@ -87,6 +90,12 @@ pub(crate) trait WebMidiAccess: Clone + Send + 'static {
 
     /// Reports completion after previously submitted messages have been delivered.
     fn close(&self, id: &str, complete: Completion);
+
+    ///
+    /// Sends the browser a fresh access request while the earlier one is
+    /// unanswered. Whichever request the browser answers first settles access.
+    ///
+    fn ask_again(&self);
 }
 
 pub(crate) struct WebMidiBackend<A> {
@@ -139,6 +148,12 @@ impl<A: WebMidiAccess> MidiBackend for WebMidiBackend<A> {
             }
         }
     }
+
+    fn request_access_again(&mut self) {
+        if self.ports.access().status() == AccessStatus::Pending {
+            self.ports.access().ask_again();
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -168,10 +183,15 @@ mod browser {
     enum Access {
         NotRequested,
         ///
-        /// The browser has not answered. The Promise resolves once it has and
-        /// the answer is stored here, so whoever awaits it reads the answer.
+        /// The browser has answered none of the page's `outstanding` requests.
+        /// `answered` resolves, through `settle`, once it has and the answer
+        /// is stored here, so whoever awaits it reads the answer.
         ///
-        Pending(js_sys::Promise),
+        Pending {
+            answered: js_sys::Promise,
+            settle: js_sys::Function,
+            outstanding: usize,
+        },
         Granted(MidiAccess),
         Unavailable,
     }
@@ -212,22 +232,23 @@ mod browser {
         /// for more than the console uses.
         ///
         pub(crate) fn request() {
-            let requested = ACCESS.with(|access| {
+            let first = ACCESS.with(|access| {
                 let mut access = access.borrow_mut();
                 if !matches!(*access, Access::NotRequested) {
                     return None;
                 }
-                let promise = web_sys::window()
-                    .ok_or_else(|| wasm_bindgen::JsValue::from_str("no window"))
-                    .and_then(|window| window.navigator().request_midi_access());
-                match promise {
+                match request_midi_access() {
                     Ok(promise) => {
                         let mut settle = None;
                         let answered = js_sys::Promise::new(&mut |resolve, _reject| {
                             settle = Some(resolve);
                         });
-                        *access = Access::Pending(answered);
-                        Some((promise, settle))
+                        *access = Access::Pending {
+                            answered,
+                            settle: settle.expect("a Promise runs its executor at once"),
+                            outstanding: 1,
+                        };
+                        Some(promise)
                     }
                     Err(reason) => {
                         log::warn!("Web MIDI is unavailable: {reason:?}");
@@ -236,25 +257,8 @@ mod browser {
                     }
                 }
             });
-            if let Some((promise, settle)) = requested {
-                wasm_bindgen_futures::spawn_local(async move {
-                    let answer = wasm_bindgen_futures::JsFuture::from(promise).await;
-                    let next = match answer.map(JsCast::dyn_into::<MidiAccess>) {
-                        Ok(Ok(granted)) => Access::Granted(granted),
-                        Ok(Err(other)) => {
-                            log::warn!("Web MIDI answered something other than access: {other:?}");
-                            Access::Unavailable
-                        }
-                        Err(reason) => {
-                            log::warn!("Web MIDI access was refused: {reason:?}");
-                            Access::Unavailable
-                        }
-                    };
-                    ACCESS.with(|access| *access.borrow_mut() = next);
-                    if let Some(settle) = settle {
-                        let _ = settle.call0(&wasm_bindgen::JsValue::UNDEFINED);
-                    }
-                });
+            if let Some(promise) = first {
+                wasm_bindgen_futures::spawn_local(store_answer(promise));
             }
         }
 
@@ -265,7 +269,7 @@ mod browser {
         ///
         pub(crate) fn answered() -> Option<js_sys::Promise> {
             ACCESS.with(|access| match &*access.borrow() {
-                Access::Pending(answered) => Some(answered.clone()),
+                Access::Pending { answered, .. } => Some(answered.clone()),
                 Access::NotRequested | Access::Granted(_) | Access::Unavailable => None,
             })
         }
@@ -283,6 +287,56 @@ mod browser {
         pub(crate) fn browser() -> Self {
             BrowserMidi::request();
             PORTS.with(|ports| Self::new(ports.clone()))
+        }
+    }
+
+    fn request_midi_access() -> Result<js_sys::Promise, wasm_bindgen::JsValue> {
+        web_sys::window()
+            .ok_or_else(|| wasm_bindgen::JsValue::from_str("no window"))
+            .and_then(|window| window.navigator().request_midi_access())
+    }
+
+    ///
+    /// Awaits one access request and stores its answer while access is still
+    /// pending. A grant settles access at once. A refusal settles it only once
+    /// no other request is outstanding, so a stale request's refusal cannot
+    /// pre-empt the prompt a fresh one is showing.
+    ///
+    async fn store_answer(promise: js_sys::Promise) {
+        let answer = wasm_bindgen_futures::JsFuture::from(promise).await;
+        let next = match answer.map(JsCast::dyn_into::<MidiAccess>) {
+            Ok(Ok(granted)) => Some(Access::Granted(granted)),
+            Ok(Err(other)) => {
+                log::warn!("Web MIDI answered something other than access: {other:?}");
+                None
+            }
+            Err(reason) => {
+                log::warn!("Web MIDI access was refused: {reason:?}");
+                None
+            }
+        };
+        let settle = ACCESS.with(|access| {
+            let mut access = access.borrow_mut();
+            let Access::Pending {
+                settle,
+                outstanding,
+                ..
+            } = &mut *access
+            else {
+                return None;
+            };
+            *outstanding -= 1;
+            let next = match next {
+                Some(granted) => granted,
+                None if *outstanding == 0 => Access::Unavailable,
+                None => return None,
+            };
+            let settle = settle.clone();
+            *access = next;
+            Some(settle)
+        });
+        if let Some(settle) = settle {
+            let _ = settle.call0(&wasm_bindgen::JsValue::UNDEFINED);
         }
     }
 
@@ -317,7 +371,7 @@ mod browser {
     impl WebMidiAccess for BrowserMidi {
         fn status(&self) -> AccessStatus {
             ACCESS.with(|access| match &*access.borrow() {
-                Access::Pending(_) => AccessStatus::Pending,
+                Access::Pending { .. } => AccessStatus::Pending,
                 Access::Granted(_) => AccessStatus::Granted,
                 // A thread that never requested has no access to read, which
                 // is the same answer as a browser that has none.
@@ -376,6 +430,28 @@ mod browser {
             };
             finish(output.close(), complete);
         }
+
+        fn ask_again(&self) {
+            let asked = ACCESS.with(|access| {
+                let mut access = access.borrow_mut();
+                let Access::Pending { outstanding, .. } = &mut *access else {
+                    return None;
+                };
+                match request_midi_access() {
+                    Ok(promise) => {
+                        *outstanding += 1;
+                        Some(promise)
+                    }
+                    Err(reason) => {
+                        log::warn!("Web MIDI refused a fresh access request: {reason:?}");
+                        None
+                    }
+                }
+            });
+            if let Some(promise) = asked {
+                wasm_bindgen_futures::spawn_local(store_answer(promise));
+            }
+        }
     }
 }
 
@@ -408,6 +484,8 @@ pub(crate) mod tests {
         closing: HashMap<String, Completion>,
         delay_close: bool,
         opened: Vec<String>,
+        /// How many times the backend asked the browser for access again.
+        asked_again: usize,
     }
 
     ///
@@ -461,6 +539,10 @@ pub(crate) mod tests {
 
         fn clear_sent(&self) {
             self.state().sent.clear();
+        }
+
+        fn asked_again(&self) -> usize {
+            self.state().asked_again
         }
 
         pub(crate) fn closed(&self) -> Vec<(String, usize)> {
@@ -549,6 +631,10 @@ pub(crate) mod tests {
             } else {
                 assert!(state.opening.insert(id.to_owned(), complete).is_none());
             }
+        }
+
+        fn ask_again(&self) {
+            self.state().asked_again += 1;
         }
 
         fn close(&self, id: &str, complete: Completion) {
@@ -653,6 +739,40 @@ pub(crate) mod tests {
                 .map(|error| error.message),
             Some(ACCESS_PENDING.to_owned())
         );
+    }
+
+    ///
+    /// A browser can leave its access request unanswered for good: Firefox
+    /// does when its permission prompt is dismissed without an answer, and
+    /// then shows no prompt for that request again. The performer's Scan
+    /// sends a fresh request, which the browser prompts for. Panel frames
+    /// never ask again on their own, and a settled answer is never asked
+    /// again.
+    ///
+    #[tokio::test]
+    async fn a_scan_asks_the_browser_again_only_while_access_is_unanswered() {
+        let fake = FakeWebMidi::with(AccessStatus::Pending, &[("a", Some("Synth"))]);
+        let (_orcvs, mut midi) = playing(&fake);
+        midi.refresh_destinations();
+        for _ in 0..3 {
+            midi.observe_frame();
+        }
+        assert_eq!(fake.asked_again(), 0);
+        assert_eq!(midi.status(), Some(ACCESS_PENDING));
+
+        midi.scan();
+        assert_eq!(fake.asked_again(), 1);
+
+        fake.set_status(AccessStatus::Granted);
+        midi.observe_frame();
+        assert_ne!(midi.status(), Some(ACCESS_PENDING));
+        midi.scan();
+        assert_eq!(fake.asked_again(), 1);
+
+        let refused = FakeWebMidi::with(AccessStatus::Unavailable, &[]);
+        let (_orcvs, mut midi) = playing(&refused);
+        midi.scan();
+        assert_eq!(refused.asked_again(), 0);
     }
 
     ///

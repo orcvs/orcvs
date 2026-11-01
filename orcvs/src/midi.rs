@@ -127,6 +127,14 @@ pub trait MidiBackend: Send {
         &mut self,
         destination_id: &MidiDestinationId,
     ) -> Result<MidiConnectionRequest, MidiError>;
+
+    ///
+    /// Asks the MIDI service for access again while an earlier request is
+    /// still unanswered, because a service can leave a request unanswered
+    /// for good. Only the performer's Scan calls it, never a frame. A backend
+    /// that holds no access request has nothing to ask.
+    ///
+    fn request_access_again(&mut self) {}
 }
 
 pub struct MidiSelection {

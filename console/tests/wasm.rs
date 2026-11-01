@@ -139,7 +139,7 @@ fn web_app_constructs_without_panicking() {
 ///
 #[wasm_bindgen_test]
 fn web_midi_answers_discovery_and_connect_without_waiting() {
-    const PENDING: &str = "waiting for the browser to grant MIDI access";
+    const PENDING: &str = "waiting for the browser to grant MIDI access; Scan asks again";
     const NO_ACCESS: &str = "this browser offers no MIDI access";
     const GONE: &str = "the selected MIDI destination is no longer available";
     let mut backend = ConsoleMidiBackend::new();
@@ -168,6 +168,9 @@ fn web_midi_answers_discovery_and_connect_without_waiting() {
     }
     // A second backend reuses the page's one request rather than asking again.
     let _ = ConsoleMidiBackend::new().destinations();
+    // A Scan's fresh request returns at once, and discovery still answers.
+    backend.request_access_again();
+    let _ = backend.destinations();
 }
 
 ///

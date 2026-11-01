@@ -120,6 +120,15 @@ impl MidiDeviceSelection {
     }
 
     ///
+    /// The performer's Scan: asks the backend for MIDI access again if an
+    /// earlier request is still unanswered, then discovers again.
+    ///
+    pub(crate) fn scan(&mut self) {
+        self.backend.request_access_again();
+        self.refresh_destinations();
+    }
+
+    ///
     /// The selection's work for one Panel frame: discovery again while the
     /// last one answered pending, poll the owned opening request, then
     /// automatically select the first destination if none was requested.

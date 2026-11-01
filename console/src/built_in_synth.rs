@@ -94,6 +94,10 @@ impl<B: MidiBackend, P: SynthPage> MidiBackend for WithBuiltInSynth<B, P> {
             .collect()
     }
 
+    fn request_access_again(&mut self) {
+        self.midi.request_access_again();
+    }
+
     fn connect(
         &mut self,
         destination_id: &MidiDestinationId,

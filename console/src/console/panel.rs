@@ -635,7 +635,7 @@ impl Console {
             self.playback_status.network_destination_changed();
         }
         if scan {
-            self.midi.refresh_destinations();
+            self.midi.scan();
         }
         if let Some(id) = selected.as_ref() {
             self.midi.select_destination(id);
