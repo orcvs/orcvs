@@ -71,6 +71,25 @@ test("the Sound Module draws its lights and effects at their load values", async
   expect(values).toEqual(["00", "00", "7F", "00", "00", "40", "00", "00"]);
 });
 
+test("each effect's Cells name the effect and its Control Change on hover", async ({ page }) => {
+  await page.goto("/");
+
+  const titles = await page
+    .locator(".orcvs-sound-module .function")
+    .evaluateAll((cells) => cells.filter((_, index) => index % 2 === 0).map((cell) => (cell as HTMLElement).title));
+  expect(titles).toEqual([
+    "Modulation, CC 1",
+    "Offset, CC 2",
+    "Length, CC 3",
+    "Delay, CC 4",
+    "Chorus, CC 5",
+    "EQ, CC 6",
+    "Reverb 1, CC 7",
+    "Reverb 2, CC 8",
+  ]);
+  await expect(page.locator('.orcvs-sound-module .magnitude[data-effect="4"]').first()).toHaveAttribute("title", "Chorus, CC 5");
+});
+
 test("a Note On from the console shows its channel as sounding, then idle", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
