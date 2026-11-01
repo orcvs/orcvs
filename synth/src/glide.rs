@@ -1,11 +1,11 @@
-//! A level that glides to each new value rather than steps, so an effect's
-//! level changed mid-note does not click.
+//! A setting that glides to each new value rather than steps, so an effect
+//! changed mid-note does not click.
 
-/// How long a glide across the whole range takes, in seconds.
+/// How long a glide by `1` takes, in seconds.
 const GLIDE: f32 = 0.02;
 
-/// A level from `0` to `1` that moves by at most `1 / GLIDE` a second and
-/// reaches each new value exactly.
+/// A value that moves by at most `1 / GLIDE` a second and reaches each new
+/// value exactly.
 pub(crate) struct Glide {
     step: f32,
     value: f32,
@@ -13,7 +13,7 @@ pub(crate) struct Glide {
 }
 
 impl Glide {
-    /// A level at `value` from the start.
+    /// A value at `value` from the start.
     pub(crate) fn new(sample_rate: f32, value: f32) -> Self {
         Self {
             step: 1.0 / (GLIDE * sample_rate),
@@ -26,7 +26,7 @@ impl Glide {
         self.target = target;
     }
 
-    /// The level for the next sample.
+    /// The value for the next sample.
     pub(crate) fn next(&mut self) -> f32 {
         let gap = self.target - self.value;
         self.value = if gap.abs() <= self.step {

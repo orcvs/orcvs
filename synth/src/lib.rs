@@ -10,6 +10,7 @@ mod chorus;
 mod delay;
 mod drum;
 mod glide;
+mod tilt;
 mod tone;
 mod vibrato;
 #[cfg(target_arch = "wasm32")]
@@ -19,6 +20,7 @@ use acid::{Acid, Controls};
 use chorus::Chorus;
 use delay::Delay;
 use drum::{Drum, Instrument};
+use tilt::Tilt;
 use tone::Tone;
 use vibrato::Vibrato;
 
@@ -46,7 +48,8 @@ const FADE: f32 = 0.005;
 /// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 to
 /// 8 on any channel set the effects (ADR 0088): `MD`, vibrato on the whole mix,
 /// `OF`, how far into its course each new sound starts, `LN`, how long it
-/// decays, `DL`, an echo of the whole mix, and `CH`, a chorus on it. All Sound Off and All Notes
+/// decays, `DL`, an echo of the whole mix, `CH`, a chorus on it, and `EQ`,
+/// one tilt. All Sound Off and All Notes
 /// Off release a channel's tones and its acid voice. The acid channel's own
 /// Control Changes and Reset All Controllers set its controls; every other
 /// Control Change, Pitch Bend and Program Change is ignored.
@@ -60,6 +63,7 @@ pub struct Synth {
     /// they were scheduled in.
     queue: VecDeque<(u64, [u8; 3])>,
     vibrato: Vibrato,
+    tilt: Tilt,
     chorus: Chorus,
     delay: Delay,
     /// `OF`, `00`–`7F`.
@@ -125,6 +129,7 @@ impl Synth {
             // audio thread rarely allocates.
             queue: VecDeque::with_capacity(64),
             vibrato: Vibrato::new(sample_rate),
+            tilt: Tilt::new(sample_rate),
             chorus: Chorus::new(sample_rate),
             delay: Delay::new(sample_rate),
             offset: 0,
@@ -169,6 +174,7 @@ impl Synth {
                 }
             }
             let mix = self.vibrato.process(mix);
+            let mix = self.tilt.process(mix);
             let mix = self.chorus.process(mix);
             *sample = self.delay.process(mix).tanh();
             self.frame += 1;
@@ -185,6 +191,7 @@ impl Synth {
             0xB0 if data1 == 3 => self.length = data2,
             0xB0 if data1 == 4 => self.delay.set(data2),
             0xB0 if data1 == 5 => self.chorus.set(data2),
+            0xB0 if data1 == 6 => self.tilt.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             0xB0 if channel == acid::CHANNEL => self.acid.set(data1, data2),
@@ -545,7 +552,7 @@ mod tests {
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
         // Control Change 2 to 8 set effects whose sound has not landed yet, and
         // the acid controls act on the acid channel alone.
-        for controller in (6..=8).chain([70, 71, 74, 75, 79, 121]) {
+        for controller in (7..=8).chain([70, 71, 74, 75, 79, 121]) {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
         synth.schedule(0, [0xC0, 5, 0]);
@@ -706,6 +713,34 @@ mod tests {
         assert!(wet.iter().all(|s| s.is_finite()));
         assert!(loudness_spread(&dry[seconds(steady.start)..]) < 1.05);
         assert!(loudness_spread(&wet[seconds(steady.start)..]) > 1.3);
+    }
+
+    /// How bright `samples` are: the loudness of their change from sample to
+    /// sample against their own loudness.
+    fn brightness(samples: &[f32]) -> f32 {
+        let changes: Vec<f32> = samples.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        rms(&changes) / rms(samples)
+    }
+
+    #[test]
+    fn eq_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            after(&[[0xB0, 6, 0x40]], 2, 45, seconds(0.5)),
+            after(&[], 2, 45, seconds(0.5))
+        );
+    }
+
+    #[test]
+    fn eq_tilts_the_mix_darker_below_40_and_brighter_above() {
+        let tilted = |value| {
+            let out = after(&[[0xB7, 6, value]], 2, 45, seconds(0.5));
+            assert!(out.iter().all(|s| s.is_finite()));
+            brightness(&out[seconds(0.1)..])
+        };
+        let flat = tilted(0x40);
+
+        assert!(tilted(0x00) < 0.7 * flat, "{} against {flat}", tilted(0x00));
+        assert!(tilted(0x7F) > 1.3 * flat, "{} against {flat}", tilted(0x7F));
     }
 
     #[test]
