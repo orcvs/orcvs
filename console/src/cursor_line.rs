@@ -47,8 +47,13 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> Vec<Part> {
         return parts;
     };
     let function = owner.function;
-    let pair = |start: usize| -> String {
-        frame.cells()[start..start + 2]
+    // The Cells' text, reading an empty Cell as `.`. Each range is one the
+    // Language Map or the Portal reservation drew inside the Grid.
+    let pair = |cells: std::ops::Range<usize>| -> String {
+        frame
+            .cells()
+            .get(cells)
+            .unwrap_or_default()
             .iter()
             .map(|cell| cell.content().unwrap_or('.'))
             .collect()
@@ -58,11 +63,12 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> Vec<Part> {
     push("  ", function.summary().to_owned(), false);
     for (role, cells) in function.roles().iter().zip(&owner.operands) {
         push("   ", (*role).to_owned(), false);
-        push(" ", pair(cells.start), true);
+        push(" ", pair(cells.clone()), true);
     }
     if let Some(portal) = owner.answer {
         push("   ", "answer".to_owned(), false);
-        push(" ", pair(frame.grid().index(portal).get()), true);
+        let start = frame.grid().index(portal).get();
+        push(" ", pair(start..start + 2), true);
         push(
             "  ",
             format!("at {:02X} {:02X}", portal.x(), portal.y()),
@@ -119,6 +125,15 @@ mod tests {
             line(&[".+.x020304"], (6, 0)),
             "Multiply  .x  answers left * right   left 02   right 03   answer ..  at 02 01",
             "a nested Function owns its own operands"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_function_cut_short_by_the_row_edge_names_the_cells_it_has() {
+        assert_eq!(
+            line(&["", "", "", "             .+0"], (13, 3)),
+            "Add  .+  answers left + right   left 0   right ",
+            "the last row has no row beneath for an answer, and its operands stop at the edge"
         );
     }
 
