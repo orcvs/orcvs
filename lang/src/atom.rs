@@ -2141,6 +2141,24 @@ mod test {
             ["channel", "velocity", "note", "length"]
         );
         assert!(Function::CopyEast.roles().is_empty());
+        for function in Function::ALL {
+            let roles = function.roles();
+            assert_eq!(
+                roles.len(),
+                function.signature().len(),
+                "`{function}` names a role for each operand it declares"
+            );
+            for (index, role) in roles.iter().enumerate() {
+                assert!(
+                    !role.is_empty() && role.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                    "`{function}` names an operand `{role}`"
+                );
+                assert!(
+                    !roles[..index].contains(role),
+                    "`{function}` names `{role}` twice"
+                );
+            }
+        }
     }
 
     #[test]
