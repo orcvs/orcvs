@@ -465,7 +465,19 @@ impl Console {
                         monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
                     reserved_monospace(ui, &clock_text, clock_width);
                     ui.add_space(entry_gap);
-                    panel_label(ui, "O");
+                    // While any output reports a message, faded or dismissed
+                    // Toast or not, O stays in the error colour.
+                    let failing =
+                        super::toasts::statuses(&self.midi, &self.network, &self.playback_status)
+                            .iter()
+                            .any(|(_, message)| message.is_some());
+                    let output = egui::RichText::new("O").text_style(egui::TextStyle::Monospace);
+                    let output = if failing {
+                        output.color(ui.visuals().error_fg_color)
+                    } else {
+                        output
+                    };
+                    ui.add(egui::Label::new(output).selectable(false));
                     ui.add_space(label_value_gap);
                     self.show_destination(ui);
                 },
