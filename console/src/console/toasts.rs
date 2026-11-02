@@ -87,6 +87,13 @@ impl Toasts {
         }
     }
 
+    /// Dismisses every standing Toast, as its `×` would.
+    pub(super) fn dismiss_all(&mut self) {
+        for toast in self.slots.iter_mut().flatten() {
+            toast.dismissed = true;
+        }
+    }
+
     ///
     /// The sources whose Toasts show, in order, in a stack no taller than
     /// `room`: the oldest go first until the rest fit.

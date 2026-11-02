@@ -62,7 +62,8 @@ records it and supersedes ADR 0095's growing status line.
   a frame or reports a different text; then it is forgotten, and the next message from that source
   raises a new Toast, even one that returns to an earlier text.
 - **How long.** A Toast fades out after `[toasts] seconds`, default 5, 1 to 60. `×` removes it at
-  once. A faded or dismissed Toast does not return while its key is remembered (see Identity).
+  once. Escape removes every Toast at once, but only when it has nothing else to undo: a focused
+  control takes Escape first, and a Region collapses before any Toast goes. A faded or dismissed Toast does not return while its key is remembered (see Identity).
 - **The standing signal.** While any of the five sources reports a message, the Panel's **O**
   readout is drawn in the error colour, whether its Toast is showing, faded or dismissed, and it
   returns to its ordinary colour when every source is clear. Toby chose this on 2026-10-31 so a
