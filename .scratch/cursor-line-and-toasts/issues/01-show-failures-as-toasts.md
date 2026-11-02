@@ -14,6 +14,8 @@ and the Panel's growing status line goes ([spec](../spec.md), ADR 0100).
 - [x] A Toast is keyed by its message source (one of the five slots) and its text. `×` removes it and
       remembers the key until that source reports no message on a frame or a different text; the
       next message from that source then raises a new Toast.
+- [x] Escape dismisses every Toast as `×` would, once it has nothing else to undo: a focused
+      control takes it first, and a Region collapses before any Toast goes.
 - [x] 380 points wide, the message wrapped to at most three lines, then cut with an ellipsis and shown
       whole on hover. A stack that would reach the Minimap's top edge drops its oldest Toasts.
 - [x] A Toast takes the pointer over its own frame only; keyboard input always reaches the Source.

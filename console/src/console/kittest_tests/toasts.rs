@@ -317,3 +317,33 @@ async fn a_toast_narrows_to_fit_a_narrow_window() {
         window.x
     );
 }
+
+///
+/// Escape backs out of the innermost thing first: with a Region selected it
+/// collapses the Region and leaves the Toast, and the next Escape, with
+/// nothing else to undo, dismisses it.
+///
+#[tokio::test]
+async fn escape_dismisses_the_toasts_once_it_has_nothing_else_to_undo() {
+    let mut harness = quiet_console(false);
+    fail_the_engine(&mut harness, "clock stopped");
+    harness.run_steps(3);
+    harness.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowRight);
+    harness.run_steps(1);
+    assert!(!harness.state().orcvs.region().is_one_cell(), "a Region");
+
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(2);
+    assert!(harness.state().orcvs.region().is_one_cell(), "collapsed");
+    assert!(
+        harness.query_by_label("clock stopped").is_some(),
+        "the Escape that collapsed the Region dismissed the Toast"
+    );
+
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(2);
+    assert!(
+        harness.query_by_label("clock stopped").is_none(),
+        "an Escape with nothing else to undo left the Toast"
+    );
+}
