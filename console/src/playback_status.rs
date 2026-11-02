@@ -1,12 +1,12 @@
 //!
-//! Which Panel status each Playback failure belongs to, and how long it is
-//! shown.
+//! Which output's Toast each Playback failure belongs to, and how long it
+//! stands.
 //!
 
 use orcvs::playback::{PlaybackDiagnostic, PlaybackObservation};
 
 ///
-/// The failures the Panel shows beside the MIDI destination, the network
+/// The failures the Toasts show for the MIDI destination, the network
 /// destination and Playback itself, from each frame's diagnostics and the
 /// Playback observation.
 ///
@@ -66,17 +66,17 @@ impl PlaybackStatus {
         self.network = None;
     }
 
-    /// The MIDI output failure the Panel shows.
+    /// The MIDI output failure its Toast shows.
     pub fn midi(&self) -> Option<&str> {
         self.midi.as_deref()
     }
 
-    /// The failed UDP or OSC send the Panel shows.
+    /// The failed UDP or OSC send its Toast shows.
     pub fn network(&self) -> Option<&str> {
         self.network.as_deref()
     }
 
-    /// The clock, start or retune failure the Panel shows.
+    /// The clock, start or retune failure its Toast shows.
     pub fn engine(&self) -> Option<&str> {
         self.engine.as_deref()
     }

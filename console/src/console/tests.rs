@@ -717,7 +717,7 @@ pub(super) fn start_console(
 ///
 /// Gives `console` a MIDI service that grants access and lists no
 /// destinations, so whatever the machine's own MIDI support says adds no
-/// status line to the Panel.
+/// Toast to the console.
 ///
 pub(super) fn quiet_midi(console: &mut Console) {
     use crate::web_midi::{

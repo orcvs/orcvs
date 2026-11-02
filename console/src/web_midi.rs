@@ -1016,7 +1016,7 @@ pub(crate) mod tests {
     /// A connected output the browser cannot open, for instance one another
     /// application holds, never replaces the destination that is playing:
     /// choosing it answers that the port is opening, and the browser's refusal
-    /// reaches the status line while the old output keeps every note and
+    /// reaches its Toast while the old output keeps every note and
     /// never receives the safety action.
     ///
     #[tokio::test(start_paused = true)]
