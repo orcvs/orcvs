@@ -20,6 +20,8 @@ const GAP: f32 = 8.0;
 const WIDTH: f32 = 380.0;
 /// The lines a message wraps to before it is cut with an ellipsis.
 const MESSAGE_ROWS: usize = 3;
+/// The seconds a Toast takes to fade out once its time is up.
+const FADE: f64 = 0.5;
 
 ///
 /// Each source's message, labelled with the output it belongs to, in the order
@@ -57,13 +59,36 @@ struct Toast {
     height: f32,
 }
 
+impl Toast {
+    ///
+    /// How opaque it is at `now`: whole for `seconds` after it was raised,
+    /// then fading over [`FADE`], and gone once dismissed.
+    ///
+    fn opacity(&self, now: f64, seconds: f64) -> f32 {
+        if self.dismissed {
+            return 0.0;
+        }
+        let faded = (now - self.raised - seconds) / FADE;
+        (1.0 - faded).clamp(0.0, 1.0) as f32
+    }
+}
+
 /// The Toast for each message source, in [`statuses`] order.
-#[derive(Default)]
 pub(super) struct Toasts {
     slots: [Option<Toast>; SOURCES],
+    /// How many seconds a Toast shows before it fades.
+    seconds: f64,
 }
 
 impl Toasts {
+    /// No Toasts yet, each to show for `seconds` once raised.
+    pub(super) fn new(seconds: u8) -> Self {
+        Self {
+            slots: Default::default(),
+            seconds: f64::from(seconds),
+        }
+    }
+
     ///
     /// Takes the messages standing at `now`. A source that reports no message,
     /// or a different one, forgets its Toast, dismissed or not; a new message
@@ -88,16 +113,16 @@ impl Toasts {
     }
 
     ///
-    /// The sources whose Toasts show, in order, in a stack no taller than
-    /// `room`: the oldest go first until the rest fit.
+    /// The sources whose Toasts show at `now`, in order, in a stack no taller
+    /// than `room`: the oldest go first until the rest fit.
     ///
-    fn fitting(&self, room: f32) -> Vec<usize> {
+    fn fitting(&self, room: f32, now: f64) -> Vec<usize> {
         let mut shown: Vec<(usize, &Toast)> = self
             .slots
             .iter()
             .enumerate()
             .filter_map(|(slot, toast)| Some((slot, toast.as_ref()?)))
-            .filter(|(_, toast)| !toast.dismissed)
+            .filter(|(_, toast)| toast.opacity(now, self.seconds) > 0.0)
             .collect();
         let height = |shown: &[(usize, &Toast)]| {
             shown
@@ -122,7 +147,8 @@ impl Console {
     /// `source`, the Source's rect, down to `floor`, the Minimap's top edge or
     /// the Source's bottom. Each is its own `Area`, so it takes the pointer
     /// over its own frame and nowhere else, and its `×` senses a click but not
-    /// focus, so keyboard input stays with the Source.
+    /// focus, so keyboard input stays with the Source. It asks for a repaint
+    /// when the next Toast is due to fade, and every frame while one fades.
     ///
     pub(super) fn show_toasts(&mut self, ctx: &egui::Context, source: Rect, floor: f32) {
         let now = ctx.input(|input| input.time);
@@ -136,13 +162,24 @@ impl Console {
         toasts.observe(statuses(midi, network, playback_status), now);
         let top = source.top() + INSET;
         let mut y = top;
-        for slot in toasts.fitting(floor - INSET - top) {
+        let seconds = toasts.seconds;
+        for slot in toasts.fitting(floor - INSET - top, now) {
             let toast = toasts.slots[slot].as_mut().expect("a fitting Toast stands");
+            let opacity = toast.opacity(now, seconds);
+            if opacity < 1.0 {
+                ctx.request_repaint();
+            } else {
+                let fades_in = toast.raised + seconds - now;
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(fades_in.max(0.0)));
+            }
             let shown = egui::Area::new(egui::Id::new(("toast", slot)))
                 .pivot(Align2::RIGHT_TOP)
                 .fixed_pos(egui::pos2(source.right() - INSET, y))
                 .constrain(false)
-                .show(ctx, |ui| show_toast(ui, toast.label, &toast.text));
+                .show(ctx, |ui| {
+                    ui.multiply_opacity(opacity);
+                    show_toast(ui, toast.label, &toast.text)
+                });
             toast.dismissed |= shown.inner;
             if toast.height != shown.response.rect.height() {
                 toast.height = shown.response.rect.height();
@@ -191,6 +228,8 @@ fn show_toast(ui: &mut egui::Ui, label: &str, message: &str) -> bool {
 mod tests {
     use super::Toasts;
 
+    const SECONDS: u8 = 5;
+
     const STANDING: [(&str, Option<&str>); 5] = [
         ("MIDI", None),
         ("MIDI", None),
@@ -213,40 +252,64 @@ mod tests {
 
     #[test]
     fn a_message_raises_a_toast_that_stays_while_it_stands() {
-        let mut toasts = Toasts::default();
+        let mut toasts = Toasts::new(SECONDS);
         toasts.observe(STANDING, 0.0);
         toasts.observe(STANDING, 1.0);
-        assert_eq!(toasts.fitting(f32::INFINITY), [4]);
+        assert_eq!(toasts.fitting(f32::INFINITY, 3.0), [4]);
     }
 
     #[test]
     fn a_dismissed_toast_returns_only_after_its_source_clears() {
-        let mut toasts = Toasts::default();
+        let mut toasts = Toasts::new(SECONDS);
         toasts.observe(STANDING, 0.0);
         dismiss(&mut toasts, 4);
         toasts.observe(STANDING, 1.0);
-        assert!(toasts.fitting(f32::INFINITY).is_empty(), "the same message");
+        assert!(
+            toasts.fitting(f32::INFINITY, 3.0).is_empty(),
+            "the same message"
+        );
 
         toasts.observe(CLEAR, 2.0);
         toasts.observe(STANDING, 3.0);
-        assert_eq!(toasts.fitting(f32::INFINITY), [4], "after a clear frame");
+        assert_eq!(
+            toasts.fitting(f32::INFINITY, 3.0),
+            [4],
+            "after a clear frame"
+        );
     }
 
     #[test]
     fn a_different_message_raises_a_new_toast() {
-        let mut toasts = Toasts::default();
+        let mut toasts = Toasts::new(SECONDS);
         toasts.observe(STANDING, 0.0);
         dismiss(&mut toasts, 4);
         toasts.observe(
             reporting([None, None, None, None, Some("cannot start")]),
             1.0,
         );
-        assert_eq!(toasts.fitting(f32::INFINITY), [4]);
+        assert_eq!(toasts.fitting(f32::INFINITY, 3.0), [4]);
+    }
+
+    #[test]
+    fn a_toast_fades_once_its_seconds_have_passed_and_stays_faded() {
+        let mut toasts = Toasts::new(SECONDS);
+        toasts.observe(STANDING, 0.0);
+        assert_eq!(
+            toasts.fitting(f32::INFINITY, 4.9),
+            [4],
+            "within its seconds"
+        );
+        assert!(toasts.fitting(f32::INFINITY, 6.0).is_empty(), "faded");
+        toasts.observe(STANDING, 7.0);
+        assert!(
+            toasts.fitting(f32::INFINITY, 7.0).is_empty(),
+            "the same message raised the faded Toast again"
+        );
     }
 
     #[test]
     fn a_stack_too_tall_for_its_room_drops_its_oldest() {
-        let mut toasts = Toasts::default();
+        let mut toasts = Toasts::new(SECONDS);
         toasts.observe(reporting([None, None, None, None, Some("engine")]), 0.0);
         toasts.observe(
             reporting([Some("midi"), None, None, None, Some("engine")]),
@@ -259,8 +322,12 @@ mod tests {
         for toast in toasts.slots.iter_mut().flatten() {
             toast.height = 50.0;
         }
-        assert_eq!(toasts.fitting(f32::INFINITY), [0, 2, 4]);
-        assert_eq!(toasts.fitting(108.0), [0, 2], "two Toasts and a gap fit");
-        assert_eq!(toasts.fitting(49.0), Vec::<usize>::new());
+        assert_eq!(toasts.fitting(f32::INFINITY, 3.0), [0, 2, 4]);
+        assert_eq!(
+            toasts.fitting(108.0, 3.0),
+            [0, 2],
+            "two Toasts and a gap fit"
+        );
+        assert_eq!(toasts.fitting(49.0, 3.0), Vec::<usize>::new());
     }
 }

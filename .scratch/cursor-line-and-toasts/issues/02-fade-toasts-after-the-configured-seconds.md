@@ -1,22 +1,30 @@
 # 02 — Fade Toasts after the configured seconds
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01
 
 **What to build:** a Toast fades out after `[toasts] seconds` ([spec](../spec.md), ADR 0100).
 
-- [ ] `[toasts] seconds`, a whole number from 1 to 60, default 5, read by `Config` like every other
+- [x] `[toasts] seconds`, a whole number from 1 to 60, default 5, read by `Config` like every other
       key, and from the page on the web (ADR 0091).
-- [ ] `console/src/config.rs`'s header documents the key; an out-of-range or mistyped value is the
+- [x] `console/src/config.rs`'s header documents the key; an out-of-range or mistyped value is the
       usual notice and the default applies.
-- [ ] A Toast fades out once its seconds have passed since it was raised, and a faded Toast does not
+- [x] A Toast fades out once its seconds have passed since it was raised, and a faded Toast does not
       return for the same message.
-- [ ] While any source reports a message, the Panel's **O** readout is drawn in the error colour,
+- [x] While any source reports a message, the Panel's **O** readout is drawn in the error colour,
       whether its Toast is showing, faded or dismissed; it returns to its ordinary colour when every
       source is clear.
-- [ ] The console asks egui for a repaint while a Toast is showing or fading, and for none once the
+- [x] The console asks egui for a repaint while a Toast is showing or fading, and for none once the
       last one has gone.
-- [ ] Tests: the settings reader's cases for the key, and a kittest that advances past the
+- [x] Tests: the settings reader's cases for the key, and a kittest that advances past the
       configured seconds, finds the Toast gone and the **O** readout still in the error colour, then
       clears the message and finds it back in its ordinary colour.
+
+## Answer
+
+`Config` reads `[toasts] seconds` (1 to 60, default 5) into `toast_seconds`, which `Toasts::new`
+takes. A Toast stays whole for those seconds and then fades over half a second; `Toasts::fitting`
+leaves out a faded or dismissed one, and its key stays remembered, so it does not return. The Panel
+draws **O** in the error colour while `panel::statuses` reports any message. Each shown Toast asks
+for a repaint when it is due to fade, and every frame while it fades.

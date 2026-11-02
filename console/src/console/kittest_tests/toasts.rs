@@ -192,3 +192,100 @@ async fn the_panel_keeps_its_height_whatever_the_messages() {
         );
     }
 }
+
+/// The colour the Panel's **O** is painted in on the last frame.
+fn output_label_colour(harness: &Harness<'_, Console>) -> egui::Color32 {
+    fn find(shape: &egui::Shape) -> Option<egui::Color32> {
+        match shape {
+            egui::Shape::Text(text) if text.galley.text() == "O" => {
+                let colour = text.galley.job.sections[0].format.color;
+                Some(if colour == egui::Color32::PLACEHOLDER {
+                    text.fallback_color
+                } else {
+                    colour
+                })
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(find),
+            _ => None,
+        }
+    }
+    harness
+        .output()
+        .shapes
+        .iter()
+        .find_map(|clipped| find(&clipped.shape))
+        .expect("the Panel paints O")
+}
+
+///
+/// A Toast fades once its seconds have passed, and does not return for the
+/// same message; the Panel's **O** stays in the error colour while the message
+/// stands, and returns to its own colour once it clears.
+///
+#[tokio::test]
+async fn a_toast_fades_after_its_seconds_and_o_keeps_the_failure() {
+    let mut harness = quiet_console(false);
+    let error = harness.ctx.global_style().visuals.error_fg_color;
+    harness.run_steps(2);
+    assert_ne!(output_label_colour(&harness), error, "nothing has failed");
+
+    fail_the_engine(&mut harness, "clock stopped");
+    harness.run_steps(3);
+    assert!(harness.query_by_label("clock stopped").is_some());
+    assert_eq!(
+        output_label_colour(&harness),
+        error,
+        "while the Toast shows"
+    );
+
+    // The harness steps a quarter of a second; the default is five seconds.
+    harness.run_steps(24);
+    assert!(
+        harness.query_by_label("clock stopped").is_none(),
+        "the Toast is still showing after six seconds"
+    );
+    assert_eq!(
+        output_label_colour(&harness),
+        error,
+        "after the Toast faded"
+    );
+
+    clear_the_engine(&mut harness);
+    harness.run_steps(2);
+    assert_ne!(
+        output_label_colour(&harness),
+        error,
+        "once the message cleared"
+    );
+}
+
+///
+/// `[toasts] seconds` sets how long a Toast shows: one second here, so it is
+/// still showing after three quarters of one and gone well after.
+///
+#[tokio::test]
+async fn a_toast_lasts_the_configured_seconds() {
+    let config = crate::config::Config {
+        toast_seconds: 1,
+        ..crate::config::Config::default()
+    };
+    let mut harness = super::console_harness(
+        Vec2::from(DEFAULT_VIEW_SIZE),
+        None,
+        crate::theme_registry::ThemeRegistry::built_in(),
+        config,
+    );
+    quiet_midi(harness.state_mut());
+    fail_the_engine(&mut harness, "clock stopped");
+    harness.run_steps(3);
+    assert!(
+        harness.query_by_label("clock stopped").is_some(),
+        "within its second"
+    );
+
+    harness.run_steps(6);
+    assert!(
+        harness.query_by_label("clock stopped").is_none(),
+        "still showing after two seconds"
+    );
+}
