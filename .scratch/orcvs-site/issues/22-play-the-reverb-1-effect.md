@@ -6,7 +6,11 @@ sounding as it does with no effects.
 
 **Blocked by:** 15
 
-**Status:** needs-triage
+**Status:** resolved
 
-- [ ] Synth core tests: at the load value the sound is unchanged, and across the range the effect is
+- [x] Synth core tests: at the load value the sound is unchanged, and across the range the effect is
       audible and stays finite.
+
+## Answer
+
+A Schroeder reverb on the whole mix, last after `DL`: four damped combs side by side (Freeverb's first four lengths at size 0.6, feedback 0.85) and two allpasses in a row, added at `R1`'s level. It falls 60 dB in about two thirds of a second. The level glides rather than steps.

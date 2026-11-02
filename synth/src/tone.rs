@@ -6,8 +6,8 @@ const ATTACK: f32 = 0.005;
 const RELEASE: f32 = 0.15;
 
 /// One tone: a waveform its channel picks, under one shared envelope that
-/// rises over 5 ms, holds while the note is held, and falls over 150 ms once
-/// it is released.
+/// rises over 5 ms, holds while the note is held, and falls over 150 ms times
+/// its length once it is released.
 pub(crate) struct Tone {
     shape: Shape,
     frequency: f32,
@@ -16,6 +16,7 @@ pub(crate) struct Tone {
     time: f32,
     envelope: f32,
     held: bool,
+    release: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -63,7 +64,8 @@ impl Shape {
 }
 
 impl Tone {
-    pub(crate) fn new(channel: u8, note: u8) -> Self {
+    /// A tone whose release lasts `length` of its full 150 ms.
+    pub(crate) fn new(channel: u8, note: u8, length: f32) -> Self {
         Self {
             shape: Shape::of(channel),
             frequency: 440.0 * 2f32.powf((f32::from(note) - 69.0) / 12.0),
@@ -72,6 +74,7 @@ impl Tone {
             time: 0.0,
             envelope: 0.0,
             held: true,
+            release: RELEASE * length,
         }
     }
 
@@ -83,12 +86,19 @@ impl Tone {
         self.held = false;
     }
 
+    /// Jumps `seconds` into a held tone. Its phases stay where they are: a
+    /// sound joined late fades in, so its first cycles go unheard.
+    pub(crate) fn jump(&mut self, seconds: f32) {
+        self.envelope = (self.envelope + seconds / ATTACK).min(1.0);
+        self.time += seconds;
+    }
+
     /// The next sample, or `None` once the release has finished.
     pub(crate) fn sample(&mut self, dt: f32) -> Option<f32> {
         self.envelope = if self.held {
             (self.envelope + dt / ATTACK).min(1.0)
         } else {
-            self.envelope - dt / RELEASE
+            self.envelope - dt / self.release
         };
         if self.envelope <= 0.0 && !self.held {
             return None;
@@ -128,5 +138,28 @@ impl Tone {
         let value = (self.modulator * TAU).sin();
         self.modulator = (self.modulator + ratio * self.frequency * dt).fract();
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn peak_of_first_cycle(tone: &mut Tone) -> f32 {
+        // One cycle of A440 at 48 kHz.
+        (0..110)
+            .filter_map(|_| tone.sample(1.0 / 48_000.0))
+            .fold(0.0, |peak, s| s.abs().max(peak))
+    }
+
+    #[test]
+    fn a_tone_jumped_past_its_attack_sounds_at_full_loudness_at_once() {
+        assert!(peak_of_first_cycle(&mut Tone::new(0, 69, 1.0)) < 0.5);
+
+        // An hour costs what a tenth of a second does.
+        let mut tone = Tone::new(0, 69, 1.0);
+        tone.jump(3_600.0);
+        assert!(tone.is_held());
+        assert!(peak_of_first_cycle(&mut tone) > 0.99);
     }
 }

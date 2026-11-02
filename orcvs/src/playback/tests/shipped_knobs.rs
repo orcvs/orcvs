@@ -2,8 +2,9 @@
 //! through Source/Tick and Playback.
 //!
 //! Every Tick the bassline plays its next step on the Built-in Synth's acid
-//! channel, and each knob sends one Control Change to the acid voice. A knob's
-//! value glides by at most [`RATE`] a Tick toward its Clock, which sweeps up a
+//! channel, and each knob sends one Control Change: three to the acid voice
+//! and eight to the synth's effects. A knob's value glides by at most
+//! [`RATE`] a Tick toward its Clock plus a floor, and the Clock sweeps up a
 //! step at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
 
@@ -66,18 +67,60 @@ const BASS: [(u8, Touch); 16] = {
 /// The acid channel.
 const ACID: u8 = 0x09;
 
-/// Each knob in Source order as its controller and its Clock's `rate` and
-/// `modulus`: cutoff, resonance and decay.
-const KNOBS: [(u8, u64, u64); 3] = [(0x4A, 0x01, 0x80), (0x47, 0x02, 0x80), (0x4B, 0x03, 0x40)];
+/// The channel the effects' knobs send on. Each effect is global, so any
+/// channel would do.
+const EFFECTS: u8 = 0x00;
+
+/// One knob: the channel and controller it sends, the floor its Add puts
+/// under the Clock, and the Clock's `rate` and `modulus`.
+struct Knob {
+    channel: u8,
+    controller: u8,
+    floor: u8,
+    rate: u64,
+    modulus: u64,
+}
+
+impl Knob {
+    const fn new(channel: u8, controller: u8, floor: u8, rate: u64, modulus: u64) -> Self {
+        Self {
+            channel,
+            controller,
+            floor,
+            rate,
+            modulus,
+        }
+    }
+
+    /// Where the knob's value is gliding at `tick`.
+    fn target(&self, tick: u64) -> u8 {
+        self.floor + (tick / self.rate % self.modulus) as u8
+    }
+}
+
+/// Each knob in Source order: the acid voice's cutoff, resonance and decay,
+/// then `MD`, `OF`, `LN`, `DL`, `CH`, `EQ`, `R1` and `R2`.
+const KNOBS: [Knob; 11] = [
+    Knob::new(ACID, 0x4A, 0x00, 0x01, 0x80),
+    Knob::new(ACID, 0x47, 0x00, 0x02, 0x80),
+    Knob::new(ACID, 0x4B, 0x00, 0x03, 0x40),
+    Knob::new(EFFECTS, 0x01, 0x00, 0x05, 0x40),
+    Knob::new(EFFECTS, 0x02, 0x00, 0x07, 0x20),
+    Knob::new(EFFECTS, 0x03, 0x40, 0x04, 0x40),
+    Knob::new(EFFECTS, 0x04, 0x00, 0x03, 0x40),
+    Knob::new(EFFECTS, 0x05, 0x00, 0x02, 0x40),
+    Knob::new(EFFECTS, 0x06, 0x30, 0x05, 0x20),
+    Knob::new(EFFECTS, 0x07, 0x00, 0x06, 0x30),
+    Knob::new(EFFECTS, 0x08, 0x00, 0x08, 0x40),
+];
 
 /// How far a knob's value moves in one Tick, its Interpolation's `rate`.
 const RATE: u8 = 0x08;
 
-/// The Control Change a knob sends to `controller` with `value` on the acid
-/// channel.
-fn knob_change(controller: u8, value: u8) -> OutputCommand {
+/// The Control Change a knob sends to `controller` with `value` on `channel`.
+fn knob_change(channel: u8, controller: u8, value: u8) -> OutputCommand {
     OutputCommand::ControlChange {
-        channel: MidiChannel::try_from(ACID).expect("a MIDI channel"),
+        channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
         controller: Controller::try_from(controller).expect("a MIDI data byte"),
         value: ControlValue::try_from(value).expect("a MIDI data byte"),
     }
@@ -93,7 +136,7 @@ fn glide(value: u8, target: u8) -> u8 {
 }
 
 #[test]
-fn the_knobs_turn_the_acid_voice_under_an_accented_sliding_bassline() {
+fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassline() {
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/knobs.orcvs"))
             .expect("the shipped file is a Source File"),
@@ -120,9 +163,9 @@ fn the_knobs_turn_the_acid_voice_under_an_accented_sliding_bassline() {
     // started.
     let mut sounding: Vec<(u8, u64)> = Vec::new();
 
-    // Long enough for the cutoff's Clock to wrap at Tick `80` and its value
-    // to glide back down.
-    for tick in 0..0x90 {
+    // Long enough for the slowest Clock, `R2`'s, to wrap at Tick `200` and
+    // its value to glide back down.
+    for tick in 0..0x210 {
         let plan = run.run_tick(tick);
         assert!(
             plan.diagnostics.is_empty(),
@@ -139,9 +182,9 @@ fn the_knobs_turn_the_acid_voice_under_an_accented_sliding_bassline() {
         let (note, touch) = BASS[tick as usize % BASS.len()];
         delivery.push(note_on(ACID, touch.velocity(), note));
         sounding.push((note, tick + touch.length()));
-        for (value, &(controller, rate, modulus)) in values.iter_mut().zip(&KNOBS) {
-            *value = glide(*value, (tick / rate % modulus) as u8);
-            delivery.push(knob_change(controller, *value));
+        for (value, knob) in values.iter_mut().zip(&KNOBS) {
+            *value = glide(*value, knob.target(tick));
+            delivery.push(knob_change(knob.channel, knob.controller, *value));
         }
         assert_eq!(
             adapter.command_lists().last(),

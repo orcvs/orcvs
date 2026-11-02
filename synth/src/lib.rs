@@ -6,14 +6,23 @@
 use std::collections::VecDeque;
 
 mod acid;
+mod chorus;
+mod delay;
 mod drum;
+mod glide;
+mod reverb;
+mod tilt;
 mod tone;
 mod vibrato;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
 use acid::{Acid, Controls};
+use chorus::Chorus;
+use delay::Delay;
 use drum::{Drum, Instrument};
+use reverb::{Reverb, Room};
+use tilt::Tilt;
 use tone::Tone;
 use vibrato::Vibrato;
 
@@ -26,11 +35,34 @@ const TONE_LEVEL: f32 = 0.2;
 const DRUM_LEVEL: f32 = 0.35;
 const ACID_LEVEL: f32 = 0.3;
 
+/// How far into its course `OF` starts each new sound at `7F`, in seconds.
+const MAX_OFFSET: f32 = 0.1;
+/// `R1`'s room: about two thirds of a second to fall 60 dB.
+const SMALL: Room = Room {
+    size: 0.6,
+    feedback: 0.85,
+};
+/// `R2`'s room: about two seconds to fall 60 dB.
+const LARGE: Room = Room {
+    size: 1.0,
+    feedback: 0.92,
+};
+
+/// The share of its own length a sound keeps at `LN` `00`; `7F` keeps all of
+/// it.
+const SHORTEST: f32 = 0.02;
+/// How long an offset sound fades in over, in seconds, so a sound joined
+/// at full loudness does not click.
+const FADE: f32 = 0.005;
+
 /// The synth: sixteen voices, a frame clock, and the messages still to come.
 ///
 /// Channels `0`–`7` play tones, `9` the acid voice (ADR 0099), and `8` and
-/// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 on
-/// any channel sets `MD`, vibrato on the whole mix. All Sound Off and All Notes
+/// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 to
+/// 8 on any channel set the effects (ADR 0088): `MD`, vibrato on the whole mix,
+/// `OF`, how far into its course each new sound starts, `LN`, how long it
+/// decays, `DL`, an echo of the whole mix, `CH`, a chorus on it, `EQ`, one
+/// tilt, and `R1` and `R2`, a small and a large reverb. All Sound Off and All Notes
 /// Off release a channel's tones and its acid voice. The acid channel's own
 /// Control Changes and Reset All Controllers set its controls; every other
 /// Control Change, Pitch Bend and Program Change is ignored.
@@ -44,6 +76,15 @@ pub struct Synth {
     /// they were scheduled in.
     queue: VecDeque<(u64, [u8; 3])>,
     vibrato: Vibrato,
+    tilt: Tilt,
+    chorus: Chorus,
+    delay: Delay,
+    small: Reverb,
+    large: Reverb,
+    /// `OF`, `00`–`7F`.
+    offset: u8,
+    /// `LN`, `00`–`7F`.
+    length: u8,
     acid: Controls,
 }
 
@@ -52,6 +93,9 @@ struct Voice {
     note: u8,
     started: u64,
     level: f32,
+    /// Rises from `0` to `1` over `FADE` once an offset sound starts, and is
+    /// `1` from the start otherwise.
+    fade: f32,
     sound: Sound,
 }
 
@@ -78,6 +122,31 @@ impl Sound {
             Self::Acid(acid) => acid.release(),
         }
     }
+
+    /// Jumps `seconds` into its course under `acid`, at a cost that does not
+    /// grow with `seconds`, and answers whether it still sounds there.
+    fn jump(&mut self, seconds: f32, acid: &Controls) -> bool {
+        match self {
+            Self::Tone(tone) => {
+                tone.jump(seconds);
+                true
+            }
+            Self::Drum(drum) => drum.jump(seconds),
+            Self::Acid(sound) => {
+                sound.jump(seconds, acid);
+                true
+            }
+        }
+    }
+
+    /// The next sample at its voice's level, or `None` once it has finished.
+    fn sample(&mut self, dt: f32, acid: &Controls) -> Option<f32> {
+        match self {
+            Self::Tone(tone) => tone.sample(dt).map(|value| value * TONE_LEVEL),
+            Self::Drum(drum) => drum.sample(dt).map(|value| value * DRUM_LEVEL),
+            Self::Acid(sound) => sound.sample(dt, acid).map(|value| value * ACID_LEVEL),
+        }
+    }
 }
 
 impl Synth {
@@ -91,6 +160,13 @@ impl Synth {
             // audio thread rarely allocates.
             queue: VecDeque::with_capacity(64),
             vibrato: Vibrato::new(sample_rate),
+            tilt: Tilt::new(sample_rate),
+            chorus: Chorus::new(sample_rate),
+            delay: Delay::new(sample_rate),
+            small: Reverb::new(sample_rate, SMALL),
+            large: Reverb::new(sample_rate, LARGE),
+            offset: 0,
+            length: 0x7F,
             acid: Controls::default(),
         }
     }
@@ -122,17 +198,20 @@ impl Synth {
             let mut mix = 0.0;
             for slot in &mut self.voices {
                 let Some(voice) = slot else { continue };
-                let (value, scale) = match &mut voice.sound {
-                    Sound::Tone(tone) => (tone.sample(dt), TONE_LEVEL),
-                    Sound::Drum(drum) => (drum.sample(dt), DRUM_LEVEL),
-                    Sound::Acid(acid) => (acid.sample(dt, &self.acid), ACID_LEVEL),
-                };
-                match value {
-                    Some(value) => mix += value * voice.level * scale,
+                match voice.sound.sample(dt, &self.acid) {
+                    Some(value) => {
+                        voice.fade = (voice.fade + dt / FADE).min(1.0);
+                        mix += value * voice.level * voice.fade;
+                    }
                     None => *slot = None,
                 }
             }
-            *sample = self.vibrato.process(mix).tanh();
+            let mix = self.vibrato.process(mix);
+            let mix = self.tilt.process(mix);
+            let mix = self.chorus.process(mix);
+            let mix = self.delay.process(mix);
+            let mix = self.small.process(mix);
+            *sample = self.large.process(mix).tanh();
             self.frame += 1;
         }
     }
@@ -143,6 +222,13 @@ impl Synth {
             0x90 if data2 > 0 => self.note_on(channel, data1, data2),
             0x80 | 0x90 => self.release_note(channel, data1),
             0xB0 if data1 == 1 => self.vibrato.set(data2),
+            0xB0 if data1 == 2 => self.offset = data2,
+            0xB0 if data1 == 3 => self.length = data2,
+            0xB0 if data1 == 4 => self.delay.set(data2),
+            0xB0 if data1 == 5 => self.chorus.set(data2),
+            0xB0 if data1 == 6 => self.tilt.set(data2),
+            0xB0 if data1 == 7 => self.small.set(data2),
+            0xB0 if data1 == 8 => self.large.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
             0xB0 if channel == acid::CHANNEL => self.acid.set(data1, data2),
@@ -177,20 +263,28 @@ impl Synth {
 
     fn note_on(&mut self, channel: u8, note: u8, velocity: u8) {
         self.started += 1;
-        let sound = if channel < 8 {
-            Sound::Tone(Tone::new(channel, note))
+        // `SHORTEST` at `00`, rising exponentially to exactly `1` at `7F`.
+        let length = SHORTEST.powf(1.0 - f32::from(self.length) / 127.0);
+        let mut sound = if channel < 8 {
+            Sound::Tone(Tone::new(channel, note, length))
         } else if channel == acid::CHANNEL {
-            if self.play_acid(note, velocity) {
+            if self.play_acid(note, velocity, length) {
                 return;
             }
-            Sound::Acid(Acid::new(note, velocity))
+            Sound::Acid(Acid::new(note, velocity, length))
         } else {
             let instrument = Instrument::of(note);
             if instrument == Instrument::ClosedHat {
                 self.choke_open_hats(channel);
             }
-            Sound::Drum(Drum::new(instrument, self.sample_rate))
+            Sound::Drum(Drum::new(instrument, self.sample_rate, length))
         };
+        // `OF` jumps the sound into its course. A sound that ends there never
+        // sounds.
+        let offset = MAX_OFFSET * f32::from(self.offset) / 127.0;
+        if !sound.jump(offset, &self.acid) {
+            return;
+        }
         // A free voice ranks first, then the oldest.
         let slot = (0..VOICES)
             .min_by_key(|&index| self.voices[index].as_ref().map_or(0, |voice| voice.started))
@@ -200,14 +294,15 @@ impl Synth {
             note,
             started: self.started,
             level: f32::from(velocity) / 127.0,
+            fade: if offset > 0.0 { 0.0 } else { 1.0 },
             sound,
         });
     }
 
     /// Plays `note` on the acid voice if it is still sounding, and answers
     /// whether it was. The note counts as the newest voice and takes its own
-    /// velocity, slid into or struck afresh.
-    fn play_acid(&mut self, note: u8, velocity: u8) -> bool {
+    /// velocity, slid into or struck afresh; struck afresh, it takes `length`.
+    fn play_acid(&mut self, note: u8, velocity: u8, length: f32) -> bool {
         let Some(Voice {
             note: playing,
             started,
@@ -222,7 +317,7 @@ impl Synth {
         else {
             return false;
         };
-        acid.play(note, velocity);
+        acid.play(note, velocity, length);
         *playing = note;
         *started = self.started;
         *level = f32::from(velocity) / 127.0;
@@ -489,14 +584,238 @@ mod tests {
         let mut plain = Synth::new(RATE);
         plain.schedule(0, note_on(0, 69, 100));
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
-        // Control Change 2 to 8 set effects whose sound has not landed yet, and
-        // the acid controls act on the acid channel alone.
-        for controller in (2..=8).chain([70, 71, 74, 75, 79, 121]) {
+        // The acid controls act on the acid channel alone.
+        for controller in [70, 71, 74, 75, 79, 121] {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
         synth.schedule(0, [0xC0, 5, 0]);
 
         assert_eq!(render(&mut synth, 4_800), render(&mut plain, 4_800));
+    }
+
+    /// `note` on `channel` after `messages`, all at frame zero.
+    fn after(messages: &[[u8; 3]], channel: u8, note: u8, frames: usize) -> Vec<f32> {
+        let mut synth = Synth::new(RATE);
+        for &message in messages {
+            synth.schedule(0, message);
+        }
+        synth.schedule(0, note_on(channel, note, 100));
+        render(&mut synth, frames)
+    }
+
+    #[test]
+    fn offset_at_its_load_value_changes_nothing() {
+        for (channel, note) in [(0, 69), (8, 36), (9, 45)] {
+            assert_eq!(
+                after(&[[0xB0, 2, 0x00]], channel, note, seconds(0.3)),
+                after(&[], channel, note, seconds(0.3)),
+                "channel {channel}"
+            );
+        }
+    }
+
+    #[test]
+    fn offset_starts_a_kick_past_its_punch() {
+        let plain = after(&[], 8, 36, seconds(0.5));
+        let offset = after(&[[0xB3, 2, 0x7F]], 8, 36, seconds(0.5));
+
+        assert!(offset.iter().all(|s| s.is_finite()));
+        assert!(rms(&offset[..seconds(0.02)]) < 0.9 * rms(&plain[..seconds(0.02)]));
+        assert!(rms(&offset[..seconds(0.02)]) > 0.01);
+    }
+
+    #[test]
+    fn an_offset_tone_fades_in_rather_than_clicks() {
+        let out = after(&[[0xB0, 2, 0x7F]], 0, 69, seconds(0.1));
+
+        assert!(out[0].abs() < 0.01, "{}", out[0]);
+        assert!(rms(&out[seconds(0.05)..]) > 0.05);
+    }
+
+    #[test]
+    fn a_sound_that_ends_within_the_offset_takes_no_voice() {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, [0xB0, 2, 0x7F]);
+        // The rim shot decays to silence well inside 100 ms.
+        synth.schedule(0, note_on(8, 37, 100));
+        render(&mut synth, 10);
+
+        assert!(synth.sounding().is_empty());
+    }
+
+    #[test]
+    fn length_at_its_load_value_changes_nothing() {
+        for (channel, note) in [(0, 69), (8, 36), (9, 45)] {
+            assert_eq!(
+                after(&[[0xB0, 3, 0x7F]], channel, note, seconds(0.3)),
+                after(&[], channel, note, seconds(0.3)),
+                "channel {channel}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_short_length_cuts_a_kick_to_a_blip() {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, [0xB4, 3, 0x00]);
+        synth.schedule(0, note_on(8, 36, 100));
+        let out = render(&mut synth, seconds(0.1));
+
+        assert!(rms(&out[..seconds(0.005)]) > 0.01);
+        assert!(synth.sounding().is_empty());
+        let full = after(&[], 8, 36, seconds(0.1));
+        assert!(rms(&full[seconds(0.05)..]) > 0.05);
+    }
+
+    #[test]
+    fn a_short_length_shortens_a_tones_release() {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, [0xB0, 3, 0x00]);
+        synth.schedule(0, note_on(0, 60, 100));
+        synth.schedule(seconds(0.1) as u64, note_off(0, 60));
+        let out = render(&mut synth, seconds(0.2));
+
+        assert!(rms(&out[..seconds(0.1)]) > 0.05);
+        assert_eq!(rms(&out[seconds(0.11)..]), 0.0);
+    }
+
+    #[test]
+    fn a_short_length_closes_the_acid_filter_sooner() {
+        let full = after(&[], 9, 45, seconds(0.4));
+        let short = after(&[[0xB9, 3, 0x00]], 9, 45, seconds(0.4));
+
+        assert!(short.iter().all(|s| s.is_finite()));
+        let late = seconds(0.1)..;
+        let brightness = |samples: &[f32]| amplitude_at(samples, 4.0 * 110.0);
+        assert!(brightness(&short[late.clone()]) < 0.5 * brightness(&full[late]));
+    }
+
+    /// A 50 ms tone after `messages`, then `frames` in all.
+    fn blip(messages: &[[u8; 3]], frames: usize) -> Vec<f32> {
+        let mut synth = Synth::new(RATE);
+        for &message in messages {
+            synth.schedule(0, message);
+        }
+        synth.schedule(0, note_on(0, 69, 100));
+        synth.schedule(seconds(0.05) as u64, note_off(0, 69));
+        render(&mut synth, frames)
+    }
+
+    #[test]
+    fn delay_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            blip(&[[0xB0, 4, 0x00]], seconds(1.0)),
+            blip(&[], seconds(1.0))
+        );
+    }
+
+    #[test]
+    fn delay_echoes_the_mix_and_the_echoes_die_away() {
+        let dry = blip(&[], seconds(1.0));
+        let wet = blip(&[[0xB2, 4, 0x7F]], seconds(6.0));
+
+        assert!(wet.iter().all(|s| s.is_finite()));
+        let echo = seconds(0.375)..seconds(0.425);
+        assert_eq!(rms(&dry[echo.clone()]), 0.0);
+        assert!(rms(&wet[echo]) > 0.02);
+        assert!(rms(&wet[seconds(5.5)..]) < 1e-4);
+    }
+
+    /// The ratio of the loudest to the quietest 20 ms of `samples`.
+    fn loudness_spread(samples: &[f32]) -> f32 {
+        let windows: Vec<f32> = samples.chunks(seconds(0.02)).map(rms).collect();
+        let loudest = windows.iter().copied().fold(0.0, f32::max);
+        let quietest = windows.iter().copied().fold(f32::INFINITY, f32::min);
+        loudest / quietest
+    }
+
+    #[test]
+    fn chorus_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            after(&[[0xB0, 5, 0x00]], 0, 69, seconds(0.5)),
+            after(&[], 0, 69, seconds(0.5))
+        );
+    }
+
+    #[test]
+    fn chorus_makes_a_steady_tone_shimmer() {
+        let steady = 0.1..;
+        let dry = after(&[], 0, 69, seconds(2.0));
+        let wet = after(&[[0xB6, 5, 0x7F]], 0, 69, seconds(2.0));
+
+        assert!(wet.iter().all(|s| s.is_finite()));
+        assert!(loudness_spread(&dry[seconds(steady.start)..]) < 1.05);
+        assert!(loudness_spread(&wet[seconds(steady.start)..]) > 1.3);
+    }
+
+    /// How bright `samples` are: the loudness of their change from sample to
+    /// sample against their own loudness.
+    fn brightness(samples: &[f32]) -> f32 {
+        let changes: Vec<f32> = samples.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        rms(&changes) / rms(samples)
+    }
+
+    #[test]
+    fn eq_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            after(&[[0xB0, 6, 0x40]], 2, 45, seconds(0.5)),
+            after(&[], 2, 45, seconds(0.5))
+        );
+    }
+
+    #[test]
+    fn eq_tilts_the_mix_darker_below_40_and_brighter_above() {
+        let tilted = |value| {
+            let out = after(&[[0xB7, 6, value]], 2, 45, seconds(0.5));
+            assert!(out.iter().all(|s| s.is_finite()));
+            brightness(&out[seconds(0.1)..])
+        };
+        let flat = tilted(0x40);
+
+        assert!(tilted(0x00) < 0.7 * flat, "{} against {flat}", tilted(0x00));
+        assert!(tilted(0x7F) > 1.3 * flat, "{} against {flat}", tilted(0x7F));
+    }
+
+    #[test]
+    fn the_small_reverb_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            blip(&[[0xB0, 7, 0x00]], seconds(1.0)),
+            blip(&[], seconds(1.0))
+        );
+    }
+
+    #[test]
+    fn the_small_reverb_rings_after_the_mix_and_dies_away() {
+        let dry = blip(&[], seconds(1.0));
+        let wet = blip(&[[0xB1, 7, 0x7F]], seconds(4.0));
+
+        assert!(wet.iter().all(|s| s.is_finite()));
+        let tone = rms(&dry[..seconds(0.05)]);
+        let tail = seconds(0.25)..seconds(0.35);
+        assert_eq!(rms(&dry[tail.clone()]), 0.0);
+        assert!(rms(&wet[tail]) > 0.01 * tone);
+        assert!(rms(&wet[seconds(3.5)..]) < 1e-5 * tone);
+    }
+
+    #[test]
+    fn the_large_reverb_at_its_load_value_changes_nothing() {
+        assert_eq!(
+            blip(&[[0xB0, 8, 0x00]], seconds(1.0)),
+            blip(&[], seconds(1.0))
+        );
+    }
+
+    #[test]
+    fn the_large_reverb_rings_longer_than_the_small_and_dies_away() {
+        let tone = rms(&blip(&[], seconds(0.05)));
+        let small = blip(&[[0xB0, 7, 0x7F]], seconds(1.2));
+        let large = blip(&[[0xBE, 8, 0x7F]], seconds(10.0));
+
+        assert!(large.iter().all(|s| s.is_finite()));
+        let late = seconds(1.0)..seconds(1.2);
+        assert!(rms(&large[late.clone()]) > 0.01 * tone);
+        assert!(rms(&large[late.clone()]) > 100.0 * rms(&small[late]));
+        assert!(rms(&large[seconds(9.5)..]) < 1e-5 * tone);
     }
 
     #[test]

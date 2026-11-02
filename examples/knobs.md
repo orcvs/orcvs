@@ -1,10 +1,11 @@
 # Knobs
 
-`knobs.orcvs` turns three of the 303-style voice's knobs over a sixteen-step
-acid bassline. Open it with **Help > Examples > Knobs** and press Space to start
-Playback. Each knob's value climbs a step at a time and glides back to `00`
-when its Clock wraps. The example opens Untitled, so **File > Save** asks where
-to keep your edits.
+`knobs.orcvs` turns three of the 303-style voice's knobs and the Built-in
+Synth's eight effects over a sixteen-step acid bassline. Open it with
+**Help > Examples > Knobs** and press Space to start Playback. Each knob's
+value climbs a step at a time and glides back down when its Clock wraps; the
+Sound Module on orcvs.com shows each effect move. The example opens Untitled,
+so **File > Save** asks where to keep your edits.
 
 ```text
 col  0         1         2         3         4         5
@@ -28,6 +29,13 @@ col  0         1         2         3         4         5
  16      !c094A~>08~.0180    || CUT ||
  ...
  22      !c094B~>08~.0340    || DEC ||
+ 23
+ 24
+ 25    || effects ||
+ 26    ~*0101
+ 27      !c0001~>08~.0540        || MD ||
+ ...
+ 48      !c0008~>08~.0840        || R2 ||
 ```
 
 ## The bassline
@@ -79,13 +87,47 @@ waveform, a saw below `40` and a square from it, and `4F` (79), how far each
 Note's sweep opens the filter. Add a knob for either, or change a Clock's
 `rate` or `modulus` while it plays.
 
+## The effects
+
+Each effect knob is the same machine on channel `00`, sending controller `01`
+to `08`, the Built-in Synth's effects (ADR 0088). Each effect is global, so the
+channel picks nothing. `LN` and `EQ` sweep around their load values, `7F` and
+`40`, so an Add puts a floor under the Clock:
+
+| Cells | Function | Role |
+| --- | --- | --- |
+| (4, 33) `!c0003` | Control Change | Channel `00`, controller `03`, the `LN` effect. Its value slot holds the Interpolation. |
+| (10, 33) `~>08` | Interpolation, nested | Moves its value toward the Add's by at most `08` a Tick. |
+| (14, 33) `.+40` | Add, nested | Adds `40` to the Clock's count. |
+| (18, 33) `~.0440` | Clock, nested | Counts `00` to `3F`, a step every 4 Ticks, then wraps. |
+
+Each effect sweeps at its own rate, so the effects peak at different times:
+
+| Controller | Effect | Clock | Sweep |
+| --- | --- | --- | --- |
+| `01` | `MD`, vibrato | `~.0540` | `00` to `3F`, a step every 5 Ticks |
+| `02` | `OF`, how far into its course each sound starts | `~.0720` | `00` to `1F`, a step every 7 Ticks |
+| `03` | `LN`, how long each sound decays | `.+40~.0440` | `40` to `7F`, a step every 4 Ticks |
+| `04` | `DL`, delay | `~.0340` | `00` to `3F`, a step every 3 Ticks |
+| `05` | `CH`, chorus | `~.0240` | `00` to `3F`, a step every 2 Ticks |
+| `06` | `EQ`, tilt | `.+30~.0520` | `30` to `4F`, darker to brighter, a step every 5 Ticks |
+| `07` | `R1`, small reverb | `~.0630` | `00` to `2F`, a step every 6 Ticks |
+| `08` | `R2`, large reverb | `~.0840` | `00` to `3F`, a step every 8 Ticks |
+
+Every value starts at `00`, so for the first second after you start Playback
+`LN` and `EQ` glide up from below their sweeps: the sounds start short and dark.
+
 The patch is made for the Built-in Synth. On another MIDI output, channel `09`
 is just a channel: most synths read `47`, `4A` and `4B` as resonance, cutoff and
-decay, and the accents and slides only change loudness and length.
+decay, and the accents and slides only change loudness and length. Controllers
+`01` to `08` carry General MIDI's meanings instead: `01` is the modulation
+wheel and `07` channel volume, so the sweep on `07` swells channel 1's volume
+on most devices.
 
 ## Learn Orca
 
 Learn Orca's knobs patch sends eight Control Changes whose values glide to one
 of six presets chosen by hand, beside a tracker that makes the sound. This
-example keeps its idea, knobs that move the sound, with a Clock in place of the
-presets so the knobs move on their own, and its own bassline to hear them on.
+example keeps its idea, knobs that move the sound and the effects, with a Clock
+in place of the presets so the knobs move on their own, and its own bassline to
+hear them on.
