@@ -112,6 +112,14 @@ async fn the_midi_status_floats_above_the_destination_field() {
         status.bottom(),
         field.top()
     );
+    let window = harness.ctx.content_rect();
+    assert!(
+        status.left() >= window.right() - 16.0 - 380.0 && status.right() <= window.right() - 16.0,
+        "the status runs from {} to {}, outside the Toast stack in a window ending at {}",
+        status.left(),
+        status.right(),
+        window.right()
+    );
 }
 
 ///
