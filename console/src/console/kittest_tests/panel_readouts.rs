@@ -85,11 +85,11 @@ async fn a_long_destination_name_leaves_no_empty_icon_slot_in_its_field() {
 }
 
 ///
-/// A MIDI status takes the line beneath the destination field rather than
-/// touching its frame.
+/// The MIDI selection's message floats as a Toast over the Source, clear of
+/// the destination field it is about.
 ///
 #[tokio::test]
-async fn the_midi_status_sits_beneath_the_destination_field() {
+async fn the_midi_status_floats_above_the_destination_field() {
     let fake = FakeWebMidi::with(
         AccessStatus::Granted,
         &[("a", Some("First")), ("b", Some("Second"))],
@@ -106,11 +106,11 @@ async fn the_midi_status_sits_beneath_the_destination_field() {
             node.role() == Role::Label && node.value().as_deref() == Some("Opening Second…")
         })
         .rect();
-    let gap = status.top() - field.bottom();
     assert!(
-        gap >= 0.0,
-        "the status overlaps the destination field by {}pt",
-        -gap
+        status.bottom() < field.top(),
+        "the status ends at {} beneath the field's top at {}",
+        status.bottom(),
+        field.top()
     );
 }
 
