@@ -179,6 +179,23 @@ fn place_picture(source: Rect, border: f32, grid: Grid, pixels_per_point: f32) -
 
 impl Console {
     ///
+    /// Where the Minimap's picture lies this Render Frame, placed by
+    /// [`place_picture`] with `border` along its inner edges, or `None` while
+    /// it is closed or does not fit.
+    ///
+    pub(super) fn minimap_rect(&self, frame: &RenderFrame, border: f32) -> Option<Rect> {
+        if !self.minimap_open {
+            return None;
+        }
+        place_picture(
+            self.source_view.shown().console(),
+            border,
+            frame.grid(),
+            self.ctx.pixels_per_point(),
+        )
+    }
+
+    ///
     /// Shows the Minimap pinned to the Source's bottom-right corner, when it
     /// is open and fits, and answers the centre a press or drag on it asks
     /// the Source View to Pan to. It floats over the Source, so it takes no
@@ -203,20 +220,12 @@ impl Console {
         frame: &RenderFrame,
         appearance: Appearance,
     ) -> Option<SourceCellPoint> {
-        if !self.minimap_open {
-            return None;
-        }
         let ctx = root.ctx().clone();
         let theme = self.themes.presented(appearance);
         // The line the bottom panel draws along its edge facing the Source.
         let border = crate::style::bar_separator(theme);
         let source = self.source_view.shown();
-        let rect = place_picture(
-            source.console(),
-            border.width,
-            frame.grid(),
-            ctx.pixels_per_point(),
-        )?;
+        let rect = self.minimap_rect(frame, border.width)?;
         let texture = self
             .minimap
             .texture(&ctx, revision, frame, theme, appearance);
