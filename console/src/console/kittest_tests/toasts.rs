@@ -192,3 +192,31 @@ async fn the_panel_keeps_its_height_whatever_the_messages() {
         );
     }
 }
+
+///
+/// In a window too narrow for a 380-point Toast, the Toast narrows to keep its
+/// inset from both edges, so its label and message stay on screen.
+///
+#[tokio::test]
+async fn a_toast_narrows_to_fit_a_narrow_window() {
+    let window = Vec2::new(360.0, 640.0);
+    let mut harness = running_console(window);
+    quiet_midi(harness.state_mut());
+    fail_the_engine(&mut harness, "clock stopped");
+    harness.run_steps(3);
+
+    let label = harness.get_by_label("ENGINE").rect();
+    let dismiss = harness.get_by_label("×").rect();
+    assert!(
+        label.left() >= INSET,
+        "the Toast's label starts at {} in a {}pt window",
+        label.left(),
+        window.x
+    );
+    assert!(
+        dismiss.right() <= window.x - INSET,
+        "the dismiss button ends at {} in a {}pt window",
+        dismiss.right(),
+        window.x
+    );
+}

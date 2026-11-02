@@ -16,7 +16,7 @@ const SOURCES: usize = 5;
 const INSET: f32 = 16.0;
 /// Points between two Toasts in the stack.
 const GAP: f32 = 8.0;
-/// A Toast's width in points.
+/// A Toast's width in points, in a Source wide enough to hold it.
 const WIDTH: f32 = 380.0;
 /// The lines a message wraps to before it is cut with an ellipsis.
 const MESSAGE_ROWS: usize = 3;
@@ -135,6 +135,7 @@ impl Console {
         } = self;
         toasts.observe(statuses(midi, network, playback_status), now);
         let top = source.top() + INSET;
+        let width = WIDTH.min(source.width() - 2.0 * INSET);
         let mut y = top;
         for slot in toasts.fitting(floor - INSET - top) {
             let toast = toasts.slots[slot].as_mut().expect("a fitting Toast stands");
@@ -142,7 +143,7 @@ impl Console {
                 .pivot(Align2::RIGHT_TOP)
                 .fixed_pos(egui::pos2(source.right() - INSET, y))
                 .constrain(false)
-                .show(ctx, |ui| show_toast(ui, toast.label, &toast.text));
+                .show(ctx, |ui| show_toast(ui, width, toast.label, &toast.text));
             toast.dismissed |= shown.inner;
             if toast.height != shown.response.rect.height() {
                 toast.height = shown.response.rect.height();
@@ -154,17 +155,17 @@ impl Console {
 }
 
 ///
-/// One Toast: `label` in the weak text colour, a `×` that answers whether it
+/// One Toast `width` points wide: `label` in the weak text colour, a `×` that answers whether it
 /// was clicked, and `message` in the error colour, wrapped to
 /// [`MESSAGE_ROWS`] lines and then cut, whole on hover.
 ///
-fn show_toast(ui: &mut egui::Ui, label: &str, message: &str) -> bool {
+fn show_toast(ui: &mut egui::Ui, width: f32, label: &str, message: &str) -> bool {
     let error = ui.visuals().error_fg_color;
     let weak = ui.visuals().weak_text_color();
     let frame = egui::Frame::popup(ui.style()).stroke(Stroke::new(1.0, error));
     frame
         .show(ui, |ui| {
-            ui.set_width(WIDTH - frame.total_margin().sum().x);
+            ui.set_width(width - frame.total_margin().sum().x);
             let dismissed = ui
                 .horizontal(|ui| {
                     let label = egui::RichText::new(label)
