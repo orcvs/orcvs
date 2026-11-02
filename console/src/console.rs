@@ -509,7 +509,8 @@ impl eframe::App for Console {
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
-        let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
+        let diagnostics =
+            self.show_panel(root, &observation, sampled_run_clock, appearance, &frame);
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
         if let Some(centre) = self.show_minimap(root, revision, &frame, appearance) {

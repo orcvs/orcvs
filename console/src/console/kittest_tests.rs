@@ -95,6 +95,7 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 #[cfg(feature = "release-capture")]
 mod capture;
 
+mod cursor_line;
 mod live_editing;
 mod menu_bar_layout;
 mod panel_readouts;
@@ -1251,7 +1252,7 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 }
 
 ///
-/// The top bar is the compact bottom Panel's height. Its menu buttons fill
+/// The top bar is the bottom Panel's row height. Its menu buttons fill
 /// that height with their labels centred, so a menu opens from the bar's
 /// bottom edge; the share icon and mode toggle, which open no menu, sit
 /// centred in it.
@@ -1264,8 +1265,8 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
         .outer_rect;
     assert_eq!(
         top.height(),
-        super::panel::BOTTOM_PANEL_HEIGHT,
-        "the top bar is not the compact bottom Panel's height"
+        super::panel::PANEL_ROW_HEIGHT,
+        "the top bar is not the bottom Panel's row height"
     );
     let separator = default_theme(Appearance::Dark)
         .panel_separator_width
