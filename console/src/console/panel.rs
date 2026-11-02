@@ -1,6 +1,7 @@
 //! The bottom Panel: the Play and Rewind Cells, the typed BPM field, the beat
 //! marker, the Tick and Run Clock Readouts, the Output destinations — MIDI, and
-//! in its list UDP and OSC — and optional Diagnostics beneath them. What the
+//! in its list UDP and OSC — the Cursor Line beneath them, and optional
+//! Diagnostics beneath that. What the
 //! outputs report floats as Toasts (`toasts`).
 
 use std::time::Duration;
@@ -8,17 +9,27 @@ use std::time::Duration;
 use egui::{Color32, FontId, Key, Vec2};
 use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
+use orcvs::render_frame::RenderFrame;
 
 use super::Console;
 use super::diagnostics_panel::summary_height;
 use crate::console_midi;
+use crate::cursor_line::cursor_line;
 use crate::grid_viewport::{glyph_size, snapped_cell};
 use crate::midi::{output_readout, selected_destination_name};
 use crate::theme::{Appearance, Theme};
 
+/// The height of the Panel's row, which the top bar shares.
+pub(super) const PANEL_ROW_HEIGHT: f32 = 52.0;
+
+/// The room the Cursor Line takes beneath the Panel's row, egui's item spacing
+/// above it included. It is there whether or not the line says anything.
+pub(super) const CURSOR_LINE_HEIGHT: f32 = 18.0;
+
 /// The height the bottom Panel takes from the window, leaving the rest to the
-/// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
-pub(super) const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
+/// Source Grid: its row and the Cursor Line. It is the Panel's own minimum,
+/// which the Readouts do not exceed.
+pub(super) const BOTTOM_PANEL_HEIGHT: f32 = PANEL_ROW_HEIGHT + CURSOR_LINE_HEIGHT;
 
 ///
 /// The height Diagnostics leave the Source: one Row of `cell`s, at the
@@ -398,6 +409,7 @@ impl Console {
         run_clock: Duration,
         appearance: Appearance,
         now: f64,
+        render_frame: &RenderFrame,
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
@@ -418,7 +430,9 @@ impl Console {
             ui.allocate_ui_with_layout(
                 egui::vec2(
                     ui.available_width(),
-                    (ui.available_height() - extra_height).max(0.0),
+                    // The Cursor Line is always there, blank or not, so the
+                    // Panel's height never depends on what it says.
+                    (ui.available_height() - CURSOR_LINE_HEIGHT - extra_height).max(0.0),
                 ),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
@@ -487,6 +501,8 @@ impl Console {
                     self.show_destination(ui);
                 },
             );
+            let line_height = CURSOR_LINE_HEIGHT - ui.spacing().item_spacing.y;
+            show_cursor_line(ui, render_frame, line_height);
             diagnostics_height.map(|height| {
                 ui.add(egui::Separator::default().horizontal().spacing(0.0));
                 // Reserve the readouts before the Source takes its space;
@@ -611,6 +627,38 @@ impl Console {
             ui.ctx().request_repaint();
         }
     }
+}
+
+///
+/// The Cursor Line beneath the Panel's row, `height` tall whatever it says:
+/// what the Cursor's Cell belongs to, in the monospace readout font, names and
+/// values strong and the rest weak. Text past the Panel's width is cut with an
+/// ellipsis and shown whole on hover.
+///
+fn show_cursor_line(ui: &mut egui::Ui, frame: &RenderFrame, height: f32) {
+    let font = panel_monospace_id(ui);
+    let (strong, weak) = (
+        ui.visuals().strong_text_color(),
+        ui.visuals().weak_text_color(),
+    );
+    let mut job = egui::text::LayoutJob::default();
+    for part in cursor_line(frame) {
+        let colour = if part.strong { strong } else { weak };
+        job.append(
+            &part.text,
+            0.0,
+            egui::TextFormat::simple(font.clone(), colour),
+        );
+    }
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), height),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            if !job.is_empty() {
+                ui.add(egui::Label::new(job).truncate().selectable(false));
+            }
+        },
+    );
 }
 
 ///

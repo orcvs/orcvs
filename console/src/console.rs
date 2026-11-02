@@ -516,7 +516,14 @@ impl eframe::App for Console {
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
-        let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance, now);
+        let diagnostics = self.show_panel(
+            root,
+            &observation,
+            sampled_run_clock,
+            appearance,
+            now,
+            &frame,
+        );
         // After Space in `route_keys` and `P` in the Panel have both made
         // their requests, so either one cancels a held start in the frame it
         // would release in, rather than toggling the run the release began.

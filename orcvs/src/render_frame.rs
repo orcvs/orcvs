@@ -5,8 +5,8 @@ use crate::{
     opts::{CursorBloomRadius, SectorSeamSpacing},
     region::Region,
     source::{
-        Claim, Diagnostic, Freshness, LockVerdict, OperandState, PortalEvent, PortalOrigin,
-        PortalUse, SourcePaint, SourceRevision, Span, Token,
+        Claim, Diagnostic, Freshness, FunctionAt, LockVerdict, OperandState, PortalEvent,
+        PortalOrigin, PortalUse, SourcePaint, SourceRevision, Span, Token,
     },
 };
 use lang::{Atom, Function};
@@ -224,6 +224,7 @@ pub struct RenderFrame {
     cells: Vec<RenderCell>,
     expressions: Vec<RenderExpression>,
     lexical_diagnostics: Vec<Diagnostic>,
+    cursor_function: Option<FunctionAt>,
 }
 
 impl RenderFrame {
@@ -348,6 +349,7 @@ impl RenderFrame {
             .lexical_diagnostics()
             .cloned()
             .collect();
+        let cursor_function = source.language_map().function_at(region.cursor());
         Self {
             grid,
             region,
@@ -357,6 +359,7 @@ impl RenderFrame {
             cells,
             expressions,
             lexical_diagnostics,
+            cursor_function,
         }
     }
 
@@ -457,6 +460,13 @@ impl RenderFrame {
                 .positions()
                 .any(|covered| covered == position)
         })
+    }
+
+    ///
+    /// The Function whose Span holds the Cursor's Cell, when one does.
+    ///
+    pub fn cursor_function(&self) -> Option<&FunctionAt> {
+        self.cursor_function.as_ref()
     }
 
     ///
@@ -1055,6 +1065,34 @@ mod tests {
             bang,
             frame.at(grid.position(1, 0).unwrap()).claim().expect("**")
         ));
+    }
+
+    #[test]
+    fn the_cursor_function_is_the_one_whose_span_holds_the_cursor() {
+        let grid = Grid::with_shape(12, 2);
+        let source = SourceCommander::new(grid);
+        write_row(&source, grid, ".+.x020304");
+        let at = |x| grid.position(x, 0).unwrap();
+
+        let nested = derive_frame(&source, at(6));
+        let function = nested.cursor_function().expect("the nested `.x` owns `03`");
+        assert_eq!(function.function, lang::Function::Multiply);
+        assert_eq!(function.anchor, at(2));
+        assert_eq!(function.operands, [4..6, 6..8]);
+        assert_eq!(
+            function.answer,
+            grid.position(2, 1),
+            "one row south of `.x`"
+        );
+
+        let root = derive_frame(&source, at(1));
+        let function = root.cursor_function().expect("the Cursor is on `.+`");
+        assert_eq!(function.function, lang::Function::Add);
+        assert_eq!(function.anchor, at(0));
+        assert_eq!(function.operands, [2..4, 8..10], "`.x` is its left operand");
+
+        let blank = derive_frame(&source, grid.position(0, 1).unwrap());
+        assert!(blank.cursor_function().is_none(), "an empty Cell");
     }
 
     #[test]

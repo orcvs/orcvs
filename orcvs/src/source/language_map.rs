@@ -161,6 +161,21 @@ pub struct Span {
 }
 
 ///
+/// The Function whose Span holds a Cell, as [`LanguageMap::function_at`]
+/// answers it: the Function, the Position of its first Cell, the Cells of
+/// each operand it declares, in signature order (a nested Function's are its
+/// spelling), and the first Cell of its Output Portal Reservation, the pair
+/// a static value answer is written to.
+///
+#[derive(Clone, Debug, PartialEq)]
+pub struct FunctionAt {
+    pub function: Function,
+    pub anchor: Position,
+    pub operands: Vec<std::ops::Range<usize>>,
+    pub answer: Option<Position>,
+}
+
+///
 /// The parser's claim on a Cell range: the Cells it covers, the Token its
 /// signature declared, the Atom those Cells bound, or none, and whether any
 /// of those Cells is written.
@@ -473,6 +488,52 @@ impl LanguageMap {
             return None;
         }
         None
+    }
+
+    ///
+    /// The Function whose Span holds `position`: the Function its Cells spell,
+    /// or the one that owns the operand or Payload it lies in. A Cell no
+    /// Function's Span holds, a Comment's included, answers `None`.
+    ///
+    pub fn function_at(&self, position: Position) -> Option<FunctionAt> {
+        let index = self.grid.index(position).get();
+        let row = &self.rows[index / self.grid.columns()];
+        let expression = row.expressions.iter().rev().find(|expression| {
+            (expression.span.start().get()..=expression.span.end().get()).contains(&index)
+        })?;
+        let entries: Vec<&lang::PositionedEntry> = expression.expression.positioned().collect();
+        let claimed = entries
+            .iter()
+            .position(|entry| entry.cells.contains(&index))?;
+        let spelled = |entry: &lang::PositionedEntry| match (entry.token, entry.atom) {
+            (Token::Function, Some(Atom::Function(function))) => Some(function),
+            _ => None,
+        };
+        let owner = if spelled(entries[claimed]).is_some() {
+            claimed
+        } else {
+            entries[claimed].parent?
+        };
+        let function = spelled(entries[owner])?;
+        let anchor = self.grid.position_at(
+            self.grid
+                .cell_index(entries[owner].cells.start)
+                .expect("a positioned entry lies inside its Grid"),
+        );
+        let operands = entries
+            .iter()
+            .filter(|entry| entry.parent == Some(owner) && entry.token != Token::Payload)
+            .map(|entry| entry.cells.clone())
+            .collect();
+        Some(FunctionAt {
+            function,
+            anchor,
+            operands,
+            answer: super::portal::PortalAccess::output_portal_reservation(
+                self.grid, anchor, function,
+            )
+            .map(|reservation| self.grid.position_at(reservation.start())),
+        })
     }
 
     ///
