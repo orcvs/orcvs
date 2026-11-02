@@ -86,6 +86,47 @@ fn every_function_has_an_entry() {
     }
 }
 
+///
+/// Every `### ` heading is ``### `<spelling>` <name>``, and the name is the one
+/// its Function's row in the Function table carries, so the two cannot drift.
+///
+#[test]
+fn every_heading_names_its_function_as_the_table_does() {
+    let headings: Vec<(usize, &str)> = REFERENCE
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| line.strip_prefix("### ").map(|rest| (index + 1, rest)))
+        .collect();
+    assert_eq!(
+        headings.len(),
+        Function::ALL.len(),
+        "docs/functions.md has {} Function headings for {} Functions",
+        headings.len(),
+        Function::ALL.len()
+    );
+    for (line, heading) in headings {
+        let (spelling, name) = heading
+            .strip_prefix('`')
+            .and_then(|rest| rest.split_once("` "))
+            .unwrap_or_else(|| {
+                panic!("line {line}: `### {heading}` is not ### `<spelling>` <name>")
+            });
+        let function = Function::ALL
+            .iter()
+            .find(|function| function.cells().to_string() == spelling)
+            .unwrap_or_else(|| panic!("line {line}: `{spelling}` is no Function in the table"));
+        assert_eq!(
+            function.name(),
+            name,
+            "line {line}: the table names `{spelling}`"
+        );
+        assert!(
+            !function.summary().is_empty(),
+            "the table has no summary for `{spelling}`"
+        );
+    }
+}
+
 #[test]
 fn every_example_ticks_to_the_source_it_shows() {
     let mut before: Option<&Block> = None;
