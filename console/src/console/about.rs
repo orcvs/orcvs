@@ -23,7 +23,7 @@ impl Console {
             return;
         };
         let theme = self.themes.presented(appearance);
-        let modal = egui::Modal::new(egui::Id::new("about")).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::unique("about")).show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add(
                     egui::Image::new(SizedTexture::new(texture.id(), Vec2::splat(logo::SIDE)))

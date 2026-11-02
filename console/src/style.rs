@@ -532,7 +532,7 @@ impl PortalChannels {
 /// [`crate::paint::Paint::background_runs`] no Cell to walk.
 ///
 /// [`blend_channel`] preserves `Color32::blend`, `ecolor`'s premultiplied-alpha "self behind
-/// on_top" compositing (`ecolor-0.36.2/src/color32.rs`), the "pinned colour
+/// on_top" compositing (`ecolor-0.37.0/src/color32.rs`), the "pinned colour
 /// operations" `.scratch/theming/schema.md`'s composition step 6 asks every
 /// resolved-Theme composite to share with painting. `fill.unwrap_or
 /// (TRANSPARENT)` composited onto `cell_background` when `fill` is `None`
@@ -840,7 +840,7 @@ fn operand_paint(
 ///
 /// `visuals.weak_text_color` is set explicitly from `theme.text_muted`
 /// rather than left `None`: egui's own default derives a weak text colour
-/// from `text_color() * weak_text_alpha` (`egui-0.36.2/src/style.rs`'s
+/// from `text_color() * weak_text_alpha` (`egui-0.37.0/src/style.rs`'s
 /// `Visuals::weak_text_color`, `weak_text_alpha` defaulting to `0.6`), so
 /// a Theme's `text.muted` is honoured instead of silently recomputed from
 /// `text` whatever the Theme actually declares.

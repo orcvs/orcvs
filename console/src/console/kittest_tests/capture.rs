@@ -28,12 +28,12 @@
 //! - the mode and zoom, from egui memory stored under eframe's `"egui"` key in
 //!   the same file and restored into the `Context` before the console is
 //!   built, as eframe's native runner does
-//!   (`eframe-0.36.2/src/native/winit_integration.rs:56-57`);
+//!   (`eframe-0.37.0/src/native/winit_integration.rs:69`);
 //! - the dark and light Theme selections, from a `config.toml` that
 //!   `Config::read` reads, as `Config::start` does.
 //!
 //! The harness sets egui's theme preference to its builder's theme after the
-//! app is built (`egui_kittest-0.36.2/src/lib.rs:142`), so the builder is given
+//! app is built (`egui_kittest-0.37.0/src/lib.rs:228`), so the builder is given
 //! the same mode the stored memory holds. That override presents the pinned
 //! mode whether or not the stored memory arrived, so the mode and zoom the
 //! stored memory pins are asserted as the console is built, before the
@@ -86,7 +86,7 @@ fn settings() -> String {
 
 ///
 /// The key eframe stores egui memory under
-/// (`eframe-0.36.2/src/native/epi_integration.rs:444`). eframe keeps it
+/// (`eframe-0.37.0/src/native/epi_integration.rs:513`). eframe keeps it
 /// private, so it is written out here.
 ///
 const EGUI_MEMORY_KEY: &str = "egui";

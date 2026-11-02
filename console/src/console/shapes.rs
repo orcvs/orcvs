@@ -620,7 +620,7 @@ pub(super) fn show_source(
     // rect, so the Grid states its own bound.
     let response = ui.interact(
         viewport.rect.intersect(clip),
-        ui.id().with("source_grid"),
+        ui.scope_id().with("source_grid"),
         Sense::CLICK,
     );
     // The Grid is clipped to the console area, so a panned Grid cannot paint
