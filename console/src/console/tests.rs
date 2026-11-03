@@ -1841,6 +1841,49 @@ async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
 }
 
 ///
+/// Space after a command Enter is the event that follows it, so it disarms
+/// the fill though it never reaches the Source as a key.
+///
+#[tokio::test]
+async fn space_disarms_a_fill_armed_before_it() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let grid = console.orcvs.grid();
+    let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+    // The Region is spanned after the first pass, which places the Cursor.
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    console.orcvs.extend(at(2, 1));
+    app_pass(
+        &ctx,
+        screen,
+        vec![command_key_event(Key::Enter)],
+        &mut console,
+        &mut host,
+    );
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true)],
+        &mut console,
+        &mut host,
+    );
+    app_pass(
+        &ctx,
+        screen,
+        vec![Event::Text("x".to_owned())],
+        &mut console,
+        &mut host,
+    );
+    let frame = console.orcvs.render_frame();
+    assert_eq!(
+        frame.at(at(1, 1)).content(),
+        None,
+        "a fill armed before Space filled the Region"
+    );
+}
+
+///
 /// A copy with the Source focused hands the Region's rows to the platform
 /// clipboard, and a paste writes the text the platform delivered.
 ///
