@@ -2,13 +2,14 @@
 //! top-right corner beneath the menu bar, clear of the Minimap.
 
 use egui::text::LayoutJob;
-use egui::{Align2, Rect, Sense, Stroke, TextStyle};
+use egui::{Align2, Color32, Rect, Sense, Stroke, TextStyle};
 
 use super::Console;
 use super::panel::panel_monospace_id;
 use crate::midi::MidiDeviceSelection;
 use crate::network::NetworkSetting;
 use crate::playback_status::PlaybackStatus;
+use crate::theme::Appearance;
 
 /// How many sources report a message, each with a Toast of its own.
 const SOURCES: usize = 5;
@@ -157,7 +158,14 @@ impl Console {
     /// focus, so keyboard input stays with the Source. It asks for a repaint
     /// when the next Toast is due to fade, and every frame while one fades.
     ///
-    pub(super) fn show_toasts(&mut self, ctx: &egui::Context, source: Rect, floor: f32) {
+    pub(super) fn show_toasts(
+        &mut self,
+        ctx: &egui::Context,
+        source: Rect,
+        floor: f32,
+        appearance: Appearance,
+    ) {
+        let label_colour = self.themes.presented(appearance).diagnostic_foreground;
         let now = ctx.input(|input| input.time);
         let Self {
             toasts,
@@ -186,7 +194,7 @@ impl Console {
                 .constrain(false)
                 .show(ctx, |ui| {
                     ui.multiply_opacity(opacity);
-                    show_toast(ui, width, toast.label, &toast.text)
+                    show_toast(ui, width, label_colour, toast.label, &toast.text)
                 });
             toast.dismissed |= shown.inner;
             if toast.height != shown.response.rect.height() {
@@ -199,13 +207,18 @@ impl Console {
 }
 
 ///
-/// One Toast `width` points wide: `label` in the weak text colour, a `×` that answers whether it
+/// One Toast `width` points wide: `label` in `label_colour`, a `×` that answers whether it
 /// was clicked, and `message` in the error colour, wrapped to
 /// [`MESSAGE_ROWS`] lines and then cut, whole on hover.
 ///
-fn show_toast(ui: &mut egui::Ui, width: f32, label: &str, message: &str) -> bool {
+fn show_toast(
+    ui: &mut egui::Ui,
+    width: f32,
+    label_colour: Color32,
+    label: &str,
+    message: &str,
+) -> bool {
     let error = ui.visuals().error_fg_color;
-    let weak = ui.visuals().weak_text_color();
     let frame = egui::Frame::popup(ui.style()).stroke(Stroke::new(1.0, error));
     frame
         .show(ui, |ui| {
@@ -214,7 +227,7 @@ fn show_toast(ui: &mut egui::Ui, width: f32, label: &str, message: &str) -> bool
                 .horizontal(|ui| {
                     let label = egui::RichText::new(label)
                         .font(panel_monospace_id(ui))
-                        .color(weak);
+                        .color(label_colour);
                     ui.add(egui::Label::new(label).selectable(false));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add(egui::Button::new("×").frame(false).sense(Sense::CLICK))
