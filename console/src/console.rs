@@ -528,6 +528,7 @@ impl eframe::App for Console {
         self.show_title(&ctx);
 
         self.latch_keyboard_owner(&ctx);
+        self.ask_for_touch_keyboard(&ctx, frame.cursor());
 
         // Over everything the console showed, while the logo fades.
         #[cfg(not(target_arch = "wasm32"))]

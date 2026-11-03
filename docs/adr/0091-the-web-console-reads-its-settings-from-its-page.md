@@ -1,6 +1,6 @@
 # The web console reads its settings from its page
 
-Status: accepted. Amends [ADR 0079](0079-source-cells-are-configurable-rectangles.md)'s "The web reads no settings file and draws the default". Settled in `.scratch/web-console-config/`.
+Status: accepted. Amends [ADR 0079](0079-source-cells-are-configurable-rectangles.md)'s "The web reads no settings file and draws the default". Settled in `.scratch/web-console-config/`. [ADR 0102](0102-a-finger-pans-the-source-and-asks-for-the-keyboard.md) amends the phone Cell to 16 by 24 points.
 
 A phone shows the web console at the native default: 12 by 18 point Cells too small to tap, and the Minimap covering a corner of a window that has no room for it. Native reads `~/.orcvs/config.toml`, and the web has no file, so the settings that would fix this cannot reach it. The Minimap and the Diagnostics have no setting at all: each starts as the console decides, and only the View menu changes it.
 
