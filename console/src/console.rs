@@ -521,7 +521,7 @@ impl eframe::App for Console {
         let floor = self
             .minimap_rect(&frame, border)
             .map_or(shown.console().bottom(), |minimap| minimap.top() - border);
-        self.show_toasts(&ctx, shown.console(), floor);
+        self.show_toasts(&ctx, shown.console(), floor, appearance);
 
         request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));
 

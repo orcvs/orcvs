@@ -347,3 +347,42 @@ async fn escape_dismisses_the_toasts_once_it_has_nothing_else_to_undo() {
         "an Escape with nothing else to undo left the Toast"
     );
 }
+
+///
+/// A Toast's label is painted in the presented Theme's diagnostic red, the
+/// colour invalid Cells take, so the output that failed stands out under
+/// every Theme.
+///
+#[tokio::test]
+async fn a_toasts_label_is_painted_in_the_diagnostic_red() {
+    fn colour_of(shape: &egui::Shape, text: &str) -> Option<egui::Color32> {
+        match shape {
+            egui::Shape::Text(shape) if shape.galley.text() == text => {
+                let colour = shape.galley.job.sections[0].format.color;
+                Some(if colour == egui::Color32::PLACEHOLDER {
+                    shape.fallback_color
+                } else {
+                    colour
+                })
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| colour_of(shape, text)),
+            _ => None,
+        }
+    }
+    let mut harness = quiet_console(false);
+    fail_the_engine(&mut harness, "clock stopped");
+    harness.run_steps(3);
+    let appearance = crate::theme::Appearance::from(harness.ctx.theme());
+    let red = harness
+        .state()
+        .themes
+        .presented(appearance)
+        .diagnostic_foreground;
+    let painted = harness
+        .output()
+        .shapes
+        .iter()
+        .find_map(|clipped| colour_of(&clipped.shape, "ENGINE"))
+        .expect("the Toast paints its label");
+    assert_eq!(painted, red);
+}
