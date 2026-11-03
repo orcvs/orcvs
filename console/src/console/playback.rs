@@ -2,9 +2,12 @@
 //! Space or the Panel's `P` toggles Playback now, waits for the page's audio,
 //! or cancels a waiting start (ADR 0087, ADR 0089).
 
-#![expect(
-    dead_code,
-    reason = "Console routes Space and the Panel's P through this once both callers are wired"
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Console routes Space and the Panel's P through this once both callers are wired"
+    )
 )]
 
 ///
@@ -48,11 +51,14 @@ impl PlaybackStart {
     /// Answers a frame at `now`: releases a held start once the page's audio
     /// is `awake`.
     ///
-    pub(super) fn poll(&mut self, _now: f64, _awake: bool) -> Decision {
-        if self.held {
-            Decision::Held
-        } else {
+    pub(super) fn poll(&mut self, _now: f64, awake: bool) -> Decision {
+        if !self.held {
             Decision::Nothing
+        } else if awake {
+            self.held = false;
+            Decision::Toggle
+        } else {
+            Decision::Held
         }
     }
 }
@@ -66,5 +72,13 @@ mod tests {
         let mut start = PlaybackStart::default();
         assert_eq!(start.request(1.0, true), Decision::Held);
         assert_eq!(start.poll(1.1, false), Decision::Held);
+    }
+
+    #[test]
+    fn a_held_start_is_granted_once_the_audio_wakes() {
+        let mut start = PlaybackStart::default();
+        start.request(1.0, true);
+        assert_eq!(start.poll(1.1, true), Decision::Toggle);
+        assert_eq!(start.poll(1.2, true), Decision::Nothing);
     }
 }
