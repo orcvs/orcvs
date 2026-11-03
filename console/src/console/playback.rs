@@ -39,10 +39,12 @@ impl PlaybackStart {
     ///
     /// Answers a request from Space or `P` at `now`, on egui's input clock.
     /// `early` is whether a start now would sound before the page's audio
-    /// runs.
+    /// runs. A request while a start is held cancels both.
     ///
     pub(super) fn request(&mut self, now: f64, early: bool) -> Decision {
-        if early {
+        if self.held_since.take().is_some() {
+            Decision::Nothing
+        } else if early {
             self.held_since = Some(now);
             Decision::Held
         } else {
@@ -98,5 +100,13 @@ mod tests {
         let mut start = PlaybackStart::default();
         assert_eq!(start.request(1.0, false), Decision::Toggle);
         assert_eq!(start.poll(1.1, false), Decision::Nothing);
+    }
+
+    #[test]
+    fn a_second_request_while_held_cancels_the_start() {
+        let mut start = PlaybackStart::default();
+        start.request(1.0, true);
+        assert_eq!(start.request(1.1, true), Decision::Nothing);
+        assert_eq!(start.poll(1.2, true), Decision::Nothing);
     }
 }
