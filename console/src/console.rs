@@ -21,6 +21,7 @@ mod logo;
 mod menu_bar;
 pub(crate) mod minimap;
 mod panel;
+mod playback;
 mod repaint;
 pub(crate) mod shapes;
 mod source_view;
