@@ -2,16 +2,14 @@
 //! Space or the Panel's `P` toggles Playback now, waits for the page's audio,
 //! or cancels a waiting start (ADR 0087, ADR 0089).
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Console routes Space and the Panel's P through this once both callers are wired"
-    )
-)]
+use super::Console;
 
-/// The longest a start waits for the page's audio, in seconds (ADR 0087).
+/// The longest a start waits for the page's audio, in seconds (ADR 0087). A
+/// device starts its audio in a few hundred milliseconds at most.
 pub(super) const AUDIO_WAIT: f64 = 0.5;
+
+/// How soon the console paints again to release a held start.
+const HELD_REPAINT: std::time::Duration = std::time::Duration::from_millis(20);
 
 ///
 /// What a Playback request or a frame's poll asks of the console.
@@ -65,6 +63,64 @@ impl PlaybackStart {
             }
             Some(_) => Decision::Held,
         }
+    }
+}
+
+impl Console {
+    ///
+    /// Answers a Playback request from Space or the Panel's `P`: both make
+    /// the same request, so `P` does what Space does (ADR 0089).
+    ///
+    pub(super) fn request_playback(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        let early = self.start_is_early();
+        let decision = self.playback_start.request(now, early);
+        self.answer_playback(ctx, decision);
+    }
+
+    ///
+    /// Releases a held start once the page's audio runs or it has waited
+    /// [`AUDIO_WAIT`]. Called once a frame.
+    ///
+    pub(super) fn poll_playback(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        let awake = self.audio_awake();
+        let decision = self.playback_start.poll(now, awake);
+        self.answer_playback(ctx, decision);
+    }
+
+    fn answer_playback(&mut self, ctx: &egui::Context, decision: Decision) {
+        match decision {
+            Decision::Toggle => self.orcvs.toggle_playback(),
+            Decision::Held => ctx.request_repaint_after(HELD_REPAINT),
+            Decision::Nothing => {}
+        }
+    }
+
+    /// Whether a start now would sound before the page's audio runs.
+    #[cfg(target_arch = "wasm32")]
+    fn start_is_early(&mut self) -> bool {
+        let stopped =
+            self.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Stopped;
+        self.synth.start_is_early(&mut self.midi, stopped)
+    }
+
+    /// Native has no page audio to wait for.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_is_early(&mut self) -> bool {
+        false
+    }
+
+    /// Whether the page's audio runs.
+    #[cfg(target_arch = "wasm32")]
+    fn audio_awake(&self) -> bool {
+        self.synth.awake()
+    }
+
+    /// Native has no page audio, so it is always awake.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn audio_awake(&self) -> bool {
+        true
     }
 }
 

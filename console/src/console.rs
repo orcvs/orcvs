@@ -94,6 +94,8 @@ pub struct Console {
     /// The Playback failures the Panel shows, routed from each frame's
     /// diagnostics.
     playback_status: PlaybackStatus,
+    /// A Playback start held while the page's audio wakes.
+    playback_start: playback::PlaybackStart,
     /// The framing page's Built-in Synth announcements, which list the synth
     /// under **O** and, in a Linked console, pick it.
     #[cfg(target_arch = "wasm32")]
@@ -306,6 +308,7 @@ impl Console {
             midi,
             network,
             playback_status: PlaybackStatus::default(),
+            playback_start: playback::PlaybackStart::default(),
             #[cfg(target_arch = "wasm32")]
             synth: crate::built_in_synth::SynthAnnouncements::new(
                 crate::built_in_synth::BrowserPage,
@@ -486,6 +489,7 @@ impl eframe::App for Console {
         // A File command chosen from the menu or by its chord, run once the
         // menu bar is done and the chords are read.
         let file_chord = self.route_keys(&ctx);
+        self.poll_playback(&ctx);
         if let Some(command) = menu.file_command.or(file_chord) {
             self.run_file_command(command);
         }

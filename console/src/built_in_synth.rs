@@ -10,7 +10,6 @@
 
 use std::time::Duration;
 
-use orcvs::app::{InputEvent, InputKey};
 use orcvs::midi::{
     MidiBackend, MidiConnection, MidiConnectionRequest, MidiDestination, MidiDestinationId,
     MidiError,
@@ -124,22 +123,14 @@ impl<P: SynthPage> MidiConnection for SynthConnection<P> {
 }
 
 ///
-/// The longest a Playback start waits for the page's audio, in seconds. A
-/// device starts its audio in a few hundred milliseconds at most.
-///
-pub(crate) const AUDIO_WAIT: f64 = 0.5;
-
-///
-/// Follows the page's announcements from frame to frame, and holds a
-/// Playback start while the page's audio wakes.
+/// Follows the page's announcements from frame to frame, and answers whether
+/// the page's audio runs.
 ///
 pub(crate) struct SynthAnnouncements<P> {
     page: P,
     seen: Option<Announcement>,
     /// Whether the console is Linked, which always picks the synth.
     linked: bool,
-    /// When a held Playback start was asked for, on egui's input clock.
-    held_since: Option<f64>,
 }
 
 impl<P: SynthPage> SynthAnnouncements<P> {
@@ -148,7 +139,6 @@ impl<P: SynthPage> SynthAnnouncements<P> {
             page,
             seen: None,
             linked,
-            held_since: None,
         }
     }
 
@@ -168,42 +158,6 @@ impl<P: SynthPage> SynthAnnouncements<P> {
     /// Whether the page last said its audio runs.
     pub(crate) fn awake(&self) -> bool {
         self.page.awake()
-    }
-
-    ///
-    /// Holds a Space that would start Playback on the synth while the page's
-    /// audio is asleep, so Tick 0 sounds on time rather than late, and lets it
-    /// through once the audio runs or [`AUDIO_WAIT`] has passed. A second
-    /// Space while one is held cancels both. Answers whether a start is still
-    /// held, so the console paints again to release it.
-    ///
-    pub(crate) fn hold_start(
-        &mut self,
-        events: &mut Vec<InputEvent>,
-        midi: &mut MidiDeviceSelection,
-        stopped: bool,
-        now: f64,
-    ) -> bool {
-        let space = InputEvent::KeyPressed(InputKey::Space);
-        if let Some(since) = self.held_since {
-            if events.contains(&space) {
-                events.retain(|event| event != &space);
-                self.held_since = None;
-            } else if self.page.awake() || now - since >= AUDIO_WAIT {
-                events.insert(0, space);
-                self.held_since = None;
-            }
-        } else if stopped
-            && !self.page.awake()
-            && events.contains(&space)
-            && midi
-                .selected_destination_id()
-                .is_some_and(|id| id.as_str() == BUILT_IN_SYNTH)
-        {
-            events.retain(|event| event != &space);
-            self.held_since = Some(now);
-        }
-        self.held_since.is_some()
     }
 
     ///
@@ -342,9 +296,7 @@ mod tests {
         MidiError, MidiOutputAdapter,
     };
 
-    use super::{
-        AUDIO_WAIT, Announcement, BUILT_IN_SYNTH, SynthAnnouncements, SynthPage, WithBuiltInSynth,
-    };
+    use super::{Announcement, BUILT_IN_SYNTH, SynthAnnouncements, SynthPage, WithBuiltInSynth};
     use crate::console_midi::DESTINATION_GONE;
     use crate::midi::MidiDeviceSelection;
 
@@ -630,10 +582,6 @@ mod tests {
         (orcvs, midi, announcements)
     }
 
-    fn space() -> Vec<InputEvent> {
-        vec![InputEvent::KeyPressed(InputKey::Space)]
-    }
-
     #[tokio::test]
     async fn a_start_is_early_only_while_stopped_asleep_and_on_the_synth() {
         let page = FakePage::default();
@@ -656,73 +604,5 @@ mod tests {
         assert_eq!(midi.selected_destination_id(), Some(port().id));
         assert!(!gate.awake());
         assert!(!gate.start_is_early(&mut midi, true));
-    }
-
-    #[tokio::test]
-    async fn a_start_waits_for_the_pages_audio_and_goes_once_it_runs() {
-        let page = FakePage::default();
-        let (_orcvs, mut midi, mut gate) = on_the_synth(&page).await;
-
-        let mut events = space();
-        assert!(gate.hold_start(&mut events, &mut midi, true, 1.0));
-        assert_eq!(events, []);
-
-        let mut events = Vec::new();
-        assert!(gate.hold_start(&mut events, &mut midi, true, 1.1));
-        assert_eq!(events, []);
-
-        page.wake();
-        assert!(!gate.hold_start(&mut events, &mut midi, true, 1.2));
-        assert_eq!(events, space());
-    }
-
-    #[tokio::test]
-    async fn a_start_goes_without_the_audio_once_it_has_waited_long_enough() {
-        let page = FakePage::default();
-        let (_orcvs, mut midi, mut gate) = on_the_synth(&page).await;
-        gate.hold_start(&mut space(), &mut midi, true, 1.0);
-
-        let mut events = Vec::new();
-        assert!(gate.hold_start(&mut events, &mut midi, true, 1.0 + AUDIO_WAIT - 0.01));
-        assert!(!gate.hold_start(&mut events, &mut midi, true, 1.0 + AUDIO_WAIT));
-        assert_eq!(events, space());
-    }
-
-    #[tokio::test]
-    async fn a_second_space_while_held_cancels_the_start() {
-        let page = FakePage::default();
-        let (_orcvs, mut midi, mut gate) = on_the_synth(&page).await;
-        gate.hold_start(&mut space(), &mut midi, true, 1.0);
-
-        let mut events = space();
-        assert!(!gate.hold_start(&mut events, &mut midi, true, 1.1));
-        page.wake();
-        assert!(!gate.hold_start(&mut events, &mut midi, true, 1.2));
-        assert_eq!(events, []);
-    }
-
-    #[tokio::test]
-    async fn nothing_waits_with_the_audio_running_while_playing_or_on_a_port() {
-        let page = FakePage::default();
-        let (_orcvs, mut midi, mut gate) = on_the_synth(&page).await;
-        // A Space that stops Playback goes at once.
-        let mut events = space();
-        assert!(!gate.hold_start(&mut events, &mut midi, false, 1.0));
-        assert_eq!(events, space());
-
-        page.wake();
-        let mut events = space();
-        assert!(!gate.hold_start(&mut events, &mut midi, true, 1.0));
-        assert_eq!(events, space());
-
-        let asleep = FakePage::default();
-        asleep.announce(Announcement::Available);
-        let (_orcvs, mut midi) = selection(Ok(vec![port()]), &asleep);
-        let mut gate = SynthAnnouncements::new(asleep.clone(), false);
-        frame(&mut gate, &mut midi).await;
-        assert_eq!(midi.selected_destination_id(), Some(port().id));
-        let mut events = space();
-        assert!(!gate.hold_start(&mut events, &mut midi, true, 1.0));
-        assert_eq!(events, space());
     }
 }
