@@ -50,7 +50,7 @@ records it and supersedes ADR 0095's growing status line.
 - **Where.** Stacked from the window's top-right corner, beneath the menu bar, 16 points in from
   both edges, over the Source and clear of the Minimap.
 - **What.** A popup frame outlined in the error colour, 380 points wide, holding the output's label
-  (`MIDI`, `UDP/OSC` or `ENGINE`) in the weak text colour, a `×` dismiss button, and the message in
+  (`MIDI`, `UDP/OSC` or `ENGINE`) in the Theme's diagnostic red (`diagnostic.foreground`), a `×` dismiss button, and the message in
   the error colour, wrapped to at most three lines; a longer message is cut with an ellipsis and
   shown whole on hover.
 - **Size and input.** At most five Toasts, one per message source, so the stack is bounded. A Toast

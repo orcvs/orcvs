@@ -9,7 +9,7 @@ and the Panel's growing status line goes ([spec](../spec.md), ADR 0100).
 - [x] One Toast per standing message, in the Panel's existing order, stacked beneath the menu bar,
       16 points in from the top and right edges, over the Source and clear of the Minimap.
 - [x] A Toast is an `egui::Area` anchored to the corner: a popup frame outlined in the error colour,
-      the output's label (`MIDI`, `UDP/OSC`, `ENGINE`) in the weak text colour, a `×` button, and
+      the output's label (`MIDI`, `UDP/OSC`, `ENGINE`) in the Theme's diagnostic red (`diagnostic.foreground`), a `×` button, and
       the message in the error colour, wrapped.
 - [x] A Toast is keyed by its message source (one of the five slots) and its text. `×` removes it and
       remembers the key until that source reports no message on a frame or a different text; the
