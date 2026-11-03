@@ -117,7 +117,6 @@ pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
             Key::Escape => Some(InputEvent::Collapse),
             _ => None,
         },
-        Event::Text(text) => Some(InputEvent::Text(text)),
         Event::Copy => Some(InputEvent::Copy),
         Event::Cut => Some(InputEvent::Cut),
         Event::Paste(text) => Some(InputEvent::Paste(text)),

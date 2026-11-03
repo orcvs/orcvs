@@ -132,8 +132,8 @@ fn toolkit_events_translate_only_the_input_orcvs_handles() {
     }
 
     assert_eq!(
-        translate_event(Event::Text("x".to_owned())),
-        Some(InputEvent::Text("x".to_owned()))
+        source_input(Event::Text("x".to_owned())),
+        vec![InputEvent::Text("x".to_owned())]
     );
     assert_eq!(translate_event(key_event(Key::Enter, true)), None);
     assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
@@ -179,13 +179,13 @@ fn toolkit_events_translate_only_the_input_orcvs_handles() {
     }
 
     // Bare `+`, `-`, `=` and `0` are Source characters: the toolkit
-    // reports them as `Event::Text`, which `translate_event` reaches
+    // reports them as `Event::Text`, which `source_input` reaches
     // regardless of what key produced it, and never as one of the Key
     // variants matched above.
     for character in ["+", "-", "=", "0"] {
         assert_eq!(
-            translate_event(Event::Text(character.to_owned())),
-            Some(InputEvent::Text(character.to_owned())),
+            source_input(Event::Text(character.to_owned())),
+            vec![InputEvent::Text(character.to_owned())],
             "bare {character:?} did not reach the Source as Cell input"
         );
     }
@@ -832,6 +832,19 @@ fn app_pass(
     console: &mut Console,
     host: &mut eframe::Frame,
 ) {
+    app_pass_output(ctx, screen, events, console, host).drop_without_applying_deltas();
+}
+
+///
+/// One pass, answering egui's whole output for the caller to read.
+///
+fn app_pass_output(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> egui::FullOutput {
     use eframe::App as _;
 
     let input = egui::RawInput {
@@ -839,8 +852,7 @@ fn app_pass(
         events,
         ..Default::default()
     };
-    let output = ctx.run_ui(input, |root| console.ui(root, host));
-    output.drop_without_applying_deltas();
+    ctx.run_ui(input, |root| console.ui(root, host))
 }
 
 ///
@@ -856,14 +868,7 @@ fn app_pass_repaint_delay(
     console: &mut Console,
     host: &mut eframe::Frame,
 ) -> std::time::Duration {
-    use eframe::App as _;
-
-    let input = egui::RawInput {
-        screen_rect: Some(screen),
-        events,
-        ..Default::default()
-    };
-    let output = ctx.run_ui(input, |root| console.ui(root, host));
+    let output = app_pass_output(ctx, screen, events, console, host);
     let delay = output
         .viewport_output
         .get(&egui::ViewportId::ROOT)
@@ -7148,16 +7153,9 @@ fn a_phone_keyboard_writes_a_cell_per_character_and_deletes_by_backspace() {
 /// `point` with a touch beginning beside it.
 ///
 fn finger_down_at(point: Pos2) -> Vec<Event> {
-    vec![
-        Event::PointerMoved(point),
-        Event::PointerButton {
-            pos: point,
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            modifiers: Modifiers::NONE,
-        },
-        finger(point, TouchPhase::Start),
-    ]
+    let mut events = click_at(point);
+    events.push(finger(point, TouchPhase::Start));
+    events
 }
 
 fn finger_moved_to(point: Pos2) -> Vec<Event> {
@@ -7165,16 +7163,9 @@ fn finger_moved_to(point: Pos2) -> Vec<Event> {
 }
 
 fn finger_up_at(point: Pos2) -> Vec<Event> {
-    vec![
-        Event::PointerButton {
-            pos: point,
-            button: egui::PointerButton::Primary,
-            pressed: false,
-            modifiers: Modifiers::NONE,
-        },
-        Event::PointerGone,
-        finger(point, TouchPhase::End),
-    ]
+    let mut events = release_at(point);
+    events.extend([Event::PointerGone, finger(point, TouchPhase::End)]);
+    events
 }
 
 fn finger(pos: Pos2, phase: TouchPhase) -> Event {
@@ -7322,14 +7313,7 @@ fn app_pass_ime(
     console: &mut Console,
     host: &mut eframe::Frame,
 ) -> Option<egui::output::IMEOutput> {
-    use eframe::App as _;
-
-    let input = egui::RawInput {
-        screen_rect: Some(screen),
-        events,
-        ..Default::default()
-    };
-    let output = ctx.run_ui(input, |root| console.ui(root, host));
+    let output = app_pass_output(ctx, screen, events, console, host);
     let ime = output.platform_output.ime;
     output.drop_without_applying_deltas();
     ime

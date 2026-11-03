@@ -66,10 +66,6 @@ pub(super) struct SourceView {
     /// than a mouse or a pen. A finger's drag Pans, and the console asks for
     /// the on-screen keyboard while this holds.
     touch_pressed: bool,
-    /// Whether the primary drag in progress is a finger's Pan: a finger
-    /// that moved before egui's long press. Decided once, when the drag
-    /// starts, so a Pan held past the long press stays a Pan.
-    touch_pan: bool,
     /// The console's size in points and the snapped Cell on the last
     /// frame [`show_source_scene`] presented, so a change of either reads as
     /// a zoom or resize worth following, and so whether the Cursor showed
@@ -94,7 +90,6 @@ impl SourceView {
             previous_cursor: None,
             region_drag: None,
             touch_pressed: false,
-            touch_pan: false,
             previous_console: None,
             shown: ShownSourceView::none(),
             requested_centre: None,
@@ -136,7 +131,6 @@ impl SourceView {
             middle_drag,
             primary_drag,
             alt,
-            touch_pan,
             contains_pointer,
             scroll,
             pointer,
@@ -177,7 +171,8 @@ impl SourceView {
         // with the Cursor many Cells past the edge does not jump the Source
         // View to it.
         let dragging_region = self.region_drag.is_some();
-        let drag = middle_drag.or(primary_drag.filter(|_| (alt || touch_pan) && !dragging_region));
+        let drag = middle_drag
+            .or(primary_drag.filter(|_| (alt || self.touch_pressed) && !dragging_region));
         if let Some(delta) = drag {
             self.pan += delta;
         }
@@ -257,8 +252,6 @@ pub(super) struct PanInput {
     pub(super) primary_drag: Option<Vec2>,
     /// Whether Alt (Option) is held.
     pub(super) alt: bool,
-    /// Whether the primary drag is a finger's Pan.
-    pub(super) touch_pan: bool,
     /// Whether the console contains the pointer.
     pub(super) contains_pointer: bool,
     /// egui's smoothed wheel or two-finger scroll delta.
@@ -524,50 +517,33 @@ pub(super) fn show_source_scene(
     let alt = ui.input(|i| i.modifiers.alt);
     let pointer = ui.input(|i| i.pointer.interact_pos());
 
-    // A finger's press reaches egui as a primary press with touch events
-    // beside it; a tap's start and end can share one frame, which leaves no
-    // touch still down, so the frame's own touch events count too.
-    let long_press_after = ui
-        .ctx()
-        .options(|options| options.input_options.max_click_duration);
-    let (pressed, touching, primary_down, long_press) = ui.input(|i| {
-        let pressed_here = i.pointer.primary_pressed()
-            && i.pointer
-                .press_origin()
-                .is_some_and(|origin| console.contains(origin));
-        let touching = i.any_touches()
-            || i.events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Touch { .. }));
-        let long_press = i
-            .pointer
-            .press_start_time()
-            .is_some_and(|start| i.time - start >= long_press_after);
-        (
-            i.pointer.primary_pressed().then_some(pressed_here),
-            touching,
-            i.pointer.primary_down(),
-            long_press,
-        )
-    });
     // A press anywhere ends the last one's claim, and only a finger's press
     // on the Source makes a new one, so a finger on the menu or the Panel
-    // does not ask for the keyboard.
-    if let Some(pressed_here) = pressed {
-        view.touch_pressed = touching && pressed_here;
-    }
-    // A finger held still past egui's long press is not a drag: egui ends
-    // the press's drag there and reports a long touch instead. So any drag a
-    // finger starts is a finger that moved first, and it Pans.
-    if pan.drag_started_by(PointerButton::Primary) {
-        view.touch_pan = view.touch_pressed;
+    // does not ask for the keyboard. A finger's press reaches egui as a
+    // primary press with touch events beside it; a tap's start and end can
+    // share one frame, which leaves no touch still down, so the frame's own
+    // touch events count too.
+    let pressed = ui.input(|i| {
+        i.pointer.primary_pressed().then(|| {
+            let on_source = i
+                .pointer
+                .press_origin()
+                .is_some_and(|origin| console.contains(origin));
+            let touching = i.any_touches()
+                || i.events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Touch { .. }));
+            on_source && touching
+        })
+    });
+    if let Some(touch) = pressed {
+        view.touch_pressed = touch;
     }
     let dragged = |button| pan.dragged_by(button).then(|| pan.drag_delta());
     let settled = view.settle(PanInput {
         middle_drag: dragged(PointerButton::Middle),
         primary_drag: dragged(PointerButton::Primary),
         alt,
-        touch_pan: view.touch_pan,
         contains_pointer: pan.contains_pointer(),
         scroll: ui.input(|i| i.smooth_scroll_delta()),
         pointer,
@@ -595,28 +571,32 @@ pub(super) fn show_source_scene(
 
     let clicked = show_source(ui, frame, font_family, grid, console, theme);
 
-    // A primary drag without Alt selects a Region: its anchor is the Cell the
-    // press landed on, and a press off the Grid selects nothing. The drag is
-    // decided once the pointer has moved past egui's click distance, so the
-    // anchor is read from where the press began rather than where the
-    // pointer is now.
-    if pan.drag_started_by(PointerButton::Primary)
-        && !ui.input(|i| i.modifiers.alt)
-        && !view.touch_pan
-    {
+    // A Region's anchor is the Cell the press landed on, and a press off the
+    // Grid selects nothing. A mouse's primary drag without Alt starts one
+    // once the pointer has moved past egui's click distance, so the anchor is
+    // read from where the press began rather than where the pointer is now.
+    // A finger's drag Pans instead, and a finger held still for egui's long
+    // press (`InputOptions::max_click_duration`) starts one: egui ends that
+    // press's drag and reports the long touch to the Grid's click rect, not
+    // to `pan`, so the press's age is read here, and the finger's being down
+    // is what holds the Region open.
+    let finger_holds_region = view.touch_pressed && ui.input(|i| i.pointer.primary_down());
+    let starts_region = if view.touch_pressed {
+        let long_press = ui.ctx().options(|o| o.input_options.max_click_duration);
+        finger_holds_region
+            && view.region_drag.is_none()
+            && !pan.dragged_by(PointerButton::Primary)
+            && ui.input(|i| {
+                i.pointer
+                    .press_start_time()
+                    .is_some_and(|start| i.time - start >= long_press)
+            })
+    } else {
+        pan.drag_started_by(PointerButton::Primary) && !ui.input(|i| i.modifiers.alt)
+    };
+    if starts_region {
         view.region_drag = ui
             .input(|i| i.pointer.press_origin())
-            .and_then(|origin| grid.cell_at(origin, source_grid))
-            .and_then(|(column, row)| source_grid.position(column, row));
-    }
-    // A finger held still past the long press selects a Region from the Cell
-    // it pressed, for as long as it stays down. egui reports no drag for it,
-    // so the finger's being down is what holds the Region open.
-    let finger_holds_region = view.touch_pressed && primary_down;
-    if finger_holds_region && long_press && !view.touch_pan && view.region_drag.is_none() {
-        view.region_drag = ui
-            .input(|i| i.pointer.press_origin())
-            .filter(|origin| console.contains(*origin))
             .and_then(|origin| grid.cell_at(origin, source_grid))
             .and_then(|(column, row)| source_grid.position(column, row));
     }
@@ -641,9 +621,6 @@ pub(super) fn show_source_scene(
     // next, once the drag no longer paces it.
     if !region_held {
         view.region_drag = None;
-    }
-    if !pan.dragged_by(PointerButton::Primary) {
-        view.touch_pan = false;
     }
 
     spanned.or(clicked)
@@ -803,7 +780,6 @@ mod tests {
             middle_drag: None,
             primary_drag: None,
             alt: false,
-            touch_pan: false,
             contains_pointer: false,
             scroll: Vec2::ZERO,
             pointer: None,
@@ -1131,7 +1107,6 @@ mod tests {
         let settled = view.settle(PanInput {
             primary_drag: Some(Vec2::new(-40.0, 0.0)),
             alt: true,
-            touch_pan: false,
             contains_pointer: true,
             pointer: Some(Pos2::new(208.0, 100.0)),
             ..still(CONSOLE, grid, (16, 5))
@@ -1229,7 +1204,6 @@ mod tests {
         ] {
             let settled = SourceView::new(CELL_SIZE).settle(PanInput {
                 alt: true,
-                touch_pan: false,
                 contains_pointer: true,
                 ..still(console, grid, (0, 0))
             });
