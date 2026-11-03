@@ -531,6 +531,10 @@ pub(super) fn show_source_scene(
         .ctx()
         .options(|options| options.input_options.max_click_duration);
     let (pressed, touching, primary_down, long_press) = ui.input(|i| {
+        let pressed_here = i.pointer.primary_pressed()
+            && i.pointer
+                .press_origin()
+                .is_some_and(|origin| console.contains(origin));
         let touching = i.any_touches()
             || i.events
                 .iter()
@@ -540,14 +544,17 @@ pub(super) fn show_source_scene(
             .press_start_time()
             .is_some_and(|start| i.time - start >= long_press_after);
         (
-            i.pointer.primary_pressed(),
+            i.pointer.primary_pressed().then_some(pressed_here),
             touching,
             i.pointer.primary_down(),
             long_press,
         )
     });
-    if pressed {
-        view.touch_pressed = touching;
+    // A press anywhere ends the last one's claim, and only a finger's press
+    // on the Source makes a new one, so a finger on the menu or the Panel
+    // does not ask for the keyboard.
+    if let Some(pressed_here) = pressed {
+        view.touch_pressed = touching && pressed_here;
     }
     // A finger held still past egui's long press is not a drag: egui ends
     // the press's drag there and reports a long touch instead. So any drag a

@@ -7378,3 +7378,82 @@ async fn a_finger_tap_asks_for_the_keyboard_and_a_mouse_click_does_not() {
         "a mouse click kept asking for the keyboard"
     );
 }
+
+///
+/// A finger's tap outside the Source, on the Panel below it, does not ask
+/// for the keyboard, and withdraws an ask a tap on the Source made.
+///
+#[tokio::test]
+async fn a_finger_tap_outside_the_source_does_not_ask_for_the_keyboard() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+    let viewport = console_viewport(&console);
+    let on_a_cell = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+    // The bottom Panel's left margin, beneath the Source and clear of its
+    // controls, so no control takes the keys.
+    let on_the_panel = Pos2::new(screen.min.x + 2.0, screen.max.y - BOTTOM_PANEL_HEIGHT / 2.0);
+    assert!(
+        !console.source_view.shown().console().contains(on_the_panel),
+        "{on_the_panel:?} is on the Source, not the Panel"
+    );
+
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_up_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a finger on the Panel asked for the keyboard"
+    );
+
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(on_a_cell),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_up_at(on_a_cell),
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host).is_some(),
+        "a finger on a Cell did not ask for the keyboard"
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_up_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a finger on the Panel kept the keyboard a Cell asked for"
+    );
+}
