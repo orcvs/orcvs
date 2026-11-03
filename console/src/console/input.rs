@@ -2,10 +2,12 @@
 //! and the translation of the toolkit's events into the Source's input and
 //! the File commands' chords.
 
-use egui::{Event, EventFilter, Key};
+use egui::{Event, EventFilter, ImeEvent, Key};
 use orcvs::app::{Arrow, InputEvent, InputKey};
+use orcvs::grid::Position;
 
 use super::Console;
+use crate::grid_viewport::SourceCellRect;
 
 fn keep_digits_in_text_events(events: &mut Vec<egui::Event>) {
     for event in events.iter_mut() {
@@ -20,6 +22,31 @@ fn keep_digits_in_text_events(events: &mut Vec<egui::Event>) {
         egui::Event::Text(text) | egui::Event::Paste(text) => !text.is_empty(),
         _ => true,
     });
+}
+
+///
+/// The Source input one toolkit event stands for, which a phone's keyboard
+/// can make more than one of.
+///
+/// A phone's keyboard reaches the console through eframe's text input as
+/// text and IME events rather than key presses: a word it commits arrives as
+/// one string, and Backspace under Android's Gboard arrives as a
+/// `DeleteSurrounding` of the characters it removed. The Source writes one
+/// character per Cell, so each character is its own `Text`, and each deleted
+/// character is a Backspace. A composition still in progress
+/// (`ImeEvent::Preedit`) writes nothing until it commits.
+///
+pub(super) fn source_input(event: Event) -> Vec<InputEvent> {
+    match event {
+        Event::Text(text) | Event::Ime(ImeEvent::Commit(text)) => text
+            .chars()
+            .map(|character| InputEvent::Text(character.to_string()))
+            .collect(),
+        Event::Ime(ImeEvent::DeleteSurrounding { before_chars, .. }) => {
+            vec![InputEvent::KeyPressed(InputKey::Backspace); before_chars]
+        }
+        event => translate_event(event).into_iter().collect(),
+    }
 }
 
 pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
@@ -277,7 +304,7 @@ impl Console {
         let events: Vec<_> = ctx.input(|i| {
             i.filtered_events(&event_filter)
                 .into_iter()
-                .filter_map(translate_event)
+                .flat_map(source_input)
                 .collect()
         });
         #[cfg(target_arch = "wasm32")]
@@ -340,6 +367,38 @@ impl Console {
             || egui::Popup::is_any_open(ctx)
             || self.discard_confirmation.is_some()
             || self.about_logo.is_some();
+    }
+
+    ///
+    /// Asks the platform for its on-screen keyboard while a finger last
+    /// pressed the console and the Source holds the keys, with the Cursor's
+    /// Cell as where the typing goes.
+    ///
+    /// eframe on the web opens a phone's keyboard only for a frame that
+    /// reports where text is being edited (`PlatformOutput::ime`), and it
+    /// closes it and focuses the canvas on every frame that does not. The
+    /// Source Grid is painted rather than a `TextEdit`, so it reports this
+    /// itself. A mouse press stops the request, so a desktop keeps the
+    /// canvas holding the keys. A control holding the keys reports its own
+    /// position, or none, so it is left alone.
+    ///
+    /// Sampled after [`Console::latch_keyboard_owner`], so it agrees with
+    /// the keyboard owner the next frame routes keys by.
+    ///
+    pub(super) fn ask_for_touch_keyboard(&self, ctx: &egui::Context, cursor: Position) {
+        if self.keyboard_elsewhere || !self.source_view.touch_pressed() {
+            return;
+        }
+        let shown = self.source_view.shown();
+        let cursor_rect = shown.screen().rect_to_screen(SourceCellRect::cell(cursor));
+        ctx.output_mut(|output| {
+            output.ime = Some(egui::output::IMEOutput {
+                purpose: egui::IMEPurpose::Normal,
+                rect: shown.console(),
+                cursor_rect,
+                should_interrupt_composition: false,
+            });
+        });
     }
 }
 

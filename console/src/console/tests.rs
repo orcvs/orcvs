@@ -22,7 +22,7 @@ use super::diagnostics_panel::{
     frames_per_second,
 };
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
-use super::input::translate_event;
+use super::input::{source_input, translate_event};
 use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::panel::{BOTTOM_PANEL_HEIGHT, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
@@ -391,8 +391,6 @@ fn console_pass_at(
     view: &mut SourceView,
     pixels_per_point: f32,
 ) -> (GridViewport, Vec<Shape>) {
-    let frame = orcvs.render_frame();
-    let mut presented = None;
     let mut input = egui::RawInput {
         screen_rect: Some(screen),
         events,
@@ -403,6 +401,21 @@ fn console_pass_at(
         .get_mut(&egui::ViewportId::ROOT)
         .expect("the root viewport")
         .native_pixels_per_point = Some(pixels_per_point);
+    console_pass_input(ctx, input, orcvs, view)
+}
+
+///
+/// The same pass over a whole `RawInput`, for a test that states the time
+/// egui reads as well as the events.
+///
+fn console_pass_input(
+    ctx: &egui::Context,
+    input: egui::RawInput,
+    orcvs: &mut Orcvs,
+    view: &mut SourceView,
+) -> (GridViewport, Vec<Shape>) {
+    let frame = orcvs.render_frame();
+    let mut presented = None;
     let output = ctx.run_ui(input, |root| {
         egui::CentralPanel::default()
             .frame(source_panel_frame(
@@ -7095,5 +7108,273 @@ async fn a_small_console_keeps_its_source_when_a_message_is_refused() {
         1,
         "{:?}",
         console.themes.notice_list()
+    );
+}
+
+///
+/// A phone keyboard's committed word writes one Cell per character, and a
+/// `DeleteSurrounding`, which is Android's Backspace, is that many
+/// Backspaces. A composition still in progress writes nothing.
+///
+#[test]
+fn a_phone_keyboard_writes_a_cell_per_character_and_deletes_by_backspace() {
+    let text = |t: &str| InputEvent::Text(t.to_owned());
+    assert_eq!(
+        source_input(Event::Ime(egui::ImeEvent::Commit("ab".to_owned()))),
+        vec![text("a"), text("b")]
+    );
+    assert_eq!(
+        source_input(Event::Text("xy".to_owned())),
+        vec![text("x"), text("y")]
+    );
+    assert_eq!(
+        source_input(Event::Ime(egui::ImeEvent::DeleteSurrounding {
+            before_chars: 2,
+            after_chars: 0,
+        })),
+        vec![InputEvent::KeyPressed(InputKey::Backspace); 2]
+    );
+    assert_eq!(
+        source_input(Event::Ime(egui::ImeEvent::Preedit {
+            text: "a".to_owned(),
+            active_range_chars: None,
+        })),
+        Vec::new()
+    );
+}
+
+///
+/// A finger's touch as eframe on the web reports it: a primary press at
+/// `point` with a touch beginning beside it.
+///
+fn finger_down_at(point: Pos2) -> Vec<Event> {
+    vec![
+        Event::PointerMoved(point),
+        Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        },
+        finger(point, TouchPhase::Start),
+    ]
+}
+
+fn finger_moved_to(point: Pos2) -> Vec<Event> {
+    vec![Event::PointerMoved(point), finger(point, TouchPhase::Move)]
+}
+
+fn finger_up_at(point: Pos2) -> Vec<Event> {
+    vec![
+        Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        },
+        Event::PointerGone,
+        finger(point, TouchPhase::End),
+    ]
+}
+
+fn finger(pos: Pos2, phase: TouchPhase) -> Event {
+    Event::Touch {
+        device_id: egui::TouchDeviceId(0),
+        id: egui::TouchId(0),
+        phase,
+        pos,
+        force: None,
+    }
+}
+
+///
+/// One Source pass at `time` seconds.
+///
+fn console_pass_at_time(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    time: f64,
+    orcvs: &mut Orcvs,
+    view: &mut SourceView,
+) -> GridViewport {
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        events,
+        time: Some(time),
+        ..Default::default()
+    };
+    console_pass_input(ctx, input, orcvs, view).0
+}
+
+///
+/// A finger dragged across the Source Pans it by exactly what the finger
+/// moved, and moves neither the Cursor nor the Region.
+///
+#[tokio::test]
+async fn a_finger_drag_pans_the_source_and_leaves_the_region() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+    let mut orcvs = running_orcvs(64, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    let pass = |events, time, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at_time(&ctx, screen, events, time, orcvs, view)
+    };
+
+    let viewport = pass(Vec::new(), 0.0, &mut orcvs, &mut view);
+    let anchor = corner(&view);
+    let from = viewport.cell_rect(6, 4).center();
+    let moved = Vec2::new(-24.0, -36.0);
+
+    pass(finger_down_at(from), 0.1, &mut orcvs, &mut view);
+    pass(finger_moved_to(from + moved), 0.2, &mut orcvs, &mut view);
+    assert_eq!(
+        corner(&view) - anchor,
+        moved,
+        "a finger that moved {moved:?} panned the Source by {:?}",
+        corner(&view) - anchor
+    );
+    pass(finger_up_at(from + moved), 0.3, &mut orcvs, &mut view);
+
+    assert_eq!(
+        selected_cell(&orcvs),
+        (0, 0),
+        "a finger's Pan moved the Cursor"
+    );
+    assert_eq!(
+        region_of(&orcvs),
+        (0..1, 0..1),
+        "a finger's Pan spanned a Region"
+    );
+    assert!(
+        view.touch_pressed(),
+        "a finger's press did not read as a touch"
+    );
+}
+
+///
+/// A finger held still past egui's long press and then dragged spans a
+/// Region from the Cell it pressed, and does not Pan.
+///
+#[tokio::test]
+async fn a_finger_held_then_dragged_spans_a_region_without_panning() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    let pass = |events, time, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at_time(&ctx, screen, events, time, orcvs, view)
+    };
+
+    let viewport = pass(Vec::new(), 0.0, &mut orcvs, &mut view);
+    let before = view.pan;
+    let (from, to) = (
+        viewport.cell_rect(2, 2).center(),
+        viewport.cell_rect(6, 4).center(),
+    );
+
+    pass(finger_down_at(from), 0.1, &mut orcvs, &mut view);
+    // Held still past egui's long press of 0.8 seconds.
+    pass(Vec::new(), 1.0, &mut orcvs, &mut view);
+    pass(finger_moved_to(to), 1.1, &mut orcvs, &mut view);
+    pass(finger_up_at(to), 1.2, &mut orcvs, &mut view);
+
+    assert_eq!(
+        view.pan, before,
+        "a finger held before it moved panned the Source"
+    );
+    assert_eq!(
+        region_of(&orcvs),
+        (2..7, 2..5),
+        "a finger held before it moved did not span from the pressed Cell"
+    );
+}
+
+///
+/// A finger's tap selects the Cell under it, as a click does.
+///
+#[tokio::test]
+async fn a_finger_tap_selects_the_cell_under_it() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    let pass = |events, time, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at_time(&ctx, screen, events, time, orcvs, view)
+    };
+
+    let viewport = pass(Vec::new(), 0.0, &mut orcvs, &mut view);
+    let target = viewport.cell_rect(5, 3).center();
+    pass(finger_down_at(target), 0.1, &mut orcvs, &mut view);
+    pass(finger_up_at(target), 0.2, &mut orcvs, &mut view);
+
+    assert_eq!(selected_cell(&orcvs), (5, 3));
+}
+
+///
+/// One pass of the whole Console, answering where it asked the platform's
+/// on-screen keyboard to type, if anywhere.
+///
+fn app_pass_ime(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> Option<egui::output::IMEOutput> {
+    use eframe::App as _;
+
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..Default::default()
+    };
+    let output = ctx.run_ui(input, |root| console.ui(root, host));
+    let ime = output.platform_output.ime;
+    output.drop_without_applying_deltas();
+    ime
+}
+
+///
+/// A finger's tap on a Cell asks for the on-screen keyboard at the Cursor's
+/// Cell, and a mouse click afterwards withdraws the ask, so a desktop keeps
+/// the canvas holding the keys.
+///
+#[tokio::test]
+async fn a_finger_tap_asks_for_the_keyboard_and_a_mouse_click_does_not() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a fresh Console asked for the keyboard before any touch"
+    );
+
+    let viewport = console_viewport(&console);
+    let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(target),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(&ctx, screen, finger_up_at(target), &mut console, &mut host);
+    let ime = app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host)
+        .expect("a finger's tap on the Source did not ask for the keyboard");
+    let cell = console_viewport(&console).cell_rect(3, 1);
+    assert_eq!(selected_cell(&console.orcvs), (3, 1));
+    assert_eq!(
+        ime.cursor_rect, cell,
+        "the keyboard was not asked for at the Cursor's Cell"
+    );
+
+    app_pass_ime(&ctx, screen, click_at(target), &mut console, &mut host);
+    app_pass_ime(&ctx, screen, release_at(target), &mut console, &mut host);
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a mouse click kept asking for the keyboard"
     );
 }

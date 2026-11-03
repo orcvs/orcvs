@@ -3,7 +3,9 @@
 <head>
 
 <!-- Disable zooming: -->
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<!-- interactive-widget: an on-screen keyboard shrinks the page, and so the canvas, rather than
+     covering it, so the console keeps the Cursor in view above the keyboard. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
 
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <!-- change this to your project name -->
@@ -124,8 +126,8 @@
          larger Cells, so it shows fewer of them, and no Minimap. -->
     <script type="application/toml" id="orcvs_config" data-media="(max-width: 600px)">
 [cell]
-width = 24
-height = 36
+width = 16
+height = 24
 
 [minimap]
 open = false
