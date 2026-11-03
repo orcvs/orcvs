@@ -111,6 +111,22 @@ test("a first visit opens the Beat, and its first Tick sounds on time", async ({
   expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
 });
 
+test("a first visit's Play waits for the page's audio, so its first Tick sounds on time", async ({ page }) => {
+  await page.goto("/");
+  const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
+  await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
+
+  // The Panel's `P`, its first Cell: half the Panel's 52 points above the console's bottom edge. The
+  // click is the reader's first gesture, so Tick 0 waits for the page's audio as Space's does.
+  const box = await frame.boundingBox();
+  await frame.click({ position: { x: 30, y: box!.height - 26 } });
+  await expect.poll(() => page.evaluate(() => window.synthSpy.sounds.length)).toBeGreaterThan(0);
+
+  expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
+  expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
+});
+
 test("a click in the console starts the page's audio before Space", async ({ page }) => {
   await page.goto("/");
   const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
