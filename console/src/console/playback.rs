@@ -46,7 +46,7 @@ impl PlaybackStart {
             self.held_since = Some(now);
             Decision::Held
         } else {
-            Decision::Nothing
+            Decision::Toggle
         }
     }
 
@@ -91,5 +91,12 @@ mod tests {
         start.request(1.0, true);
         assert_eq!(start.poll(1.0 + AUDIO_WAIT - 0.01, false), Decision::Held);
         assert_eq!(start.poll(1.0 + AUDIO_WAIT, false), Decision::Toggle);
+    }
+
+    #[test]
+    fn a_request_that_is_not_early_toggles_at_once() {
+        let mut start = PlaybackStart::default();
+        assert_eq!(start.request(1.0, false), Decision::Toggle);
+        assert_eq!(start.poll(1.1, false), Decision::Nothing);
     }
 }
