@@ -153,6 +153,24 @@ impl<P: SynthPage> SynthAnnouncements<P> {
     }
 
     ///
+    /// Whether a Playback start now would sound before the page's audio runs:
+    /// Playback is `stopped`, the audio is asleep and the synth is the
+    /// selected destination.
+    ///
+    pub(crate) fn start_is_early(&self, midi: &mut MidiDeviceSelection, stopped: bool) -> bool {
+        stopped
+            && !self.page.awake()
+            && midi
+                .selected_destination_id()
+                .is_some_and(|id| id.as_str() == BUILT_IN_SYNTH)
+    }
+
+    /// Whether the page last said its audio runs.
+    pub(crate) fn awake(&self) -> bool {
+        self.page.awake()
+    }
+
+    ///
     /// Holds a Space that would start Playback on the synth while the page's
     /// audio is asleep, so Tick 0 sounds on time rather than late, and lets it
     /// through once the audio runs or [`AUDIO_WAIT`] has passed. A second
@@ -614,6 +632,30 @@ mod tests {
 
     fn space() -> Vec<InputEvent> {
         vec![InputEvent::KeyPressed(InputKey::Space)]
+    }
+
+    #[tokio::test]
+    async fn a_start_is_early_only_while_stopped_asleep_and_on_the_synth() {
+        let page = FakePage::default();
+        let (_orcvs, mut midi, gate) = on_the_synth(&page).await;
+        assert!(gate.start_is_early(&mut midi, true));
+        assert!(
+            !gate.start_is_early(&mut midi, false),
+            "a playing console stops at once"
+        );
+
+        page.wake();
+        assert!(gate.awake());
+        assert!(!gate.start_is_early(&mut midi, true));
+
+        let asleep = FakePage::default();
+        asleep.announce(Announcement::Available);
+        let (_orcvs, mut midi) = selection(Ok(vec![port()]), &asleep);
+        let mut gate = SynthAnnouncements::new(asleep.clone(), false);
+        frame(&mut gate, &mut midi).await;
+        assert_eq!(midi.selected_destination_id(), Some(port().id));
+        assert!(!gate.awake());
+        assert!(!gate.start_is_early(&mut midi, true));
     }
 
     #[tokio::test]
