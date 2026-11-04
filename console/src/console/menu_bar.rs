@@ -18,8 +18,8 @@ const SITE_LINKS: [(&str, &str); 2] = [
 ];
 
 /// The height the top panel takes from the window, leaving the rest to the
-/// console: the bottom Panel's compact height, so the two bars match.
-pub(super) const TOP_PANEL_HEIGHT: f32 = super::panel::BOTTOM_PANEL_HEIGHT;
+/// console: the bottom Panel's row height, so the two bars' rows match.
+pub(super) const TOP_PANEL_HEIGHT: f32 = super::panel::PANEL_ROW_HEIGHT;
 
 ///
 /// The top bar's item spacing: what leaves the bottom Panel's Readout group

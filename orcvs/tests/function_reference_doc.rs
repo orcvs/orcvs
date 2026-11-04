@@ -86,6 +86,71 @@ fn every_function_has_an_entry() {
     }
 }
 
+/// Every `### ` heading outside a fenced block is ``### `<spelling>` <name>``,
+/// the name is the one its Function's row in the Function table carries, and
+/// each Function has exactly one, so the two cannot drift.
+#[test]
+fn every_heading_names_its_function_as_the_table_does() {
+    let mut fenced = false;
+    let headings: Vec<(usize, &str)> = REFERENCE
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            if line.starts_with("```") {
+                fenced = !fenced;
+            }
+            !fenced
+        })
+        .filter_map(|(index, line)| line.strip_prefix("### ").map(|rest| (index + 1, rest)))
+        .collect();
+    let mut headed = Vec::new();
+    for (line, heading) in headings {
+        let (spelling, name) = heading
+            .strip_prefix('`')
+            .and_then(|rest| rest.split_once("` "))
+            .unwrap_or_else(|| {
+                panic!("line {line}: `### {heading}` is not ### `<spelling>` <name>")
+            });
+        let function = Function::ALL
+            .iter()
+            .find(|function| function.cells().to_string() == spelling)
+            .unwrap_or_else(|| panic!("line {line}: `{spelling}` is no Function in the table"));
+        assert!(
+            !headed.contains(function),
+            "line {line}: `{spelling}` is headed twice"
+        );
+        headed.push(*function);
+        assert_eq!(
+            function.name(),
+            name,
+            "line {line}: the table names `{spelling}`"
+        );
+    }
+    for function in Function::ALL {
+        assert!(
+            headed.contains(function),
+            "docs/functions.md has no heading for `{}`",
+            function.cells()
+        );
+    }
+}
+
+/// Each Function's summary in the table is one short line.
+#[test]
+fn every_summary_is_one_short_line() {
+    for function in Function::ALL {
+        let summary = function.summary();
+        assert!(
+            !summary.is_empty()
+                && summary.len() <= 60
+                && !summary.contains('\n')
+                && summary.trim() == summary,
+            "the summary for `{}` is not one short line: {summary:?}",
+            function.cells()
+        );
+    }
+}
+
 #[test]
 fn every_example_ticks_to_the_source_it_shows() {
     let mut before: Option<&Block> = None;

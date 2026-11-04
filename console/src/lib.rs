@@ -13,6 +13,7 @@ pub mod console_midi;
 // native loads one: the web has the built-ins alone.
 #[cfg(any(not(target_arch = "wasm32"), test))]
 mod contrast;
+mod cursor_line;
 mod examples;
 mod function_reference;
 mod grid_viewport;

@@ -572,7 +572,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, rest: $rest:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, rest: $rest:ident)?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -610,6 +610,30 @@ macro_rules! define_functions {
             pub(crate) const fn spelling(self) -> &'static str {
                 match self {
                     $(Self::$variant => $spelling,)+
+                }
+            }
+
+            /// This Function's name, as its heading in `docs/functions.md`
+            /// gives it: `.|` is `Absolute Difference`.
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+
+            /// One short line on what this Function answers or does, in the
+            /// Function reference's voice: `.+` `answers left + right`.
+            pub const fn summary(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $summary,)+
+                }
+            }
+
+            /// The role each declared operand plays, in signature order: `.+`
+            /// declares `left` and `right`.
+            pub const fn roles(self) -> &'static [&'static str] {
+                match self {
+                    $(Self::$variant => &[$(stringify!($role)),*],)+
                 }
             }
 
@@ -873,59 +897,59 @@ macro_rules! define_functions {
 
 define_functions! {
     spelled: {
-    AbsoluteCopy => ("=$", Value, Intrinsic, May, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
-    AbsoluteDifference => (".|", Value, Intrinsic, Never, [left: Number, right: Number]),
-    AbsoluteRead => ("&$", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row),
-    AbsoluteWrite => ("@$", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row),
-    Add => (".+", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Clock => ("~.", Value, Intrinsic, Never, [rate: Number, modulus: Number]),
-    ControlChange => ("!c", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Intrinsic, Never, [value: Number]),
-    ConvertToNumber => (".v", Value, Intrinsic, Never, [value: Note]),
-    CopyEast => ("=>", Value, Intrinsic, May, []),
-    CopyNorth => ("=^", Value, Intrinsic, May, []),
-    CopySouth => ("=v", Value, Intrinsic, May, []),
-    CopyWest => ("=<", Value, Intrinsic, May, []),
-    Delay => ("~*", Value, Intrinsic, May, [rate: Number, modulus: Number]),
-    DirectionalBangEast => ("*>", BangEast, Bang, Never, []),
-    DirectionalBangNorth => ("*^", BangNorth, Bang, Never, []),
-    DirectionalBangSouth => ("*v", BangSouth, Bang, Never, []),
-    DirectionalBangWest => ("*<", BangWest, Bang, Never, []),
-    Divide => ("./", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Equality => (".=", Value, Intrinsic, May, [left: Number, right: Number]),
-    Euclidean => ("~%", Value, Intrinsic, May, [hits: Number, steps: Number]),
-    Halt => ("*!", Halt, Bang, Never, []),
-    Increment => ("~+", Value, Intrinsic, Never, [step: Number, modulus: Number], portal: "previous value": Number),
-    Interpolation => ("~>", Value, Intrinsic, Never, [rate: Number, target: Number], portal: "previous value": Number),
-    Maximum => (".>", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Minimum => (".<", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Modulo => (".%", Value, Intrinsic, Never, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
-    Multiply => (".x", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Osc => ("!o", TerminalOutput, Bang, Never, []),
-    PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
-    Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
-    RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
-    ReadEast => ("&>", Value, Intrinsic, May, [n: Number], distance: Input East n),
-    ReadNorth => ("&^", Value, Intrinsic, May, [n: Number], distance: Input North n),
-    ReadSouth => ("&v", Value, Intrinsic, May, [n: Number], distance: Input South n),
-    ReadWest => ("&<", Value, Intrinsic, May, [n: Number], distance: Input West n),
-    SelfBangingEast => (">>", SelfBangEast, Intrinsic, Never, []),
-    SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Never, []),
-    SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
-    SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
-    Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
-    TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
-    Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
-    Udp => ("!u", TerminalOutput, Bang, Never, []),
-    WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output East n),
-    WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output North n),
-    WriteSouth => ("@v", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output South n),
-    WriteWest => ("@<", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output West n),
+    AbsoluteCopy => ("=$", "Absolute Copy", "copies the pair at one position to another", Value, Intrinsic, May, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
+    AbsoluteDifference => (".|", "Absolute Difference", "answers the distance between left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    AbsoluteRead => ("&$", "Absolute Read", "reads the pair at a position", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row),
+    AbsoluteWrite => ("@$", "Absolute Write", "writes value at a position", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row),
+    Add => (".+", "Add", "answers left + right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Clock => ("~.", "Clock", "answers which step of a cycle the Tick is on", Value, Intrinsic, Never, [rate: Number, modulus: Number]),
+    ControlChange => ("!c", "Control Change", "sends a Control Change", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ConvertToNote => (".^", "Convert to Note", "answers the Note for a Number", Value, Intrinsic, Never, [value: Number]),
+    ConvertToNumber => (".v", "Convert to Number", "answers the MIDI note number of a Note", Value, Intrinsic, Never, [value: Note]),
+    CopyEast => ("=>", "Copy East", "copies the pair before it to the pair after it", Value, Intrinsic, May, []),
+    CopyNorth => ("=^", "Copy North", "copies the pair south of it one row north", Value, Intrinsic, May, []),
+    CopySouth => ("=v", "Copy South", "copies the pair north of it one row south", Value, Intrinsic, May, []),
+    CopyWest => ("=<", "Copy West", "copies the pair after it to the pair before it", Value, Intrinsic, May, []),
+    Delay => ("~*", "Delay", "answers a Bang once every rate * modulus Ticks", Value, Intrinsic, May, [rate: Number, modulus: Number]),
+    DirectionalBangEast => ("*>", "Bang East", "emits >> after it for each Bang it receives", BangEast, Bang, Never, []),
+    DirectionalBangNorth => ("*^", "Bang North", "emits ^^ one row north for each Bang it receives", BangNorth, Bang, Never, []),
+    DirectionalBangSouth => ("*v", "Bang South", "emits vv one row south for each Bang it receives", BangSouth, Bang, Never, []),
+    DirectionalBangWest => ("*<", "Bang West", "emits << before it for each Bang it receives", BangWest, Bang, Never, []),
+    Divide => ("./", "Divide", "answers left / right, rounded down", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Equality => (".=", "Equality", "answers a Bang when left equals right", Value, Intrinsic, May, [left: Number, right: Number]),
+    Euclidean => ("~%", "Euclidean", "answers a Bang on hits Ticks spread across steps", Value, Intrinsic, May, [hits: Number, steps: Number]),
+    Halt => ("*!", "Halt", "stops the root south of it from taking its Turn", Halt, Bang, Never, []),
+    Increment => ("~+", "Increment", "adds step to its previous value, wrapping at modulus", Value, Intrinsic, Never, [step: Number, modulus: Number], portal: "previous value": Number),
+    Interpolation => ("~>", "Interpolation", "moves its previous value toward target by rate", Value, Intrinsic, Never, [rate: Number, target: Number], portal: "previous value": Number),
+    Maximum => (".>", "Maximum", "answers the larger of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Minimum => (".<", "Minimum", "answers the smaller of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Modulo => (".%", "Modulo", "answers the remainder of left / right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", "Monophonic Play", "stops its channel's earlier note, then plays like Timed Play", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    Multiply => (".x", "Multiply", "answers left * right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Osc => ("!o", "OSC", "sends its Payload as one OSC message", TerminalOutput, Bang, Never, []),
+    PitchBend => ("!b", "Pitch Bend", "sends a Pitch Bend", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    Push => ("@t", "Push", "writes value into a lane of count pairs below", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
+    Random => ("~?", "Random", "answers a Number from minimum to maximum", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
+    RawPlay => ("!>", "Play", "sends a Note On", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
+    ReadEast => ("&>", "Read East", "reads the pair n pairs east", Value, Intrinsic, May, [n: Number], distance: Input East n),
+    ReadNorth => ("&^", "Read North", "reads the pair n rows north", Value, Intrinsic, May, [n: Number], distance: Input North n),
+    ReadSouth => ("&v", "Read South", "reads the pair n rows south", Value, Intrinsic, May, [n: Number], distance: Input South n),
+    ReadWest => ("&<", "Read West", "reads the pair n pairs west", Value, Intrinsic, May, [n: Number], distance: Input West n),
+    SelfBangingEast => (">>", "Move East", "moves itself one Cell east each Tick", SelfBangEast, Intrinsic, Never, []),
+    SelfBangingNorth => ("^^", "Move North", "moves itself one row north each Tick", SelfBangNorth, Intrinsic, Never, []),
+    SelfBangingSouth => ("vv", "Move South", "moves itself one row south each Tick", SelfBangSouth, Intrinsic, Never, []),
+    SelfBangingWest => ("<<", "Move West", "moves itself one Cell west each Tick", SelfBangWest, Intrinsic, Never, []),
+    Subtract => (".-", "Subtract", "answers left - right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    TimedPlay => ("!~", "Timed Play", "sends a Note On and its Note Off after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    Track => ("&t", "Track", "reads pair index % count of the pairs after it", Value, Intrinsic, May, [index: Number, count: Number]),
+    Udp => ("!u", "UDP", "sends its Payload as one UDP datagram", TerminalOutput, Bang, Never, []),
+    WriteEast => ("@>", "Write East", "writes value n pairs east", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output East n),
+    WriteNorth => ("@^", "Write North", "writes value n rows north", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output North n),
+    WriteSouth => ("@v", "Write South", "writes value n rows south", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output South n),
+    WriteWest => ("@<", "Write West", "writes value n pairs west", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output West n),
     }
     named: {
-    Bang => ("**", Fire, Intrinsic, May, []),
+    Bang => ("**", "Bang", "activates the roots aligned with it", Fire, Intrinsic, May, []),
     }
 }
 
@@ -2107,6 +2131,34 @@ mod test {
 
         let note = Atom::Note(Note::try_from(0x7F).unwrap());
         assert_eq!(String::from(note), "G9");
+    }
+
+    #[test]
+    fn each_function_names_its_operand_roles_in_signature_order() {
+        assert_eq!(Function::Add.roles(), ["left", "right"]);
+        assert_eq!(
+            Function::TimedPlay.roles(),
+            ["channel", "velocity", "note", "length"]
+        );
+        assert!(Function::CopyEast.roles().is_empty());
+        for function in Function::ALL {
+            let roles = function.roles();
+            assert_eq!(
+                roles.len(),
+                function.signature().len(),
+                "`{function}` names a role for each operand it declares"
+            );
+            for (index, role) in roles.iter().enumerate() {
+                assert!(
+                    !role.is_empty() && role.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                    "`{function}` names an operand `{role}`"
+                );
+                assert!(
+                    !roles[..index].contains(role),
+                    "`{function}` names `{role}` twice"
+                );
+            }
+        }
     }
 
     #[test]
