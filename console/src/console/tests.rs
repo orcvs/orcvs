@@ -22,7 +22,7 @@ use super::diagnostics_panel::{
     frames_per_second,
 };
 use super::glyphs::{ALPHABET_FIRST, ALPHABET_LAST, GlyphTable};
-use super::input::translate_event;
+use super::input::{source_input, translate_event};
 use super::menu_bar::TOP_PANEL_HEIGHT;
 use super::panel::{BOTTOM_PANEL_HEIGHT, BPM_FIELD_MARGIN};
 use super::shapes::SourceShapes;
@@ -132,8 +132,8 @@ fn toolkit_events_translate_only_the_input_orcvs_handles() {
     }
 
     assert_eq!(
-        translate_event(Event::Text("x".to_owned())),
-        Some(InputEvent::Text("x".to_owned()))
+        source_input(Event::Text("x".to_owned())),
+        vec![InputEvent::Text("x".to_owned())]
     );
     assert_eq!(translate_event(key_event(Key::Enter, true)), None);
     assert_eq!(translate_event(key_event(Key::ArrowDown, false)), None);
@@ -179,13 +179,13 @@ fn toolkit_events_translate_only_the_input_orcvs_handles() {
     }
 
     // Bare `+`, `-`, `=` and `0` are Source characters: the toolkit
-    // reports them as `Event::Text`, which `translate_event` reaches
+    // reports them as `Event::Text`, which `source_input` reaches
     // regardless of what key produced it, and never as one of the Key
     // variants matched above.
     for character in ["+", "-", "=", "0"] {
         assert_eq!(
-            translate_event(Event::Text(character.to_owned())),
-            Some(InputEvent::Text(character.to_owned())),
+            source_input(Event::Text(character.to_owned())),
+            vec![InputEvent::Text(character.to_owned())],
             "bare {character:?} did not reach the Source as Cell input"
         );
     }
@@ -391,8 +391,6 @@ fn console_pass_at(
     view: &mut SourceView,
     pixels_per_point: f32,
 ) -> (GridViewport, Vec<Shape>) {
-    let frame = orcvs.render_frame();
-    let mut presented = None;
     let mut input = egui::RawInput {
         screen_rect: Some(screen),
         events,
@@ -403,6 +401,21 @@ fn console_pass_at(
         .get_mut(&egui::ViewportId::ROOT)
         .expect("the root viewport")
         .native_pixels_per_point = Some(pixels_per_point);
+    console_pass_input(ctx, input, orcvs, view)
+}
+
+///
+/// The same pass over a whole `RawInput`, for a test that states the time
+/// egui reads as well as the events.
+///
+fn console_pass_input(
+    ctx: &egui::Context,
+    input: egui::RawInput,
+    orcvs: &mut Orcvs,
+    view: &mut SourceView,
+) -> (GridViewport, Vec<Shape>) {
+    let frame = orcvs.render_frame();
+    let mut presented = None;
     let output = ctx.run_ui(input, |root| {
         egui::CentralPanel::default()
             .frame(source_panel_frame(
@@ -552,6 +565,7 @@ fn wheel_at(point: Pos2, delta: Vec2) -> Vec<Event> {
         Event::PointerMoved(point),
         Event::MouseWheel {
             unit: MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta,
             phase: TouchPhase::Move,
             modifiers: Modifiers::NONE,
@@ -568,6 +582,7 @@ fn command_wheel_at(point: Pos2) -> Vec<Event> {
         Event::PointerMoved(point),
         Event::MouseWheel {
             unit: MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: Vec2::new(0.0, 80.0),
             phase: TouchPhase::Move,
             modifiers: Modifiers::COMMAND,
@@ -715,6 +730,15 @@ pub(super) fn start_console(
 }
 
 ///
+/// The id egui gives the root Ui's Panel shown under `salt`: a Panel's id is
+/// its parent Ui's scope id salted with its own (`egui-0.37.0/src/containers/panel.rs`,
+/// `Panel::id`), and the console shows its bars on the root Ui.
+///
+pub(super) fn panel_id(salt: &str) -> egui::Id {
+    egui::ViewportId::ROOT.root_ui_id().with(salt)
+}
+
+///
 /// Gives `console` a MIDI service that grants access and lists no
 /// destinations, so whatever the machine's own MIDI support says adds no
 /// status line to the Panel.
@@ -808,6 +832,19 @@ fn app_pass(
     console: &mut Console,
     host: &mut eframe::Frame,
 ) {
+    app_pass_output(ctx, screen, events, console, host).drop_without_applying_deltas();
+}
+
+///
+/// One pass, answering egui's whole output for the caller to read.
+///
+fn app_pass_output(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> egui::FullOutput {
     use eframe::App as _;
 
     let input = egui::RawInput {
@@ -815,8 +852,7 @@ fn app_pass(
         events,
         ..Default::default()
     };
-    let output = ctx.run_ui(input, |root| console.ui(root, host));
-    output.drop_without_applying_deltas();
+    ctx.run_ui(input, |root| console.ui(root, host))
 }
 
 ///
@@ -832,14 +868,7 @@ fn app_pass_repaint_delay(
     console: &mut Console,
     host: &mut eframe::Frame,
 ) -> std::time::Duration {
-    use eframe::App as _;
-
-    let input = egui::RawInput {
-        screen_rect: Some(screen),
-        events,
-        ..Default::default()
-    };
-    let output = ctx.run_ui(input, |root| console.ui(root, host));
+    let output = app_pass_output(ctx, screen, events, console, host);
     let delay = output
         .viewport_output
         .get(&egui::ViewportId::ROOT)
@@ -954,10 +983,10 @@ fn painted_strokes(ctx: &egui::Context) -> Vec<(Color32, Rect)> {
         egui::LayerId::background(),
         egui::LayerId::new(egui::Order::Background, egui::Id::NULL),
         egui::LayerId::new(egui::Order::Middle, egui::Id::NULL),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
-        egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
-        egui::LayerId::new(egui::Order::Middle, egui::Id::new("top_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("bottom_panel")),
+        egui::LayerId::new(egui::Order::Middle, panel_id("bottom_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("top_panel")),
+        egui::LayerId::new(egui::Order::Middle, panel_id("top_panel")),
     ];
     ctx.graphics(|graphics| {
         for layer in layers {
@@ -994,9 +1023,9 @@ fn painted_text(ctx: &egui::Context) -> String {
     let mut text = String::new();
     let layers = [
         egui::LayerId::background(),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
-        egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
-        egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("bottom_panel")),
+        egui::LayerId::new(egui::Order::Background, panel_id("top_panel")),
+        egui::LayerId::new(egui::Order::Middle, panel_id("bottom_panel")),
     ];
     ctx.graphics(|graphics| {
         for layer in layers {
@@ -1326,7 +1355,7 @@ async fn the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run() {
         "Scan belongs in the Output menu, not on the closed Panel in {text:?}"
     );
 
-    let panel = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("bottom_panel"))
+    let panel = egui::containers::panel::PanelState::load(&ctx, panel_id("bottom_panel"))
         .expect("the bottom Panel was not shown");
     assert!(
         (panel.outer_rect.bottom() - screen.bottom()).abs() < 0.5,
@@ -1503,14 +1532,13 @@ async fn a_stopped_console_requests_no_repaint_on_a_quiet_pass() {
 }
 
 ///
-/// egui subtracts `predicted_dt` from every timed request. With a
-/// predicted frame longer than any Run Clock remainder, an uncompensated
-/// remainder saturates to an immediate Render Frame on every pass — the
-/// back-to-back redraw `until_next` adds `predicted_dt` to prevent. The
-/// compensated request survives the subtraction as the remainder itself.
+/// egui wakes after the delay a timed request names, whatever frame time it
+/// predicts: with a predicted frame longer than a second, the Run Clock
+/// request is still the remainder to the next whole second, never stretched
+/// past it nor collapsed to an immediate Render Frame.
 ///
 #[tokio::test]
-async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_time() {
+async fn a_playing_console_requests_the_run_clock_remainder_whatever_the_predicted_frame_time() {
     use eframe::App as _;
 
     let (ctx, mut console, mut host) = fresh_console();
@@ -1536,7 +1564,7 @@ async fn a_playing_console_compensates_the_run_clock_wake_for_predicted_frame_ti
     );
 
     // A publish or focus wake can still ask for an immediate pass while
-    // settling; a compensated Run Clock request is the only timed one.
+    // settling; the Run Clock request is the only timed one.
     let mut delays = Vec::new();
     for _ in 0..8 {
         let input = egui::RawInput {
@@ -2459,7 +2487,7 @@ async fn the_compact_bars_take_their_height_and_the_source_the_rest() {
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
 
     let panel = |id: &str| {
-        egui::containers::panel::PanelState::load(&ctx, egui::Id::new(id))
+        egui::containers::panel::PanelState::load(&ctx, panel_id(id))
             .unwrap_or_else(|| panic!("the console showed no {id}"))
             .outer_rect
     };
@@ -2665,9 +2693,9 @@ async fn panel_label_gaps_match_and_entry_gaps_match() {
             let mut spans = Vec::new();
             let layers = [
                 egui::LayerId::background(),
-                egui::LayerId::new(egui::Order::Background, egui::Id::new("bottom_panel")),
-                egui::LayerId::new(egui::Order::Background, egui::Id::new("top_panel")),
-                egui::LayerId::new(egui::Order::Middle, egui::Id::new("bottom_panel")),
+                egui::LayerId::new(egui::Order::Background, panel_id("bottom_panel")),
+                egui::LayerId::new(egui::Order::Background, panel_id("top_panel")),
+                egui::LayerId::new(egui::Order::Middle, panel_id("bottom_panel")),
             ];
             ctx.graphics(|graphics| {
                 for layer in layers {
@@ -7300,5 +7328,331 @@ async fn a_small_console_keeps_its_source_when_a_message_is_refused() {
         1,
         "{:?}",
         console.themes.notice_list()
+    );
+}
+
+///
+/// A phone keyboard's committed word writes one Cell per character, and a
+/// `DeleteSurrounding`, which is Android's Backspace, is that many
+/// Backspaces. A composition still in progress writes nothing.
+///
+#[test]
+fn a_phone_keyboard_writes_a_cell_per_character_and_deletes_by_backspace() {
+    let text = |t: &str| InputEvent::Text(t.to_owned());
+    assert_eq!(
+        source_input(Event::Ime(egui::ImeEvent::Commit("ab".to_owned()))),
+        vec![text("a"), text("b")]
+    );
+    assert_eq!(
+        source_input(Event::Text("xy".to_owned())),
+        vec![text("x"), text("y")]
+    );
+    assert_eq!(
+        source_input(Event::Ime(egui::ImeEvent::DeleteSurrounding {
+            before_chars: 2,
+            after_chars: 0,
+        })),
+        vec![InputEvent::KeyPressed(InputKey::Backspace); 2]
+    );
+    assert_eq!(
+        source_input(Event::Ime(egui::ImeEvent::Preedit {
+            text: "a".to_owned(),
+            active_range_chars: None,
+        })),
+        Vec::new()
+    );
+}
+
+///
+/// A finger's touch as eframe on the web reports it: a primary press at
+/// `point` with a touch beginning beside it.
+///
+fn finger_down_at(point: Pos2) -> Vec<Event> {
+    let mut events = click_at(point);
+    events.push(finger(point, TouchPhase::Start));
+    events
+}
+
+fn finger_moved_to(point: Pos2) -> Vec<Event> {
+    vec![Event::PointerMoved(point), finger(point, TouchPhase::Move)]
+}
+
+fn finger_up_at(point: Pos2) -> Vec<Event> {
+    let mut events = release_at(point);
+    events.extend([Event::PointerGone, finger(point, TouchPhase::End)]);
+    events
+}
+
+fn finger(pos: Pos2, phase: TouchPhase) -> Event {
+    Event::Touch {
+        device_id: egui::TouchDeviceId(0),
+        id: egui::TouchId(0),
+        phase,
+        pos,
+        force: None,
+    }
+}
+
+///
+/// One Source pass at `time` seconds.
+///
+fn console_pass_at_time(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    time: f64,
+    orcvs: &mut Orcvs,
+    view: &mut SourceView,
+) -> GridViewport {
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        events,
+        time: Some(time),
+        ..Default::default()
+    };
+    console_pass_input(ctx, input, orcvs, view).0
+}
+
+///
+/// A finger dragged across the Source Pans it by exactly what the finger
+/// moved, and moves neither the Cursor nor the Region.
+///
+#[tokio::test]
+async fn a_finger_drag_pans_the_source_and_leaves_the_region() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+    let mut orcvs = running_orcvs(64, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    let pass = |events, time, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at_time(&ctx, screen, events, time, orcvs, view)
+    };
+
+    let viewport = pass(Vec::new(), 0.0, &mut orcvs, &mut view);
+    let anchor = corner(&view);
+    let from = viewport.cell_rect(6, 4).center();
+    let moved = Vec2::new(-24.0, -36.0);
+
+    pass(finger_down_at(from), 0.1, &mut orcvs, &mut view);
+    pass(finger_moved_to(from + moved), 0.2, &mut orcvs, &mut view);
+    assert_eq!(
+        corner(&view) - anchor,
+        moved,
+        "a finger that moved {moved:?} panned the Source by {:?}",
+        corner(&view) - anchor
+    );
+    pass(finger_up_at(from + moved), 0.3, &mut orcvs, &mut view);
+
+    assert_eq!(
+        selected_cell(&orcvs),
+        (0, 0),
+        "a finger's Pan moved the Cursor"
+    );
+    assert_eq!(
+        region_of(&orcvs),
+        (0..1, 0..1),
+        "a finger's Pan spanned a Region"
+    );
+    assert!(
+        view.touch_pressed(),
+        "a finger's press did not read as a touch"
+    );
+}
+
+///
+/// A finger held still past egui's long press and then dragged spans a
+/// Region from the Cell it pressed, and does not Pan.
+///
+#[tokio::test]
+async fn a_finger_held_then_dragged_spans_a_region_without_panning() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    let pass = |events, time, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at_time(&ctx, screen, events, time, orcvs, view)
+    };
+
+    let viewport = pass(Vec::new(), 0.0, &mut orcvs, &mut view);
+    let before = view.pan;
+    let (from, to) = (
+        viewport.cell_rect(2, 2).center(),
+        viewport.cell_rect(6, 4).center(),
+    );
+
+    pass(finger_down_at(from), 0.1, &mut orcvs, &mut view);
+    // Held still past egui's long press of 0.8 seconds.
+    pass(Vec::new(), 1.0, &mut orcvs, &mut view);
+    pass(finger_moved_to(to), 1.1, &mut orcvs, &mut view);
+    pass(finger_up_at(to), 1.2, &mut orcvs, &mut view);
+
+    assert_eq!(
+        view.pan, before,
+        "a finger held before it moved panned the Source"
+    );
+    assert_eq!(
+        region_of(&orcvs),
+        (2..7, 2..5),
+        "a finger held before it moved did not span from the pressed Cell"
+    );
+}
+
+///
+/// A finger's tap selects the Cell under it, as a click does.
+///
+#[tokio::test]
+async fn a_finger_tap_selects_the_cell_under_it() {
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(Pos2::ZERO, WIDE);
+    let mut orcvs = running_orcvs(32, 32);
+    let mut view = SourceView::new(CELL_SIZE);
+    let pass = |events, time, orcvs: &mut Orcvs, view: &mut SourceView| {
+        console_pass_at_time(&ctx, screen, events, time, orcvs, view)
+    };
+
+    let viewport = pass(Vec::new(), 0.0, &mut orcvs, &mut view);
+    let target = viewport.cell_rect(5, 3).center();
+    pass(finger_down_at(target), 0.1, &mut orcvs, &mut view);
+    pass(finger_up_at(target), 0.2, &mut orcvs, &mut view);
+
+    assert_eq!(selected_cell(&orcvs), (5, 3));
+}
+
+///
+/// One pass of the whole Console, answering where it asked the platform's
+/// on-screen keyboard to type, if anywhere.
+///
+fn app_pass_ime(
+    ctx: &egui::Context,
+    screen: Rect,
+    events: Vec<Event>,
+    console: &mut Console,
+    host: &mut eframe::Frame,
+) -> Option<egui::output::IMEOutput> {
+    let output = app_pass_output(ctx, screen, events, console, host);
+    let ime = output.platform_output.ime;
+    output.drop_without_applying_deltas();
+    ime
+}
+
+///
+/// A finger's tap on a Cell asks for the on-screen keyboard at the Cursor's
+/// Cell, and a mouse click afterwards withdraws the ask, so a desktop keeps
+/// the canvas holding the keys.
+///
+#[tokio::test]
+async fn a_finger_tap_asks_for_the_keyboard_and_a_mouse_click_does_not() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a fresh Console asked for the keyboard before any touch"
+    );
+
+    let viewport = console_viewport(&console);
+    let target = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(target),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(&ctx, screen, finger_up_at(target), &mut console, &mut host);
+    let ime = app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host)
+        .expect("a finger's tap on the Source did not ask for the keyboard");
+    let cell = console_viewport(&console).cell_rect(3, 1);
+    assert_eq!(selected_cell(&console.orcvs), (3, 1));
+    assert_eq!(
+        ime.cursor_rect, cell,
+        "the keyboard was not asked for at the Cursor's Cell"
+    );
+
+    app_pass_ime(&ctx, screen, click_at(target), &mut console, &mut host);
+    app_pass_ime(&ctx, screen, release_at(target), &mut console, &mut host);
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a mouse click kept asking for the keyboard"
+    );
+}
+
+///
+/// A finger's tap outside the Source, on the Panel below it, does not ask
+/// for the keyboard, and withdraws an ask a tap on the Source made.
+///
+#[tokio::test]
+async fn a_finger_tap_outside_the_source_does_not_ask_for_the_keyboard() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host);
+
+    let viewport = console_viewport(&console);
+    let on_a_cell = viewport.rect.min + Vec2::new(3.5, 1.5) * viewport.cell_size;
+    // The bottom Panel's left margin, beneath the Source and clear of its
+    // controls, so no control takes the keys.
+    let on_the_panel = Pos2::new(screen.min.x + 2.0, screen.max.y - BOTTOM_PANEL_HEIGHT / 2.0);
+    assert!(
+        !console.source_view.shown().console().contains(on_the_panel),
+        "{on_the_panel:?} is on the Source, not the Panel"
+    );
+
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_up_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a finger on the Panel asked for the keyboard"
+    );
+
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(on_a_cell),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_up_at(on_a_cell),
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host).is_some(),
+        "a finger on a Cell did not ask for the keyboard"
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_down_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    app_pass_ime(
+        &ctx,
+        screen,
+        finger_up_at(on_the_panel),
+        &mut console,
+        &mut host,
+    );
+    assert_eq!(
+        app_pass_ime(&ctx, screen, Vec::new(), &mut console, &mut host),
+        None,
+        "a finger on the Panel kept the keyboard a Cell asked for"
     );
 }

@@ -100,6 +100,7 @@ fn main() {
 
     wasm_bindgen_futures::spawn_local(async move {
         console::console_midi::request_access_within(MIDI_ACCESS_WAIT).await;
+        let typed_into = canvas.clone();
         let start_result = eframe::WebRunner::new()
             .start(
                 canvas,
@@ -114,6 +115,7 @@ fn main() {
             .and_then(|d| d.get_element_by_id("loading_text"));
         match start_result {
             Ok(_) => {
+                console::web_startup::quiet_the_text_input(&typed_into);
                 if let Some(loading_text) = loading_text {
                     loading_text.remove();
                 }

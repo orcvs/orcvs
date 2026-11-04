@@ -6,16 +6,19 @@
 /** How long a channel shows as sounding after a Note On. */
 const SOUNDING_MS = 150;
 
-/** Each effect's two-Cell name and load value, in Control Change order from CC 1. */
-const EFFECTS: [string, number][] = [
-  ["MD", 0x00],
-  ["OF", 0x00],
-  ["LN", 0x7f],
-  ["DL", 0x00],
-  ["CH", 0x00],
-  ["EQ", 0x40],
-  ["R1", 0x00],
-  ["R2", 0x00],
+/**
+ * Each effect's two-Cell name, the word its Cells show on hover, and its load value, in Control
+ * Change order from CC 1. The word tells `CH` (chorus) from a channel.
+ */
+const EFFECTS: [string, string, number][] = [
+  ["MD", "Modulation", 0x00],
+  ["OF", "Offset", 0x00],
+  ["LN", "Length", 0x7f],
+  ["DL", "Delay", 0x00],
+  ["CH", "Chorus", 0x00],
+  ["EQ", "EQ", 0x40],
+  ["R1", "Reverb 1", 0x00],
+  ["R2", "Reverb 2", 0x00],
 ];
 /**
  * The Grid's width: sixteen channels of one Cell and a spacer, or eight effects of two Cells and
@@ -46,7 +49,7 @@ export function soundModule(module: HTMLElement) {
   // A blank row between the channels and the effects.
   for (let blank = 0; blank < COLUMNS; blank++) grid.append(cell());
 
-  const effects = EFFECTS.map(([, value]) => ({
+  const effects = EFFECTS.map(([, , value]) => ({
     value,
     magnitude: [cell("magnitude"), cell("magnitude")],
     digits: [cell("number"), cell("number")],
@@ -61,7 +64,7 @@ export function soundModule(module: HTMLElement) {
     row.forEach((pair, index) => {
       for (const target of pair) {
         target.dataset.effect = String(index);
-        target.title = `CC ${index + 1}`;
+        target.title = `${EFFECTS[index][1]}, CC ${index + 1}`;
       }
       grid.append(...pair, cell(), cell());
     });

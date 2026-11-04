@@ -1,6 +1,6 @@
 # The site deploys only the console its commit builds
 
-Status: accepted. Amends the deploy hook in `.scratch/orcvs-site/spec.md` (Build) and ticket 05. Settled in `.scratch/orcvs-site/issues/25-deploy-the-console-the-commit-builds.md`.
+Status: accepted. Amends the deploy hook in `.scratch/orcvs-site/spec.md` (Build) and ticket 05. Amended by [ADR 0101](0101-every-site-build-takes-the-console-its-commit-builds.md): previews take their own console too. Settled in `.scratch/orcvs-site/issues/25-deploy-the-console-the-commit-builds.md`.
 
 A merge to `main` starts two builds at once. Cloudflare builds the site, and its `prebuild` step copies whatever console is on the `console-web` release at that moment. GitHub Actions builds the console from the same commit and publishes it about a minute and a half later. When Cloudflare copies first, orcvs.com ships the previous console and nothing reports it: #323 merged the 808 beat at 22:25 on 2026-10-28, the new console was published at 22:26:54, and the live site kept the old one. The step meant to close the gap posted to a Cloudflare deploy hook stored as a repository secret that was never set, and skipped quietly without it.
 

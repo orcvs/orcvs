@@ -16,6 +16,35 @@ pub fn canvas_or_report(
 }
 
 ///
+/// Turns off a phone keyboard's corrections on the text input eframe places
+/// beside `canvas`, which is where an on-screen keyboard types.
+///
+/// Each character typed is a Source Cell, not a word: an autocorrect or a
+/// suggestion would rewrite Cells already written, and spellcheck holds
+/// characters back in a composition until a word ends. eframe sets only
+/// `autocapitalize`, and inserts the input as the canvas's next sibling once
+/// the runner starts. Nothing is changed when no input is there.
+///
+pub fn quiet_the_text_input(canvas: &HtmlCanvasElement) {
+    let Some(input) = canvas
+        .next_element_sibling()
+        .filter(|element| element.tag_name().eq_ignore_ascii_case("input"))
+    else {
+        log::warn!("no text input beside the canvas; a phone keyboard keeps its corrections");
+        return;
+    };
+    for (name, value) in [
+        ("autocorrect", "off"),
+        ("autocomplete", "off"),
+        ("spellcheck", "false"),
+    ] {
+        if let Err(error) = input.set_attribute(name, value) {
+            log::warn!("the text input refused {name}: {error:?}");
+        }
+    }
+}
+
+///
 /// The `config.toml` text the page's `orcvs_config` element holds (ADR 0091),
 /// or `None` when it holds none or its `data-media` query does not match.
 ///
