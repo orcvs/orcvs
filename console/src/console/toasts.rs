@@ -154,7 +154,7 @@ impl Console {
         let mut y = top;
         for slot in toasts.fitting(floor - INSET - top) {
             let toast = toasts.slots[slot].as_mut().expect("a fitting Toast stands");
-            let shown = egui::Area::new(egui::Id::new(("toast", slot)))
+            let shown = egui::Area::new(egui::Id::unique(("toast", slot)))
                 .pivot(Align2::RIGHT_TOP)
                 .fixed_pos(egui::pos2(source.right() - INSET, y))
                 .constrain(false)
