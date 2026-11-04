@@ -1884,6 +1884,178 @@ async fn space_disarms_a_fill_armed_before_it() {
 }
 
 ///
+/// A command Enter and a Space in one frame are still two events in order:
+/// the Space follows the Enter, so it disarms the fill the Enter armed. The
+/// platform withholds `Event::Text` while command is held, so the frame
+/// carries no text to disarm it instead.
+///
+#[tokio::test]
+async fn space_in_the_same_frame_disarms_a_fill_armed_before_it() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let grid = console.orcvs.grid();
+    let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+    // The Region is spanned after the first pass, which places the Cursor.
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    console.orcvs.extend(at(2, 1));
+    app_pass(
+        &ctx,
+        screen,
+        vec![command_key_event(Key::Enter), command_key_event(Key::Space)],
+        &mut console,
+        &mut host,
+    );
+    app_pass(
+        &ctx,
+        screen,
+        vec![Event::Text("x".to_owned())],
+        &mut console,
+        &mut host,
+    );
+    let frame = console.orcvs.render_frame();
+    assert_eq!(
+        frame.at(at(1, 1)).content(),
+        None,
+        "a fill armed before Space in the same frame filled the Region"
+    );
+}
+
+///
+/// Holds a start as an early request does, below the console's entry point:
+/// native audio never sleeps, so no shipped request holds one.
+///
+fn hold_a_start(ctx: &egui::Context, console: &mut Console) {
+    let now = ctx.input(|i| i.time);
+    assert_eq!(
+        console.playback_start.request(now, true),
+        super::playback::Decision::Held,
+        "the start was not held"
+    );
+}
+
+///
+/// A held start is released by the frame's poll once the page's audio runs,
+/// which on native is every frame.
+///
+#[tokio::test]
+async fn the_next_frame_releases_a_held_start() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    hold_a_start(&ctx, &mut console);
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let mut playback = console.orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut playback, |observation| {
+            observation.state == orcvs::playback::PlaybackState::Playing
+        })
+        .await,
+        "the frame never released the held start"
+    );
+}
+
+///
+/// Whether Playback plays and goes on to sound another Tick. A start the
+/// engine is already told to stop may publish Playing for a moment, but it
+/// sounds no further Tick, so this tells a run from that flicker.
+///
+async fn keeps_playing(console: &Console) -> bool {
+    let playing = |observation: &orcvs::playback::PlaybackObservation| {
+        observation.state == orcvs::playback::PlaybackState::Playing
+    };
+    let mut playback = console.orcvs.playback_observation_watch();
+    if !engine_reaches(&mut playback, playing).await {
+        return false;
+    }
+    let tick = console.orcvs.playback_observation().tick;
+    engine_reaches(&mut playback, |observation| {
+        playing(observation) && observation.tick != tick
+    })
+    .await
+}
+
+///
+/// Space while a start is held cancels it, so Playback stays stopped and
+/// the next Space starts it rather than stopping a run the cancel began.
+///
+#[tokio::test]
+async fn space_cancels_a_held_start() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    hold_a_start(&ctx, &mut console);
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true)],
+        &mut console,
+        &mut host,
+    );
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true)],
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        keeps_playing(&console).await,
+        "the Space after a cancelled start did not start Playback"
+    );
+}
+
+///
+/// The centre of the Panel's `P` Cell: the leftmost widget in the Panel that
+/// senses a click and not a drag, since the Panel lays its Cells out from the
+/// left and draws `P` first.
+///
+fn play_cell_centre(ctx: &egui::Context) -> Pos2 {
+    let panel = egui::containers::panel::PanelState::load(ctx, egui::Id::new("bottom_panel"))
+        .expect("the console showed no Panel")
+        .outer_rect;
+    ctx.viewport(|viewport| {
+        viewport
+            .prev_pass
+            .widgets
+            .layers()
+            .flat_map(|(_, widgets)| widgets)
+            .filter(|widget| widget.sense.senses_click() && !widget.sense.senses_drag())
+            .map(|widget| widget.rect)
+            .filter(|rect| panel.contains_rect(*rect))
+            .min_by(|a, b| a.min.x.total_cmp(&b.min.x))
+            .expect("the Panel showed no P Cell")
+            .center()
+    })
+}
+
+///
+/// A click on `P` in the frame after a start is held answers that start, as
+/// Space does, so Playback is left stopped rather than started by the frame's
+/// release.
+///
+#[tokio::test]
+async fn play_answers_a_held_start() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let play = play_cell_centre(&ctx);
+    app_pass(&ctx, screen, click_at(play), &mut console, &mut host);
+    hold_a_start(&ctx, &mut console);
+    // egui answers a click on the release, so this is the frame whose poll
+    // releases the start on native.
+    app_pass(&ctx, screen, release_at(play), &mut console, &mut host);
+    assert!(
+        !console.orcvs.playback_requested(),
+        "P left a held start to start Playback"
+    );
+}
+
+///
 /// A copy with the Source focused hands the Region's rows to the platform
 /// clipboard, and a paste writes the text the platform delivered.
 ///

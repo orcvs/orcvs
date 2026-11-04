@@ -1,14 +1,18 @@
 //! The console's Playback start policy: one home for whether a request from
 //! Space or the Panel's `P` toggles Playback now, waits for the page's audio,
-//! or cancels a waiting start (ADR 0087, ADR 0089).
+//! or cancels a waiting start.
 
 use super::Console;
 
+///
 /// The longest a start waits for the page's audio, in seconds (ADR 0087). A
 /// device starts its audio in a few hundred milliseconds at most.
+///
 pub(super) const AUDIO_WAIT: f64 = 0.5;
 
+///
 /// How soon the console paints again to release a held start.
+///
 const HELD_REPAINT: std::time::Duration = std::time::Duration::from_millis(20);
 
 ///
@@ -37,10 +41,14 @@ impl PlaybackStart {
     ///
     /// Answers a request from Space or `P` at `now`, on egui's input clock.
     /// `early` is whether a start now would sound before the page's audio
-    /// runs. A request while a start is held cancels both.
+    /// runs. A request at the `now` that held a start is one press batch
+    /// with the request that held it, so the start stays held; a request in
+    /// a later frame while a start is held cancels both.
     ///
     pub(super) fn request(&mut self, now: f64, early: bool) -> Decision {
-        if self.held_since.take().is_some() {
+        if self.held_since == Some(now) {
+            Decision::Held
+        } else if self.held_since.take().is_some() {
             Decision::Nothing
         } else if early {
             self.held_since = Some(now);
@@ -69,7 +77,7 @@ impl PlaybackStart {
 impl Console {
     ///
     /// Answers a Playback request from Space or the Panel's `P`: both make
-    /// the same request, so `P` does what Space does (ADR 0089).
+    /// the same request, so `P` does what Space does.
     ///
     pub(super) fn request_playback(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
@@ -97,27 +105,38 @@ impl Console {
         }
     }
 
-    /// Whether a start now would sound before the page's audio runs.
+    ///
+    /// Whether a start now would sound before the page's audio runs. A
+    /// request starts Playback exactly when
+    /// [`Orcvs::toggle_playback`](orcvs::app::Orcvs::toggle_playback) would
+    /// play, so "stopped" is the request that decides it rather than the
+    /// engine's last observation, which lags a start just made.
+    ///
     #[cfg(target_arch = "wasm32")]
     fn start_is_early(&mut self) -> bool {
-        let stopped =
-            self.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Stopped;
+        let stopped = !self.orcvs.playback_requested();
         self.synth.start_is_early(&mut self.midi, stopped)
     }
 
+    ///
     /// Native has no page audio to wait for.
+    ///
     #[cfg(not(target_arch = "wasm32"))]
     fn start_is_early(&mut self) -> bool {
         false
     }
 
+    ///
     /// Whether the page's audio runs.
+    ///
     #[cfg(target_arch = "wasm32")]
     fn audio_awake(&self) -> bool {
         self.synth.awake()
     }
 
+    ///
     /// Native has no page audio, so it is always awake.
+    ///
     #[cfg(not(target_arch = "wasm32"))]
     fn audio_awake(&self) -> bool {
         true
@@ -164,5 +183,13 @@ mod tests {
         start.request(1.0, true);
         assert_eq!(start.request(1.1, true), Decision::Nothing);
         assert_eq!(start.poll(1.2, true), Decision::Nothing);
+    }
+
+    #[test]
+    fn requests_in_the_frame_that_held_a_start_hold_that_one_start() {
+        let mut start = PlaybackStart::default();
+        assert_eq!(start.request(1.0, true), Decision::Held);
+        assert_eq!(start.request(1.0, true), Decision::Held);
+        assert_eq!(start.poll(1.1, true), Decision::Toggle);
     }
 }

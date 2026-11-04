@@ -274,30 +274,38 @@ impl Console {
         // `State::on_keyboard_input` and eframe's web keydown handler both
         // withhold `Event::Text` while a command modifier is held, so a
         // shipped build never raises the bare character alongside the chord.
-        let mut events: Vec<_> = ctx.input(|i| {
+        let events: Vec<_> = ctx.input(|i| {
             i.filtered_events(&event_filter)
                 .into_iter()
                 .filter_map(translate_event)
                 .collect()
         });
         // Space is a Playback request, answered by the start policy rather
-        // than the Source. It is still the event that follows a command
-        // Enter, so it disarms the fill as one reaching the Source would.
+        // than the Source. It is still an event in the frame's order, so it
+        // disarms a fill armed before it and leaves one armed after it, as
+        // an event reaching the Source would: the Source handles the events
+        // between Spaces, and each Space disarms where it falls.
         let space = InputEvent::KeyPressed(InputKey::Space);
-        let requests = events.iter().filter(|event| **event == space).count();
-        if requests > 0 {
-            events.retain(|event| *event != space);
-            self.orcvs.disarm_fill();
+        let mut space_requests = 0;
+        let mut copied = None;
+        for (index, segment) in events.split(|event| *event == space).enumerate() {
+            if index > 0 {
+                space_requests += 1;
+                self.orcvs.disarm_fill();
+            }
+            if let Some(text) = self.orcvs.event_handler(segment.to_vec()).copied {
+                copied = Some(text);
+            }
         }
         // A Copy or Cut answers the text the platform clipboard is to
-        // hold; `copy_text` is how egui hands it to the native and the
-        // browser backend alike.
-        if let Some(copied) = self.orcvs.event_handler(events).copied {
+        // hold, the frame's last one winning; `copy_text` is how egui hands
+        // it to the native and the browser backend alike.
+        if let Some(copied) = copied {
             ctx.copy_text(copied);
         }
         // After the frame's other keys, so a Source edit in the same frame
         // lands before Playback starts.
-        for _ in 0..requests {
+        for _ in 0..space_requests {
             self.request_playback(ctx);
         }
         // A File chord runs `run_file_command`; `translate_event` already

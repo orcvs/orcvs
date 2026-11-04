@@ -381,6 +381,15 @@ impl<S> Orcvs<S> {
         self.playback.observation_watch()
     }
 
+    ///
+    /// Whether this Orcvs has asked its Playback Engine to be running: what
+    /// [`Self::toggle_playback`] decides from, so it answers a request made
+    /// in this frame before the engine publishes it.
+    ///
+    pub fn playback_requested(&self) -> bool {
+        self.playback_requested
+    }
+
     pub fn bpm(&self) -> Bpm {
         self.opts.bpm
     }

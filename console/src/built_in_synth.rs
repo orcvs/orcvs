@@ -570,7 +570,7 @@ mod tests {
         );
     }
 
-    /// A console on the synth with the page's audio asleep, and its gate.
+    /// A console on the synth with the page's audio asleep, and its announcements.
     async fn on_the_synth(
         page: &FakePage,
     ) -> (Orcvs, MidiDeviceSelection, SynthAnnouncements<FakePage>) {
@@ -585,24 +585,24 @@ mod tests {
     #[tokio::test]
     async fn a_start_is_early_only_while_stopped_asleep_and_on_the_synth() {
         let page = FakePage::default();
-        let (_orcvs, mut midi, gate) = on_the_synth(&page).await;
-        assert!(gate.start_is_early(&mut midi, true));
+        let (_orcvs, mut midi, announcements) = on_the_synth(&page).await;
+        assert!(announcements.start_is_early(&mut midi, true));
         assert!(
-            !gate.start_is_early(&mut midi, false),
+            !announcements.start_is_early(&mut midi, false),
             "a playing console stops at once"
         );
 
         page.wake();
-        assert!(gate.awake());
-        assert!(!gate.start_is_early(&mut midi, true));
+        assert!(announcements.awake());
+        assert!(!announcements.start_is_early(&mut midi, true));
 
         let asleep = FakePage::default();
         asleep.announce(Announcement::Available);
         let (_orcvs, mut midi) = selection(Ok(vec![port()]), &asleep);
-        let mut gate = SynthAnnouncements::new(asleep.clone(), false);
-        frame(&mut gate, &mut midi).await;
+        let mut announcements = SynthAnnouncements::new(asleep.clone(), false);
+        frame(&mut announcements, &mut midi).await;
         assert_eq!(midi.selected_destination_id(), Some(port().id));
-        assert!(!gate.awake());
-        assert!(!gate.start_is_early(&mut midi, true));
+        assert!(!announcements.awake());
+        assert!(!announcements.start_is_early(&mut midi, true));
     }
 }

@@ -489,7 +489,6 @@ impl eframe::App for Console {
         // A File command chosen from the menu or by its chord, run once the
         // menu bar is done and the chords are read.
         let file_chord = self.route_keys(&ctx);
-        self.poll_playback(&ctx);
         if let Some(command) = menu.file_command.or(file_chord) {
             self.run_file_command(command);
         }
@@ -509,6 +508,10 @@ impl eframe::App for Console {
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
         let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
+        // After Space in `route_keys` and `P` in the Panel have both made
+        // their requests, so either one cancels a held start in the frame it
+        // would release in, rather than toggling the run the release began.
+        self.poll_playback(&ctx);
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
         if let Some(centre) = self.show_minimap(root, revision, &frame, appearance) {
