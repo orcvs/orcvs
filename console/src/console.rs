@@ -6,7 +6,8 @@
 //! native, guards the close; `panel` shows the bottom Panel; `source_view`
 //! presents the Source, which `shapes` draws in the Glyphs `glyphs` lays
 //! out; `minimap` floats the Minimap over the Source's corner when it is
-//! open and answers where a press on it Pans the Source View; `repaint`
+//! open and answers where a press on it Pans the Source View; `toasts` floats
+//! what the outputs report in the Source's other corner; `repaint`
 //! schedules the next timed Render Frame; `diagnostics_panel` fills the
 //! Panel's Diagnostics readouts; `files` asks its discard question and titles
 //! the window; `input` latches the keyboard owner; and a View menu appearance
@@ -24,6 +25,7 @@ mod panel;
 mod repaint;
 pub(crate) mod shapes;
 mod source_view;
+mod toasts;
 // The splash the native console opens through.
 #[cfg(not(target_arch = "wasm32"))]
 mod splash;
@@ -39,6 +41,7 @@ use self::panel::BOTTOM_PANEL_HEIGHT;
 use self::panel::BPM_FIELD_ID;
 use self::repaint::{moving_run_clock, request_timed_repaint, wake_panel_when_playback_publishes};
 use self::source_view::SourceView;
+use self::toasts::Toasts;
 use crate::config::Config;
 use crate::console_midi::ConsoleMidiBackend;
 use crate::linked_source::Opening;
@@ -90,9 +93,11 @@ pub struct Console {
     /// Where UDP and OSC send. The Panel sets it on native, and storage keeps
     /// it.
     network: NetworkSetting,
-    /// The Playback failures the Panel shows, routed from each frame's
+    /// The Playback failures the Toasts show, routed from each frame's
     /// diagnostics.
     playback_status: PlaybackStatus,
+    /// The Toast each output's message floats as.
+    toasts: Toasts,
     /// The framing page's Built-in Synth announcements, which list the synth
     /// under **O** and, in a Linked console, pick it.
     #[cfg(target_arch = "wasm32")]
@@ -305,6 +310,7 @@ impl Console {
             midi,
             network,
             playback_status: PlaybackStatus::default(),
+            toasts: Toasts::default(),
             #[cfg(target_arch = "wasm32")]
             synth: crate::built_in_synth::SynthAnnouncements::new(
                 crate::built_in_synth::BrowserPage,
@@ -510,6 +516,11 @@ impl eframe::App for Console {
             self.source_view.centre_on(centre);
         }
         let shown = self.source_view.shown();
+        let border = crate::style::bar_separator(self.themes.presented(appearance)).width;
+        let floor = self
+            .minimap_rect(&frame, border)
+            .map_or(shown.console().bottom(), |minimap| minimap.top() - border);
+        self.show_toasts(&ctx, shown.console(), floor, appearance);
 
         request_timed_repaint(&ctx, moving_run_clock(&observation, sampled_run_clock));
 

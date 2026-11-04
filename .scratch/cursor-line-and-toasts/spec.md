@@ -50,7 +50,7 @@ records it and supersedes ADR 0095's growing status line.
 - **Where.** Stacked from the window's top-right corner, beneath the menu bar, 16 points in from
   both edges, over the Source and clear of the Minimap.
 - **What.** A popup frame outlined in the error colour, 380 points wide, holding the output's label
-  (`MIDI`, `UDP/OSC` or `ENGINE`) in the weak text colour, a `×` dismiss button, and the message in
+  (`MIDI`, `UDP/OSC` or `ENGINE`) in the Theme's diagnostic red (`diagnostic.foreground`), a `×` dismiss button, and the message in
   the error colour, wrapped to at most three lines; a longer message is cut with an ellipsis and
   shown whole on hover.
 - **Size and input.** At most five Toasts, one per message source, so the stack is bounded. A Toast
@@ -62,7 +62,8 @@ records it and supersedes ADR 0095's growing status line.
   a frame or reports a different text; then it is forgotten, and the next message from that source
   raises a new Toast, even one that returns to an earlier text.
 - **How long.** A Toast fades out after `[toasts] seconds`, default 5, 1 to 60. `×` removes it at
-  once. A faded or dismissed Toast does not return while its key is remembered (see Identity).
+  once. Escape removes every Toast at once, but only when it has nothing else to undo: a focused
+  control takes Escape first, and a Region collapses before any Toast goes. A faded or dismissed Toast does not return while its key is remembered (see Identity).
 - **The standing signal.** While any of the five sources reports a message, the Panel's **O**
   readout is drawn in the error colour, whether its Toast is showing, faded or dismissed, and it
   returns to its ordinary colour when every source is clear. Toby chose this on 2026-10-31 so a
