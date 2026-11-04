@@ -50,10 +50,13 @@ fn clear_the_engine(harness: &mut Harness<'_, Console>) {
 
 /// The bottom of the menu bar, from the panel egui laid out.
 fn menu_bar_bottom(harness: &Harness<'_, Console>) -> f32 {
-    egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("top_panel"))
-        .expect("the menu bar is present")
-        .outer_rect
-        .bottom()
+    egui::containers::panel::PanelState::load(
+        &harness.ctx,
+        super::super::tests::panel_id("top_panel"),
+    )
+    .expect("the menu bar is present")
+    .outer_rect
+    .bottom()
 }
 
 ///
