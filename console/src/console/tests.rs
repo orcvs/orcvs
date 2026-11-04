@@ -2042,7 +2042,7 @@ async fn space_cancels_a_held_start() {
 /// left and draws `P` first.
 ///
 fn play_cell_centre(ctx: &egui::Context) -> Pos2 {
-    let panel = egui::containers::panel::PanelState::load(ctx, egui::Id::new("bottom_panel"))
+    let panel = egui::containers::panel::PanelState::load(ctx, panel_id("bottom_panel"))
         .expect("the console showed no Panel")
         .outer_rect;
     ctx.viewport(|viewport| {
