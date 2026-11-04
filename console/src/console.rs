@@ -310,7 +310,7 @@ impl Console {
             midi,
             network,
             playback_status: PlaybackStatus::default(),
-            toasts: Toasts::default(),
+            toasts: Toasts::new(config.toast_seconds),
             #[cfg(target_arch = "wasm32")]
             synth: crate::built_in_synth::SynthAnnouncements::new(
                 crate::built_in_synth::BrowserPage,

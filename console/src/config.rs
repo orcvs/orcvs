@@ -16,6 +16,9 @@
 //!
 //! [diagnostics]
 //! open = false            # whether the Diagnostics are open at startup
+//!
+//! [toasts]
+//! seconds = 5             # how long a Toast shows before it fades, 1–60
 //! ```
 //!
 //! Every key is optional, and an absent key is the built-in default. A
@@ -52,6 +55,8 @@ pub(crate) struct Config {
     pub(crate) minimap_open: bool,
     /// Whether the Diagnostics are open when the console starts.
     pub(crate) diagnostics_open: bool,
+    /// How many seconds a Toast shows before it fades.
+    pub(crate) toast_seconds: u8,
     /// One message per problem, in the order found, for the Theme notice
     /// channel, which reports them.
     pub(crate) notices: Vec<String>,
@@ -64,6 +69,7 @@ impl Default for Config {
             cell: CELL_SIZE,
             minimap_open: true,
             diagnostics_open: false,
+            toast_seconds: 5,
             notices: Vec::new(),
         }
     }
@@ -103,6 +109,9 @@ impl Config {
 /// Glyph of 6 points at a 1× scale.
 const CELL_POINTS: std::ops::RangeInclusive<f64> = 8.0..=64.0;
 
+/// The seconds a Toast may show for.
+const TOAST_SECONDS: std::ops::RangeInclusive<u8> = 1..=60;
+
 ///
 /// The settings `text` holds. `origin` names where they were read in a
 /// notice.
@@ -127,11 +136,12 @@ fn parse(text: &str, origin: &str) -> Config {
     let mut height = None;
     let mut minimap_open = None;
     let mut diagnostics_open = None;
+    let mut toast_seconds = None;
     for (section, value) in &table {
         let Some(keys) = value.as_table() else {
             if matches!(
                 section.as_str(),
-                "theme" | "cell" | "minimap" | "diagnostics"
+                "theme" | "cell" | "minimap" | "diagnostics" | "toasts"
             ) {
                 notice(format!(
                     "`{section}` must be a table; its keys use their defaults"
@@ -152,6 +162,7 @@ fn parse(text: &str, origin: &str) -> Config {
                 ("diagnostics", "open") => {
                     diagnostics_open = open(&name, value, &mut notice);
                 }
+                ("toasts", "seconds") => toast_seconds = seconds(&name, value, &mut notice),
                 _ => notice(format!("unknown key `{name}` is ignored")),
             }
         }
@@ -171,6 +182,9 @@ fn parse(text: &str, origin: &str) -> Config {
     }
     if let Some(open) = diagnostics_open {
         config.diagnostics_open = open;
+    }
+    if let Some(seconds) = toast_seconds {
+        config.toast_seconds = seconds;
     }
     config
 }
@@ -220,6 +234,22 @@ fn points(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> O
         ));
     }
     points.map(|number| number as f32)
+}
+
+/// How long a Toast shows: a whole number of seconds within [`TOAST_SECONDS`].
+fn seconds(name: &str, value: &toml::Value, notice: &mut impl FnMut(String)) -> Option<u8> {
+    let seconds = value
+        .as_integer()
+        .and_then(|number| u8::try_from(number).ok())
+        .filter(|number| TOAST_SECONDS.contains(number));
+    if seconds.is_none() {
+        notice(format!(
+            "`{name}` must be a whole number of seconds from {} to {}; the default is used",
+            TOAST_SECONDS.start(),
+            TOAST_SECONDS.end()
+        ));
+    }
+    seconds
 }
 
 #[cfg(test)]
@@ -386,6 +416,29 @@ mod native {
                 config.notices
             );
             assert_defaults(&config);
+        }
+
+        #[test]
+        fn a_toast_lasts_the_seconds_the_file_says() {
+            let config = read("[toasts]\nseconds = 12\n");
+            assert!(config.notices.is_empty(), "{:?}", config.notices);
+            assert_eq!(config.toast_seconds, 12);
+
+            for text in [
+                "[toasts]\nseconds = 0\n",
+                "[toasts]\nseconds = 61\n",
+                "[toasts]\nseconds = 2.5\n",
+                "[toasts]\nseconds = \"5\"\n",
+            ] {
+                let config = read(text);
+                assert!(
+                    mentions(&config, "`toasts.seconds`"),
+                    "{text}: {:?}",
+                    config.notices
+                );
+                assert_eq!(config.toast_seconds, 5, "{text}");
+            }
+            assert_eq!(read("").toast_seconds, 5, "the default");
         }
 
         #[test]
