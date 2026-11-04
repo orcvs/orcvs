@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // The Built-in Synth: a console a page frames plays the page's synth, each message a
 // fixed delay after its Tick's planned instant. The page's own clock and the audio context's are
@@ -93,39 +93,43 @@ test("the site's console sounds the first note of a run while the page's audio s
   await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x90);
 });
 
-test("a first visit opens the Beat, and its first Tick sounds on time", async ({ page }) => {
-  await page.goto("/");
-  const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
-  await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
-  await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
+// The reader's first gesture starts Playback, so Tick 0 waits for the page's audio to start. Space
+// and the Panel's `P` make the same request of the console.
+const firstPlays: { gesture: string; play: (page: Page, frame: Locator) => Promise<void> }[] = [
+  {
+    gesture: "Space",
+    play: async (page, frame) => {
+      await frame.focus();
+      await page.keyboard.press("Space");
+    },
+  },
+  {
+    gesture: "a click on P",
+    // `P` is the Panel's first Cell: half the Panel's 52 points above the console's bottom edge.
+    play: async (_page, frame) => {
+      const box = await frame.boundingBox();
+      await frame.click({ position: { x: 30, y: box!.height - 26 } });
+    },
+  },
+];
 
-  // Nothing is stored, so the console opens `examples/beat.orcvs`: the kick and hat on Tick 0. Space
-  // is the reader's first gesture, so Tick 0 waits for the page's audio to start.
-  await frame.focus();
-  await page.keyboard.press("Space");
-  await expect.poll(() => page.evaluate(() => window.synthSpy.sounds.length)).toBeGreaterThan(0);
+for (const { gesture, play } of firstPlays) {
+  test(`a first visit opens the Beat, and its first Tick sounds on time after ${gesture}`, async ({ page }) => {
+    await page.goto("/");
+    const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
+    await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
+    await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
 
-  // Tick 0 waited for the audio, so its messages found it running and sound when they were planned
-  // to, rather than wait behind its start-up.
-  expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
-  expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
-});
+    // Nothing is stored, so the console opens `examples/beat.orcvs`: the kick and hat on Tick 0.
+    await play(page, frame);
+    await expect.poll(() => page.evaluate(() => window.synthSpy.sounds.length)).toBeGreaterThan(0);
 
-test("a first visit's Play waits for the page's audio, so its first Tick sounds on time", async ({ page }) => {
-  await page.goto("/");
-  const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
-  await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
-  await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
-
-  // The Panel's `P`, its first Cell: half the Panel's 52 points above the console's bottom edge. The
-  // click is the reader's first gesture, so Tick 0 waits for the page's audio as Space's does.
-  const box = await frame.boundingBox();
-  await frame.click({ position: { x: 30, y: box!.height - 26 } });
-  await expect.poll(() => page.evaluate(() => window.synthSpy.sounds.length)).toBeGreaterThan(0);
-
-  expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
-  expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
-});
+    // Tick 0 waited for the audio, so its messages found it running and sound when they were
+    // planned to, rather than wait behind its start-up.
+    expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
+    expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
+  });
+}
 
 test("a click in the console starts the page's audio before Space", async ({ page }) => {
   await page.goto("/");

@@ -8,7 +8,7 @@ use super::Console;
 /// The longest a start waits for the page's audio, in seconds (ADR 0087). A
 /// device starts its audio in a few hundred milliseconds at most.
 ///
-pub(super) const AUDIO_WAIT: f64 = 0.5;
+const AUDIO_WAIT: f64 = 0.5;
 
 ///
 /// How soon the console paints again to release a held start.
@@ -77,10 +77,11 @@ impl PlaybackStart {
 impl Console {
     ///
     /// Answers a Playback request from Space or the Panel's `P`: both make
-    /// the same request, so `P` does what Space does.
+    /// the same request, so `P` does what Space does. `now` is the frame's
+    /// input time, read once a frame, so every request a frame makes carries
+    /// the same `now` and [`PlaybackStart::request`] can tell its own frame.
     ///
-    pub(super) fn request_playback(&mut self, ctx: &egui::Context) {
-        let now = ctx.input(|i| i.time);
+    pub(super) fn request_playback(&mut self, ctx: &egui::Context, now: f64) {
         let early = self.start_is_early();
         let decision = self.playback_start.request(now, early);
         self.answer_playback(ctx, decision);
@@ -88,10 +89,10 @@ impl Console {
 
     ///
     /// Releases a held start once the page's audio runs or it has waited
-    /// [`AUDIO_WAIT`]. Called once a frame.
+    /// [`AUDIO_WAIT`]. Called once a frame, after its requests, with the
+    /// frame's `now`.
     ///
-    pub(super) fn poll_playback(&mut self, ctx: &egui::Context) {
-        let now = ctx.input(|i| i.time);
+    pub(super) fn poll_playback(&mut self, ctx: &egui::Context, now: f64) {
         let awake = self.audio_awake();
         let decision = self.playback_start.poll(now, awake);
         self.answer_playback(ctx, decision);

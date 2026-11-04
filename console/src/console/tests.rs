@@ -1869,11 +1869,11 @@ async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
 }
 
 ///
-/// Space after a command Enter is the event that follows it, so it disarms
-/// the fill though it never reaches the Source as a key.
+/// Whether `frames` — a command Enter, then a Space — leave a fill armed for
+/// the `x` typed after them: the Region spans two rows, so a fill reaches a
+/// Cell the Cursor does not.
 ///
-#[tokio::test]
-async fn space_disarms_a_fill_armed_before_it() {
+fn fill_survives(frames: Vec<Vec<Event>>) -> bool {
     let (ctx, mut console, mut host) = fresh_console();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let grid = console.orcvs.grid();
@@ -1882,20 +1882,9 @@ async fn space_disarms_a_fill_armed_before_it() {
     // The Region is spanned after the first pass, which places the Cursor.
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     console.orcvs.extend(at(2, 1));
-    app_pass(
-        &ctx,
-        screen,
-        vec![command_key_event(Key::Enter)],
-        &mut console,
-        &mut host,
-    );
-    app_pass(
-        &ctx,
-        screen,
-        vec![key_event(Key::Space, true)],
-        &mut console,
-        &mut host,
-    );
+    for events in frames {
+        app_pass(&ctx, screen, events, &mut console, &mut host);
+    }
     app_pass(
         &ctx,
         screen,
@@ -1903,10 +1892,29 @@ async fn space_disarms_a_fill_armed_before_it() {
         &mut console,
         &mut host,
     );
-    let frame = console.orcvs.render_frame();
-    assert_eq!(
-        frame.at(at(1, 1)).content(),
-        None,
+    console
+        .orcvs
+        .render_frame()
+        .at(at(1, 1))
+        .content()
+        .is_some()
+}
+
+///
+/// Space after a command Enter is the event that follows it, so it disarms
+/// the fill though it never reaches the Source as a key.
+///
+#[tokio::test]
+async fn space_disarms_a_fill_armed_before_it() {
+    assert!(
+        fill_survives(vec![vec![command_key_event(Key::Enter)]]),
+        "the control: a fill with nothing after it did not fill the Region"
+    );
+    assert!(
+        !fill_survives(vec![
+            vec![command_key_event(Key::Enter)],
+            vec![key_event(Key::Space, true)],
+        ]),
         "a fill armed before Space filled the Region"
     );
 }
@@ -1919,32 +1927,11 @@ async fn space_disarms_a_fill_armed_before_it() {
 ///
 #[tokio::test]
 async fn space_in_the_same_frame_disarms_a_fill_armed_before_it() {
-    let (ctx, mut console, mut host) = fresh_console();
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-    let grid = console.orcvs.grid();
-    let at = |x, y| grid.position(x, y).expect("inside the Grid");
-
-    // The Region is spanned after the first pass, which places the Cursor.
-    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    console.orcvs.extend(at(2, 1));
-    app_pass(
-        &ctx,
-        screen,
-        vec![command_key_event(Key::Enter), command_key_event(Key::Space)],
-        &mut console,
-        &mut host,
-    );
-    app_pass(
-        &ctx,
-        screen,
-        vec![Event::Text("x".to_owned())],
-        &mut console,
-        &mut host,
-    );
-    let frame = console.orcvs.render_frame();
-    assert_eq!(
-        frame.at(at(1, 1)).content(),
-        None,
+    assert!(
+        !fill_survives(vec![vec![
+            command_key_event(Key::Enter),
+            command_key_event(Key::Space),
+        ]]),
         "a fill armed before Space in the same frame filled the Region"
     );
 }
@@ -1953,7 +1940,7 @@ async fn space_in_the_same_frame_disarms_a_fill_armed_before_it() {
 /// Holds a start as an early request does, below the console's entry point:
 /// native audio never sleeps, so no shipped request holds one.
 ///
-fn hold_a_start(ctx: &egui::Context, console: &mut Console) {
+pub(super) fn hold_a_start(ctx: &egui::Context, console: &mut Console) {
     let now = ctx.input(|i| i.time);
     assert_eq!(
         console.playback_start.request(now, true),
@@ -2033,53 +2020,6 @@ async fn space_cancels_a_held_start() {
     assert!(
         keeps_playing(&console).await,
         "the Space after a cancelled start did not start Playback"
-    );
-}
-
-///
-/// The centre of the Panel's `P` Cell: the leftmost widget in the Panel that
-/// senses a click and not a drag, since the Panel lays its Cells out from the
-/// left and draws `P` first.
-///
-fn play_cell_centre(ctx: &egui::Context) -> Pos2 {
-    let panel = egui::containers::panel::PanelState::load(ctx, panel_id("bottom_panel"))
-        .expect("the console showed no Panel")
-        .outer_rect;
-    ctx.viewport(|viewport| {
-        viewport
-            .prev_pass
-            .widgets
-            .layers()
-            .flat_map(|(_, widgets)| widgets)
-            .filter(|widget| widget.sense.senses_click() && !widget.sense.senses_drag())
-            .map(|widget| widget.rect)
-            .filter(|rect| panel.contains_rect(*rect))
-            .min_by(|a, b| a.min.x.total_cmp(&b.min.x))
-            .expect("the Panel showed no P Cell")
-            .center()
-    })
-}
-
-///
-/// A click on `P` in the frame after a start is held answers that start, as
-/// Space does, so Playback is left stopped rather than started by the frame's
-/// release.
-///
-#[tokio::test]
-async fn play_answers_a_held_start() {
-    let (ctx, mut console, mut host) = fresh_console();
-    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
-
-    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    let play = play_cell_centre(&ctx);
-    app_pass(&ctx, screen, click_at(play), &mut console, &mut host);
-    hold_a_start(&ctx, &mut console);
-    // egui answers a click on the release, so this is the frame whose poll
-    // releases the start on native.
-    app_pass(&ctx, screen, release_at(play), &mut console, &mut host);
-    assert!(
-        !console.orcvs.playback_requested(),
-        "P left a held start to start Playback"
     );
 }
 

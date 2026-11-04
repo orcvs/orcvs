@@ -275,7 +275,7 @@ impl Console {
     /// place — and `RawInput::events` names `egui_wants_keyboard_input` as the
     /// question to ask instead.
     ///
-    pub(super) fn route_keys(&mut self, ctx: &egui::Context) -> Option<FileCommand> {
+    pub(super) fn route_keys(&mut self, ctx: &egui::Context, now: f64) -> Option<FileCommand> {
         let event_filter = EventFilter {
             tab: true,
             horizontal_arrows: true,
@@ -306,33 +306,18 @@ impl Console {
                 .flat_map(source_input)
                 .collect()
         });
-        // Space is a Playback request, answered by the start policy rather
-        // than the Source. It is still an event in the frame's order, so it
-        // disarms a fill armed before it and leaves one armed after it, as
-        // an event reaching the Source would: the Source handles the events
-        // between Spaces, and each Space disarms where it falls.
-        let space = InputEvent::KeyPressed(InputKey::Space);
-        let mut space_requests = 0;
-        let mut copied = None;
-        for (index, segment) in events.split(|event| *event == space).enumerate() {
-            if index > 0 {
-                space_requests += 1;
-                self.orcvs.disarm_fill();
-            }
-            if let Some(text) = self.orcvs.event_handler(segment.to_vec()).copied {
-                copied = Some(text);
-            }
-        }
+        let handled = self.orcvs.event_handler(events);
         // A Copy or Cut answers the text the platform clipboard is to
-        // hold, the frame's last one winning; `copy_text` is how egui hands
-        // it to the native and the browser backend alike.
-        if let Some(copied) = copied {
+        // hold; `copy_text` is how egui hands it to the native and the
+        // browser backend alike.
+        if let Some(copied) = handled.copied {
             ctx.copy_text(copied);
         }
-        // After the frame's other keys, so a Source edit in the same frame
-        // lands before Playback starts.
-        for _ in 0..space_requests {
-            self.request_playback(ctx);
+        // Each Space the batch counted is a Playback request for the start
+        // policy, answered after the frame's other keys so a Source edit in
+        // the same frame lands before Playback starts.
+        for _ in 0..handled.playback_requests {
+            self.request_playback(ctx, now);
         }
         // A File chord runs `run_file_command`; `translate_event` already
         // keeps command-modified letters from the Source.

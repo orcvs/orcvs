@@ -93,6 +93,12 @@ pub struct Handled {
     /// console to hand the platform. The last one in the batch wins.
     ///
     pub copied: Option<String>,
+    ///
+    /// How many Space presses the batch carried. Space is a Playback request
+    /// the console answers through its start policy, so the batch counts it
+    /// rather than toggling Playback; it still disarms a fill where it falls.
+    ///
+    pub playback_requests: usize,
 }
 
 ///
@@ -544,6 +550,7 @@ impl<S> Orcvs<S> {
     pub fn event_handler(&mut self, events: Vec<InputEvent>) -> Handled {
         let mut repaint = false;
         let mut copied = None;
+        let mut playback_requests = 0;
         for event in &events {
             // A fill is armed for exactly one event: the character it fills
             // with, or whatever else arrived instead and so disarmed it.
@@ -600,7 +607,7 @@ impl<S> Orcvs<S> {
                     self.paste(text);
                     repaint = true;
                 }
-                InputEvent::KeyPressed(InputKey::Space) => self.toggle_playback(),
+                InputEvent::KeyPressed(InputKey::Space) => playback_requests += 1,
                 InputEvent::Rewind => self.rewind(),
                 InputEvent::Text(text_to_insert)
                     if text_to_insert.len() == 1 && text_to_insert != " " =>
@@ -614,7 +621,11 @@ impl<S> Orcvs<S> {
                 InputEvent::Text(_) => {}
             }
         }
-        Handled { repaint, copied }
+        Handled {
+            repaint,
+            copied,
+            playback_requests,
+        }
     }
 
     ///
@@ -857,49 +868,44 @@ mod test {
     }
 
     ///
-    /// Space pauses and resumes: the press that stops Playback holds its
-    /// Tick, and the press after it resumes at the next one. A Rewind leaves
-    /// Playback stopped and makes the next press begin at Tick `0`.
+    /// A toggle pauses and resumes: the toggle that stops Playback holds its
+    /// Tick, and the one after it resumes at the next. A Rewind leaves
+    /// Playback stopped and makes the next toggle begin at Tick `0`.
     ///
     #[tokio::test(start_paused = true)]
-    async fn space_resumes_at_the_next_tick_and_a_rewind_returns_to_tick_zero() {
-        use super::{InputEvent, InputKey};
-
+    async fn a_toggle_resumes_at_the_next_tick_and_a_rewind_returns_to_tick_zero() {
         let mut orcvs = Orcvs::with_source_and_output_adapter(
             crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
             crate::playback::InMemoryOutputAdapter::default(),
         )
         .expect("the test runtime");
         let period = orcvs.bpm().tick_period();
-        let space = || vec![InputEvent::KeyPressed(InputKey::Space)];
 
         // Ticks 0, 1 and 2 are due within two and a half periods.
-        orcvs.event_handler(space());
+        orcvs.toggle_playback();
         tokio::time::sleep(period * 5 / 2).await;
         assert_eq!(orcvs.playback_observation().tick, Tick::new(2));
 
-        orcvs.event_handler(space());
+        orcvs.toggle_playback();
         tokio::time::sleep(period * 3).await;
         let paused = orcvs.playback_observation();
         assert_eq!(paused.state, PlaybackState::Stopped);
         assert_eq!(paused.tick, Tick::new(2), "the pause lost its Tick");
 
-        orcvs.event_handler(space());
+        orcvs.toggle_playback();
         tokio::time::sleep(period / 2).await;
         let resumed = orcvs.playback_observation();
         assert_eq!(resumed.state, PlaybackState::Playing);
         assert_eq!(resumed.tick, Tick::new(3), "Space did not resume");
 
-        orcvs.event_handler(vec![
-            InputEvent::KeyPressed(InputKey::Space),
-            InputEvent::Rewind,
-        ]);
+        orcvs.toggle_playback();
+        orcvs.rewind();
         tokio::time::sleep(period / 2).await;
         let rewound = orcvs.playback_observation();
         assert_eq!(rewound.state, PlaybackState::Stopped);
         assert_eq!(rewound.tick, Tick::ZERO);
 
-        orcvs.event_handler(space());
+        orcvs.toggle_playback();
         tokio::time::sleep(period * 3 / 2).await;
         let begun = orcvs.playback_observation();
         assert_eq!(begun.state, PlaybackState::Playing);
@@ -911,36 +917,32 @@ mod test {
     }
 
     ///
-    /// A Rewind ahead of the Space that pauses, in one batch, ends where the
-    /// other order does: stopped, with Tick `0` next, and the press after it
-    /// beginning there rather than ending a run the console never asked for.
+    /// A Rewind ahead of the toggle that pauses, before the engine's turn,
+    /// ends where the other order does: stopped, with Tick `0` next, and the
+    /// toggle after it beginning there rather than ending a run the console
+    /// never asked for.
     ///
     #[tokio::test(start_paused = true)]
-    async fn a_rewind_before_the_pausing_space_leaves_playback_stopped_at_tick_zero() {
-        use super::{InputEvent, InputKey};
-
+    async fn a_rewind_before_the_pausing_toggle_leaves_playback_stopped_at_tick_zero() {
         let mut orcvs = Orcvs::with_source_and_output_adapter(
             crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
             crate::playback::InMemoryOutputAdapter::default(),
         )
         .expect("the test runtime");
         let period = orcvs.bpm().tick_period();
-        let space = || vec![InputEvent::KeyPressed(InputKey::Space)];
 
-        orcvs.event_handler(space());
+        orcvs.toggle_playback();
         tokio::time::sleep(period * 5 / 2).await;
         assert_eq!(orcvs.playback_observation().tick, Tick::new(2));
 
-        orcvs.event_handler(vec![
-            InputEvent::Rewind,
-            InputEvent::KeyPressed(InputKey::Space),
-        ]);
+        orcvs.rewind();
+        orcvs.toggle_playback();
         tokio::time::sleep(period * 2).await;
         let rewound = orcvs.playback_observation();
         assert_eq!(rewound.state, PlaybackState::Stopped);
         assert_eq!(rewound.tick, Tick::ZERO);
 
-        orcvs.event_handler(space());
+        orcvs.toggle_playback();
         tokio::time::sleep(period * 3 / 2).await;
         let begun = orcvs.playback_observation();
         assert_eq!(
@@ -978,12 +980,12 @@ mod test {
     }
 
     ///
-    /// Space asks to play again once the engine has reported that its run
+    /// A toggle asks to play again once the engine has reported that its run
     /// ended without being asked to.
     ///
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn space_after_the_engine_ended_its_own_run_asks_to_play_again() {
+    async fn a_toggle_after_the_engine_ended_its_own_run_asks_to_play_again() {
         use crate::playback::PlaybackDiagnostic;
 
         let mut orcvs = Orcvs::with_source_and_output_adapter(
@@ -1012,7 +1014,7 @@ mod test {
             }
         }
 
-        orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
+        orcvs.toggle_playback();
 
         // The task dies inside the delivery, and its state reports the failure
         // on the way out.
@@ -1030,7 +1032,7 @@ mod test {
         }
         assert!(ended, "the engine never reported that its run ended");
 
-        orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
+        orcvs.toggle_playback();
 
         // A press that asked to play reports why it could not; a press that
         // asked to stop reports nothing at all.
@@ -1075,7 +1077,7 @@ mod test {
             adapter.clone(),
         )
         .expect("the test runtime");
-        orcvs.event_handler(vec![super::InputEvent::KeyPressed(super::InputKey::Space)]);
+        orcvs.toggle_playback();
         tokio::task::yield_now().await;
         assert_eq!(adapter.command_lists().len(), 1);
 
@@ -1103,21 +1105,15 @@ mod test {
     }
 
     ///
-    /// Two Space events in one batch are a toggle and its cancellation, and
-    /// leave Playback where they found it.
-    ///
-    /// A batch is a whole frame's events, handled with nothing awaited
-    /// between them, so the Playback Engine's task has had no turn in which to
-    /// apply what the first Space asked for. Held Space is how a user delivers
-    /// this: egui reports auto-repeat as further key presses, and any frame
-    /// longer than the repeat interval carries two.
+    /// Two toggles before the engine's turn are a toggle and its
+    /// cancellation, and leave Playback where they found it.
     ///
     /// The engine coalesces two starts into one run deliberately — that is
-    /// where idempotence belongs — so a second Space that asked to start again
-    /// is not corrected downstream. It has to not ask.
+    /// where idempotence belongs — so a second toggle that asked to start
+    /// again is not corrected downstream. It has to not ask.
     ///
     #[tokio::test]
-    async fn a_second_space_in_one_batch_cancels_the_first() {
+    async fn a_second_toggle_before_the_engines_turn_cancels_the_first() {
         let adapter = crate::playback::InMemoryOutputAdapter::default();
         let mut orcvs = Orcvs::with_source_and_output_adapter(
             crate::source::Source::new(crate::grid::Grid::with_shape(2, 1)),
@@ -1125,21 +1121,38 @@ mod test {
         )
         .expect("the test runtime");
 
-        orcvs.event_handler(vec![
-            super::InputEvent::KeyPressed(super::InputKey::Space),
-            super::InputEvent::KeyPressed(super::InputKey::Space),
-        ]);
+        orcvs.toggle_playback();
+        orcvs.toggle_playback();
         tokio::task::yield_now().await;
 
         assert_eq!(
             orcvs.playback.state(),
             crate::playback::PlaybackState::Stopped,
-            "an even number of Space presses leaves Playback stopped"
+            "an even number of toggles leaves Playback stopped"
         );
         assert!(
             adapter.command_lists().is_empty(),
             "a run cancelled before the engine's turn delivers no Tick"
         );
+    }
+
+    ///
+    /// A batch counts each Space as a Playback request for the console to
+    /// answer and leaves Playback alone, while each Space still disarms a
+    /// fill armed before it.
+    ///
+    #[tokio::test]
+    async fn a_batch_counts_each_space_as_a_playback_request() {
+        use super::{InputEvent, InputKey};
+
+        let mut orcvs = Orcvs::new().expect("the test runtime");
+        let space = InputEvent::KeyPressed(InputKey::Space);
+
+        let handled = orcvs.event_handler(vec![space.clone(), InputEvent::Fill, space]);
+
+        assert_eq!(handled.playback_requests, 2);
+        assert!(!orcvs.playback_requested(), "a Space toggled Playback");
+        assert!(!orcvs.fill_armed, "the Space after the Fill left it armed");
     }
 
     ///

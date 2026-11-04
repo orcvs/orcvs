@@ -397,6 +397,7 @@ impl Console {
         observation: &PlaybackObservation,
         run_clock: Duration,
         appearance: Appearance,
+        now: f64,
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
@@ -448,7 +449,7 @@ impl Console {
                     // Answered once both Cells are drawn, which ends their
                     // borrow of the Theme.
                     if play {
-                        self.request_playback(ui.ctx());
+                        self.request_playback(ui.ctx(), now);
                     }
                     if rewind {
                         self.orcvs.rewind();

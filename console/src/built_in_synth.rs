@@ -650,7 +650,7 @@ mod tests {
         let mut announcements = SynthAnnouncements::new(page.clone(), true);
         frame(&mut announcements, &mut midi).await;
 
-        orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+        orcvs.toggle_playback();
         for _ in 0..10 {
             tokio::task::yield_now().await;
         }

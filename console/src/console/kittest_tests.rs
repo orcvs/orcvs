@@ -3737,6 +3737,32 @@ async fn the_play_cell_plays_and_stops_playback_as_space_does() {
 }
 
 ///
+/// A click on `P` in the frame after a start is held answers that start, as
+/// Space does, so Playback is left stopped rather than started by the frame's
+/// release.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_play_cell_answers_a_held_start() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let play = harness.get_by_label("Play").rect().center();
+
+    primary(&mut harness, play, true);
+    harness.step();
+    let ctx = harness.ctx.clone();
+    super::tests::hold_a_start(&ctx, harness.state_mut());
+    // egui answers a click on the release, so this is the frame whose poll
+    // releases the start on native.
+    primary(&mut harness, play, false);
+    harness.step();
+    assert!(
+        !harness.state().orcvs.playback_requested(),
+        "P left a held start to start Playback"
+    );
+}
+
+///
 /// P and R are each one Source Cell, one Cell apart, on the window's Cell
 /// columns: the Panel continues the Grid.
 ///

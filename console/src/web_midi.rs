@@ -706,7 +706,7 @@ pub(crate) mod tests {
 
     /// Starts the run, or stops it, and lets the engine's task take the request.
     async fn toggle_playback(orcvs: &mut Orcvs) {
-        orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+        orcvs.toggle_playback();
         tokio::task::yield_now().await;
     }
 
