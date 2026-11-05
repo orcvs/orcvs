@@ -104,6 +104,14 @@ pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
         } else {
             InputEvent::KeyPressed(InputKey::Tab)
         }),
+        // Space is a Playback request, so a held Space asks once: its key
+        // repeats would cancel the start it held or toggle Playback again.
+        Event::Key {
+            key: Key::Space,
+            pressed: true,
+            repeat,
+            ..
+        } => (!repeat).then_some(InputEvent::KeyPressed(InputKey::Space)),
         Event::Key {
             key, pressed: true, ..
         } => match key {
@@ -113,7 +121,6 @@ pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
             Key::ArrowUp => Some(InputEvent::KeyPressed(InputKey::ArrowUp)),
             Key::Backspace => Some(InputEvent::KeyPressed(InputKey::Backspace)),
             Key::Delete => Some(InputEvent::KeyPressed(InputKey::Delete)),
-            Key::Space => Some(InputEvent::KeyPressed(InputKey::Space)),
             Key::Escape => Some(InputEvent::Collapse),
             _ => None,
         },
@@ -385,8 +392,9 @@ impl Console {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use egui::{Event, Key, Modifiers};
+    use orcvs::app::{InputEvent, InputKey};
 
-    use super::toggles_diagnostics;
+    use super::{toggles_diagnostics, translate_event};
 
     fn key(key: Key, modifiers: Modifiers, repeat: bool) -> Event {
         Event::Key {
@@ -427,5 +435,21 @@ mod tests {
         for (chord, event, toggles) in cases {
             assert_eq!(toggles_diagnostics(&event), toggles, "{chord}");
         }
+    }
+
+    /// A held Space is one Playback request: its key repeats ask for nothing,
+    /// so holding it neither cancels a held start nor toggles Playback again.
+    #[test]
+    fn only_a_fresh_space_is_a_playback_request() {
+        assert_eq!(
+            translate_event(key(Key::Space, Modifiers::NONE, false)),
+            Some(InputEvent::KeyPressed(InputKey::Space)),
+            "a fresh Space"
+        );
+        assert_eq!(
+            translate_event(key(Key::Space, Modifiers::NONE, true)),
+            None,
+            "a repeated Space"
+        );
     }
 }

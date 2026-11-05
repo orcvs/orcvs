@@ -2005,7 +2005,7 @@ async fn space_cancels_a_held_start() {
     app_pass(
         &ctx,
         screen,
-        vec![key_event(Key::Space, true)],
+        vec![key_event(Key::Space, true), key_event(Key::Space, false)],
         &mut console,
         &mut host,
     );
@@ -2020,6 +2020,63 @@ async fn space_cancels_a_held_start() {
     assert!(
         keeps_playing(&console).await,
         "the Space after a cancelled start did not start Playback"
+    );
+}
+
+///
+/// Whether Playback sounds another Tick in the run `before` observed. A frame
+/// that toggles twice leaves the engine a stop and a start in one backlog,
+/// which ends the run and begins another with a later origin.
+///
+pub(super) async fn continues_its_run(
+    console: &Console,
+    before: &orcvs::playback::PlaybackObservation,
+) -> bool {
+    let mut playback = console.orcvs.playback_observation_watch();
+    let tick = console.orcvs.playback_observation().tick;
+    engine_reaches(&mut playback, |observation| {
+        observation.state == orcvs::playback::PlaybackState::Playing && observation.tick != tick
+    })
+    .await
+        && console.orcvs.playback_observation().run_started_at == before.run_started_at
+}
+
+///
+/// Space in the frame after a hold answers the hold and nothing else: the
+/// frame's poll does not toggle as well. A hold over a stopped engine cannot
+/// show that, since a play and a stop in one frame reach the engine as no
+/// request at all, so this holds over a playing one, where a second toggle
+/// ends the run and begins another.
+///
+#[tokio::test]
+async fn space_answers_a_held_start_without_a_second_toggle() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true), key_event(Key::Space, false)],
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        keeps_playing(&console).await,
+        "Space did not start Playback"
+    );
+    let before = console.orcvs.playback_observation();
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    hold_a_start(&ctx, &mut console);
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true)],
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        continues_its_run(&console, &before).await,
+        "the frame that answered a hold toggled Playback twice"
     );
 }
 
@@ -2158,7 +2215,7 @@ async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click(
     app_pass(
         &ctx,
         screen,
-        vec![key_event(Key::Space, true)],
+        vec![key_event(Key::Space, true), key_event(Key::Space, false)],
         &mut console,
         &mut host,
     );

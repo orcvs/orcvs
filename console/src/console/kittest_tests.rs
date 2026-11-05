@@ -3763,6 +3763,41 @@ async fn the_play_cell_answers_a_held_start() {
 }
 
 ///
+/// `P` in the frame after a hold answers the hold and nothing else, as Space
+/// does. Held over a playing engine, where a second toggle in the frame ends
+/// the run and begins another; over a stopped one the two toggles reach the
+/// engine as no request at all.
+///
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn the_play_cell_answers_a_held_start_without_a_second_toggle() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    let play = harness.get_by_label("Play").rect().center();
+    let mut engine = harness.state().orcvs.playback_observation_watch();
+    harness.key_press(Key::Space);
+    harness.step();
+    assert!(
+        engine_reaches(&mut engine, |observed| observed.state
+            == PlaybackState::Playing)
+        .await,
+        "Space did not start Playback"
+    );
+    let before = harness.state().orcvs.playback_observation();
+
+    primary(&mut harness, play, true);
+    harness.step();
+    let ctx = harness.ctx.clone();
+    super::tests::hold_a_start(&ctx, harness.state_mut());
+    primary(&mut harness, play, false);
+    harness.step();
+    assert!(
+        super::tests::continues_its_run(harness.state(), &before).await,
+        "the P that answered a hold toggled Playback twice"
+    );
+}
+
+///
 /// P and R are each one Source Cell, one Cell apart, on the window's Cell
 /// columns: the Panel continues the Grid.
 ///
