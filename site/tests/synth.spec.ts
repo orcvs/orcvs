@@ -106,6 +106,8 @@ const firstPlays: { gesture: string; play: (page: Page, frame: Locator) => Promi
   {
     gesture: "a click on P",
     // `P` is the Panel's first Cell: half the Panel's 52 points above the console's bottom edge.
+    // The canvas has no DOM to find it by, so the point is fixed; a click that misses it wakes
+    // the audio but starts no Playback, and the poll below says so.
     play: async (_page, frame) => {
       const box = await frame.boundingBox();
       await frame.click({ position: { x: 30, y: box!.height - 26 } });
@@ -122,7 +124,11 @@ for (const { gesture, play } of firstPlays) {
 
     // Nothing is stored, so the console opens `examples/beat.orcvs`: the kick and hat on Tick 0.
     await play(page, frame);
-    await expect.poll(() => page.evaluate(() => window.synthSpy.sounds.length)).toBeGreaterThan(0);
+    await expect
+      .poll(() => page.evaluate(() => window.synthSpy.sounds.length), {
+        message: `${gesture} started no Playback; a click at a fixed point misses P once the Panel's layout moves`,
+      })
+      .toBeGreaterThan(0);
 
     // Tick 0 waited for the audio, so its messages found it running and sound when they were
     // planned to, rather than wait behind its start-up.
