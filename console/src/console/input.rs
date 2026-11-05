@@ -321,8 +321,11 @@ impl Console {
             ctx.copy_text(copied);
         }
         // Each Space the batch counted is a Playback request for the start
-        // policy, answered after the frame's other keys so a Source edit in
-        // the same frame lands before Playback starts.
+        // policy, answered once the frame's other events are applied, so a
+        // frame's requests reach the policy together. A Space before an edit
+        // in the same frame is answered after it; the engine reads the
+        // Source at each Tick, so the order within a frame changes nothing
+        // it plays.
         for _ in 0..handled.playback_requests {
             self.request_playback(ctx, now);
         }
