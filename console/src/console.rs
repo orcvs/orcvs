@@ -21,6 +21,7 @@ mod logo;
 mod menu_bar;
 pub(crate) mod minimap;
 mod panel;
+mod playback;
 mod repaint;
 pub(crate) mod shapes;
 mod source_view;
@@ -93,6 +94,8 @@ pub struct Console {
     /// The Playback failures the Panel shows, routed from each frame's
     /// diagnostics.
     playback_status: PlaybackStatus,
+    /// A Playback start held while the page's audio wakes.
+    playback_start: playback::PlaybackStart,
     /// The framing page's Built-in Synth announcements, which list the synth
     /// under **O** and, in a Linked console, pick it.
     #[cfg(target_arch = "wasm32")]
@@ -305,6 +308,7 @@ impl Console {
             midi,
             network,
             playback_status: PlaybackStatus::default(),
+            playback_start: playback::PlaybackStart::default(),
             #[cfg(target_arch = "wasm32")]
             synth: crate::built_in_synth::SynthAnnouncements::new(
                 crate::built_in_synth::BrowserPage,
@@ -463,6 +467,9 @@ impl eframe::App for Console {
         // it until the frame is done — a View menu change is held until
         // then — so the Source reads the Theme the chrome was styled from.
         let appearance = Appearance::from(ctx.theme());
+        // egui sets the input time once per pass, so this one reading is the
+        // frame's `now` for every Playback request and the frame's release.
+        let now = ctx.input(|i| i.time);
         #[cfg(not(target_arch = "wasm32"))]
         if self.hold_splash(&ctx, appearance) {
             return;
@@ -484,7 +491,7 @@ impl eframe::App for Console {
         let menu = self.show_menu_bar(root, appearance);
         // A File command chosen from the menu or by its chord, run once the
         // menu bar is done and the chords are read.
-        let file_chord = self.route_keys(&ctx);
+        let file_chord = self.route_keys(&ctx, now);
         if let Some(command) = menu.file_command.or(file_chord) {
             self.run_file_command(command);
         }
@@ -503,7 +510,11 @@ impl eframe::App for Console {
 
         // Shown before the Source so it takes height rather than overlaying
         // the Grid.
-        let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance);
+        let diagnostics = self.show_panel(root, &observation, sampled_run_clock, appearance, now);
+        // After Space in `route_keys` and `P` in the Panel have both made
+        // their requests, so either one cancels a held start in the frame it
+        // would release in, rather than toggling the run the release began.
+        self.poll_playback(&ctx, now);
         self.show_source_panel(root, &frame, appearance);
         // After the Source, so it outlines the Pan this Render Frame settled.
         if let Some(centre) = self.show_minimap(root, revision, &frame, appearance) {

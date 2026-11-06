@@ -397,6 +397,7 @@ impl Console {
         observation: &PlaybackObservation,
         run_clock: Duration,
         appearance: Appearance,
+        now: f64,
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
         let separation = 2.0 * root.spacing().item_spacing.y;
@@ -442,11 +443,15 @@ impl Console {
                     let theme = self.themes.presented(appearance);
                     let playing = observation.state == PlaybackState::Playing;
                     let font = &self.font_family;
-                    if cell_button(ui, cell, font, theme, "P", "Play", playing).clicked() {
-                        self.orcvs.toggle_playback();
-                    }
+                    let play = cell_button(ui, cell, font, theme, "P", "Play", playing).clicked();
                     ui.add_space(cell.x);
-                    if cell_button(ui, cell, font, theme, "R", "Rewind", false).clicked() {
+                    let rewind = cell_button(ui, cell, font, theme, "R", "Rewind", false).clicked();
+                    // Answered once both Cells are drawn, which ends their
+                    // borrow of the Theme.
+                    if play {
+                        self.request_playback(ui.ctx(), now);
+                    }
+                    if rewind {
                         self.orcvs.rewind();
                     }
                     ui.add_space(entry_gap);

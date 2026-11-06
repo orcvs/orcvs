@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use orcvs::app::{InputEvent, InputKey, Orcvs};
+use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
 use orcvs::midi::{MidiConnection, MidiDestinationId, MidiError, MidiOutputAdapter};
 use orcvs::playback::{PlaybackDiagnostic, PlaybackObservationWatch};
@@ -287,7 +287,7 @@ impl MidiConnection for InProcessListener {
 }
 
 fn space(orcvs: &mut Orcvs) {
-    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    orcvs.toggle_playback();
 }
 
 /// The last message of the safety reset: channel 15's bend, centred.

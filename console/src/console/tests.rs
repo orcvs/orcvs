@@ -1869,6 +1869,218 @@ async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
 }
 
 ///
+/// Whether `frames` — a command Enter, then a Space — leave a fill armed for
+/// the `x` typed after them: the Region spans two rows, so a fill reaches a
+/// Cell the Cursor does not.
+///
+fn fill_survives(frames: Vec<Vec<Event>>) -> bool {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+    let grid = console.orcvs.grid();
+    let at = |x, y| grid.position(x, y).expect("inside the Grid");
+
+    // The Region is spanned after the first pass, which places the Cursor.
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    console.orcvs.extend(at(2, 1));
+    for events in frames {
+        app_pass(&ctx, screen, events, &mut console, &mut host);
+    }
+    app_pass(
+        &ctx,
+        screen,
+        vec![Event::Text("x".to_owned())],
+        &mut console,
+        &mut host,
+    );
+    console
+        .orcvs
+        .render_frame()
+        .at(at(1, 1))
+        .content()
+        .is_some()
+}
+
+///
+/// Space after a command Enter is the event that follows it, so it disarms
+/// the fill though it never reaches the Source as a key.
+///
+#[tokio::test]
+async fn space_disarms_a_fill_armed_before_it() {
+    assert!(
+        fill_survives(vec![vec![command_key_event(Key::Enter)]]),
+        "the control: a fill with nothing after it did not fill the Region"
+    );
+    assert!(
+        !fill_survives(vec![
+            vec![command_key_event(Key::Enter)],
+            vec![key_event(Key::Space, true)],
+        ]),
+        "a fill armed before Space filled the Region"
+    );
+}
+
+///
+/// A command Enter and a Space in one frame are still two events in order:
+/// the Space follows the Enter, so it disarms the fill the Enter armed. The
+/// platform withholds `Event::Text` while command is held, so the frame
+/// carries no text to disarm it instead.
+///
+#[tokio::test]
+async fn space_in_the_same_frame_disarms_a_fill_armed_before_it() {
+    assert!(
+        !fill_survives(vec![vec![
+            command_key_event(Key::Enter),
+            command_key_event(Key::Space),
+        ]]),
+        "a fill armed before Space in the same frame filled the Region"
+    );
+}
+
+///
+/// Holds a start as an early request does, below the console's entry point:
+/// native audio never sleeps, so no shipped request holds one.
+///
+pub(super) fn hold_a_start(ctx: &egui::Context, console: &mut Console) {
+    let now = ctx.input(|i| i.time);
+    assert_eq!(
+        console.playback_start.request(now, true),
+        super::playback::Decision::Held,
+        "the start was not held"
+    );
+}
+
+///
+/// A held start is released by the frame's poll once the page's audio runs,
+/// which on native is every frame.
+///
+#[tokio::test]
+async fn the_next_frame_releases_a_held_start() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    hold_a_start(&ctx, &mut console);
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    let mut playback = console.orcvs.playback_observation_watch();
+    assert!(
+        engine_reaches(&mut playback, |observation| {
+            observation.state == orcvs::playback::PlaybackState::Playing
+        })
+        .await,
+        "the frame never released the held start"
+    );
+}
+
+///
+/// Whether Playback plays and goes on to sound another Tick. A start the
+/// engine is already told to stop may publish Playing for a moment, but it
+/// sounds no further Tick, so this tells a run from that flicker.
+///
+async fn keeps_playing(console: &Console) -> bool {
+    let playing = |observation: &orcvs::playback::PlaybackObservation| {
+        observation.state == orcvs::playback::PlaybackState::Playing
+    };
+    let mut playback = console.orcvs.playback_observation_watch();
+    if !engine_reaches(&mut playback, playing).await {
+        return false;
+    }
+    let tick = console.orcvs.playback_observation().tick;
+    engine_reaches(&mut playback, |observation| {
+        playing(observation) && observation.tick != tick
+    })
+    .await
+}
+
+///
+/// Space while a start is held cancels it, so Playback stays stopped and
+/// the next Space starts it rather than stopping a run the cancel began.
+///
+#[tokio::test]
+async fn space_cancels_a_held_start() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    hold_a_start(&ctx, &mut console);
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true), key_event(Key::Space, false)],
+        &mut console,
+        &mut host,
+    );
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true)],
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        keeps_playing(&console).await,
+        "the Space after a cancelled start did not start Playback"
+    );
+}
+
+///
+/// Whether Playback sounds another Tick in the run `before` observed. A frame
+/// that toggles twice leaves the engine a stop and a start in one backlog,
+/// which ends the run and begins another with a later origin.
+///
+pub(super) async fn continues_its_run(
+    console: &Console,
+    before: &orcvs::playback::PlaybackObservation,
+) -> bool {
+    let mut playback = console.orcvs.playback_observation_watch();
+    let tick = console.orcvs.playback_observation().tick;
+    engine_reaches(&mut playback, |observation| {
+        observation.state == orcvs::playback::PlaybackState::Playing && observation.tick != tick
+    })
+    .await
+        && console.orcvs.playback_observation().run_started_at == before.run_started_at
+}
+
+///
+/// Space in the frame after a hold answers the hold and nothing else: the
+/// frame's poll does not toggle as well. A hold over a stopped engine cannot
+/// show that, since a play and a stop in one frame reach the engine as no
+/// request at all, so this holds over a playing one, where a second toggle
+/// ends the run and begins another.
+///
+#[tokio::test]
+async fn space_answers_a_held_start_without_a_second_toggle() {
+    let (ctx, mut console, mut host) = fresh_console();
+    let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
+
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true), key_event(Key::Space, false)],
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        keeps_playing(&console).await,
+        "Space did not start Playback"
+    );
+    let before = console.orcvs.playback_observation();
+    app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
+    hold_a_start(&ctx, &mut console);
+    app_pass(
+        &ctx,
+        screen,
+        vec![key_event(Key::Space, true)],
+        &mut console,
+        &mut host,
+    );
+    assert!(
+        continues_its_run(&console, &before).await,
+        "the frame that answered a hold toggled Playback twice"
+    );
+}
+
+///
 /// A copy with the Source focused hands the Region's rows to the platform
 /// clipboard, and a paste writes the text the platform delivered.
 ///
@@ -2003,7 +2215,7 @@ async fn a_focused_bpm_field_owns_digits_and_space_until_escape_or_a_grid_click(
     app_pass(
         &ctx,
         screen,
-        vec![key_event(Key::Space, true)],
+        vec![key_event(Key::Space, true), key_event(Key::Space, false)],
         &mut console,
         &mut host,
     );

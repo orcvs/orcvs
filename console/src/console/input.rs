@@ -104,6 +104,14 @@ pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
         } else {
             InputEvent::KeyPressed(InputKey::Tab)
         }),
+        // Space is a Playback request, so a held Space asks once: its key
+        // repeats would cancel the start it held or toggle Playback again.
+        Event::Key {
+            key: Key::Space,
+            pressed: true,
+            repeat,
+            ..
+        } => (!repeat).then_some(InputEvent::KeyPressed(InputKey::Space)),
         Event::Key {
             key, pressed: true, ..
         } => match key {
@@ -113,7 +121,6 @@ pub(super) fn translate_event(event: Event) -> Option<InputEvent> {
             Key::ArrowUp => Some(InputEvent::KeyPressed(InputKey::ArrowUp)),
             Key::Backspace => Some(InputEvent::KeyPressed(InputKey::Backspace)),
             Key::Delete => Some(InputEvent::KeyPressed(InputKey::Delete)),
-            Key::Space => Some(InputEvent::KeyPressed(InputKey::Space)),
             Key::Escape => Some(InputEvent::Collapse),
             _ => None,
         },
@@ -275,7 +282,7 @@ impl Console {
     /// place — and `RawInput::events` names `egui_wants_keyboard_input` as the
     /// question to ask instead.
     ///
-    pub(super) fn route_keys(&mut self, ctx: &egui::Context) -> Option<FileCommand> {
+    pub(super) fn route_keys(&mut self, ctx: &egui::Context, now: f64) -> Option<FileCommand> {
         let event_filter = EventFilter {
             tab: true,
             horizontal_arrows: true,
@@ -306,13 +313,21 @@ impl Console {
                 .flat_map(source_input)
                 .collect()
         });
-        #[cfg(target_arch = "wasm32")]
-        let events = self.hold_start_for_audio(ctx, events);
+        let handled = self.orcvs.event_handler(events);
         // A Copy or Cut answers the text the platform clipboard is to
         // hold; `copy_text` is how egui hands it to the native and the
         // browser backend alike.
-        if let Some(copied) = self.orcvs.event_handler(events).copied {
+        if let Some(copied) = handled.copied {
             ctx.copy_text(copied);
+        }
+        // Each Space the batch counted is a Playback request for the start
+        // policy, answered once the frame's other events are applied, so a
+        // frame's requests reach the policy together. A Space before an edit
+        // in the same frame is answered after it; the engine reads the
+        // Source at each Tick, so the order within a frame changes nothing
+        // it plays.
+        for _ in 0..handled.playback_requests {
+            self.request_playback(ctx, now);
         }
         // A File chord runs `run_file_command`; `translate_event` already
         // keeps command-modified letters from the Source.
@@ -327,30 +342,6 @@ impl Console {
         {
             None
         }
-    }
-
-    ///
-    /// `events` without a Space that starts Playback on the Built-in Synth
-    /// while the page's audio is asleep, and with it again once the audio
-    /// runs. The page announces its audio with a repaint; a timed repaint ends
-    /// the wait without it.
-    ///
-    #[cfg(target_arch = "wasm32")]
-    fn hold_start_for_audio(
-        &mut self,
-        ctx: &egui::Context,
-        mut events: Vec<InputEvent>,
-    ) -> Vec<InputEvent> {
-        let stopped =
-            self.orcvs.playback_observation().state == orcvs::playback::PlaybackState::Stopped;
-        let now = ctx.input(|i| i.time);
-        if self
-            .synth
-            .hold_start(&mut events, &mut self.midi, stopped, now)
-        {
-            ctx.request_repaint_after(std::time::Duration::from_millis(20));
-        }
-        events
     }
 
     ///
@@ -404,8 +395,9 @@ impl Console {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use egui::{Event, Key, Modifiers};
+    use orcvs::app::{InputEvent, InputKey};
 
-    use super::toggles_diagnostics;
+    use super::{toggles_diagnostics, translate_event};
 
     fn key(key: Key, modifiers: Modifiers, repeat: bool) -> Event {
         Event::Key {
@@ -446,5 +438,21 @@ mod tests {
         for (chord, event, toggles) in cases {
             assert_eq!(toggles_diagnostics(&event), toggles, "{chord}");
         }
+    }
+
+    /// A held Space is one Playback request: its key repeats ask for nothing,
+    /// so holding it neither cancels a held start nor toggles Playback again.
+    #[test]
+    fn only_a_fresh_space_is_a_playback_request() {
+        assert_eq!(
+            translate_event(key(Key::Space, Modifiers::NONE, false)),
+            Some(InputEvent::KeyPressed(InputKey::Space)),
+            "a fresh Space"
+        );
+        assert_eq!(
+            translate_event(key(Key::Space, Modifiers::NONE, true)),
+            None,
+            "a repeated Space"
+        );
     }
 }

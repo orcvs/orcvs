@@ -348,7 +348,6 @@ async fn web_start_executes_its_first_tick_before_a_browser_timer() {
 
 #[wasm_bindgen_test(async)]
 async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
-    use orcvs::app::{InputEvent, InputKey};
     use orcvs::opts::Bpm;
     use orcvs::playback::PlaybackDiagnostic;
 
@@ -359,7 +358,7 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
     )
     .expect("browser playback does not require a Tokio runtime");
     app.set_bpm(Bpm::new(1).unwrap()); // 15 seconds: only the immediate Tick runs.
-    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    app.toggle_playback();
     TimeoutFuture::new(0).await;
     assert_eq!(adapter.command_lists().len(), 1);
     let started = clock_now();
@@ -401,7 +400,7 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
     stall_until(started + 5_500.0);
     TimeoutFuture::new(0).await;
     let second = app.drain_playback_diagnostics();
-    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    app.toggle_playback();
     let [
         PlaybackDiagnostic::Overrun {
             scheduled_at: second_due,
@@ -424,23 +423,18 @@ async fn web_retune_keeps_the_deadline_grid_through_a_stall() {
 }
 
 ///
-/// Two Space events in one batch are a toggle and its cancellation, in the
-/// browser where the engine's task provably cannot run between them.
+/// Two toggles in one frame are a toggle and its cancellation, in the browser
+/// where the engine's task provably cannot run between them.
 ///
 /// `spawn_local` puts the engine's task on this thread, so it gets no turn
-/// until the frame that is handling the batch returns to the event loop. Held
-/// Space is how a user delivers such a batch: egui reports auto-repeat as
-/// further key presses, and any frame longer than the repeat interval carries
-/// two of them.
+/// until the frame that made both toggles returns to the event loop.
 ///
-/// The third press is the control: it proves the pair above cancelled rather
+/// The third toggle is the control: it proves the pair above cancelled rather
 /// than jamming, and that an empty list is not simply what this Source always
 /// produces.
 ///
 #[wasm_bindgen_test(async)]
-async fn web_two_space_events_in_one_batch_leave_playback_stopped() {
-    use orcvs::app::{InputEvent, InputKey};
-
+async fn web_two_toggles_in_one_frame_leave_playback_stopped() {
     let adapter = InMemoryOutputAdapter::default();
     let mut app = Orcvs::with_source_and_output_adapter(
         orcvs::source::Source::new(orcvs::grid::Grid::with_shape(1, 1)),
@@ -448,10 +442,8 @@ async fn web_two_space_events_in_one_batch_leave_playback_stopped() {
     )
     .expect("browser playback does not require a Tokio runtime");
 
-    app.event_handler(vec![
-        InputEvent::KeyPressed(InputKey::Space),
-        InputEvent::KeyPressed(InputKey::Space),
-    ]);
+    app.toggle_playback();
+    app.toggle_playback();
     TimeoutFuture::new(0).await;
     assert_eq!(
         adapter.command_lists().len(),
@@ -459,15 +451,15 @@ async fn web_two_space_events_in_one_batch_leave_playback_stopped() {
         "a run cancelled inside its own batch delivers no Tick"
     );
 
-    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    app.toggle_playback();
     TimeoutFuture::new(0).await;
     assert_eq!(
         adapter.command_lists().len(),
         1,
-        "the next Space starts a run, whose first Tick is immediate"
+        "the next toggle starts a run, whose first Tick is immediate"
     );
 
-    app.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    app.toggle_playback();
 }
 
 #[wasm_bindgen_test(async)]

@@ -144,7 +144,7 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
         orcvs.write(&content.to_string());
     }
 
-    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    orcvs.toggle_playback();
     tokio::task::yield_now().await;
 
     assert_eq!(
@@ -212,7 +212,7 @@ async fn selection_requests_fail_when_the_engine_task_has_ended() {
         orcvs.write(&content.to_string());
     }
 
-    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    orcvs.toggle_playback();
 
     let mut ended = false;
     for _ in 0..1_000 {
@@ -253,7 +253,7 @@ async fn selection_handle_cannot_outlive_the_running_orcvs() {
         .unwrap();
     tokio::task::yield_now().await;
 
-    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    orcvs.toggle_playback();
     tokio::task::yield_now().await;
     drop(orcvs);
     tokio::task::yield_now().await;

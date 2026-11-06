@@ -13,7 +13,7 @@
 use std::net::{Ipv4Addr, UdpSocket};
 use std::time::Duration;
 
-use orcvs::app::{InputEvent, InputKey, Orcvs};
+use orcvs::app::Orcvs;
 use orcvs::network::NetworkDestination;
 use orcvs::source::{Source, file};
 
@@ -176,7 +176,7 @@ fn tick_sends(tick: u8) -> (Vec<u8>, Message) {
 }
 
 fn space(orcvs: &mut Orcvs) {
-    orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::Space)]);
+    orcvs.toggle_playback();
 }
 
 ///
