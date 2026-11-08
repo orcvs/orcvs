@@ -1,7 +1,8 @@
 # Handoff: Orcvs timing Functions and chord notation research
 
 2026-11-08. Thread "Research new timing operators" in the Orcvs project (repo `orcvs/orcvs`). This
-has been research and design only. No code, ticket, branch or PR exists yet.
+has been research and design only. No code or tickets exist yet. This handoff and the two
+research docs are the only things committed.
 
 ## Where the work is
 
@@ -20,7 +21,8 @@ sources, and none of that is repeated here.
    into Tidal and other tools. The timing doc came out of that.
 2. Toby pointed at the archived repos `orcvs/orcvs-ts` (chords, `arp`, Euclidean with rotation,
    `t:` seconds and `f:` frame windows, nested `ptn`) and `orcvs/orcvs-code` (only a VS Code LSP
-   scaffold). Both are archived. A session has to add them to read them. The chord doc came out of this.
+   scaffold). Both are archived, and a session has to add them to read them. The chord doc came
+   out of this.
 3. **Toby (2026-10-31): two Cells is a convention for Function spellings and operands, not a
    limit.** So the chord doc now prefers lead-sheet chord symbols (`C4m7`, `G37`, `F4M7/A`, `^1` for
    an inversion) inside a Payload closed by `!`. That's the rule `!u` and `!o` use (ADR 0085). A
