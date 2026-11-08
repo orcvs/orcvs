@@ -53,8 +53,10 @@ Here's what's missing, set against the tools surveyed below:
    through the product `rate × modulus`.
 3. There's no one-shot event at a given point in the performance.
 4. Pulses can't be combined. A Bang can't be an operand, because a typed operand refuses `**` and a
-   nested Clear leaves its parent invalid (CONTEXT.md, Clear; ADR 0073). ADR 0039 deferred exactly
-   this AND-versus-OR question for layered rhythms.
+   nested Clear leaves its parent invalid (CONTEXT.md, Clear; ADR 0073). As history: ADR 0039,
+   since superseded by ADR 0063, refused a Sequence operand on Delay and Euclidean and deferred
+   AND versus OR for that case. ADR 0063 removed the Sequence, so the question no longer exists in
+   that form.
 5. There's no probability. Random answers Numbers, so a chance has to be built out of Random plus
    Equality on one value.
 6. Nothing happens below one Tick: no ratchets, no swing, no micro-timing.
@@ -255,8 +257,8 @@ No spelling begins with `?` today.
 
 | Spelling | Name | Answers a Bang when | Sources |
 |---|---|---|---|
-| `?& a b` | And | both are on | Tidal `mask`, `when`, `struct`; ADR 0039's AND |
-| `?\| a b` | Or | either is on | layering, which ADR 0039 left open |
+| `?& a b` | And | both are on | Tidal `mask`, `when`, `struct`, Elektron conditions |
+| `?\| a b` | Or | either is on | layering two rhythms |
 | `?! a` | Not | `a` is off | Tidal `inv`, Teletype `SKIP`, Elektron's `!` conditions |
 | `?% seed chance a` | Chance | `a` is on and a die roll passes | Tidal `degradeBy`, Elektron `X%`, Bitwig Chance, Teletype `PROB` |
 
