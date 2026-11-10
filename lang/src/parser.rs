@@ -1786,10 +1786,14 @@ mod property {
                 }
             } else {
                 // Every way of not completing reports an error, except a blank
-                // rest operand, which reports nothing and binds no Atom.
+                // rest operand, which reports nothing and binds no Atom. Every
+                // other entry of such an Expression bound what it reads.
                 prop_assert!(
                     analysis.error().is_some()
-                        || expression.positioned().any(|entry| entry.rest),
+                        || (expression.positioned().any(|entry| entry.rest)
+                            && expression.positioned().all(|entry| entry.atom.is_some()
+                                || entry.rest
+                                || entry.token == Token::Payload)),
                     "{spelled:?}"
                 );
                 // Every way of not completing records the Token it could not
