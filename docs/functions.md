@@ -905,8 +905,8 @@ After Tick `0`, the Addition did not run:
 
 These perform an effect: each sends one MIDI message when a Bang reaches it, except a Chord Play,
 which sends one per tone, and writes nothing into the Source. Each is inert until a Bang reaches
-it. An operand outside its range diagnoses and sends nothing, except that a Play whose note is two
-empty Cells rests (see **Rest** below). Choose a MIDI destination under the Panel's **O** to hear
+it. An operand outside its range diagnoses and sends nothing, except that a Play whose note, or a
+Chord Play whose root, is two empty Cells rests (see **Rest** below). Choose a MIDI destination under the Panel's **O** to hear
 them.
 
 | Operand | Range |
@@ -1048,6 +1048,23 @@ whole chord and sends nothing.
 ```orcvs tick 0 plays 4
 
 !:0064C4M7D501
+```
+
+**Rest.** A Chord Play whose root is two empty Cells rests, by any of the routes a Play's note
+can get empty. Its other operands may then be empty or cleared too, so a Chord Play with nothing
+written after it rests. A half-written or unreadable operand still diagnoses. A root that is
+written needs every other operand written as well. `!#` rests the same way.
+
+```orcvs
+**
+!:0064    CL00
+```
+
+After Tick `0`, nothing plays:
+
+```orcvs tick 0
+
+!:0064    CL00
 ```
 
 ### `!#` Timed Chord Play
