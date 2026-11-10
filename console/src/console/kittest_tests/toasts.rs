@@ -1,6 +1,6 @@
 //!
 //! The Toasts each standing message floats as, and the Panel that keeps its
-//! height whatever they say (ADR 0100).
+//! height whatever they say.
 //!
 
 use egui::Vec2;
@@ -132,11 +132,11 @@ async fn a_long_message_is_cut_at_three_lines() {
 }
 
 ///
-/// `×` removes the Toast, and it does not return while its source reports the
-/// same message. Once the source clears, the next message raises a new one.
+/// `×` removes the Toast, and it does not return while its Reporter has the
+/// same message. Once the Reporter clears, the next message raises a new one.
 ///
 #[tokio::test]
-async fn a_dismissed_toast_stays_gone_until_its_source_clears() {
+async fn a_dismissed_toast_stays_gone_until_its_reporter_clears() {
     let mut harness = quiet_console(false);
     fail_the_engine(&mut harness, "clock stopped");
     harness.run_steps(3);
@@ -161,13 +161,13 @@ async fn a_dismissed_toast_stays_gone_until_its_source_clears() {
     harness.run_steps(3);
     assert!(
         harness.query_by_label("clock stopped").is_some(),
-        "the message after the source cleared raised no Toast"
+        "the message after the Reporter cleared raised no Toast"
     );
 }
 
 ///
 /// The Panel is the same height with no message and with messages from two
-/// sources, with or without the Diagnostics readouts: the Play Cell and the
+/// Reporters, with or without the Diagnostics readouts: the Play Cell and the
 /// readouts stay put.
 ///
 #[tokio::test]

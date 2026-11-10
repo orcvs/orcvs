@@ -162,16 +162,17 @@ pub struct Span {
 
 ///
 /// The Function whose Span holds a Cell, as [`LanguageMap::function_at`]
-/// answers it: the Function, the Cells of each operand it declares, in
-/// signature order (a nested Function's are its spelling), and the Cells of
-/// its Output Portal Reservation, the pair a static value answer is written
-/// to.
+/// answers it: the Function, the Cells of each operand it declares that the
+/// row holds, in signature order (a nested Function's are its spelling), and
+/// the Cells of its Output Portal Reservation, the pair a static value answer
+/// is written to. Only trailing operands can fall past the row's edge, so the
+/// operands a shorter list holds are still the signature's first.
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct FunctionAt {
     pub function: Function,
-    pub operands: Vec<std::ops::Range<usize>>,
-    pub answer: Option<std::ops::Range<usize>>,
+    pub operands: Vec<Span>,
+    pub answer: Option<Span>,
 }
 
 ///
@@ -229,6 +230,11 @@ impl Span {
     /// The last Cell of this Span. Inclusive.
     pub(super) fn end(self) -> CellIndex {
         self.end
+    }
+
+    /// The Position of the first Cell of this Span.
+    pub fn first_position(self) -> Position {
+        self.grid.position_at(self.start)
     }
 
     /// The existing endpoints as a half-open range for Source slicing and
@@ -514,23 +520,33 @@ impl LanguageMap {
             entries[claimed].parent?
         };
         let function = spelled(entries[owner])?;
-        let anchor = self.grid.position_at(
+        let cell = |index: usize| {
             self.grid
-                .cell_index(entries[owner].cells.start)
-                .expect("a positioned entry lies inside its Grid"),
-        );
+                .cell_index(index)
+                .expect("a positioned entry lies inside its Grid")
+        };
+        let anchor = self.grid.position_at(cell(entries[owner].cells.start));
         let operands = entries
             .iter()
-            .filter(|entry| entry.parent == Some(owner) && entry.token != Token::Payload)
-            .map(|entry| entry.cells.clone())
+            .filter(|entry| {
+                entry.parent == Some(owner)
+                    && entry.token != Token::Payload
+                    && !entry.cells.is_empty()
+            })
+            .map(|entry| {
+                Span::new(
+                    self.grid,
+                    cell(entry.cells.start),
+                    cell(entry.cells.end - 1),
+                )
+            })
             .collect();
         Some(FunctionAt {
             function,
             operands,
             answer: super::portal::PortalAccess::output_portal_reservation(
                 self.grid, anchor, function,
-            )
-            .map(Span::range),
+            ),
         })
     }
 

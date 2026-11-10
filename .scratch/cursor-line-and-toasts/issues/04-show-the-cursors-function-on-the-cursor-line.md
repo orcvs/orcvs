@@ -9,11 +9,12 @@ Cell belongs to ([spec](../spec.md), ADR 0100).
 
 - [x] The line is always there and keeps its height when it is blank, so the Panel never changes
       height.
-- [x] On any Cell of a Function's Span it reads the name, spelling and summary, each operand's role
-      and two Cells, then `answer`, the Output Portal's two Cells and its Position:
-      `Add  .+  answers left + right   left 03   right 04   answer 06  at 00 0C`. An effect
-      Function ends after its operands.
-- [x] A Comment is named `Comment`. A Bang is a Bang Function, described by its Function row like
+- [x] On any Cell of a Function's Span it reads the spelling and name, each Role's name and Cells (a
+      Position's two Numbers are one Role), then the summary:
+      `.+ Add   left 03  right 04   answers left + right`. A Function whose answer has a fixed
+      place pins the Output Portal's two Cells and its Position to the line's right edge, as
+      `→ 07 at 00 01`. An effect Function ends on its summary.
+- [x] A Comment reads as its spelling and name, `|| Comment`. A Bang is a Bang Function, described by its Function row like
       any Function. An empty Cell or a standalone pair leaves the line blank: the pair is diagnosed,
       and its diagnostic belongs to `source-diagnostics/02`.
 - [x] One line, never wrapped: text past the Panel's width is cut with an ellipsis, and hovering the
@@ -34,6 +35,6 @@ Reservation; the Render Frame carries it for the Cursor as `cursor_function`. `c
 turns that and the Function table into the line's text, and the Panel draws it in a fixed
 `CURSOR_LINE_HEIGHT` beneath its row, one row of the Monospace style plus item spacing, which
 `BOTTOM_PANEL_HEIGHT` now includes, so the default window keeps its 1024 by 640 Source area. A Function whose Output Portal its operands select at the
-Turn (the Writes, Push, Absolute Copy) shows no `answer`, since no pair is reserved before the Turn.
+Turn (the Writes, Push, Absolute Copy) pins no answer, since no pair is reserved before the Turn.
 A standalone pair such as `07` is diagnosed text, not an Operand Literal, so its Cell leaves the line
 blank; only a Comment is named that way.

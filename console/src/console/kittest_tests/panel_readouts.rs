@@ -89,7 +89,7 @@ async fn a_long_destination_name_leaves_no_empty_icon_slot_in_its_field() {
 /// the destination field it is about.
 ///
 #[tokio::test]
-async fn the_midi_status_floats_above_the_destination_field() {
+async fn the_midi_toast_floats_above_the_destination_field() {
     let fake = FakeWebMidi::with(
         AccessStatus::Granted,
         &[("a", Some("First")), ("b", Some("Second"))],
@@ -101,23 +101,23 @@ async fn the_midi_status_floats_above_the_destination_field() {
     harness.get_by_label("Second").click();
     harness.run_steps(2);
     let field = harness.get_by_value("First · 127.0.0.1").rect();
-    let status = harness
+    let toast = harness
         .get_by(|node| {
             node.role() == Role::Label && node.value().as_deref() == Some("Opening Second…")
         })
         .rect();
     assert!(
-        status.bottom() < field.top(),
-        "the status ends at {} beneath the field's top at {}",
-        status.bottom(),
+        toast.bottom() < field.top(),
+        "the Toast ends at {} beneath the field's top at {}",
+        toast.bottom(),
         field.top()
     );
     let window = harness.ctx.content_rect();
     assert!(
-        status.left() >= window.right() - 16.0 - 380.0 && status.right() <= window.right() - 16.0,
-        "the status runs from {} to {}, outside the Toast stack in a window ending at {}",
-        status.left(),
-        status.right(),
+        toast.left() >= window.right() - 16.0 - 380.0 && toast.right() <= window.right() - 16.0,
+        "the Toast runs from {} to {}, outside the stack in a window ending at {}",
+        toast.left(),
+        toast.right(),
         window.right()
     );
 }

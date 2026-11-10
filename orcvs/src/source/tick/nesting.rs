@@ -88,7 +88,7 @@ fn nested_feedback_functions_keep_their_state_in_their_own_output_portals() {
     );
     assert!(plans.iter().all(|plan| plan.diagnostics.is_empty()));
 
-    // A nested Interpolation moves toward its target by its rate each Tick.
+    // A nested Interpolation moves toward its target by its amount each Tick.
     let (plans, grids, _) = tick_by_tick(Grid::with_shape(10, 2), &[".+~>020500", ""], 4);
     let moved: Vec<&str> = grids.iter().map(|grid| grid[1].as_str()).collect();
     assert_eq!(

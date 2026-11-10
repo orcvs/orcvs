@@ -55,7 +55,7 @@ pub enum InterpretationError {
 
     /// A Tick-reading Function handed a zero where its cycle needs a length.
     ///
-    /// Clock's and Delay's cycle is `rate * modulus` and Euclidean's is
+    /// Clock's and Delay's cycle is `length * steps` and Euclidean's is
     /// `steps`, and none of the three has a cycle at all once a
     /// factor is zero: there is no step to be at, no period to be on, and no
     /// position for an onset to fall in. Each therefore diagnoses rather than
@@ -80,7 +80,7 @@ pub enum InterpretationError {
     /// Clock computed a step its Number answer cannot hold.
     ///
     /// Unreachable while the step formula stands: the step is
-    /// `(Tick / rate) % modulus`, a remainder of a modulus that arrived as a
+    /// `(Tick / length) % steps`, a remainder of a `steps` that arrived as a
     /// Number, so it is below `FF` however far the Tick has counted. The
     /// variant exists for what the alternatives to it would cost. A panic
     /// states the invariant and is ruled out, because the narrowing runs
@@ -113,7 +113,7 @@ pub enum InterpretationError {
 
     /// Increment handed a zero where its wrap needs a length.
     ///
-    /// Increment's `(previous + step) % modulus` has no wrap once the modulus
+    /// Increment's `(previous + amount) % modulus` has no wrap once the modulus
     /// is zero, so Increment diagnoses rather than inventing one. The variant
     /// is its own rather than [`InterpretationError::ZeroCycle`] because
     /// Increment is not counting a cycle: it is wrapping a running Number, and

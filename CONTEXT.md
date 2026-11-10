@@ -100,6 +100,10 @@ _Avoid_: Value stack, call stack, machine memory, register
 A named Orcvs language operation evaluated within an Expression. A Function may adapt a capability found in Orca, but its syntax and behaviour follow Orcvs language rules rather than Orca compatibility. Per ADR 0028 every Function declares whether it answers a value the surrounding Expression can consume or performs an effect and answers nothing, never both and never neither, and per ADR 0029 that declaration is what the Parser's nesting refusal and the activation gate each read rather than a spelling or a family prefix. The declaration is a property of the definition, settled before any Tick runs, and is not the Effect a Producer contributes to a Tick Plan. Terminal Output is one effect a Function may declare rather than the definition of effect, so a rule about having no Cell destination reads that narrower declaration while a rule about nothing consuming the answer reads the wider one. Per ADR 0063 and ADR 0073 a value Function that evaluates answers either an Atom or a Clear, and both occupy the same reserved two-Cell pair, which is what lets a Tick reserve a result's Cells before any Function has evaluated. No Function accepts or answers a series of values.
 _Avoid_: Operator, command
 
+**Role**:
+What one or more consecutive operands of a Function are to a reader, named on the Function's row in the Function table and read by the Cursor Line: `.+` has the Roles `left` and `right`. A Position's two Numbers are one Role, so `=$` has the Roles `from` and `to` over its four operands. A signature in the Function reference spells its Function's Roles in order. A Role says what an operand is for and leaves its type to the signature. It is neither the console's colour role for a Cell nor the part a Cell plays in a Portal.
+_Avoid_: Argument name, parameter, operand name
+
 **Source Function**:
 A Function whose result may depend on Cells outside its explicit operands or may change Cells beyond its Output Portal. Its value reads wait for current-Tick suppliers to settle. Placement tests occupancy in working Source at its Turn without waiting for a vacancy; its writes pass through Portals (ADR 0060).
 _Avoid_: Spatial operator, grid function
@@ -203,7 +207,7 @@ The Tick-family Function `~+`, which answers `(previous + amount) % modulus` as 
 _Avoid_: Counter, accumulator, hidden state, +=
 
 **Interpolation Function**:
-The Tick-family Function `~>`, which moves a Number toward a target by at most `amount` and never overshoots. Both operands are Numbers: `amount` is the farthest one Tick may travel and `target` is the value it is moving toward. Its Input Portal and Output Portal are the same site, one row south of the Function: the Number input reads that Portal in working Source at its Turn, including earlier same-Tick writes; empty Cells supply the initial Number `00`, and any other present Language Unit diagnoses. When below the target it steps up by `amount` or lands on the target; when above it steps down the same way; when equal it returns the target unchanged. Each distance is calculated only in the branch whose subtraction is non-negative, and the remaining step is taken in an integer wider than a byte. Rate `00` holds the current value.
+The Tick-family Function `~>`, which moves a Number toward a target by at most `amount` and never overshoots. Both operands are Numbers: `amount` is the farthest one Tick may travel and `target` is the value it is moving toward. Its Input Portal and Output Portal are the same site, one row south of the Function: the Number input reads that Portal in working Source at its Turn, including earlier same-Tick writes; empty Cells supply the initial Number `00`, and any other present Language Unit diagnoses. When below the target it steps up by `amount` or lands on the target; when above it steps down the same way; when equal it returns the target unchanged. Each distance is calculated only in the branch whose subtraction is non-negative, and the remaining step is taken in an integer wider than a byte. An `amount` of `00` holds the current value.
 _Avoid_: Lerp, tween, easing, filter, glide
 
 **Random Function**:
@@ -423,7 +427,7 @@ The console's performer-facing telemetry surface for one running Orcvs. It is st
 _Avoid_: HUD, toolbar, dock, egui Panel
 
 **Cursor Line**:
-The Panel's one permanent line beneath its row, describing what the Cursor's Cell belongs to: the Function's name, spelling and what it answers, its operands, and its answer with the Output Portal it is written to; or the diagnostic that covers the Cell. It keeps its height whether or not it has anything to say.
+The Panel's one permanent line beneath its row, describing what the Cursor's Cell belongs to: the Function's spelling and name, its operands, what it answers or does, and, pinned to the right edge, its answer with the Output Portal it is written to; or the diagnostic that covers the Cell. It keeps its height whether or not it has anything to say.
 _Avoid_: status line, tooltip, hint, inspector
 
 **Toast**:

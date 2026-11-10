@@ -1,13 +1,12 @@
 //!
-//! The Cursor Line beneath the Panel's row, as the shipped console draws it
-//! (ADR 0100).
+//! The Cursor Line beneath the Panel's row, as the shipped console draws it.
 //!
 
 use egui::Vec2;
 use egui_kittest::kittest::Queryable as _;
 
 use super::super::DEFAULT_VIEW_SIZE;
-use super::running_console;
+use super::{running_console, write_an_add_and_select};
 
 ///
 /// Moving the Cursor onto `.+0304` shows the Add it belongs to on the line
@@ -17,18 +16,7 @@ use super::running_console;
 #[tokio::test]
 async fn the_cursor_line_describes_the_function_under_the_cursor() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
-    {
-        let orcvs = &mut harness.state_mut().orcvs;
-        let grid = orcvs.grid();
-        for (x, content) in ".+0304".chars().enumerate() {
-            let cell = grid.index(grid.position(x, 0).expect("inside the Grid"));
-            orcvs
-                .source()
-                .set(cell, &content.to_string())
-                .expect("a Cell");
-        }
-        orcvs.select(grid.position(3, 0).expect("inside the Grid"));
-    }
+    write_an_add_and_select(&mut harness, 3);
     harness.run_steps(2);
 
     let line = harness
@@ -65,18 +53,7 @@ async fn the_answer_holds_the_right_edge_as_the_lead_gives_way() {
     for width in [DEFAULT_VIEW_SIZE[0], 420.0] {
         let size = Vec2::new(width, DEFAULT_VIEW_SIZE[1]);
         let mut harness = running_console(size);
-        {
-            let orcvs = &mut harness.state_mut().orcvs;
-            let grid = orcvs.grid();
-            for (x, content) in ".+0304".chars().enumerate() {
-                let cell = grid.index(grid.position(x, 0).expect("inside the Grid"));
-                orcvs
-                    .source()
-                    .set(cell, &content.to_string())
-                    .expect("a Cell");
-            }
-            orcvs.select(grid.position(0, 0).expect("inside the Grid"));
-        }
+        write_an_add_and_select(&mut harness, 0);
         harness.run_steps(2);
 
         let answer = harness.get_by_label("→ .. at 00 01").rect();

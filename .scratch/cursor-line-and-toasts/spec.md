@@ -1,6 +1,6 @@
 # Cursor Line and Toasts
 
-Status: ready-for-agent
+Status: resolved
 
 ## The decision
 
@@ -23,14 +23,15 @@ records it and supersedes ADR 0095's growing status line.
 
 - **What it follows.** The Cursor's Cell, never the pointer.
 - **A Function.** When the Cell is any Cell of a Function's Span (its anchor or an operand), the
-  line reads the Function's name, its spelling, one line on what it answers, each operand's role and
-  the two Cells it holds, then `answer`, the two Cells of its Output Portal and that Portal's
-  Position: `Add  .+  answers left + right   left 03   right 04   answer 06  at 00 0C`. A Function
-  that performs an effect has no answer, so the line ends after its operands.
+  line reads the Function's spelling and name, each Role's name and Cells (a Position's two Numbers
+  are one Role), then one line on what it answers or does:
+  `.+ Add   left 03  right 04   answers left + right`. A Function whose answer has a fixed place
+  pins the two Cells of its Output Portal and that Portal's Position to the line's right edge, as
+  `→ 07 at 00 01`. A Function that performs an effect has no answer, so the line ends on its summary.
 - **A diagnostic.** When a Language Map diagnostic covers the Cell, the line shows that diagnostic
   instead, as `.scratch/source-diagnostics/issues/02` decided. That ticket builds it, after ticket 04
   here; this effort does not.
-- **Anything else.** A Comment is named `Comment`. A Bang is a Bang Function, so the line describes
+- **Anything else.** A Comment reads as its spelling and name, `|| Comment`. A Bang is a Bang Function, so the line describes
   it by its Function row like any Function. An empty Cell or a standalone pair leaves the line
   blank, and its space stays: the pair is diagnosed, and its diagnostic belongs to
   `.scratch/source-diagnostics/issues/02`.
@@ -51,14 +52,17 @@ records it and supersedes ADR 0095's growing status line.
   engine failure.
 - **Where.** Stacked from the window's top-right corner, beneath the menu bar, 16 points in from
   both edges, over the Source and clear of the Minimap.
-- **What.** A popup frame outlined in the error colour, 380 points wide, holding the output's label
+- **What.** A popup frame outlined in the error colour, 380 points wide, or the Source's width less
+  both 16-point insets when that is narrower, holding the output's label
   (`MIDI`, `UDP/OSC` or `ENGINE`) in the Theme's diagnostic red (`diagnostic.foreground`), a `×` dismiss button, and the message in
   the error colour, wrapped to at most three lines; a longer message is cut with an ellipsis and
   shown whole on hover.
 - **Size and input.** At most five Toasts, one per message source, so the stack is bounded. A Toast
   takes the pointer over its own frame only, as any egui `Area` does; a press there reaches its
   `×` or nothing, and the Source beside it is untouched. Keyboard input always reaches the Source.
-  A stack that would reach the Minimap's top edge drops its oldest Toasts until it does not.
+  A stack drops its oldest Toasts until its bottom stays 16 points above its floor: the top of the
+  Minimap's border while the Minimap is showing, the Source's bottom while it is closed or does not
+  fit.
 - **Identity.** A Toast is keyed by its message source (one of the five slots above) and the
   message's text. A dismissed or faded key is remembered until that source reports no message on
   a frame or reports a different text; then it is forgotten, and the next message from that source
@@ -78,7 +82,7 @@ records it and supersedes ADR 0095's growing status line.
 
 The Cursor Line's text is a pure function of the Render Frame, the Cursor and the Function table,
 tested on its own for a Function's anchor and operand, an effect Function, a Comment, a Bang, a
-standalone Operand Literal and an empty Cell. The diagnostic case and its test belong to
+standalone pair and an empty Cell. The diagnostic case and its test belong to
 `source-diagnostics/02`. The table-to-reference test reads every
 heading in `docs/functions.md`. The console's kittests find a Toast's label and message beneath the
 menu bar, press `×` and find it gone, advance past the configured seconds and find it gone, and

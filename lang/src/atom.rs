@@ -767,6 +767,143 @@ const fn same_name(left: &str, right: &str) -> bool {
     true
 }
 
+// A row's Roles: one per declared operand, except that a `grouped:` Role stands
+// for the consecutive operands it names. A group `grouped_roles` refuses fails
+// to compile at the row that declares it.
+macro_rules! function_roles {
+    ([$($role:ident: $operand:ident),*], [$($group:ident: $($member:ident)+),*], [$($position:ident)*]) => {{
+        const NAMES: &[&str] = &[$(stringify!($role)),*];
+        const OPERANDS: &[&str] = &[$(stringify!($operand)),*];
+        const GROUPS: &[RoleGroup] = &[$(RoleGroup {
+            name: stringify!($group),
+            members: &[$(stringify!($member)),+],
+        }),*];
+        const _: () = assert_position_grouped(&[$(stringify!($position)),*], GROUPS);
+        const ROLES: [Role; role_count(NAMES.len(), GROUPS)] =
+            grouped_roles(NAMES, OPERANDS, GROUPS);
+        &ROLES
+    }};
+}
+
+/// One `grouped:` Role of a row: its name and the operands it covers, as the
+/// row names them.
+#[derive(Clone, Copy)]
+struct RoleGroup {
+    name: &'static str,
+    members: &'static [&'static str],
+}
+
+/// How many Roles a row with `operands` declared operands has once `groups`
+/// stand for their members.
+const fn role_count(operands: usize, groups: &[RoleGroup]) -> usize {
+    let (mut count, mut index) = (operands, 0);
+    while index < groups.len() {
+        assert!(
+            groups[index].members.len() >= 2,
+            "a grouped Role covers at least two operands"
+        );
+        count -= groups[index].members.len() - 1;
+        index += 1;
+    }
+    count
+}
+
+/// A row's Roles in signature order, evaluated where the row is declared.
+/// `names` and `operands` are its declared roles and their operand types.
+///
+/// A group covers consecutive declared operands in signature order, each one a
+/// Number, as a Position's column and row are.
+const fn grouped_roles<const N: usize>(
+    names: &[&'static str],
+    operands: &[&str],
+    groups: &[RoleGroup],
+) -> [Role; N] {
+    let mut roles = [Role {
+        name: "",
+        operands: 0,
+    }; N];
+    let (mut filled, mut operand) = (0, 0);
+    while operand < names.len() {
+        let role = match group_starting_at(groups, names[operand]) {
+            Some(group) => {
+                assert_group_covers(group, names, operands, operand);
+                Role {
+                    name: group.name,
+                    operands: group.members.len(),
+                }
+            }
+            None => Role {
+                name: names[operand],
+                operands: 1,
+            },
+        };
+        // `N` counts every group as standing for its members, so a group no
+        // declared operand starts leaves one Role too many.
+        assert!(
+            filled < N,
+            "a grouped Role must start at a declared operand outside any other group"
+        );
+        roles[filled] = role;
+        filled += 1;
+        operand += role.operands;
+    }
+    roles
+}
+
+/// Refuses a row whose `position:` operands are not one `grouped:` Role, since
+/// a reader sees a Position as one operand. `position` is empty on a row that
+/// declares no `position:` clause.
+const fn assert_position_grouped(position: &[&str], groups: &[RoleGroup]) {
+    if position.is_empty() {
+        return;
+    }
+    let mut index = 0;
+    while index < groups.len() {
+        let members = groups[index].members;
+        if members.len() == position.len() {
+            let mut member = 0;
+            while member < members.len() && same_name(members[member], position[member]) {
+                member += 1;
+            }
+            if member == members.len() {
+                return;
+            }
+        }
+        index += 1;
+    }
+    panic!("a `position:` clause's operands must be one grouped Role");
+}
+
+/// The group whose first member is the declared operand `name`.
+const fn group_starting_at(groups: &[RoleGroup], name: &str) -> Option<RoleGroup> {
+    let mut index = 0;
+    while index < groups.len() {
+        if same_name(groups[index].members[0], name) {
+            return Some(groups[index]);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Refuses `group` unless its members are the declared operands from `start`
+/// on, in order, and every one is a Number.
+const fn assert_group_covers(group: RoleGroup, names: &[&str], operands: &[&str], start: usize) {
+    let mut member = 0;
+    while member < group.members.len() {
+        let index = start + member;
+        assert!(
+            index < names.len() && same_name(names[index], group.members[member]),
+            "a grouped Role covers consecutive declared operands in signature order"
+        );
+        assert!(
+            same_name(operands[index], "Number"),
+            "a grouped Role covers only Number operands"
+        );
+        member += 1;
+    }
+}
+
 // Whether a row declares the optional fact its tokens stand for.
 macro_rules! declares {
     () => {
@@ -808,7 +945,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, rest: $rest:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])? $(, rest: $rest:ident)?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -865,11 +1002,15 @@ macro_rules! define_functions {
                 }
             }
 
-            /// One Role per operand this Function's row declares, each covering
-            /// that one operand.
-            const fn declared_roles(self) -> &'static [Role] {
+            /// This Function's Roles, in signature order. Together they cover
+            /// every operand its signature declares.
+            pub const fn roles(self) -> &'static [Role] {
                 match self {
-                    $(Self::$variant => &[$(Role { name: stringify!($role), operands: 1 }),*],)+
+                    $(Self::$variant => function_roles!(
+                        [$($role: $operand),*],
+                        [$($($g_role: $($g_operand)+),+)?],
+                        [$($p_column $p_row)?]
+                    ),)+
                 }
             }
 
@@ -1048,8 +1189,8 @@ macro_rules! define_functions {
             $($(
                 #[doc = concat!(
                     "`", $spelling, "` selects its ", stringify!($d_portal), " Portal's pair `",
-                    stringify!($d_n), "` Portals ", stringify!($d_direction), " from its `",
-                    stringify!($d_n), "` operand's slot."
+                    stringify!($d_distance), "` Portals ", stringify!($d_direction), " from its `",
+                    stringify!($d_distance), "` operand's slot."
                 )]
                 $variant,
             )?)+
@@ -1072,7 +1213,7 @@ macro_rules! define_functions {
                     $($(Self::$variant => {
                         use crate::stack::Operands as _;
                         operands::$variant::checked_bind(values)
-                            .map(|operands::$variant { $d_n, .. }| $d_n)
+                            .map(|operands::$variant { $d_distance, .. }| $d_distance)
                     })?)+
                 }
             }
@@ -1145,37 +1286,12 @@ pub struct Role {
     pub operands: usize,
 }
 
-impl Function {
-    /// This Function's Roles, in signature order. Together they cover every
-    /// operand its signature declares.
-    pub const fn roles(self) -> &'static [Role] {
-        const fn position(name: &'static str) -> Role {
-            Role { name, operands: 2 }
-        }
-        const FROM_TO: &[Role] = &[position("from"), position("to")];
-        const AT: &[Role] = &[position("at")];
-        const AT_VALUE: &[Role] = &[
-            position("at"),
-            Role {
-                name: "value",
-                operands: 1,
-            },
-        ];
-        match self {
-            Self::AbsoluteCopy => FROM_TO,
-            Self::AbsoluteRead => AT,
-            Self::AbsoluteWrite => AT_VALUE,
-            _ => self.declared_roles(),
-        }
-    }
-}
-
 define_functions! {
     spelled: {
-    AbsoluteCopy => ("=$", "Absolute Copy", "copies the pair at from onto the pair at to", Value, Intrinsic, May, [from_column: Number, from_row: Number, to_column: Number, to_row: Number]),
+    AbsoluteCopy => ("=$", "Absolute Copy", "copies the pair at from onto the pair at to", Value, Intrinsic, May, [from_column: Number, from_row: Number, to_column: Number, to_row: Number], grouped: [from: from_column from_row, to: to_column to_row]),
     AbsoluteDifference => (".|", "Absolute Difference", "answers the distance between left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
-    AbsoluteRead => ("&$", "Absolute Read", "reads the pair at a Position", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row),
-    AbsoluteWrite => ("@$", "Absolute Write", "writes value at a Position", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row),
+    AbsoluteRead => ("&$", "Absolute Read", "reads the pair at a Position", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row, grouped: [at: column row]),
+    AbsoluteWrite => ("@$", "Absolute Write", "writes value at a Position", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row, grouped: [at: column row]),
     Add => (".+", "Add", "answers left + right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Clock => ("~.", "Clock", "answers which of its steps the Tick is on", Value, Intrinsic, Never, [length: Number, steps: Number]),
     ControlChange => ("!c", "Control Change", "sends value to controller on channel", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
@@ -1681,7 +1797,8 @@ mod spelling {
 mod test {
     use super::{
         Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
-        ReplacementChange, Velocity, to_atom_num,
+        ReplacementChange, Role, RoleGroup, Velocity, assert_position_grouped, grouped_roles,
+        role_count, to_atom_num,
     };
     use crate::{Error, IntervalSet, Token, TypeError, Voicing};
 
@@ -2613,19 +2730,43 @@ mod test {
             names(Function::TimedPlay),
             ["channel", "velocity", "note", "length"]
         );
+        let covers = |function: Function| -> Vec<usize> {
+            function.roles().iter().map(|role| role.operands).collect()
+        };
         assert_eq!(names(Function::AbsoluteCopy), ["from", "to"]);
+        assert_eq!(covers(Function::AbsoluteCopy), [2, 2]);
         assert_eq!(names(Function::AbsoluteRead), ["at"]);
+        assert_eq!(covers(Function::AbsoluteRead), [2]);
         assert_eq!(names(Function::AbsoluteWrite), ["at", "value"]);
+        assert_eq!(covers(Function::AbsoluteWrite), [2, 1]);
         assert!(Function::CopyEast.roles().is_empty());
         for function in Function::ALL {
             let roles = names(*function);
-            assert_eq!(
-                function
-                    .roles()
-                    .iter()
-                    .map(|role| role.operands)
-                    .sum::<usize>(),
-                function.signature().len(),
+            let mut signature = function.signature().iter();
+            for role in function.roles() {
+                assert!(
+                    role.operands >= 1,
+                    "`{function}`'s `{}` covers no operand",
+                    role.name
+                );
+                let covered: Vec<_> = signature.by_ref().take(role.operands).collect();
+                assert_eq!(
+                    covered.len(),
+                    role.operands,
+                    "`{function}`'s `{}` runs past its signature",
+                    role.name
+                );
+                assert!(
+                    role.operands == 1
+                        || covered
+                            .iter()
+                            .all(|token| matches!(token, crate::Token::Number)),
+                    "`{function}`'s grouped `{}` covers only Numbers",
+                    role.name
+                );
+            }
+            assert!(
+                signature.next().is_none(),
                 "`{function}`'s Roles cover each operand it declares"
             );
             for (index, role) in roles.iter().enumerate() {
@@ -2639,6 +2780,79 @@ mod test {
                 );
             }
         }
+    }
+
+    const COLUMN_ROW: RoleGroup = RoleGroup {
+        name: "at",
+        members: &["column", "row"],
+    };
+
+    #[test]
+    fn a_grouped_role_stands_for_the_operands_it_covers() {
+        let roles: [Role; 2] = grouped_roles(
+            &["column", "row", "value"],
+            &["Number", "Number", "Untyped"],
+            &[COLUMN_ROW],
+        );
+        assert_eq!(
+            roles,
+            [
+                Role {
+                    name: "at",
+                    operands: 2
+                },
+                Role {
+                    name: "value",
+                    operands: 1
+                },
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role covers only Number operands")]
+    fn a_grouped_role_refuses_an_operand_that_is_not_a_number() {
+        let _: [Role; 1] = grouped_roles(&["column", "row"], &["Number", "Note"], &[COLUMN_ROW]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role covers consecutive declared operands")]
+    fn a_grouped_role_refuses_operands_out_of_signature_order() {
+        let _: [Role; 1] = grouped_roles(
+            &["column", "value", "row"],
+            &["Number", "Number", "Number"],
+            &[COLUMN_ROW],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a `position:` clause's operands must be one grouped Role")]
+    fn a_position_that_is_not_one_grouped_role_is_refused() {
+        assert_position_grouped(&["column", "row"], &[]);
+    }
+
+    #[test]
+    fn a_position_grouped_as_one_role_is_accepted() {
+        assert_position_grouped(&["column", "row"], &[COLUMN_ROW]);
+        assert_position_grouped(&[], &[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role must start at a declared operand")]
+    fn a_grouped_role_refuses_a_group_the_row_does_not_declare() {
+        let _: [Role; 1] = grouped_roles(&["left", "right"], &["Number", "Number"], &[COLUMN_ROW]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role covers at least two operands")]
+    fn a_grouped_role_refuses_a_single_operand() {
+        role_count(
+            1,
+            &[RoleGroup {
+                name: "at",
+                members: &["column"],
+            }],
+        );
     }
 
     #[test]

@@ -213,10 +213,16 @@ fn cell_button(
 }
 
 fn panel_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    ui.add(
-        egui::Label::new(egui::RichText::new(text).text_style(egui::TextStyle::Monospace))
-            .selectable(false),
-    )
+    tinted_panel_label(ui, text, None)
+}
+
+/// A [`panel_label`] in `colour`, or in the style's own label colour for none.
+fn tinted_panel_label(ui: &mut egui::Ui, text: &str, colour: Option<Color32>) -> egui::Response {
+    let mut text = egui::RichText::new(text).text_style(egui::TextStyle::Monospace);
+    if let Some(colour) = colour {
+        text = text.color(colour);
+    }
+    ui.add(egui::Label::new(text).selectable(false))
 }
 
 /// Inner padding of the typed BPM field. Wider than TextEdit's default
@@ -488,17 +494,15 @@ impl Console {
                     ui.add_space(entry_gap);
                     // While any output reports a message, faded or dismissed
                     // Toast or not, O stays in the error colour.
-                    let failing =
-                        super::toasts::statuses(&self.midi, &self.network, &self.playback_status)
-                            .iter()
-                            .any(|(_, message)| message.is_some());
-                    let output = egui::RichText::new("O").text_style(egui::TextStyle::Monospace);
-                    let output = if failing {
-                        output.color(ui.visuals().error_fg_color)
-                    } else {
-                        output
-                    };
-                    ui.add(egui::Label::new(output).selectable(false));
+                    let failing = super::toasts::standing_messages(
+                        &self.midi,
+                        &self.network,
+                        &self.playback_status,
+                    )
+                    .iter()
+                    .any(|(_, message)| message.is_some());
+                    let colour = failing.then(|| ui.visuals().error_fg_color);
+                    tinted_panel_label(ui, "O", colour);
                     ui.add_space(label_value_gap);
                     self.show_destination(ui);
                 },

@@ -1,4 +1,4 @@
-//! The Reads, `&^ &v &< &> distance` and `&$ column row`, read as a performer sees
+//! The Reads, `&^ &v &< &> distance` and `&$ at`, read as a performer sees
 //! them Tick after Tick.
 //!
 //! A directional Read reads the Cell pair `distance` Portals from its `distance` operand in
@@ -21,7 +21,7 @@ fn invalid(spelling: &str) -> String {
 }
 
 #[test]
-fn a_distance_counts_portals_from_the_n_operand() {
+fn a_distance_counts_portals_from_the_distance_operand() {
     // Step `00` is the operand itself, and each step east is one pair.
     let own = first(Grid::with_shape(6, 2), &["&>00C4"]);
     assert_eq!(own.rows, ["&>00C4", "00    "]);
@@ -82,7 +82,7 @@ fn a_west_read_one_portal_away_writes_a_copy_of_its_own_function() {
 }
 
 #[test]
-fn a_nested_n_counts_from_the_slot_it_occupies() {
+fn a_nested_distance_counts_from_the_slot_it_occupies() {
     // Step `00` is `.+`, steps `01` and `02` its operands, and step `03` the
     // `C4`. `.+` also writes its answer south of itself.
     let second_operand = first(Grid::with_shape(10, 2), &["&>.+0101C4"]);
@@ -99,7 +99,7 @@ fn a_nested_n_counts_from_the_slot_it_occupies() {
 }
 
 #[test]
-fn an_n_a_portal_writes_this_tick_is_read_at_the_turn() {
+fn a_distance_a_portal_writes_this_tick_is_read_at_the_turn() {
     // The Read's operand is empty in the Source. `.+0101` writes `02` into it
     // before the Read's Turn, so it reads two pairs east.
     let grid = Grid::with_shape(8, 3);
@@ -111,7 +111,7 @@ fn an_n_a_portal_writes_this_tick_is_read_at_the_turn() {
 }
 
 #[test]
-fn a_clock_writing_n_is_read_the_same_tick() {
+fn a_clock_writing_distance_is_read_the_same_tick() {
     // `~.0103` writes `00`, `01`, `02` into the south Read's operand each
     // Tick, so the Read answers its operand and then each pair below it.
     let grid = Grid::with_shape(8, 4);
@@ -263,7 +263,7 @@ fn a_pair_cut_short_by_the_row_edge_diagnoses_and_writes_nothing() {
 #[test]
 fn a_pair_outside_the_grid_in_any_direction_diagnoses_and_writes_nothing() {
     // The Read stands at (2, 1) of a 6 by 3 Grid, so its operand is at (4, 1).
-    for (spelling, n) in [
+    for (spelling, distance) in [
         ("&^", "02"),
         ("&v", "02"),
         ("&<", "03"),
@@ -271,7 +271,7 @@ fn a_pair_outside_the_grid_in_any_direction_diagnoses_and_writes_nothing() {
         ("&>", "FF"),
         ("&<", "FF"),
     ] {
-        let row = format!("  {spelling}{n}");
+        let row = format!("  {spelling}{distance}");
         let tick = first(Grid::with_shape(6, 3), &["", &row, "xx"]);
         assert_eq!(tick.rows[2], "xx    ", "{row:?}");
         assert_eq!(
@@ -309,7 +309,7 @@ fn a_writer_before_a_west_read_in_grid_order_is_read_the_same_tick() {
 }
 
 #[test]
-fn a_nested_n_that_writes_the_selected_pair_takes_its_turn_first() {
+fn a_nested_distance_that_writes_the_selected_pair_takes_its_turn_first() {
     // The nested `=^` in the north Read's slot copies `01` from below it to
     // the pair above it, and returns `01` as `distance`: the Read reads what its
     // own operand wrote.
@@ -505,7 +505,7 @@ fn a_timed_play_plays_the_note_a_nested_read_supplies() {
     );
 }
 
-// The absolute Read, `&$ column row`.
+// The absolute Read, `&$ at`.
 
 #[test]
 fn an_absolute_read_of_00_00_reads_the_top_left_wherever_it_stands() {

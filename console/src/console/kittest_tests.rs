@@ -117,6 +117,17 @@ fn running_console(size: Vec2) -> Harness<'static, Console> {
 }
 
 ///
+/// Writes `.+0304` along the top row and puts the Cursor on its Cell in
+/// column `x`.
+///
+fn write_an_add_and_select(harness: &mut Harness<'_, Console>, x: usize) {
+    let orcvs = &mut harness.state_mut().orcvs;
+    crate::cursor_line::write_rows(orcvs, &[".+0304"]);
+    let grid = orcvs.grid();
+    orcvs.select(grid.position(x, 0).expect("inside the Grid"));
+}
+
+///
 /// [`running_console`] over the Theme registry a test built.
 ///
 fn running_console_with(size: Vec2, themes: ThemeRegistry) -> Harness<'static, Console> {
@@ -5544,18 +5555,7 @@ async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can
 #[tokio::test]
 async fn the_cursor_line_fits_the_room_the_panel_reserves_for_it() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
-    {
-        let orcvs = &mut harness.state_mut().orcvs;
-        let grid = orcvs.grid();
-        for (x, content) in ".+0304".chars().enumerate() {
-            let cell = grid.index(grid.position(x, 0).expect("inside the Grid"));
-            orcvs
-                .source()
-                .set(cell, &content.to_string())
-                .expect("a Cell");
-        }
-        orcvs.select(grid.position(0, 0).expect("inside the Grid"));
-    }
+    write_an_add_and_select(&mut harness, 0);
     harness.run_steps(2);
 
     let line = harness.get_by_label_contains("answers left + right").rect();

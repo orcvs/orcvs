@@ -72,29 +72,29 @@ const ACID: u8 = 0x09;
 const EFFECTS: u8 = 0x00;
 
 /// One knob: the channel and controller it sends, the floor its Add puts
-/// under the Clock, and the Clock's `rate` and `modulus`.
+/// under the Clock, and the Clock's `length` and `steps`.
 struct Knob {
     channel: u8,
     controller: u8,
     floor: u8,
-    rate: u64,
-    modulus: u64,
+    length: u64,
+    steps: u64,
 }
 
 impl Knob {
-    const fn new(channel: u8, controller: u8, floor: u8, rate: u64, modulus: u64) -> Self {
+    const fn new(channel: u8, controller: u8, floor: u8, length: u64, steps: u64) -> Self {
         Self {
             channel,
             controller,
             floor,
-            rate,
-            modulus,
+            length,
+            steps,
         }
     }
 
     /// Where the knob's value is gliding at `tick`.
     fn target(&self, tick: u64) -> u8 {
-        self.floor + (tick / self.rate % self.modulus) as u8
+        self.floor + (tick / self.length % self.steps) as u8
     }
 }
 
@@ -114,7 +114,7 @@ const KNOBS: [Knob; 11] = [
     Knob::new(EFFECTS, 0x08, 0x00, 0x08, 0x40),
 ];
 
-/// How far a knob's value moves in one Tick, its Interpolation's `rate`.
+/// How far a knob's value moves in one Tick, its Interpolation's `amount`.
 const RATE: u8 = 0x08;
 
 /// The Control Change a knob sends to `controller` with `value` on `channel`.

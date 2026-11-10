@@ -577,7 +577,7 @@ mod tests {
         opts::{CursorBloomRadius, SectorSeamSpacing},
         region::Region,
         render_frame::{PortalRole, PortalRoles, RenderFrame, RenderFrameConfig},
-        source::{OperandState, SourceCommander, SourcePaint, Tick, Token},
+        source::{OperandState, SourceCommander, SourcePaint, Span, Tick, Token},
     };
 
     ///
@@ -1077,14 +1077,27 @@ mod tests {
         let nested = derive_frame(&source, at(6));
         let function = nested.cursor_function().expect("the nested `.x` owns `03`");
         assert_eq!(function.function, lang::Function::Multiply);
-        assert_eq!(function.operands, [4..6, 6..8]);
-        assert_eq!(function.answer, Some(14..16), "one row south of `.x`");
+        let ranges = |spans: &[Span]| spans.iter().map(|span| span.range()).collect::<Vec<_>>();
+        assert_eq!(ranges(&function.operands), [4..6, 6..8]);
+        assert_eq!(
+            function.answer.map(Span::range),
+            Some(14..16),
+            "one row south of `.x`"
+        );
 
         let root = derive_frame(&source, at(1));
         let function = root.cursor_function().expect("the Cursor is on `.+`");
         assert_eq!(function.function, lang::Function::Add);
-        assert_eq!(function.operands, [2..4, 8..10], "`.x` is its left operand");
-        assert_eq!(function.answer, Some(12..14), "one row south of `.+`");
+        assert_eq!(
+            ranges(&function.operands),
+            [2..4, 8..10],
+            "`.x` is its left operand"
+        );
+        assert_eq!(
+            function.answer.map(Span::range),
+            Some(12..14),
+            "one row south of `.+`"
+        );
 
         let blank = derive_frame(&source, grid.position(0, 1).unwrap());
         assert!(blank.cursor_function().is_none(), "an empty Cell");

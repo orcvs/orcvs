@@ -780,26 +780,26 @@ mod test {
         // every amount and modulus from `01` to `08` from every previous in the
         // byte, which is enough wraps for every pair. The reference here is
         // the formula retyped, so what the sweep pins is operand
-        // order and the width the arithmetic is done in — a step read as a
+        // order and the width the arithmetic is done in — an amount read as a
         // modulus fails at every asymmetric pair — and not the shape of the
         // expression itself.
         // `increment_counts_the_literal_sequence_its_operands_name` is the
         // independent half, written from what the operands mean.
-        for step in 1..=8u8 {
+        for amount in 1..=8u8 {
             for modulus in 1..=8u8 {
                 for previous in 0..=u8::MAX {
-                    let expected = (u64::from(previous) + u64::from(step)) % u64::from(modulus);
+                    let expected = (u64::from(previous) + u64::from(amount)) % u64::from(modulus);
 
                     assert_eq!(
                         feedback(
                             Function::Increment,
                             &format!("{previous:02X}"),
-                            step,
+                            amount,
                             modulus
                         )
                         .unwrap(),
                         Atom::Number(u8::try_from(expected).unwrap()),
-                        "~+ {step:02X} {modulus:02X} from {previous:02X}"
+                        "~+ {amount:02X} {modulus:02X} from {previous:02X}"
                     );
                 }
             }
@@ -811,12 +811,12 @@ mod test {
         // Hand-written wraps, one entry per Tick, read from what the operands
         // mean rather than from the expression the body evaluates: `~+ 01 04`
         // from `00` is `01 02 03 00` and nothing else. A body that added the
-        // modulus, or wrapped at the step, would have to land on that same
+        // modulus, or wrapped at the amount, would have to land on that same
         // sequence to pass here.
         //
         // Each sequence is walked three times over, which separates a wrap
         // that begins again from a counter that keeps counting.
-        for (step, modulus, wraps) in [
+        for (amount, modulus, wraps) in [
             (0x01u8, 0x04u8, &[0x01u8, 0x02, 0x03, 0x00][..]),
             (0x02, 0x08, &[0x02, 0x04, 0x06, 0x00]),
             (0x03, 0x05, &[0x03, 0x01, 0x04, 0x02, 0x00]),
@@ -825,11 +825,11 @@ mod test {
             let mut previous = "  ".to_owned();
 
             for expected in wraps.iter().cycle().take(wraps.len() * 3) {
-                let atom = feedback(Function::Increment, &previous, step, modulus).unwrap();
+                let atom = feedback(Function::Increment, &previous, amount, modulus).unwrap();
                 assert_eq!(
                     atom,
                     Atom::Number(*expected),
-                    "~+ {step:02X} {modulus:02X} from {previous:?}"
+                    "~+ {amount:02X} {modulus:02X} from {previous:?}"
                 );
                 previous = format!("{expected:02X}");
             }
@@ -850,7 +850,7 @@ mod test {
         );
 
         // Empty is Number `00`, so the first increment of an unused Portal
-        // is the step itself, wrapped.
+        // is the amount itself, wrapped.
         assert_eq!(
             feedback(Function::Increment, "  ", 0x03, 0x08).unwrap(),
             Atom::Number(0x03)
@@ -905,7 +905,7 @@ mod test {
 
     #[test]
     fn interpolation_holds_when_its_amount_is_zero() {
-        // Rate `00` is a step of nothing, so the current value is unchanged
+        // Amount `00` is a step of nothing, so the current value is unchanged
         // whether it sits below the target, above it, or on it. The hold is
         // the formula, not a case: a body that special-cased zero would pass
         // this too — what the test is for is the opposite, that it needs none.

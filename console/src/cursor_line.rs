@@ -4,7 +4,7 @@
 //!
 
 use orcvs::render_frame::RenderFrame;
-use orcvs::source::Token;
+use orcvs::source::{Span, Token};
 
 ///
 /// One run of the Cursor Line's text, and whether it is drawn in the strong
@@ -64,22 +64,17 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> CursorLine {
         return line;
     };
     let function = owner.function;
-    // The Cells' text, reading an empty Cell as `.`. Each range is one the
-    // Language Map or the Portal reservation drew inside the Grid.
-    let pair = |cells: std::ops::Range<usize>| -> String {
-        frame
-            .cells()
-            .get(cells)
-            .unwrap_or_default()
-            .iter()
-            .map(|cell| cell.content().unwrap_or('.'))
+    // The Cells' text, reading an empty Cell as `.`.
+    let pair = |span: Span| -> String {
+        span.positions()
+            .map(|position| frame.at(position).content().unwrap_or('.'))
             .collect()
     };
     let identity = format!("{} {}", function.cells(), function.name());
     let pad = IDENTITY_WIDTH.saturating_sub(identity.len()) + SECTION_GAP;
     line.lead.push(part(identity, true));
     line.lead.push(part(" ".repeat(pad), false));
-    let mut operands = owner.operands.iter();
+    let mut operands = owner.operands.iter().copied();
     for (index, role) in function.roles().iter().enumerate() {
         if index > 0 {
             line.lead.push(part(" ".repeat(OPERAND_GAP), false));
@@ -87,7 +82,7 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> CursorLine {
         let value = operands
             .by_ref()
             .take(role.operands)
-            .map(|cells| pair(cells.clone()))
+            .map(pair)
             .collect::<Vec<_>>()
             .join(" ");
         line.lead.push(part(format!("{} ", role.name), false));
@@ -97,14 +92,10 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> CursorLine {
         line.lead.push(part(" ".repeat(SECTION_GAP), false));
     }
     line.lead.push(part(function.summary(), false));
-    if let Some(cells) = &owner.answer {
-        let grid = frame.grid();
-        let portal = grid.position_at(
-            grid.cell_index(cells.start)
-                .expect("the Portal reservation lies inside its Grid"),
-        );
+    if let Some(span) = owner.answer {
+        let portal = span.first_position();
         line.answer.push(part("\u{2192} ", false));
-        line.answer.push(part(pair(cells.clone()), true));
+        line.answer.push(part(pair(span), true));
         line.answer.push(part(
             format!(" at {:02X} {:02X}", portal.x(), portal.y()),
             false,
@@ -113,11 +104,29 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> CursorLine {
     line
 }
 
+///
+/// Writes `rows` from the top-left of `orcvs`'s Grid, leaving a space's Cell
+/// empty.
+///
+#[cfg(test)]
+pub(crate) fn write_rows(orcvs: &orcvs::app::Orcvs, rows: &[&str]) {
+    let grid = orcvs.grid();
+    for (y, row) in rows.iter().enumerate() {
+        for (x, content) in row.chars().enumerate().filter(|(_, c)| *c != ' ') {
+            let cell = grid.index(grid.position(x, y).expect("inside the Grid"));
+            orcvs
+                .source()
+                .set(cell, &content.to_string())
+                .expect("a Cell");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use orcvs::app::Orcvs;
 
-    use super::{Part, cursor_line};
+    use super::{Part, cursor_line, write_rows};
 
     ///
     /// The Cursor Line with `rows` written from the top-left of a 16 by 4
@@ -125,16 +134,8 @@ mod tests {
     ///
     fn line(rows: &[&str], cursor: (usize, usize)) -> String {
         let mut orcvs = Orcvs::with_shape(16, 4).expect("the test runtime");
+        write_rows(&orcvs, rows);
         let grid = orcvs.grid();
-        for (y, row) in rows.iter().enumerate() {
-            for (x, content) in row.chars().enumerate().filter(|(_, c)| *c != ' ') {
-                let cell = grid.index(grid.position(x, y).expect("inside the Grid"));
-                orcvs
-                    .source()
-                    .set(cell, &content.to_string())
-                    .expect("a Cell");
-            }
-        }
         orcvs.select(grid.position(cursor.0, cursor.1).expect("inside the Grid"));
         let text =
             |parts: Vec<Part>| -> String { parts.into_iter().map(|part| part.text).collect() };
@@ -178,7 +179,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_effect_function_ends_after_its_operands() {
+    async fn an_effect_function_ends_on_its_summary() {
         assert_eq!(
             line(&["!>0045C4"], (0, 0)),
             "!> Raw Play          channel 00  velocity 45  note C4   sends a Note On, or a Note Off at velocity 00"

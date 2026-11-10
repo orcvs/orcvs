@@ -137,6 +137,21 @@ fn a_heading_scan_skips_indented_and_tilde_fences() {
     assert_eq!(headings(text), vec![(11, "`.+` Add")]);
 }
 
+/// The spelling, the name and the Function of the heading on `line`, which
+/// must be ``### `<spelling>` <name>`` and spell a row of the Function table.
+fn entry(line: usize, heading: &str) -> (&str, &str, Function) {
+    let (spelling, name) = heading
+        .strip_prefix('`')
+        .and_then(|rest| rest.split_once("` "))
+        .unwrap_or_else(|| panic!("line {line}: `### {heading}` is not ### `<spelling>` <name>"));
+    let function = Function::ALL
+        .iter()
+        .copied()
+        .find(|function| function.cells().to_string() == spelling)
+        .unwrap_or_else(|| panic!("line {line}: `{spelling}` is no Function in the table"));
+    (spelling, name, function)
+}
+
 /// Every `### ` heading outside a fenced block is ``### `<spelling>` <name>``,
 /// the name is the one its Function's row in the Function table carries, and
 /// each Function has exactly one, so the two cannot drift.
@@ -144,21 +159,12 @@ fn a_heading_scan_skips_indented_and_tilde_fences() {
 fn every_heading_names_its_function_as_the_table_does() {
     let mut headed = Vec::new();
     for (line, heading) in headings(REFERENCE) {
-        let (spelling, name) = heading
-            .strip_prefix('`')
-            .and_then(|rest| rest.split_once("` "))
-            .unwrap_or_else(|| {
-                panic!("line {line}: `### {heading}` is not ### `<spelling>` <name>")
-            });
-        let function = Function::ALL
-            .iter()
-            .find(|function| function.cells().to_string() == spelling)
-            .unwrap_or_else(|| panic!("line {line}: `{spelling}` is no Function in the table"));
+        let (spelling, name, function) = entry(line, heading);
         assert!(
-            !headed.contains(function),
+            !headed.contains(&function),
             "line {line}: `{spelling}` is headed twice"
         );
-        headed.push(*function);
+        headed.push(function);
         assert_eq!(
             function.name(),
             name,
@@ -182,15 +188,7 @@ fn every_signature_names_its_functions_roles() {
     let entries = headings(REFERENCE);
     let mut signatures = 0;
     for (index, (line, heading)) in entries.iter().enumerate() {
-        let spelling = heading
-            .strip_prefix('`')
-            .and_then(|rest| rest.split_once('`'))
-            .unwrap_or_else(|| panic!("line {line}: `### {heading}` names no spelling"))
-            .0;
-        let function = Function::ALL
-            .iter()
-            .find(|function| function.cells().to_string() == spelling)
-            .unwrap_or_else(|| panic!("line {line}: `{spelling}` is no Function in the table"));
+        let (spelling, _, function) = entry(*line, heading);
         let end = entries
             .get(index + 1)
             .map_or(lines.len(), |(next, _)| next - 1);
