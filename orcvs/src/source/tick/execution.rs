@@ -497,6 +497,9 @@ impl<'a> Execution<'a> {
     fn syntax_blocks(&self, node: &Computation, function: Function) -> bool {
         // Unchanged initial syntax errors belong to the Source revision.
         // Earlier writes or a Function replacement can repair those inputs.
+        // A rest operand the revision leaves blank is unparsed too, and the
+        // revision reports nothing for it: the blocked Turn performs nothing,
+        // which is the Rest.
         !node.syntax_valid
             && function == node.function
             && node.operands.iter().all(|operand| {

@@ -205,7 +205,8 @@ impl RenderExpression {
         self.diagnostic.as_ref()
     }
 
-    /// The first Function anchor when this is a complete executable Expression.
+    /// The first Function anchor when this is a complete executable Expression,
+    /// or a Play whose only blank operand is its note, which rests.
     pub fn root(&self) -> Option<Position> {
         self.root
     }

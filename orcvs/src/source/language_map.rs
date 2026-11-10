@@ -272,7 +272,8 @@ impl DerivedExpression {
 }
 
 impl<'a> ExpressionEntry<'a> {
-    /// The first Function anchor when this is a complete executable Expression.
+    /// The first Function anchor when this is a complete executable Expression,
+    /// or a Play whose only blank operand is its note, which rests.
     pub fn root(self) -> Option<Position> {
         self.derived.root
     }
@@ -641,8 +642,13 @@ impl DerivedRow {
             let units = units_range(&row.units, grid, span);
 
             let executable = analysis.is_complete();
+            // A Play whose only blank operand is its note is scheduled like
+            // any other, and its Turn rests, so it is a root with nothing to
+            // report (ADR 0104).
+            let rests = analysis.rests();
             let diagnostic = analysis
                 .error()
+                .filter(|_| !rests)
                 .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
             let expression = analysis.into_expression();
             let function_candidate = match expression.entries().next() {
@@ -651,7 +657,7 @@ impl DerivedRow {
                 }
                 _ => None,
             };
-            let root = executable
+            let root = (executable || rests)
                 .then_some(function_candidate)
                 .flatten()
                 .map(|(anchor, _)| anchor);
@@ -1389,7 +1395,9 @@ mod tests {
 
     /// An Expression whose only unbound operands are unwritten slots inside
     /// the row is refused as a partly written one is: it is diagnosed once and
-    /// is not a root, nested slots included.
+    /// is not a root, nested slots included. A Play's unwritten note rests
+    /// only where every other operand is written, so a Play with another
+    /// unwritten operand beside it is refused too.
     #[test]
     fn an_expression_waiting_on_unwritten_operands_is_diagnosed_and_not_a_root() {
         for row in [
@@ -1398,7 +1406,8 @@ mod tests {
             ".+01      ",
             ".+01.+  02",
             ".+  .+0102",
-            "!>007F    ",
+            "!>  7F    ",
+            "!~007F    ",
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
@@ -1408,6 +1417,24 @@ mod tests {
                 map.expressions()
                     .all(|expression| expression.root().is_none()),
                 "{row:?} became a root"
+            );
+        }
+    }
+
+    /// A Play whose only unwritten operand is its note rests at its Turn, so
+    /// it is a root and the Map reports nothing against it (ADR 0104).
+    #[test]
+    fn a_play_whose_only_unwritten_operand_is_its_note_is_a_root() {
+        for row in ["!>007F    ", "!~007F  04", "!%007F  04"] {
+            let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
+
+            assert_eq!(map.diagnostics().count(), 0, "{row:?}");
+            assert!(
+                map.expressions()
+                    .next()
+                    .and_then(|expression| expression.root())
+                    .is_some_and(|root| (root.x(), root.y()) == (0, 0)),
+                "{row:?} is not a root"
             );
         }
     }

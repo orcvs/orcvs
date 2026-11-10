@@ -22,8 +22,8 @@ use super::{
 pub(super) enum Decoded {
     /// The operands, in signature order.
     Operands(Vec<Atom>),
-    /// A Clear reached the Function's rest operand and every other operand
-    /// decoded: the Turn is taken with nothing to perform.
+    /// The Function's rest operand was blank or a Clear reached it, and every
+    /// other operand decoded: the Turn is taken with nothing to perform.
     Rest,
 }
 
@@ -60,9 +60,10 @@ impl Execution<'_> {
     /// no written Cell refuses it as a partly written slot does. A child that
     /// answered a Clear, a pulse that did not Bang or a Copy, Read or Track
     /// of empty Cells, returns no value, and the refusal names that child.
-    /// The one exception is `function`'s rest operand: a Clear there makes
-    /// the Turn a rest once every other operand decodes, so a Play with no
-    /// note to play sends nothing and reports nothing.
+    /// The one exception is `function`'s rest operand: a Clear there, or a
+    /// slot whose Cells are all blank however they got blank, makes the Turn
+    /// a rest once every other operand decodes, so a Play with no note to
+    /// play sends nothing and reports nothing (ADR 0104).
     pub(super) fn decode(
         &self,
         node: &Computation,
@@ -74,6 +75,10 @@ impl Execution<'_> {
         for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
             let Some(child) = self.returning_child(operand) else {
                 let spelling = self.working.text(operand.cells.clone());
+                if function.rest_operand() == Some(slot) && blank(spelling, token) {
+                    rests = true;
+                    continue;
+                }
                 operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
                 continue;
             };
@@ -116,6 +121,12 @@ impl Execution<'_> {
             None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
         }
     }
+}
+
+/// Whether `spelling` fills `token`'s whole width with blank Cells. A slot
+/// the row edge cuts short is not blank: the Grid cannot hold it.
+fn blank(spelling: &str, token: lang::Token) -> bool {
+    spelling.len() == token.len() && spelling.bytes().all(|cell| cell == b' ')
 }
 
 /// The refusal a parent gives when the nested computation at `anchor` supplies

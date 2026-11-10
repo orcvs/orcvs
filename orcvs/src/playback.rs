@@ -3147,36 +3147,46 @@ mod tests {
     fn a_resting_monophonic_play_leaves_its_voice_sounding_to_its_own_note_off() {
         // A rest sends no Play Command, so the engine is never asked to
         // replace the channel's voice: the note the first Tick started runs
-        // to the stop its length scheduled, with no Note Off in between.
-        let source = SourceCommander::new(Grid::with_shape(16, 4));
-        write(&source, 0, ".=0101");
-        write(&source, 32, "!%007F&>0204C4");
-        let adapter = InMemoryOutputAdapter::default();
-        let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
-        run.begin_run();
+        // to the stop its length scheduled, with no Note Off in between. The
+        // note goes blank after the first Tick by each route a Rest has.
+        for (route, rows, blank_at) in [
+            // A nested Read now copies two empty Cells and answers a Clear.
+            ("Clear", [".=0101", "", "!%007F&>0204C4"], 44),
+            // Track now writes two empty Cells into the note slot.
+            ("Portal write", [".=0101  &t0001C4", "  !%007FE404", ""], 14),
+            // The performer types two spaces over the note itself.
+            ("Source", [".=0101", "  !%007FC404", ""], 24),
+        ] {
+            let source = SourceCommander::new(Grid::with_shape(16, 4));
+            for (row, text) in rows.into_iter().enumerate() {
+                write(&source, 16 * row, text);
+            }
+            let adapter = InMemoryOutputAdapter::default();
+            let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
+            run.begin_run();
 
-        run.run_tick(0);
-        // The nested Read now copies two empty Cells, so its Clear rests the
-        // Play on every Tick that follows.
-        write(&source, 44, "  ");
-        for tick in 1..4 {
-            run.run_tick(tick);
-            assert!(run.holds_note_ownership(), "Tick {tick}");
+            run.run_tick(0);
+            write(&source, blank_at, "  ");
+            for tick in 1..4 {
+                run.run_tick(tick);
+                assert!(run.holds_note_ownership(), "{route}: Tick {tick}");
+            }
+            run.run_tick(4);
+
+            assert_eq!(
+                adapter.command_lists(),
+                vec![
+                    vec![note_on(0, 0x7F, 60)],
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![stop(0, 60)],
+                ],
+                "{route}"
+            );
+            assert!(!run.holds_note_ownership(), "{route}");
+            assert_eq!(run.drain_diagnostics(), vec![], "{route}");
         }
-        run.run_tick(4);
-
-        assert_eq!(
-            adapter.command_lists(),
-            vec![
-                vec![note_on(0, 0x7F, 60)],
-                vec![],
-                vec![],
-                vec![],
-                vec![stop(0, 60)],
-            ]
-        );
-        assert!(!run.holds_note_ownership());
-        assert_eq!(run.drain_diagnostics(), vec![]);
     }
 
     #[test]

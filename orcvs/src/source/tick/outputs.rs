@@ -123,14 +123,16 @@ fn a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing(
 }
 
 #[test]
-fn a_banged_play_with_an_unwritten_note_is_invalid_and_emits_nothing() {
+fn a_banged_play_with_a_blank_note_rests_and_a_half_written_one_is_invalid() {
     // The Bang gives the timing and the note slot gives what plays. With
-    // no note written the Play is invalid: the Bang reaches nothing that
-    // plays, and the Language Map diagnoses it.
+    // no note written the Play rests: it sends nothing and nothing is
+    // diagnosed. Half a Note is partial input, which the Language Map
+    // diagnoses, and the Bang reaches nothing that plays.
     let grid = Grid::with_shape(16, 4);
     for (play, commands, diagnosed) in [
         ("!>007FC4", vec![raw(0, 0x7F, 60)], vec![]),
-        ("!>007F", vec![], vec![(0, 2)]),
+        ("!>007F", vec![], vec![]),
+        ("!>007FC", vec![], vec![(0, 2)]),
     ] {
         let bytes = snapshot(grid, &[".=0101", "", play, ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -145,7 +147,7 @@ fn a_banged_play_with_an_unwritten_note_is_invalid_and_emits_nothing() {
             plan.diagnostics
         );
         assert_eq!(
-            map.diagnostics()
+            map.expression_diagnostics()
                 .map(|d| (d.anchor().x(), d.anchor().y()))
                 .collect::<Vec<_>>(),
             diagnosed,
