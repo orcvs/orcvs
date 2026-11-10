@@ -126,16 +126,18 @@ impl RenderCell {
             // An untyped slot has no type of its own, so its Cells paint as
             // plain Source text whatever they spell.
             Token::Untyped => SourcePaint::Unclaimed,
-            token @ (Token::Number | Token::Note) => SourcePaint::Operand {
-                token,
-                state: if claim.atom.is_some() {
-                    OperandState::Valid
-                } else if claim.written {
-                    OperandState::Invalid
-                } else {
-                    OperandState::Pending
-                },
-            },
+            token @ (Token::Number | Token::Note | Token::IntervalSet | Token::Voicing) => {
+                SourcePaint::Operand {
+                    token,
+                    state: if claim.atom.is_some() {
+                        OperandState::Valid
+                    } else if claim.written {
+                        OperandState::Invalid
+                    } else {
+                        OperandState::Pending
+                    },
+                }
+            }
         }
     }
 

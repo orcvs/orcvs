@@ -800,7 +800,10 @@ fn name_units(
             )),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
-            (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),
+            (
+                _,
+                Some(Atom::Number(_) | Atom::Note(_) | Atom::IntervalSet(_) | Atom::Voicing(_)),
+            ) => Some(LanguageUnitKind::OperandLiteral),
             _ => None,
         };
         if let Some(kind) = kind {
@@ -1099,6 +1102,24 @@ mod tests {
         );
         assert!(west.diagnostics().any(|diagnostic| diagnostic.start() == 2));
         assert_eq!(north.diagnostics().count(), 0);
+    }
+
+    #[test]
+    fn an_interval_set_or_voicing_name_in_an_untyped_slot_is_an_operand_literal() {
+        for name in ["M7", "CL"] {
+            let source = format!("@>01{name}");
+            let map = LanguageMap::build(Grid::with_shape(6, 1), Cells::of(source.as_bytes()));
+            assert_eq!(
+                map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
+                vec![
+                    LanguageUnitKind::Function(lang::Function::WriteEast),
+                    LanguageUnitKind::OperandLiteral,
+                    LanguageUnitKind::OperandLiteral,
+                ],
+                "{name}"
+            );
+            assert_eq!(map.diagnostics().count(), 0, "{name}");
+        }
     }
 
     #[test]
@@ -1972,6 +1993,12 @@ mod property {
             Token::Note => (0x00u8..=0x7F)
                 .prop_map(|note| Atom::Note(Note::try_from(note).expect("a MIDI Note")).to_string())
                 .boxed(),
+            Token::IntervalSet => select(lang::IntervalSet::ALL)
+                .prop_map(|set| Atom::IntervalSet(set).to_string())
+                .boxed(),
+            Token::Voicing => select(lang::Voicing::ALL)
+                .prop_map(|voicing| Atom::Voicing(voicing).to_string())
+                .boxed(),
             other => panic!("no operand is declared as {other:?}"),
         }
     }
@@ -2003,7 +2030,12 @@ mod property {
             2 => Just("||".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
             1 => select(standalone_spellings()),
-            2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+            2 => prop_oneof![
+                literal_source(Token::Number),
+                literal_source(Token::Note),
+                literal_source(Token::IntervalSet),
+                literal_source(Token::Voicing),
+            ],
             3 => complete_expression(),
         ]
         .boxed()
