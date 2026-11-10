@@ -900,9 +900,10 @@ After Tick `0`, the Addition did not run:
 
 ## MIDI output
 
-These perform an effect: each sends one MIDI message when a Bang reaches it, and writes nothing
-into the Source. Each is inert until a Bang reaches it. An operand outside its range diagnoses and
-sends nothing. Choose a MIDI destination under the Panel's **O** to hear them.
+These perform an effect: each sends one MIDI message when a Bang reaches it, except a Chord Play,
+which sends one per tone, and writes nothing into the Source. Each is inert until a Bang reaches
+it. An operand outside its range diagnoses and sends nothing. Choose a MIDI destination under the
+Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
@@ -911,6 +912,9 @@ sends nothing. Choose a MIDI destination under the Panel's **O** to hear them.
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
+| `set` | an Interval Set name, such as `M7` or `MA` |
+| `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
+| `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
 ### `!>` Play
 
@@ -971,6 +975,75 @@ After Tick `0`:
 ```orcvs tick 0 plays 1
 
 !%0164G404
+```
+
+### `!:` Raw Chord Play
+
+`!: channel velocity root set voicing inversion` sends one Note On per tone, lowest first, with no
+Note Off of its own. The tones are the `root` plus each semitone the `set` names. `C4M7` is C4, E4,
+G4 and B4.
+
+```orcvs
+**
+!:0064C4M7CL00
+```
+
+After Tick `0`, four Note Ons, C4 up to B4:
+
+```orcvs tick 0 plays 4
+
+!:0064C4M7CL00
+```
+
+The `voicing` and `inversion` then arrange the tones, in this order. The Voicing removes tones,
+the inversion moves the lowest tone up an octave as many times as its Number says, and the Voicing
+moves tones:
+
+| Voicing | What it does |
+|---|---|
+| `CL` | Leaves the tones where the Interval Set puts them. |
+| `OP` | Raises every second tone, the 2nd, 4th and so on, an octave. Needs 2 tones. |
+| `D2` | Lowers the 2nd tone from the top an octave. Needs 2 tones. |
+| `D3` | Lowers the 3rd tone from the top an octave. Needs 3 tones. |
+| `D5` | Lowers the 2nd and 3rd from the top an octave. Needs 3 tones. |
+| `D6` | Lowers the 2nd and 4th from the top an octave. Needs 4 tones. |
+| `SH` | Keeps only the 1st, 2nd and 4th tones. Needs 4 tones. |
+| `RL` | Removes the 1st tone, leaving the root to a bass voice. Needs 2 tones. |
+
+The digit in a drop voicing is the sum of the positions it drops, counted from the top: `D5` drops
+the 2nd and 3rd, and `D6` the 2nd and 4th.
+
+An Interval Set with too few tones for its Voicing, or any tone outside `00` to `7F`, diagnoses the
+whole chord and sends nothing.
+
+`C4M7` dropped with `D5`, inverted once, plays G3, B3, E4 and C5:
+
+```orcvs
+**
+!:0064C4M7D501
+```
+
+```orcvs tick 0 plays 4
+
+!:0064C4M7D501
+```
+
+### `!#` Timed Chord Play
+
+`!# channel velocity root set voicing inversion length` builds its tones as Raw Chord Play does and
+sends each as a Timed Play: every tone stops `length` Ticks later, at its own Note Off. A `velocity`
+of `00` stops every tone, and a `length` of `00` starts none.
+
+```orcvs
+**
+!#0064C4M_CL0004
+```
+
+After Tick `0`, three Note Ons, each stopped four Ticks later:
+
+```orcvs tick 0 plays 3
+
+!#0064C4M_CL0004
 ```
 
 ### `!c` Control Change
