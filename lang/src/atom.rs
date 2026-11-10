@@ -362,6 +362,69 @@ define_named_literal! {
     }
 }
 
+/// Whether two spellings are the same two Cells, in a form a `const` item can
+/// evaluate.
+const fn same_cells(left: Spelling, right: Spelling) -> bool {
+    let [left_west, left_east] = left.cells();
+    let [right_west, right_east] = right.cells();
+    left_west == right_west && left_east == right_east
+}
+
+/// Whether any spelling in `left` is also one in `right`.
+const fn shares_a_spelling(left: &[Spelling], right: &[Spelling]) -> bool {
+    let mut index = 0;
+    while index < left.len() {
+        let mut other = 0;
+        while other < right.len() {
+            if same_cells(left[index], right[other]) {
+                return true;
+            }
+            other += 1;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// The spelling of every name of type `$name`, in table order, as an array a
+/// `const` item can build.
+macro_rules! spellings_of {
+    ($name:ty) => {{
+        const COUNT: usize = <$name>::ALL.len();
+        let mut spellings = [Spelling::checked("  "); COUNT];
+        let mut index = 0;
+        while index < COUNT {
+            spellings[index] = <$name>::ALL[index].cells();
+            index += 1;
+        }
+        spellings
+    }};
+}
+
+// A spelling names at most one Function, Interval Set or Voicing. Uniqueness
+// within one type is the denied `unreachable_patterns` lint in each
+// `from_spelling`; this covers the pairs across types, because a reading that
+// tries one type before another would otherwise shadow the later name without
+// a diagnostic. Numbers and Notes are not checked here: they are decoded by
+// operand position, and `69`, `13` and `D2` deliberately spell one as well.
+const _: () = {
+    let functions = &spellings_of!(Function);
+    let interval_sets = &spellings_of!(IntervalSet);
+    let voicings = &spellings_of!(Voicing);
+    assert!(
+        !shares_a_spelling(interval_sets, voicings),
+        "an Interval Set and a Voicing share a spelling"
+    );
+    assert!(
+        !shares_a_spelling(functions, interval_sets),
+        "a Function and an Interval Set share a spelling"
+    );
+    assert!(
+        !shares_a_spelling(functions, voicings),
+        "a Function and a Voicing share a spelling"
+    );
+};
+
 /// One parsed value or operation: what an Expression is made of and what a
 /// value Function answers.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1524,7 +1587,7 @@ mod spelling {
         }
 
         /// The two Cells, west first.
-        pub fn cells(self) -> [u8; 2] {
+        pub const fn cells(self) -> [u8; 2] {
             self.0
         }
     }
