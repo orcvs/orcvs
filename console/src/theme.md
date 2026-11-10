@@ -192,13 +192,11 @@ property out.
 | `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
 | `source.comment` | `#555555` |
 | `source.number` | `#898989` |
-| `source.interval_set` | `#A8A8A8` |
-| `source.voicing` | `#B4B4B4` |
-| `source.interval_set.background`, `source.interval_set.border` | `#1C1C1C` |
-| `source.voicing.background`, `source.voicing.border` | `#161616` |
+| `source.interval_set` | `#9A9A9A` |
+| `source.voicing` | `#B0B0B0` |
 | `source.note`, `input_portal.background`, `locked.border` | `#CCCCCC` |
 | `source.bang`, `source.bang.border`, `button.pressed.background`, `button.pressed.border` | `#00FF00` |
-| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
+| `source.number.background`, `source.note.background`, `source.interval_set.background`, `source.voicing.background`, `source.number.border`, `source.note.border`, `source.interval_set.border`, `source.voicing.border` | `#222222` |
 | `source.function.background`, `source.function.border`, `output_portal.border`, `button.background`, `button.border` | `#444444` |
 | `source.bang.background` | `#111111` |
 | `diagnostic.foreground` | `#FF3B3B` |
@@ -239,13 +237,11 @@ property out.
 | `source.ordinary`, `text` | `#373737` |
 | `source.comment` | `#ADADAD` |
 | `source.number` | `#616161` |
-| `source.interval_set` | `#4A4A4A` |
-| `source.voicing` | `#555555` |
-| `source.interval_set.background`, `source.interval_set.border` | `#E4E4E4` |
-| `source.voicing.background`, `source.voicing.border` | `#EAEAEA` |
+| `source.interval_set` | `#434343` |
+| `source.voicing` | `#525252` |
 | `source.note`, `locked.border` | `#333333` |
 | `source.bang`, `button.pressed.background`, `button.pressed.border` | `#D100D1` |
-| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
+| `source.number.background`, `source.note.background`, `source.interval_set.background`, `source.voicing.background`, `source.number.border`, `source.note.border`, `source.interval_set.border`, `source.voicing.border` | `#DDDDDD` |
 | `source.function.background`, `source.function.border`, `output_portal.border`, `button.background`, `button.border` | `#BBBBBB` |
 | `source.bang.border` | `#FF00FF` |
 | `diagnostic.foreground`, `diagnostic.border` | `#C70000` |

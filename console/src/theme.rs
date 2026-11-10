@@ -514,24 +514,24 @@ pub fn grayscale_dark() -> Theme {
         source_comment: straight_rgba(0x55_55_55_FF),
         source_number: straight_rgba(0x89_89_89_FF),
         source_note: straight_rgba(0xCC_CC_CC_FF),
-        source_interval_set: straight_rgba(0xA8_A8_A8_FF),
-        source_voicing: straight_rgba(0xB4_B4_B4_FF),
+        source_interval_set: straight_rgba(0x9A_9A_9A_FF),
+        source_voicing: straight_rgba(0xB0_B0_B0_FF),
         source_function: straight_rgba(0xE6_E6_E6_FF),
         source_bang: straight_rgba(0x00_FF_00_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
         source_number_background: straight_rgba(0x22_22_22_FF),
         source_note_background: straight_rgba(0x22_22_22_FF),
-        source_interval_set_background: straight_rgba(0x1C_1C_1C_FF),
-        source_voicing_background: straight_rgba(0x16_16_16_FF),
+        source_interval_set_background: straight_rgba(0x22_22_22_FF),
+        source_voicing_background: straight_rgba(0x22_22_22_FF),
         source_function_background: straight_rgba(0x44_44_44_FF),
         source_bang_background: straight_rgba(0x11_11_11_FF),
         source_ordinary_border: straight_rgba(0x00_00_00_00),
         source_comment_border: straight_rgba(0x00_00_00_00),
         source_number_border: straight_rgba(0x22_22_22_FF),
         source_note_border: straight_rgba(0x22_22_22_FF),
-        source_interval_set_border: straight_rgba(0x1C_1C_1C_FF),
-        source_voicing_border: straight_rgba(0x16_16_16_FF),
+        source_interval_set_border: straight_rgba(0x22_22_22_FF),
+        source_voicing_border: straight_rgba(0x22_22_22_FF),
         source_function_border: straight_rgba(0x44_44_44_FF),
         source_bang_border: straight_rgba(0x00_FF_00_FF),
 
@@ -644,24 +644,24 @@ pub fn grayscale_light() -> Theme {
         source_comment: straight_rgba(0xAD_AD_AD_FF),
         source_number: straight_rgba(0x61_61_61_FF),
         source_note: straight_rgba(0x33_33_33_FF),
-        source_interval_set: straight_rgba(0x4A_4A_4A_FF),
-        source_voicing: straight_rgba(0x55_55_55_FF),
+        source_interval_set: straight_rgba(0x43_43_43_FF),
+        source_voicing: straight_rgba(0x52_52_52_FF),
         source_function: straight_rgba(0x19_19_19_FF),
         source_bang: straight_rgba(0xD1_00_D1_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
         source_number_background: straight_rgba(0xDD_DD_DD_FF),
         source_note_background: straight_rgba(0xDD_DD_DD_FF),
-        source_interval_set_background: straight_rgba(0xE4_E4_E4_FF),
-        source_voicing_background: straight_rgba(0xEA_EA_EA_FF),
+        source_interval_set_background: straight_rgba(0xDD_DD_DD_FF),
+        source_voicing_background: straight_rgba(0xDD_DD_DD_FF),
         source_function_background: straight_rgba(0xBB_BB_BB_FF),
         source_bang_background: straight_rgba(0xFF_FF_FF_FF),
         source_ordinary_border: straight_rgba(0x00_00_00_00),
         source_comment_border: straight_rgba(0x00_00_00_00),
         source_number_border: straight_rgba(0xDD_DD_DD_FF),
         source_note_border: straight_rgba(0xDD_DD_DD_FF),
-        source_interval_set_border: straight_rgba(0xE4_E4_E4_FF),
-        source_voicing_border: straight_rgba(0xEA_EA_EA_FF),
+        source_interval_set_border: straight_rgba(0xDD_DD_DD_FF),
+        source_voicing_border: straight_rgba(0xDD_DD_DD_FF),
         source_function_border: straight_rgba(0xBB_BB_BB_FF),
         source_bang_border: straight_rgba(0xFF_00_FF_FF),
 
@@ -901,9 +901,10 @@ mod tests {
     ///
     /// Where two Source roles draw glyphs a viewer cannot tell apart, closer
     /// than the colour-vision floor on the Grid background, the Cell around
-    /// them must still differ, in fill or in a border that draws, or the two
-    /// meanings read as one. A border draws only while it is visible and
-    /// wider than zero. The two Portals may draw alike: both mark a Cell the
+    /// them must still differ by as much, in fill or in a border that draws,
+    /// or the two meanings read as one. A fill or border merely unequal is
+    /// not enough: two near greys read as one Cell. A border draws only while
+    /// it is visible and wider than zero. The two Portals may draw alike: both mark a Cell the
     /// Tick reached, and `theme.md` records which built-ins draw them alike.
     ///
     #[test]
@@ -1003,9 +1004,12 @@ mod tests {
                 for (second, other_glyph, other_fill, other_border) in &roles[index + 1..] {
                     let portals = (*first, *second) == ("Output Portal", "Input Portal");
                     let ground = theme.grid_background;
-                    if !seen_apart(ground.blend(*glyph), ground.blend(*other_glyph)) && !portals {
+                    let apart = |first: Color32, second: Color32| {
+                        seen_apart(ground.blend(first), ground.blend(second))
+                    };
+                    if !apart(*glyph, *other_glyph) && !portals {
                         assert!(
-                            (fill, border) != (other_fill, other_border),
+                            apart(*fill, *other_fill) || apart(*border, *other_border),
                             "{}: {first} and {second} read alike in glyph, fill and border",
                             theme.identity
                         );

@@ -1047,6 +1047,7 @@ mod tests {
         bar_separator, cell_visuals, fact_index, install, style,
     };
     use crate::contrast::PORTAL_ROLE_SETS;
+    use crate::contrast::colour_vision::seen_apart;
     use crate::theme::{Appearance, Theme};
     use crate::theme_registry::tests_support::default_theme;
     use egui::{Color32, CornerRadius, Shadow, Stroke, Visuals};
@@ -1853,11 +1854,29 @@ mod tests {
         assert_ne!(number.foreground, note.foreground);
         assert_ne!(number.foreground, ordinary.foreground);
         assert_ne!(comment.foreground, ordinary.foreground);
-        assert_ne!(interval_set.foreground, number.foreground);
-        assert_ne!(interval_set.foreground, note.foreground);
-        assert_ne!(voicing.foreground, interval_set.foreground);
-        assert_ne!(voicing.foreground, number.foreground);
-        assert_ne!(voicing.foreground, note.foreground);
+        // The four operand literal types share one Cell fill in each
+        // built-in, so their glyphs alone tell them apart and must be seen
+        // apart, not merely unequal.
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let theme = default_theme(appearance);
+            let literals = [
+                ("Number", theme.source_number),
+                ("Note", theme.source_note),
+                ("Interval Set", theme.source_interval_set),
+                ("Voicing", theme.source_voicing),
+            ];
+            for (index, (first, glyph)) in literals.iter().enumerate() {
+                for (second, other) in &literals[index + 1..] {
+                    assert!(
+                        seen_apart(
+                            theme.grid_background.blend(*glyph),
+                            theme.grid_background.blend(*other)
+                        ),
+                        "{appearance:?}: {first} and {second} glyphs read alike"
+                    );
+                }
+            }
+        }
 
         // A changed Theme reaches `cell_visuals` on the
         // very next call — the Source Grid paints from the resolved Theme,
