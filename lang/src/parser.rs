@@ -75,9 +75,10 @@ pub struct Parser<'a> {
     /// The Cell the Source begins at, so what was read can be reported as an
     /// address rather than as an offset into a fragment.
     start: usize,
-    /// The refusal a blank rest operand would be, which strict parsing still
-    /// gives: a blank operand holds no value to yield.
-    blank_rest: Option<Error>,
+    /// The Token of the first blank rest operand read. Strict parsing refuses
+    /// it, since a blank operand holds no value to yield, and builds that
+    /// refusal only when it is reported.
+    blank_rest: Option<Token>,
 }
 
 impl<'a> Parser<'a> {
@@ -121,7 +122,14 @@ impl<'a> Parser<'a> {
     /// Strictly parses one complete Expression.
     #[inline]
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
-        if let Some(error) = self.take_language_unit().or(self.blank_rest.take()) {
+        let error = self.take_language_unit().or_else(|| {
+            self.blank_rest.map(|token| {
+                token
+                    .decode(BLANK_PAIR)
+                    .expect_err("a blank pair decodes to no value")
+            })
+        });
+        if let Some(error) = error {
             return Err(error);
         }
         if !self.source.is_empty() {
@@ -201,7 +209,19 @@ impl<'a> Parser<'a> {
         while let Some((token, parent, rest_operand)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
-                let blank_rest = rest_operand && self.peek_next() == Some(BLANK_PAIR);
+                // A blank rest operand is recorded without decoding it: the
+                // refusal decoding would build is reported only by strict
+                // parsing, so a resting row reads without allocating.
+                if rest_operand && self.peek_next() == Some(BLANK_PAIR) {
+                    self.next_token(BLANK_PAIR.len());
+                    self.blank_rest.get_or_insert(token);
+                    self.expression.add_rest(
+                        token,
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    );
+                    continue;
+                }
                 match self.take_token(&token) {
                     Ok(atom) => self.expression.add_positioned(
                         token,
@@ -209,14 +229,6 @@ impl<'a> Parser<'a> {
                         cell_start..self.start + self.consumed(),
                         parent,
                     ),
-                    Err(failure) if blank_rest => {
-                        self.blank_rest.get_or_insert(failure);
-                        self.expression.add_rest(
-                            token,
-                            cell_start..self.start + self.consumed(),
-                            parent,
-                        );
-                    }
                     Err(failure) => {
                         error.get_or_insert(failure);
                         self.expression.add_positioned(
@@ -2116,6 +2128,33 @@ mod nesting_tests {
                 .to_string(),
             "expected a note, found \"  \""
         );
+    }
+
+    #[test]
+    fn a_nested_play_with_a_blank_note_is_refused_rather_than_rested() {
+        // A Play nested where a value is required is refused from Source
+        // alone, whatever its note holds, and so is a Play nested beside a
+        // blank rest operand. The refusal names the nesting, not the note.
+        for source in [".+!>017F  01", "!~017F  !>017FC4"] {
+            let analysis = Parser::from(source).analyze();
+
+            assert!(
+                matches!(
+                    analysis.error(),
+                    Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                ),
+                "{source:?}: {:?}",
+                analysis.error()
+            );
+            assert!(!analysis.is_complete(), "{source:?}");
+            assert!(
+                matches!(
+                    Parser::from(source).try_parse(),
+                    Err(Error::Syntax(SyntaxError::NestedEffectFunction))
+                ),
+                "{source:?}"
+            );
+        }
     }
 
     #[test]
