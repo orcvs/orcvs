@@ -173,16 +173,29 @@ pub enum InterpretationError {
 
     /// A Chord Play's Interval Set holds fewer tones than its Voicing needs,
     /// so the Voicing cannot mean what it says and no tone is sent.
-    #[error("Voicing {} needs more tones than an Interval Set of {tones}", voicing.cells())]
+    #[error(
+        "Voicing {} needs {needed} tones and Interval Set {} has {}, so no tone is sent",
+        voicing.cells(),
+        set.cells(),
+        set.semitones().len()
+    )]
     TooFewTones {
+        set: crate::IntervalSet,
         voicing: crate::Voicing,
-        tones: usize,
+        needed: usize,
     },
 
     /// A Chord Play computed a tone outside the MIDI note range, so the whole
     /// chord is refused rather than sounded in part.
-    #[error("Chord tone {tone} is outside the MIDI note range 0–127")]
-    ChordToneOutOfRange { tone: i16 },
+    ///
+    /// `tone` is rendered in decimal for the reason
+    /// [`InterpretationError::NoteOutOfRange`]'s value is: a drop can take it
+    /// below zero.
+    #[error("{function} cannot sound chord tone {tone}, outside the MIDI note range 0–127")]
+    ChordToneOutOfRange {
+        function: crate::Function,
+        tone: i16,
+    },
 
     /// An OSC Payload whose first word, the address, does not start with
     /// `/`. An empty Payload has an empty address.
