@@ -155,7 +155,7 @@ One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Pitch Function**:
-A stateless value Function in the `#` family, which derives a Note from a Note and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that answers a Note from a Note belongs to `#`. An answer outside `00`–`7F` diagnoses and writes nothing, rather than wrapping as an Arithmetic Function does within a byte.
+A stateless value Function in the `#` family, which derives a Note or an Interval Set and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that derives a Note or an Interval Set belongs to `#`. A Note answer outside `00`–`7F` diagnoses and writes nothing, rather than wrapping as an Arithmetic Function does within a byte.
 _Avoid_: Transpose operator, numeric Function, wrapping pitch
 
 **Up**:
@@ -199,7 +199,7 @@ What a value Function answers when it has no Language Unit to write: two spaces 
 _Avoid_: Absence Marker, null, nil, empty value, void
 
 **Atomic Function**:
-A stateless value Function whose operands and result are single Atoms: the Arithmetic and Numeric Conversion Functions, Clock and Random. An operation evaluates once and returns one Atom; a type, domain, or evaluation failure diagnoses and returns nothing. Per ADR 0063 no Function accepts or answers a series of values, so none extends across one: a pattern is written into Source Cells, and a chord is several Terminal Output roots one Bang activates.
+A stateless value Function whose operands and result are single Atoms: the Arithmetic, Numeric Conversion and Pitch Functions, Clock and Random. An operation evaluates once and returns one Atom; a type, domain, or evaluation failure diagnoses and returns nothing. Per ADR 0063 no Function accepts or answers a series of values, so none extends across one: a pattern is written into Source Cells, and a chord is several Terminal Output roots one Bang activates.
 _Avoid_: Vectorised Function, Map Function, Arithmetic Function
 
 **Portal**:
