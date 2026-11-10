@@ -1457,12 +1457,12 @@ pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
 }
 
 #[inline(always)]
-pub fn to_atom_interval_set(s: &str) -> Result<Atom, Error> {
+pub(crate) fn to_atom_interval_set(s: &str) -> Result<Atom, Error> {
     interval_set_atom_from_spelling(s).ok_or_else(|| TypeError::IntervalSet(s.to_string()).into())
 }
 
 #[inline(always)]
-pub fn to_atom_voicing(s: &str) -> Result<Atom, Error> {
+pub(crate) fn to_atom_voicing(s: &str) -> Result<Atom, Error> {
     voicing_atom_from_spelling(s).ok_or_else(|| TypeError::Voicing(s.to_string()).into())
 }
 
