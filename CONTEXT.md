@@ -155,7 +155,7 @@ One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Pitch Function**:
-A stateless value Function in the `#` family, which derives a Note or an Interval Set and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that derives a Note or an Interval Set belongs to `#`. A Note answer outside `00`–`7F` diagnoses and writes nothing, rather than wrapping as an Arithmetic Function does within a byte.
+A stateless value Function in the `#` family, which derives a Note and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that derives a Note belongs to `#`. A Note answer outside `00`–`7F` diagnoses under a message naming the Function and the semitone it would have reached, and writes nothing: a Note never wraps, as an Arithmetic Function does within a byte, and is never clamped to the end of the range.
 _Avoid_: Transpose operator, numeric Function, wrapping pitch
 
 **Up**:
