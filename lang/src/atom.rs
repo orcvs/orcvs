@@ -698,7 +698,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, rest: $rest:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, rest: $rest:ident $(ignoring $ignored:ident)?)?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -871,10 +871,25 @@ macro_rules! define_functions {
             /// Clear, and whose every other operand decodes, is a rest: it
             /// performs nothing and reports nothing. A blank or cleared Cell
             /// anywhere else, or in any operand of a Function with no rest
-            /// operand, leaves the Turn invalid.
+            /// operand, leaves the Turn invalid, unless
+            /// [`Self::rest_ignores_blanks`] excuses it.
             pub const fn rest_operand(self) -> Option<usize> {
                 match self {
                     $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+
+                }
+            }
+
+            /// Whether a blank rest operand excuses this Function's other
+            /// blank or cleared operands, when its row declares `rest: ...
+            /// ignoring blanks`.
+            ///
+            /// A Function that rests this way takes a wholly empty row as a
+            /// rest. An operand half-written or otherwise unreadable beside
+            /// the blank rest operand still refuses the Turn. Without this, a
+            /// Turn rests only when every other operand decodes.
+            pub const fn rest_ignores_blanks(self) -> bool {
+                match self {
+                    $(Self::$variant => declares!($($($ignored)?)?),)+
                 }
             }
 
@@ -1034,7 +1049,7 @@ define_functions! {
     PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
-    RawChordPlay => ("!:", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
+    RawChordPlay => ("!:", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number], rest: root ignoring blanks),
     RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
     ReadEast => ("&>", Value, Intrinsic, May, [n: Number], distance: Input East n),
     ReadNorth => ("&^", Value, Intrinsic, May, [n: Number], distance: Input North n),
@@ -1045,7 +1060,7 @@ define_functions! {
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
     Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
-    TimedChordPlay => ("!#", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
+    TimedChordPlay => ("!#", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length], rest: root ignoring blanks),
     TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
     Udp => ("!u", TerminalOutput, Bang, Never, []),
@@ -1805,7 +1820,9 @@ mod test {
             resting,
             [
                 (Function::MonophonicPlay, 2),
+                (Function::RawChordPlay, 2),
                 (Function::RawPlay, 2),
+                (Function::TimedChordPlay, 2),
                 (Function::TimedPlay, 2),
             ]
         );
@@ -1817,6 +1834,17 @@ mod test {
                 "{function:?}"
             );
         }
+    }
+
+    #[test]
+    fn exactly_the_chord_plays_rest_past_their_other_blank_operands() {
+        let ignoring: Vec<_> = Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| function.rest_ignores_blanks())
+            .collect();
+
+        assert_eq!(ignoring, [Function::RawChordPlay, Function::TimedChordPlay]);
     }
 
     #[test]

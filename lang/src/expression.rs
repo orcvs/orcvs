@@ -81,9 +81,10 @@ pub struct PositionedEntry {
     pub parent: Option<usize>,
     pub token: Token,
     pub atom: Option<Atom>,
-    /// Whether this entry is its Function's blank rest operand: its Cells
-    /// bound no Atom, and that is no failure of the Expression. It always has
-    /// `atom: None`.
+    /// Whether this entry is two blank Cells its Function's rest may excuse:
+    /// its rest operand, or an operand beside one that ignores blanks. Its
+    /// Cells bound no Atom, and that is no failure of the Expression. It
+    /// always has `atom: None`.
     pub rest: bool,
 }
 
@@ -162,7 +163,8 @@ impl Expression {
         self.push(token, atom, cells, parent, false);
     }
 
-    /// Records a blank rest operand, which binds no Atom and refuses nothing.
+    /// Records a blank operand a rest excuses, which binds no Atom and refuses
+    /// nothing.
     pub(crate) fn add_rest(
         &mut self,
         token: Token,
@@ -170,6 +172,14 @@ impl Expression {
         parent: Option<usize>,
     ) {
         self.push(token, None, cells, parent, true);
+    }
+
+    /// Turns every rest entry back into a plain unbound one, for an Expression
+    /// whose written rest operand refuses the blanks beside it.
+    pub(crate) fn withdraw_rests(&mut self) {
+        self.records
+            .iter_mut()
+            .for_each(|record| record.rest = false);
     }
 
     ///
@@ -415,6 +425,10 @@ impl RecordStore {
 
     fn iter(&self) -> impl DoubleEndedIterator<Item = &Record> {
         self.inline.iter().chain(self.overflow.iter())
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Record> {
+        self.inline.iter_mut().chain(self.overflow.iter_mut())
     }
 
     fn len(&self) -> usize {

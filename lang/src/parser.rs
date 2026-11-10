@@ -25,8 +25,9 @@ use std::ops::Range;
 pub struct SourceAnalysis {
     expression: Expression,
     error: Option<Error>,
-    /// Whether nothing was refused and only a blank rest operand is unbound.
-    /// Such an Expression has no `error` and can execute, but is not complete.
+    /// Whether nothing was refused and only blank operands a rest excuses are
+    /// unbound. Such an Expression has no `error` and can execute, but is not
+    /// complete.
     rests: bool,
     start: usize,
     consumed: usize,
@@ -196,12 +197,27 @@ impl<'a> Parser<'a> {
         // this inline capacity is an optimization, not a language limit.
         let mut pending = arrayvec::ArrayVec::<_, 16>::new();
         let mut overflow = Vec::new();
-        pending.push((Token::Function, None, false));
+        pending.push((Token::Function, None, BlankOperand::Refused));
         let mut error = None;
-        while let Some((token, parent, rest_operand)) = overflow.pop().or_else(|| pending.pop()) {
+        // Whether a rest operand holds anything but blank Cells or a nested
+        // Function, so that no Rest can excuse a blank beside it.
+        let mut rest_written = false;
+        while let Some((token, parent, blank_operand)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
+            if blank_operand == BlankOperand::Rest
+                && !self.is_function_next()
+                && self.peek_next() != Some(BLANK_PAIR)
+            {
+                rest_written = true;
+                if let Some(failure) = self.blank_rest.take() {
+                    error.get_or_insert(failure);
+                    self.expression.withdraw_rests();
+                }
+            }
             if token != Token::Function && !self.is_function_next() {
-                let blank_rest = rest_operand && self.peek_next() == Some(BLANK_PAIR);
+                let blank_rest = (blank_operand == BlankOperand::Rest
+                    || (blank_operand == BlankOperand::BesideRest && !rest_written))
+                    && self.peek_next() == Some(BLANK_PAIR);
                 match self.take_token(&token) {
                     Ok(atom) => self.expression.add_positioned(
                         token,
@@ -316,7 +332,7 @@ impl<'a> Parser<'a> {
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
                         for (slot, token) in function.signature().iter().enumerate().rev() {
-                            let item = (*token, Some(index), function.rest_operand() == Some(slot));
+                            let item = (*token, Some(index), BlankOperand::at(function, slot));
                             // Overflow is always popped first, so any occupied
                             // overflow has a full inline stack beneath it.
                             if pending.is_full() {
@@ -392,6 +408,30 @@ impl<'a> Parser<'a> {
         match self.source.split_at_checked(2) {
             Some((next_token, _)) => Some(next_token),
             None => None,
+        }
+    }
+}
+
+/// What two blank Cells in one operand slot mean to the Function it belongs to.
+#[derive(Clone, Copy, PartialEq)]
+enum BlankOperand {
+    /// They bind nothing, and that refuses the Expression.
+    Refused,
+    /// The Function's rest operand: they refuse nothing.
+    Rest,
+    /// An operand beside a rest operand that ignores blanks: they refuse
+    /// nothing unless the rest operand turns out to be written. Blank Cells
+    /// before the rest operand are read before that is known, so their
+    /// refusal waits for it.
+    BesideRest,
+}
+
+impl BlankOperand {
+    fn at(function: Function, slot: usize) -> Self {
+        match function.rest_operand() {
+            Some(rest) if rest == slot => Self::Rest,
+            Some(_) if function.rest_ignores_blanks() => Self::BesideRest,
+            _ => Self::Refused,
         }
     }
 }
@@ -2105,6 +2145,97 @@ mod nesting_tests {
             // It holds no value for the note, so it is not complete.
             assert!(!analysis.is_complete(), "{source:?}");
         }
+    }
+
+    #[test]
+    fn a_blank_chord_root_leaves_its_other_blank_operands_unrefused() {
+        for source in [
+            "!:017F  M7CL00",
+            "!#017F  M7CL0004",
+            // Blank on either side of the root, one at a time.
+            "!:  7F  M7CL00",
+            "!:01    M7CL00",
+            "!:017F    CL00",
+            "!:017F  M7  00",
+            "!:017F  M7CL  ",
+            "!#017F  M7CL00  ",
+            // A wholly empty row.
+            "!:            ",
+            "!#              ",
+        ] {
+            let analysis = Parser::from(source).analyze();
+
+            assert!(analysis.error().is_none(), "{source:?}");
+            assert!(!analysis.is_complete(), "{source:?}");
+            assert_eq!(analysis.cells().end, source.len(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn strict_parsing_refuses_a_chord_play_with_a_blank_operand() {
+        assert!(Parser::from("!:017F  M7CL00").try_parse().is_err());
+        assert!(Parser::from("!:01    M7CL00").try_parse().is_err());
+    }
+
+    #[test]
+    fn a_blank_operand_beside_a_written_root_is_refused_in_a_chord_play() {
+        for source in [
+            "!:  7FC4M7CL00",
+            "!:01  C4M7CL00",
+            "!:017FC4  CL00",
+            "!:017FC4M7  00",
+            "!:017FC4M7CL  ",
+            "!#017FC4M7CL00  ",
+        ] {
+            let analysis = Parser::from(source).analyze();
+
+            assert!(analysis.error().is_some(), "{source:?}");
+            assert!(
+                analysis.expression().positioned().all(|entry| !entry.rest),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_half_written_or_invalid_operand_beside_a_blank_root_is_refused() {
+        for source in [
+            "!:017F  M CL00",
+            "!:017F   7CL00",
+            "!:0 7F  M7CL00",
+            "!:017F  M7C 00",
+            "!:017F  M70 00",
+            "!:017F  ZZCL00",
+            "!:017F  M7ZZ00",
+            // A half-written root is no rest, whatever stands beside it.
+            "!:017FC   CL00",
+            "!:  7F C      ",
+            // A row edge that cuts an operand short.
+            "!:017F  M7CL",
+        ] {
+            assert!(
+                Parser::from(source).analyze().error().is_some(),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_blank_operand_beside_a_nested_root_waits_for_the_turn() {
+        // Only the Turn knows whether the child clears the root, so neither a
+        // blank before nor a blank after it is refused here.
+        for source in ["!:  7F&v01M7CL00", "!:017F&v01  CL00"] {
+            let analysis = Parser::from(source).analyze();
+
+            assert!(analysis.error().is_none(), "{source:?}");
+            assert!(!analysis.is_complete(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_note_play_with_a_nested_note_still_refuses_a_blank_beside_it() {
+        assert!(Parser::from("!>  7F&v01").analyze().error().is_some());
+        assert!(Parser::from("!~017F&v01  ").analyze().error().is_some());
     }
 
     #[test]
