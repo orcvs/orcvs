@@ -1,5 +1,5 @@
 use crate::{
-    ArgumentError, Atom, Error, Function, Interpretation, InterpretationError, PlayCommand,
+    ArgumentError, Atom, Error, Function, Interpretation, InterpretationError,
 };
 use arrayvec::ArrayVec;
 
@@ -188,14 +188,15 @@ impl Stack {
 
     /// Performs one Terminal Output Function over its declared operands.
     ///
-    /// The effect twin of [`Stack::apply`]: `command` states one Play Command
-    /// exactly as an arithmetic body states one Atom, and runs only once
-    /// every operand has bound, so a Function that diagnoses performs nothing.
+    /// The effect twin of [`Stack::apply`]: `command` states one Play Command,
+    /// or a Chord Play's bounded set of them, exactly as an arithmetic body
+    /// states one Atom, and runs only once every operand has bound, so a
+    /// Function that diagnoses performs nothing.
     #[inline(always)]
-    pub(crate) fn perform<O, F>(&mut self, command: F) -> Result<PlayCommand, Error>
+    pub(crate) fn perform<O, F, C>(&mut self, command: F) -> Result<C, Error>
     where
         O: Operands,
-        F: FnOnce(O) -> Result<PlayCommand, Error>,
+        F: FnOnce(O) -> Result<C, Error>,
     {
         command(self.extract::<O>()?)
     }

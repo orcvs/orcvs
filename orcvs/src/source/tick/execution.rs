@@ -366,6 +366,10 @@ impl<'a> Execution<'a> {
                 .effects
                 .push(Effect::Diagnose(diagnose(node, error.to_string()))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
+            // Each tone is an ordinary Play Command, lowest first.
+            Ok(Interpretation::Chord(chord)) => {
+                self.effects.extend(chord.commands().map(Effect::Play));
+            }
             Ok(Interpretation::Send(send)) => self.effects.push(Effect::Send(*send)),
             Ok(Interpretation::EmptyPayload) => {}
             Ok(Interpretation::Cell(atom)) => {

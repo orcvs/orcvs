@@ -15,7 +15,7 @@ pub use atom::{
     MidiChannel, Note, PositionRule, ReplacementChange, Spelling, Velocity, to_atom_note,
     to_atom_num,
 };
-pub use chord::{IntervalSet, Voicing};
+pub use chord::{ChordCommands, IntervalSet, Voicing};
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
@@ -495,19 +495,25 @@ mod test {
 
     #[test]
     fn the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against() {
-        use super::{Interpretation, PlayCommand};
+        use super::{ChordCommands, Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
         // measures the answer seam. A Play Command holds no pointer, so it
-        // reads 5 at every pointer width. The widest answer is a Network
-        // Send's box, one pointer beside the tag, so `Interpretation` reads
-        // two words: 16 natively and 8 on wasm32.
+        // reads 5 at every pointer width. The widest answer is a Chord Play's
+        // inline commands: twelve tones, a count, a channel, a velocity and an
+        // optional length, 17 bytes of byte-aligned fields. With the tag that
+        // is 18, padded to the Network Send box's pointer alignment: 24
+        // natively and 20 on wasm32.
         //
         // A failure here is notice rather than a defect: the answer seam has
         // changed shape, and `execute_function` is the measurement to take
         // again.
         assert_eq!(size_of::<PlayCommand>(), 5);
-        assert_eq!(size_of::<Interpretation>(), 2 * size_of::<usize>());
+        assert_eq!(size_of::<ChordCommands>(), 17);
+        assert_eq!(
+            size_of::<Interpretation>(),
+            18usize.next_multiple_of(align_of::<usize>())
+        );
     }
 
     #[test]

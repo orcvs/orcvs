@@ -16,6 +16,9 @@ pub type Atoms = Vec<Atom>;
 pub struct Note(u8);
 
 impl Note {
+    /// `C/`, the lowest Note: a placeholder that is always in range.
+    pub(crate) const LOWEST: Self = Self(0);
+
     #[inline(always)]
     pub const fn value(self) -> u8 {
         self.0
@@ -913,6 +916,7 @@ define_functions! {
     PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
+    RawChordPlay => ("!:", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
     ReadEast => ("&>", Value, Intrinsic, May, [n: Number], distance: Input East n),
     ReadNorth => ("&^", Value, Intrinsic, May, [n: Number], distance: Input North n),
@@ -923,6 +927,7 @@ define_functions! {
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
     Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
+    TimedChordPlay => ("!#", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
     TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
     Udp => ("!u", TerminalOutput, Bang, Never, []),
@@ -1828,6 +1833,8 @@ mod test {
                 Function::RawPlay
                 | Function::TimedPlay
                 | Function::MonophonicPlay
+                | Function::RawChordPlay
+                | Function::TimedChordPlay
                 | Function::ControlChange
                 | Function::PitchBend
                 | Function::Udp
@@ -2242,7 +2249,9 @@ mod test {
                 Function::ControlChange
                 | Function::MonophonicPlay
                 | Function::PitchBend
+                | Function::RawChordPlay
                 | Function::RawPlay
+                | Function::TimedChordPlay
                 | Function::TimedPlay
                 | Function::Udp
                 | Function::Osc => (false, true, false),

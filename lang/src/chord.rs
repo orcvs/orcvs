@@ -4,7 +4,11 @@
 //! Each name fills both Cells of its pair, so a half-blank pair spells no
 //! name and stays partial input as it is everywhere else.
 
-use crate::Spelling;
+use crate::{
+    Error, Function, InterpretationError, Length, MidiChannel, Note, PlayCommand, Spelling,
+    Velocity,
+};
+use arrayvec::ArrayVec;
 
 /// The most tones an Interval Set names: the chromatic scale's twelve. The
 /// table below is checked against it at compile time, so every Interval Set's
@@ -253,6 +257,169 @@ impl Voicing {
             .iter()
             .copied()
             .find(|voicing| voicing.spelling().cells() == cells.as_bytes())
+    }
+}
+
+impl Voicing {
+    /// How many tones an Interval Set needs for this Voicing to mean what it
+    /// names: a Drop needs the tones it counts down to, a Shell its 4th, and
+    /// Open and Rootless a tone beside the one they move or remove.
+    pub const fn tones_needed(self) -> usize {
+        match self {
+            Self::Close => 1,
+            Self::Open | Self::Drop2 | Self::Rootless => 2,
+            Self::Drop3 | Self::Drop5 => 3,
+            Self::Drop6 | Self::Shell => 4,
+        }
+    }
+
+    /// Whether this Voicing keeps the Interval Set's tone at `position`,
+    /// counted from `0` at the root. Only Shell and Rootless remove tones.
+    const fn keeps(self, position: usize) -> bool {
+        match self {
+            Self::Shell => matches!(position, 0 | 1 | 3),
+            Self::Rootless => position != 0,
+            _ => true,
+        }
+    }
+}
+
+/// The Play Commands one Chord Play performs: one ordinary Raw or Timed Play
+/// Command per tone, lowest first, every tone sharing the channel, velocity
+/// and length the Chord Play was given.
+///
+/// Held inline, at most [`MAX_TONES`] tones, so a Turn that answers a chord
+/// asks the allocator for nothing. It is built only whole: a chord with a tone
+/// outside the Note range, or too few tones for its Voicing, is a diagnostic
+/// and never a partial set of commands.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChordCommands {
+    channel: MidiChannel,
+    velocity: Velocity,
+    /// `None` for a Raw Chord Play, the length of every tone for a Timed one.
+    length: Option<Length>,
+    tones: [Note; MAX_TONES],
+    count: u8,
+}
+
+/// What a Chord Play was written with, once every operand has bound.
+pub(crate) struct ChordOperands {
+    pub(crate) function: Function,
+    pub(crate) channel: MidiChannel,
+    pub(crate) velocity: Velocity,
+    pub(crate) root: Note,
+    pub(crate) set: IntervalSet,
+    pub(crate) voicing: Voicing,
+    pub(crate) inversion: u8,
+    pub(crate) length: Option<Length>,
+}
+
+impl ChordCommands {
+    /// Builds the chord `operands` name, or the diagnostic that refuses it.
+    ///
+    /// The tones are built in one fixed order. The Voicing removes tones from
+    /// the Interval Set first; the inversion then moves the lowest tone up an
+    /// octave, once per count; and the Voicing then moves the tones it names,
+    /// counted on the inverted chord. Every step works on semitones above the
+    /// root as `i16`, so neither an inversion of `FF` nor a Drop below the
+    /// root can overflow before the range is checked.
+    pub(crate) fn build(operands: ChordOperands) -> Result<Self, Error> {
+        let ChordOperands {
+            function,
+            channel,
+            velocity,
+            root,
+            set,
+            voicing,
+            inversion,
+            length,
+        } = operands;
+        let semitones = set.semitones();
+        let needed = voicing.tones_needed();
+        if semitones.len() < needed {
+            return Err(InterpretationError::TooFewTones {
+                set,
+                voicing,
+                needed,
+            }
+            .into());
+        }
+
+        let mut tones: ArrayVec<i16, MAX_TONES> = semitones
+            .iter()
+            .enumerate()
+            .filter(|&(position, _)| voicing.keeps(position))
+            .map(|(_, &semitone)| i16::from(semitone))
+            .collect();
+
+        // The tones stay sorted, so the lowest is always the first. An
+        // unstable sort of at most twelve values is an in-place insertion
+        // sort and asks the allocator for nothing.
+        for _ in 0..inversion {
+            tones[0] += 12;
+            tones.sort_unstable();
+        }
+
+        // Counted from the bottom for Open and from the top for a Drop, on
+        // the tones the inversion left. `tones_needed` guarantees each index.
+        let top = tones.len();
+        match voicing {
+            Voicing::Open => tones.iter_mut().skip(1).step_by(2).for_each(|tone| *tone += 12),
+            Voicing::Drop2 => tones[top - 2] -= 12,
+            Voicing::Drop3 => tones[top - 3] -= 12,
+            Voicing::Drop5 => {
+                tones[top - 2] -= 12;
+                tones[top - 3] -= 12;
+            }
+            Voicing::Drop6 => {
+                tones[top - 2] -= 12;
+                tones[top - 4] -= 12;
+            }
+            Voicing::Close | Voicing::Shell | Voicing::Rootless => {}
+        }
+        tones.sort_unstable();
+
+        let mut notes = [Note::LOWEST; MAX_TONES];
+        for (slot, &tone) in notes.iter_mut().zip(&tones) {
+            let value = i16::from(root.value()) + tone;
+            *slot = u8::try_from(value)
+                .ok()
+                .and_then(|value| Note::try_from(value).ok())
+                .ok_or(InterpretationError::ChordToneOutOfRange { function, value })?;
+        }
+
+        Ok(Self {
+            channel,
+            velocity,
+            length,
+            tones: notes,
+            // At most `MAX_TONES`, which fits a byte.
+            count: tones.len() as u8,
+        })
+    }
+
+    /// The tones this chord sounds, lowest first.
+    pub fn tones(&self) -> &[Note] {
+        &self.tones[..usize::from(self.count)]
+    }
+
+    /// One Play Command per tone, lowest first: Raw for a Raw Chord Play and
+    /// Timed for a Timed one.
+    pub fn commands(&self) -> impl ExactSizeIterator<Item = PlayCommand> + '_ {
+        let (channel, velocity, length) = (self.channel, self.velocity, self.length);
+        self.tones().iter().map(move |&note| match length {
+            None => PlayCommand::Raw {
+                channel,
+                velocity,
+                note,
+            },
+            Some(length) => PlayCommand::Timed {
+                channel,
+                velocity,
+                note,
+                length,
+            },
+        })
     }
 }
 

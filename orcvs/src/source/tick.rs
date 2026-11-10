@@ -14,6 +14,8 @@ mod bang_activation;
 #[cfg(test)]
 mod bang_function;
 #[cfg(test)]
+mod chord_play;
+#[cfg(test)]
 mod clear;
 #[cfg(test)]
 mod conflicts;

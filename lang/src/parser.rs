@@ -2094,6 +2094,8 @@ mod nesting_tests {
                 .iter()
                 .map(|token| match token {
                     crate::Token::Note => "C4",
+                    crate::Token::IntervalSet => "M7",
+                    crate::Token::Voicing => "CL",
                     _ => "01",
                 })
                 .collect();

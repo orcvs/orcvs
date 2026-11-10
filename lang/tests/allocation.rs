@@ -82,7 +82,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use lang::{
-    Anchor, Atom, Error, Function, FunctionInputs, InterpretationError, Interpreter, Parser,
+    Anchor, Atom, Error, Function, FunctionInputs, Interpretation, InterpretationError,
+    Interpreter, Parser,
     PortalSource, Tick, TickInputs,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -240,6 +241,16 @@ const SOURCE: &[&str] = &[
     "",
 ];
 
+/// Chord Plays over Operand Literals, beside [`SOURCE`] rather than in it so
+/// the benchmark's copy stays the same: a twelve-tone chord, the widest
+/// answer a Turn can give, and voiced and inverted ones that sort their tones.
+const CHORDS: &[&str] = &[
+    "!#037FC4chCL0001",
+    "!:037FC4chOP03",
+    "!#007FC3M7D60204",
+    "!:017FC4MDSH05",
+];
+
 /// A Source's rows, padded with `empty_rows` further empty ones. A Grid is as
 /// tall as it is whatever the writer has filled in, so the padded rows are the
 /// ordinary case rather than a contrived one.
@@ -312,20 +323,36 @@ fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
 
     // A call over Atom operands allocates nothing. `Interpreter::execute_function`
     // holds its Operand Stack inline, sized to the widest operand list the
-    // Function table declares, and every answer is one Atom or one Play
-    // Command, so neither the stack nor the answer asks the allocator for a
-    // block. Zero, for one pass and for four, rather than a ceiling per call:
-    // a ceiling of one block per call would admit exactly the heap-backed
-    // stack this rules out.
-    let short = rows(SOURCE, 0);
+    // Function table declares, and every answer is one Atom, one Play Command
+    // or a Chord Play's commands held inline, so neither the stack nor the
+    // answer asks the allocator for a block. Zero, for one pass and for four,
+    // rather than a ceiling per call: a ceiling of one block per call would
+    // admit exactly the heap-backed stack this rules out.
+    let written = [SOURCE, CHORDS].concat();
+    let short = rows(&written, 0);
     let short = calls(&short);
     assert!(!short.is_empty(), "the fixture must hold calls");
+
+    // The chords must reach the answer they are here for, or a refused one
+    // would measure a diagnostic's cost instead of a chord's.
+    let chords = calls(&rows(CHORDS, 0));
+    let tones: Vec<usize> = chords
+        .iter()
+        .map(|(function, operands)| {
+            match Interpreter::execute_function(*function, operands.iter().copied(), inputs.into())
+            {
+                Ok(Interpretation::Chord(chord)) => chord.tones().len(),
+                other => panic!("{function} answered {other:?}"),
+            }
+        })
+        .collect();
+    assert_eq!(tones, [12, 12, 4, 3]);
 
     // The same Source written out four times over: four times the Expressions,
     // in a Grid four times as tall.
     let mut repeated: Vec<&str> = Vec::new();
     for _ in 0..4 {
-        repeated.extend_from_slice(SOURCE);
+        repeated.extend_from_slice(&written);
     }
     let long = rows(&repeated, 0);
     let long = calls(&long);
@@ -369,7 +396,7 @@ fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
     // Interpreter's. `re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty`
     // below states the Interpreter-side half, where `reread` does iterate the
     // padding and the equality has something to catch.
-    let padded = rows(SOURCE, 512);
+    let padded = rows(&written, 512);
     let padded = calls(&padded);
     assert_eq!(
         padded, short,

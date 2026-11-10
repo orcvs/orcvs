@@ -1,3 +1,4 @@
+pub(crate) mod chord_play;
 pub(crate) mod copy;
 pub(crate) mod math;
 pub(crate) mod network;
@@ -10,8 +11,8 @@ pub(crate) mod write;
 use crate::{Error, PlayCommand, atom::operands, interpreter::Context};
 
 // Each body states one Play Command for the operands `Stack::perform` binds.
-// A chord is several of these roots activated by one Bang, each answering its
-// own command, so no body here knows about more than one note.
+// Several of these roots activated by one Bang each answer their own command;
+// a Chord Play's bodies, which answer one command per tone, are in `chord_play`.
 
 /// Raw Play: `!> channel velocity note`.
 ///

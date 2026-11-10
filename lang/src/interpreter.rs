@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Error, Function, FunctionInputs, NetworkSend, Output, PlayCommand, SourceEffect, Stack,
+    Atom, ChordCommands, Error, Function, FunctionInputs, NetworkSend, Output, PlayCommand, SourceEffect, Stack,
     atom::operands,
     functions::{self, math, numeric_conversion, tick},
 };
@@ -19,10 +19,10 @@ pub enum Interpretation {
     /// so its parent is invalid and names it.
     Clear,
     /// The one Play Command an active Terminal Output Function root performs.
-    ///
-    /// A chord is several Terminal Output roots that one Bang activates, each
-    /// answering its own command.
     Play(PlayCommand),
+    /// The Play Commands an active Chord Play root performs, one per tone,
+    /// lowest first. They are held inline, so this answer allocates nothing.
+    Chord(ChordCommands),
     /// The one Network Send an active UDP or OSC Function root performs,
     /// boxed so a Play Command's answer stays small.
     Send(Box<NetworkSend>),
@@ -198,6 +198,12 @@ impl Interpreter {
             Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
+            Function::RawChordPlay => {
+                Interpretation::Chord(functions::chord_play::raw_chord_play(&mut ctx)?)
+            }
+            Function::TimedChordPlay => {
+                Interpretation::Chord(functions::chord_play::timed_chord_play(&mut ctx)?)
+            }
             Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
             Function::Udp => functions::network::udp(&mut ctx),
             Function::Osc => functions::network::osc(&mut ctx)?,

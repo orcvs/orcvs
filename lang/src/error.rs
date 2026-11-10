@@ -44,6 +44,34 @@ pub enum InterpretationError {
         value: i16,
     },
 
+    /// A Chord Play built a tone outside the Note range.
+    ///
+    /// The whole chord diagnoses, so no part of it is ever sent. `value` is
+    /// the lowest such tone, signed because a Drop can pass below `00`.
+    #[error(
+        "{function} would sound {}{:02X}, outside the Note range 00–7F, so no tone is sent",
+        if *value < 0 { "-" } else { "" },
+        value.unsigned_abs()
+    )]
+    ChordToneOutOfRange {
+        function: crate::Function,
+        value: i16,
+    },
+
+    /// A Chord Play's Interval Set has fewer tones than its Voicing needs, so
+    /// the Voicing cannot mean what it names and the whole chord diagnoses.
+    #[error(
+        "Voicing {} needs {needed} tones and Interval Set {} has {}, so no tone is sent",
+        voicing.spelling(),
+        set.spelling(),
+        set.semitones().len()
+    )]
+    TooFewTones {
+        set: crate::IntervalSet,
+        voicing: crate::Voicing,
+        needed: usize,
+    },
+
     /// A Tick-reading Function handed a zero where its cycle needs a length.
     ///
     /// Clock's and Delay's cycle is `rate * modulus` and Euclidean's is
