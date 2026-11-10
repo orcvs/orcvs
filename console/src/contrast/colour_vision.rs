@@ -839,7 +839,9 @@ mod tests {
     ///
     /// A light glyph definition that clears contrast and fails colour
     /// vision. Only the glyph channels differ from the light default:
-    /// holding the chrome keys fixed is what isolates the glyphs.
+    /// holding the chrome keys fixed is what isolates the glyphs. The
+    /// Interval Set and Voicing Cells keep their default glyphs on Number's
+    /// fill, as every operand literal type shares one fill in the built-ins.
     ///
     fn rejected_light_glyphs() -> Theme {
         let tint =
@@ -861,6 +863,8 @@ mod tests {
             source_number_background: tint(number),
             source_note: opaque(note),
             source_note_background: tint(note),
+            source_interval_set_background: tint(number),
+            source_voicing_background: tint(number),
             source_function: opaque(function),
             source_function_background: tint(function),
             source_bang: opaque(bang),
