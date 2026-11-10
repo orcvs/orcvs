@@ -2143,7 +2143,7 @@ mod tests {
         // rather than taken from `style_catalogue!`, so a key routed to the
         // wrong field fails even though the macro's reader and writer agree.
         // The catalogue's count is what says the list is complete.
-        let fields: [(ColorKey, Field<Color32>); 61] = [
+        let fields: [(ColorKey, Field<Color32>); 67] = [
             (ColorKey::WindowBackground, |theme| theme.window_background),
             (ColorKey::PanelBackground, |theme| theme.panel_background),
             (ColorKey::GridBackground, |theme| theme.grid_background),
@@ -2152,6 +2152,10 @@ mod tests {
             (ColorKey::SourceComment, |theme| theme.source_comment),
             (ColorKey::SourceNumber, |theme| theme.source_number),
             (ColorKey::SourceNote, |theme| theme.source_note),
+            (ColorKey::SourceIntervalSet, |theme| {
+                theme.source_interval_set
+            }),
+            (ColorKey::SourceVoicing, |theme| theme.source_voicing),
             (ColorKey::SourceFunction, |theme| theme.source_function),
             (ColorKey::SourceBang, |theme| theme.source_bang),
             (ColorKey::SourceOrdinaryBackground, |theme| {
@@ -2165,6 +2169,12 @@ mod tests {
             }),
             (ColorKey::SourceNoteBackground, |theme| {
                 theme.source_note_background
+            }),
+            (ColorKey::SourceIntervalSetBackground, |theme| {
+                theme.source_interval_set_background
+            }),
+            (ColorKey::SourceVoicingBackground, |theme| {
+                theme.source_voicing_background
             }),
             (ColorKey::SourceFunctionBackground, |theme| {
                 theme.source_function_background
@@ -2182,6 +2192,12 @@ mod tests {
                 theme.source_number_border
             }),
             (ColorKey::SourceNoteBorder, |theme| theme.source_note_border),
+            (ColorKey::SourceIntervalSetBorder, |theme| {
+                theme.source_interval_set_border
+            }),
+            (ColorKey::SourceVoicingBorder, |theme| {
+                theme.source_voicing_border
+            }),
             (ColorKey::SourceFunctionBorder, |theme| {
                 theme.source_function_border
             }),
@@ -2297,7 +2313,7 @@ mod tests {
         let built_ins = [default_theme(Appearance::Dark)];
         // Each key beside the field a reader addresses by name, as in
         // `every_color_key_can_be_independently_overridden`.
-        let grid_fields: [(GridWidthKey, Field<f32>); 16] = [
+        let grid_fields: [(GridWidthKey, Field<f32>); 18] = [
             (GridWidthKey::GridBorder, |theme| {
                 theme.grid_border_width.points()
             }),
@@ -2336,6 +2352,12 @@ mod tests {
             }),
             (GridWidthKey::SourceNoteBorder, |theme| {
                 theme.source_note_border_width.points()
+            }),
+            (GridWidthKey::SourceIntervalSetBorder, |theme| {
+                theme.source_interval_set_border_width.points()
+            }),
+            (GridWidthKey::SourceVoicingBorder, |theme| {
+                theme.source_voicing_border_width.points()
             }),
             (GridWidthKey::SourceFunctionBorder, |theme| {
                 theme.source_function_border_width.points()
@@ -2447,6 +2469,8 @@ mod tests {
             (ColorKey::SourceComment, "source.comment"),
             (ColorKey::SourceNumber, "source.number"),
             (ColorKey::SourceNote, "source.note"),
+            (ColorKey::SourceIntervalSet, "source.interval_set"),
+            (ColorKey::SourceVoicing, "source.voicing"),
             (ColorKey::SourceFunction, "source.function"),
             (ColorKey::SourceBang, "source.bang"),
             (
@@ -2459,6 +2483,14 @@ mod tests {
             ),
             (ColorKey::SourceNumberBackground, "source.number.background"),
             (ColorKey::SourceNoteBackground, "source.note.background"),
+            (
+                ColorKey::SourceIntervalSetBackground,
+                "source.interval_set.background",
+            ),
+            (
+                ColorKey::SourceVoicingBackground,
+                "source.voicing.background",
+            ),
             (
                 ColorKey::SourceFunctionBackground,
                 "source.function.background",
@@ -2497,7 +2529,7 @@ mod tests {
             (ColorKey::Warning, "warning"),
             (ColorKey::MinimapSourceView, "minimap.source_view"),
         ];
-        assert_eq!(catalogue.len(), 48);
+        assert_eq!(catalogue.len(), 52);
         for (key, name) in catalogue {
             assert_eq!(key.name(), name);
         }

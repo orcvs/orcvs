@@ -83,10 +83,10 @@ pub(crate) enum CursorPlacement {
 /// index order: the four whole-Cell facts, then each declared operand Token
 /// in each [`OperandState`].
 ///
-const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
+const SOURCE_PAINT_FACTS: [SourcePaint; 16] = {
     use OperandState::{Invalid, Pending, Valid};
     use SourcePaint::{Bang, Comment, Function, Unclaimed};
-    use Token::{Note, Number};
+    use Token::{IntervalSet, Note, Number, Voicing};
     const fn operand(token: Token, state: OperandState) -> SourcePaint {
         SourcePaint::Operand { token, state }
     }
@@ -101,6 +101,12 @@ const SOURCE_PAINT_FACTS: [SourcePaint; 10] = {
         operand(Note, Pending),
         operand(Note, Valid),
         operand(Note, Invalid),
+        operand(IntervalSet, Pending),
+        operand(IntervalSet, Valid),
+        operand(IntervalSet, Invalid),
+        operand(Voicing, Pending),
+        operand(Voicing, Valid),
+        operand(Voicing, Invalid),
     ]
 };
 
@@ -308,6 +314,8 @@ fn fact_index(paint: SourcePaint) -> usize {
             let token = match token {
                 Token::Number => 0,
                 Token::Note => 1,
+                Token::IntervalSet => 2,
+                Token::Voicing => 3,
                 Token::Comment
                 | Token::Payload
                 | Token::Function
@@ -771,6 +779,18 @@ impl RoleChannels {
                     theme.source_note_border,
                     theme.source_note_border_width,
                 ),
+                Token::IntervalSet => channels(
+                    theme.source_interval_set,
+                    theme.source_interval_set_background,
+                    theme.source_interval_set_border,
+                    theme.source_interval_set_border_width,
+                ),
+                Token::Voicing => channels(
+                    theme.source_voicing,
+                    theme.source_voicing_background,
+                    theme.source_voicing_border,
+                    theme.source_voicing_border_width,
+                ),
                 Token::Comment
                 | Token::Payload
                 | Token::Function
@@ -785,7 +805,7 @@ impl RoleChannels {
 
 ///
 /// An Operand Cell's foreground and raw background, from its declared
-/// `colour`/`background` (`Number` or `Note`) and its
+/// `colour`/`background` (its declared operand Token's) and its
 /// finished state.
 ///
 /// The Parser labels an operand slot with its signature's declared Token
@@ -1044,6 +1064,8 @@ mod tests {
         Theme {
             source_number_border: Color32::TRANSPARENT,
             source_note_border: Color32::TRANSPARENT,
+            source_interval_set_border: Color32::TRANSPARENT,
+            source_voicing_border: Color32::TRANSPARENT,
             source_function_border: Color32::TRANSPARENT,
             source_bang_border: Color32::TRANSPARENT,
             diagnostic_border: Color32::TRANSPARENT,
@@ -1804,6 +1826,12 @@ mod tests {
         let function = painted(SourcePaint::Function, false, &theme);
         let number = painted(operand(Token::Number, OperandState::Valid), false, &theme);
         let note = painted(operand(Token::Note, OperandState::Valid), false, &theme);
+        let interval_set = painted(
+            operand(Token::IntervalSet, OperandState::Valid),
+            false,
+            &theme,
+        );
+        let voicing = painted(operand(Token::Voicing, OperandState::Valid), false, &theme);
         let ordinary = painted(SourcePaint::Unclaimed, false, &theme);
         let bang = painted(SourcePaint::Bang, false, &theme);
         let comment = painted(SourcePaint::Comment, false, &theme);
@@ -1811,6 +1839,13 @@ mod tests {
         assert_eq!(function.foreground, theme.source_function);
         assert_eq!(number.foreground, theme.source_number);
         assert_eq!(note.foreground, theme.source_note);
+        assert_eq!(interval_set.foreground, theme.source_interval_set);
+        assert_eq!(
+            interval_set.background,
+            Some(theme.source_interval_set_background)
+        );
+        assert_eq!(voicing.foreground, theme.source_voicing);
+        assert_eq!(voicing.background, Some(theme.source_voicing_background));
         assert_eq!(ordinary.foreground, theme.source_ordinary);
         assert_eq!(bang.foreground, theme.source_bang);
         assert_eq!(comment.foreground, theme.source_comment);
@@ -2451,6 +2486,10 @@ mod tests {
             source_number_border_width: width(0.3),
             source_note_border: border(40),
             source_note_border_width: width(0.4),
+            source_interval_set_border: border(70),
+            source_interval_set_border_width: width(0.7),
+            source_voicing_border: border(80),
+            source_voicing_border_width: width(0.8),
             source_function_border: border(50),
             source_function_border_width: width(0.5),
             source_bang_border: border(60),
@@ -2470,6 +2509,8 @@ mod tests {
             (SourcePaint::Comment, role(20)),
             (operand(Token::Number, OperandState::Valid), role(30)),
             (operand(Token::Note, OperandState::Valid), role(40)),
+            (operand(Token::IntervalSet, OperandState::Valid), role(70)),
+            (operand(Token::Voicing, OperandState::Valid), role(80)),
             (SourcePaint::Function, role(50)),
             (SourcePaint::Bang, role(60)),
             (
