@@ -20,7 +20,7 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 |---|---|---|
 | Number | `00` to `FF` | A byte in uppercase hexadecimal. `0a` and `G0` are not Numbers. |
 | Note | Pitch letter then octave | Uppercase for a natural, lowercase for a sharp, then `/` for the octave below `0` or `0` to `9`: `C4`, `c4`, `C/`. A Note is MIDI note `00` to `7F`. |
-| Interval Set | A chord or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `M_ M7 M9 MD M6 69 +M m_ m7 mM m6 m9 mB mD o_ o7 h7 b9 7_ 9_ 13 s2 s4 +_ a9`. Scales: `MA mi do ph ly mx lo hm mm p5 p3 bl wt ch`. A one-letter chord takes the filler `_`, and `B` and `D` stand for 11 and 13. `M ` is half-written, not a name. |
+| Interval Set | A chord or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `M_ M7 M9 MD M6 69 +M m_ m7 mM m6 m9 mB mD o_ o7 h7 b9 7_ 9_ 13 s2 s4 +_ a9`. Scales: `MA mi do ph ly mx lo hm mm p5 p3 bl wt ch`. A one-character chord name takes the filler `_`, and `B` and `D` stand for 11 and 13. `M ` is half-written, not a name. |
 | Voicing | A Voicing name | One of 8 names: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. |
 | Untyped | Any two Cells | Carried unchanged; whatever reads them at the destination decides what they mean. |
 | MIDI domains | `00` to `0F` or `00` to `7F` | Numbers that a MIDI Function also checks against a range, named in its entry. |

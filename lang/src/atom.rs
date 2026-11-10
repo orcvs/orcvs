@@ -348,7 +348,6 @@ const _: () = {
 
 define_named_literal! {
     /// How a chord's tones are arranged once its Interval Set has placed them.
-    /// Inversion is a separate Number operand and not part of this type.
     Voicing {
         Close => "CL",
         Open => "OP",
