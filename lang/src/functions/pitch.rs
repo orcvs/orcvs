@@ -75,7 +75,7 @@ mod test {
     const BODIES: [(Function, Body); 2] = [(Function::Up, up), (Function::Down, down)];
 
     /// What a transposition should answer for one operand pair, in signature
-    /// order: the Note `semitones` away, or no Note at all.
+    /// order: the Note `number` semitones from `note`, or no Note at all.
     type Reference = fn(u8, u8) -> Result<Atom, InterpretationError>;
 
     fn note(value: u8) -> Atom {

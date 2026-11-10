@@ -159,7 +159,7 @@ One of the nine numeric-family Functions Add `.+`, Subtract `.-`, Absolute Diffe
 _Avoid_: Operator, infix arithmetic, boolean comparison, saturating arithmetic
 
 **Pitch Function**:
-A value Function of the `#` family, which derives a Note from a Note. The `.` family stays numeric only, so a Function that answers a Note from a Note belongs here rather than there. A Pitch Function's answer outside `00`–`7F` diagnoses under a message naming the Function and the semitone it would have been, and writes nothing: a Note never wraps into another octave and is never clamped. It nests and writes through its Output Portal as any value Function does, and nested in a Play's note operand it decides the Note the Play sounds. Up and Down are the members so far.
+A value Function of the `#` family, which derives pitch rather than number. The `.` family stays numeric only, so any Function that derives a Note, or a set of intervals to build Notes from, belongs here rather than there, whatever its operands. A Pitch Function's answer outside `00`–`7F` diagnoses under a message naming the Function and the semitone it would have been, and writes nothing: a Note never wraps into another octave and is never clamped. It nests and writes through its Output Portal as any value Function does, and nested in a Play's note operand it decides the Note the Play sounds. Up and Down are the members so far.
 _Avoid_: Transposer, scale Function, Note arithmetic, `.` family
 
 **Up**:
