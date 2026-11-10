@@ -2097,6 +2097,33 @@ mod nesting_tests {
     }
 
     #[test]
+    fn a_nested_play_with_a_blank_note_is_refused_rather_than_rested() {
+        // A Play nested where a value is required is refused from Source
+        // alone, whatever its note holds, and so is a Play nested beside a
+        // blank rest operand. The refusal names the nesting, not the note.
+        for source in [".+!>017F  01", "!~017F  !>017FC4"] {
+            let analysis = Parser::from(source).analyze();
+
+            assert!(
+                matches!(
+                    analysis.error(),
+                    Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                ),
+                "{source:?}: {:?}",
+                analysis.error()
+            );
+            assert!(!analysis.is_complete(), "{source:?}");
+            assert!(
+                matches!(
+                    Parser::from(source).try_parse(),
+                    Err(Error::Syntax(SyntaxError::NestedEffectFunction))
+                ),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
     fn anything_but_a_blank_rest_operand_is_no_rest() {
         for source in [
             // A half-written or edge-cut note.
