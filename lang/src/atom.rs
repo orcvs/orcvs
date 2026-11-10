@@ -253,10 +253,10 @@ macro_rules! define_interval_sets {
 define_interval_sets! {
     /// A list of semitones above a root, named by a chord or a scale.
     ///
-    /// One type serves both, because Pick and Stack take a scale and answer a
-    /// chord through the same operand. Every name fills both Cells, a
-    /// one-character chord name taking the filler `_`, so a half-typed pair
-    /// stays recognisably partial.
+    /// One type serves both, so an operand taking an Interval Set accepts a
+    /// chord or a scale. Every name fills both Cells, a one-character chord
+    /// name taking the filler `_`, so a half-typed pair stays recognisably
+    /// partial.
     Major => ("M_", [0, 4, 7]),
     MajorSeventh => ("M7", [0, 4, 7, 11]),
     MajorNinth => ("M9", [0, 4, 7, 11, 14]),
