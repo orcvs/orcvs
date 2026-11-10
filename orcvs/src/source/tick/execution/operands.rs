@@ -23,7 +23,8 @@ pub(super) enum Decoded {
     /// The operands, in signature order.
     Operands(Vec<Atom>),
     /// The Function's rest operand held two blank Cells or a Clear and every
-    /// other operand decoded: the Turn is taken with nothing to perform.
+    /// other operand decoded or was excused: the Turn is taken with nothing
+    /// to perform.
     Rest,
 }
 
@@ -64,6 +65,12 @@ impl Execution<'_> {
     /// Clear there makes the Turn a rest once every other operand decodes, so
     /// a Play with no note to play sends nothing and reports nothing, however
     /// its note came to be blank.
+    ///
+    /// Where `function`'s rest ignores blanks, two blank Cells or a Clear in
+    /// any other operand refuse the Turn only if the rest operand turns out
+    /// to hold something. Those operands can stand before it, so that refusal
+    /// waits for the whole signature, and any operand that fails to decode
+    /// for another reason refuses the Turn at once, ahead of it.
     pub(super) fn decode(
         &self,
         node: &Computation,
@@ -71,6 +78,7 @@ impl Execution<'_> {
         signature: lang::Tokens,
     ) -> Result<Decoded, String> {
         let mut rests = false;
+        let mut blank_refusal = None;
         let mut operands = Vec::with_capacity(node.operands.len());
         for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
             let Some(child) = self.returning_child(operand) else {
@@ -79,7 +87,14 @@ impl Execution<'_> {
                     rests = true;
                     continue;
                 }
-                operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
+                match token.decode(spelling) {
+                    Err(error)
+                        if function.rest_ignores_blanks() && spelling == lang::BLANK_PAIR =>
+                    {
+                        blank_refusal.get_or_insert(error.to_string());
+                    }
+                    decoded => operands.push(decoded.map_err(|error| error.to_string())?),
+                }
                 continue;
             };
             let anchor = self.schedule.lookup.nodes()[child].anchor;
@@ -91,6 +106,10 @@ impl Execution<'_> {
                 // A Clear wrote two spaces at the child's Output Portal and
                 // returns no value. The parent names the child, since
                 // nothing at the operand says which Function cleared.
+                Some(Answer::Clear) if function.rest_ignores_blanks() => {
+                    blank_refusal.get_or_insert_with(|| nested(anchor, "cleared its operand"));
+                    continue;
+                }
                 Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
                 Some(Answer::Unit(atom)) => Encoding::render(atom),
                 None => return Err(nested(anchor, "returned nothing")),
@@ -101,11 +120,13 @@ impl Execution<'_> {
                     .map_err(|error| error.to_string())?,
             );
         }
-        Ok(if rests {
-            Decoded::Rest
-        } else {
-            Decoded::Operands(operands)
-        })
+        if rests {
+            return Ok(Decoded::Rest);
+        }
+        match blank_refusal {
+            Some(refusal) => Err(refusal),
+            None => Ok(Decoded::Operands(operands)),
+        }
     }
 
     /// The Cell after the last one `index`'s operands occupy. A returning last

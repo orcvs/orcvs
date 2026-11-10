@@ -210,8 +210,9 @@ pub(super) struct FunctionSite {
 pub(super) enum Parsed {
     /// Its Cells bound no Atom.
     Unparsed,
-    /// Its Cells are blank in its Function's rest operand. It binds no Atom
-    /// and blocks nothing: the Turn reads those Cells and may rest on them.
+    /// Its Cells are blank where its Function's rest may excuse them: in the
+    /// rest operand, or beside one that ignores blanks. It binds no Atom and
+    /// blocks nothing: the Turn reads those Cells and may rest on them.
     Rest,
     /// It bound an Atom that is not a Function.
     Value,
