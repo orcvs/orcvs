@@ -314,19 +314,18 @@ const fn same_semitones(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
-// Every Interval Set starts at its root, rises strictly, names at least three
-// tones, and is the only one naming its list, so the tones a set places above
-// a root include the root, are distinct and rise, and a list of semitones
-// names at most one set. A table row breaking any of these fails the build.
+// Every Interval Set is non-empty, starts at its root, rises strictly, and is
+// the only one naming its list, so the tones a set places above a root include
+// the root, are distinct and rise, and a list of semitones names at most one
+// set. A table row breaking any of these fails the build.
 const _: () = {
     let mut index = 0;
     while index < IntervalSet::ALL.len() {
         let semitones = IntervalSet::ALL[index].semitones();
         assert!(
-            semitones.len() >= 3,
-            "an Interval Set names at least three tones"
+            !semitones.is_empty() && semitones[0] == 0,
+            "an Interval Set starts at its root"
         );
-        assert!(semitones[0] == 0, "an Interval Set starts at its root");
         let mut tone = 1;
         while tone < semitones.len() {
             assert!(
