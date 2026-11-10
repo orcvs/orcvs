@@ -2,7 +2,7 @@
 //! Language Unit, Tick by Tick. Each name is two Cells, and whichever Function
 //! moves them leaves them exactly as written.
 
-use super::observed::{first, quiet};
+use super::observed::{diagnostic, first, quiet};
 use crate::grid::Grid;
 
 /// One name of each shape: a chord, a scale, the names that also spell a
@@ -68,10 +68,9 @@ fn a_half_written_name_is_still_diagnosed_rather_than_carried() {
             "{partial:?} wrote over the Output Portal"
         );
         assert_eq!(
-            tick.diagnostics.len(),
-            1,
-            "{partial:?}: {:?}",
-            tick.diagnostics
+            tick.diagnostics,
+            [diagnostic(2, 0, "=> has partial or invalid input")],
+            "{partial:?} is refused by the Copy's reading"
         );
     }
 }

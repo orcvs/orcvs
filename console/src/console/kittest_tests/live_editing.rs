@@ -133,6 +133,25 @@ fn diagnostics(plan: &TickPlan) -> Vec<((usize, usize), String)> {
         .collect()
 }
 
+///
+/// Asserts that `plan` is a rest of the Timed Play: it sends nothing, the
+/// Tick diagnoses nothing, and the Language Map does not diagnose the Play
+/// whose note slot is now empty.
+///
+fn assert_rests(harness: &Harness<'_, Console>, plan: &TickPlan, context: &str) {
+    assert!(
+        plan.play_commands.is_empty(),
+        "{context}: {:?}",
+        plan.play_commands
+    );
+    assert!(
+        plan.diagnostics.is_empty(),
+        "{context}: {:?}",
+        plan.diagnostics
+    );
+    assert!(!map_diagnoses_the_play(harness), "{context}");
+}
+
 /// Whether the Language Map diagnoses the Timed Play.
 fn map_diagnoses_the_play(harness: &Harness<'_, Console>) -> bool {
     let mut diagnosed = false;
@@ -257,8 +276,7 @@ async fn a_cleared_pair_rests_in_place_and_typing_it_back_restores_it() {
     assert_eq!(pairs(&harness), "C4    G4  A4C5  ");
     tick(&harness, banged_tick_of(0));
     let rest = tick(&harness, banged_tick_of(1));
-    assert!(rest.play_commands.is_empty(), "{:?}", rest.play_commands);
-    assert!(rest.diagnostics.is_empty(), "{:?}", rest.diagnostics);
+    assert_rests(&harness, &rest, "the cleared step");
     assert_eq!(
         notes(&tick(&harness, banged_tick_of(3))),
         [67],
@@ -338,8 +356,7 @@ async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
     assert_eq!(pairs(&harness), "C4D4  G4  A4C5  ");
     tick(&harness, banged_tick_of(1));
     let rest = tick(&harness, banged_tick_of(2));
-    assert!(rest.play_commands.is_empty(), "{:?}", rest.play_commands);
-    assert!(rest.diagnostics.is_empty(), "{:?}", rest.diagnostics);
+    assert_rests(&harness, &rest, "the pasted empty pair");
 }
 
 ///
@@ -436,15 +453,7 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
             // Step 6 empties the slot step 5 filled and step 7 finds it empty
             // already. Both rest, and neither the Tick nor the Language Map
             // reports either one.
-            None => {
-                assert!(plan.play_commands.is_empty(), "step {step}");
-                assert!(
-                    plan.diagnostics.is_empty(),
-                    "step {step}: {:?}",
-                    plan.diagnostics
-                );
-                assert!(!map_diagnoses_the_play(&reopened), "step {step}");
-            }
+            None => assert_rests(&reopened, &plan, &format!("step {step}")),
         }
         let held = tick(&reopened, banged_tick_of(step) + 1);
         assert!(held.play_commands.is_empty(), "step {step}'s unbanged Tick");

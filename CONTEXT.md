@@ -45,7 +45,7 @@ One parsed value or operation an Expression is made of: a Number, a Note, an Int
 _Avoid_: Token, glyph, symbol, cell value
 
 **Interval Set**:
-A two-Cell name for a list of semitones above a root, one of 25 chords or 14 scales. Every name fills both Cells, so a half-blank pair is partial input and a chord with a one-character name takes the filler `_`. A scale name is valid wherever a chord name is. `69` and `13` are also Numbers: an Operand Literal has no type outside the operand position that receives it.
+A two-Cell name for a list of semitones above a root, one of 25 chords or 14 scales. Every name fills both Cells, so a half-blank pair is partial input and a chord with a one-character name takes the filler `_`. A scale name is valid wherever a chord name is. `mM` (minor-major seventh) and `mm` (melodic minor) differ only by case, and a slip between them is accepted as the other name rather than diagnosed. `69` and `13` are also Numbers: an Operand Literal has no type outside the operand position that receives it.
 _Avoid_: Chord type, scale type, chord symbol
 
 **Voicing**:
@@ -61,7 +61,7 @@ A Number operand of a Chord Play: how many times the lowest tone of the Chord mo
 _Avoid_: Rotation
 
 **Operand Literal**:
-Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context. A Write's or Push's `value` takes no type: it carries the two Cells it holds unchanged, and whatever reads them at the destination interprets them. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
+Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number, Note, Interval Set or Voicing type outside that context. A Write's or Push's `value` takes no type: it carries the two Cells it holds unchanged, and whatever reads them at the destination interprets them. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Spatial Output**:
@@ -163,7 +163,7 @@ One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Pitch Function**:
-A stateless value Function in the `#` family, which derives a Note or an Interval Set and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that derives a Note or an Interval Set belongs to `#`. A Note answer outside `00`–`7F` diagnoses and writes nothing, rather than wrapping as an Arithmetic Function does within a byte.
+A stateless value Function in the `#` family, which derives a Note and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that derives a Note belongs to `#`. A Note answer outside `00`–`7F` diagnoses under a message naming the Function and the semitone it would have reached, and writes nothing: a Note never wraps, as an Arithmetic Function does within a byte, and is never clamped to the end of the range.
 _Avoid_: Transpose operator, numeric Function, wrapping pitch
 
 **Up**:

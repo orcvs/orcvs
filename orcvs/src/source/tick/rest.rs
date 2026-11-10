@@ -64,6 +64,36 @@ fn run(rows: &[&str]) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>, String)
     (plan.play_commands, diagnostics, rows_of(&source)[1].clone())
 }
 
+/// Diagnostics by anchor column, row and message.
+type Diagnostics = Vec<(usize, usize, String)>;
+
+/// The Play Commands and diagnostics of each of the first two Ticks of
+/// `rows`, with the Language Map's diagnostics on row 1 read after each.
+///
+/// The second Tick is the one that can tell a rest from a refusal deferred to
+/// the first: a Portal write lands in Source after its Tick, and the Language
+/// Map is rebuilt from what the Tick left.
+fn two_ticks(rows: &[&str]) -> Vec<(Vec<PlayCommand>, Diagnostics, Diagnostics)> {
+    let mut source = source_of(Grid::with_shape(18, 3), rows);
+    (0..2)
+        .map(|tick| {
+            let plan = source.execute(Tick::new(tick));
+            let at =
+                |d: &crate::source::Diagnostic| (d.anchor().x(), d.anchor().y(), d.message.clone());
+            (
+                plan.play_commands.clone(),
+                plan.diagnostics.iter().map(at).collect(),
+                source
+                    .language_map()
+                    .diagnostics()
+                    .filter(|d| d.anchor().y() == 1)
+                    .map(at)
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn every_play_rests_on_a_note_written_blank_in_source() {
     for play in ["  !>017F", "  !~017F  04", "  !%017F  04"] {
@@ -86,6 +116,14 @@ fn every_play_rests_on_a_note_a_portal_write_emptied() {
         assert_eq!(commands, vec![], "{play:?}");
         assert_eq!(diagnostics, vec![], "{play:?}");
         assert_eq!(&row[8..10], "  ", "{play:?}: Track emptied the slot");
+
+        // Once the slot is blank in Source, the next Tick and the Language
+        // Map rebuilt from it rest too, rather than refusing the blank note.
+        assert_eq!(
+            two_ticks(&[".=0101  &t0001  ", play]),
+            vec![(vec![], vec![], vec![]); 2],
+            "{play:?}"
+        );
     }
 }
 
@@ -541,5 +579,33 @@ fn a_blank_velocity_or_length_with_a_root_present_is_diagnosed() {
     ] {
         assert_eq!(chord(play).0, vec![], "{play:?}");
         assert!(chord_mapped(play).contains(&(2, 1)), "{play:?}");
+    }
+}
+
+#[test]
+fn a_blank_note_beside_a_cleared_operand_is_diagnosed_at_every_tick() {
+    // The note is blank in Source, which alone would rest the Play, but a
+    // `&v01` reading the blank pair south of its operand clears the channel,
+    // velocity or length beside it. In the last case a Read of blank Cells
+    // clears the velocity. The Language Map has nothing to refuse, since the
+    // Clear is a value only the Turn sees, so the Tick reports it each time.
+    for (play, child) in [
+        ("  !~&v017F  04", 4),
+        ("  !~01&v01  04", 6),
+        ("  !~017F  &v01", 10),
+        ("  !>&v017F  ", 4),
+        ("  !%01&v01  04", 6),
+        ("  !~01&>03  04", 6),
+    ] {
+        let cleared = diagnostic(
+            2,
+            1,
+            &format!("nested computation at column {child}, row 1 cleared its operand"),
+        );
+        assert_eq!(
+            two_ticks(&[".=0101", play]),
+            vec![(vec![], vec![cleared], vec![]); 2],
+            "{play:?}"
+        );
     }
 }

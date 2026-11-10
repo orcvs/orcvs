@@ -82,8 +82,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use lang::{
-    Anchor, Atom, Error, Function, FunctionInputs, InterpretationError, Interpreter, Parser,
-    PortalSource, Tick, TickInputs,
+    Anchor, Atom, Error, Function, FunctionInputs, Interpretation, InterpretationError,
+    Interpreter, Parser, PortalSource, Tick, TickInputs,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -312,11 +312,12 @@ fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
 
     // A call over Atom operands allocates nothing. `Interpreter::execute_function`
     // holds its Operand Stack inline, sized to the widest operand list the
-    // Function table declares, and every answer here is one Atom, one Play
-    // Command or a chord's inline tones, so neither the stack nor the answer
-    // asks the allocator for a block. Zero, for one pass and for four, rather than a ceiling per call:
-    // a ceiling of one block per call would admit exactly the heap-backed
-    // stack this rules out.
+    // Function table declares, and every answer here is one Atom or one Play
+    // Command, so neither the stack nor the answer asks the allocator for a
+    // block. A chord's answer is pinned by its own fixture, [`CHORDS`]. Zero,
+    // for one pass and for four, rather than a ceiling per call: a ceiling of
+    // one block per call would admit exactly the heap-backed stack this rules
+    // out.
     let short = rows(SOURCE, 0);
     let short = calls(&short);
     assert!(!short.is_empty(), "the fixture must hold calls");
@@ -461,6 +462,26 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     );
 }
 
+#[test]
+fn reading_a_resting_play_allocates_nothing() {
+    // A Play whose note slot holds two blank Cells rests: it reports no error,
+    // so it is held to the clean-row bound above and allocates nothing. Kept
+    // out of `SOURCE`, whose re-read is a published series that a new row
+    // would move.
+    for row in ["!>010A  ", "!~010A  04", "!%010A  04"] {
+        // Warm up, for the reason the call test gives.
+        black_box(Parser::at(row, 0).analyze());
+        let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
+
+        assert!(analysis.error().is_none(), "{row:?} reported an error");
+        assert_eq!(
+            allocations,
+            Allocations::default(),
+            "reading the resting {row:?} allocated"
+        );
+    }
+}
+
 /// One Turn through [`Interpreter::execute_function`], and what it allocated.
 ///
 /// The answer is dropped outside the span, so only what the Turn asked for is
@@ -481,27 +502,47 @@ fn turn<const N: usize>(function: Function, operands: [Atom; N]) -> Allocations 
     allocations
 }
 
-/// Chord Plays of twelve tones, the widest answer a Turn can make.
+/// Chord Plays and how many tones each answers: twelve, the widest answer a
+/// Turn can make, and voiced and inverted chords, whose drops, removals and
+/// moves work in the same inline buffer.
 ///
 /// Separate from [`SOURCE`] because that fixture is the benchmarks' too, and
 /// a chord row would move their series for a reason unrelated to the chord.
-const TWELVE_TONE_CHORDS: &[&str] = &["!:0064C4chCL00", "!#0064C4chCL0004"];
+const CHORDS: &[(&str, usize)] = &[
+    ("!:0064C4chCL00", 12),
+    ("!#0064C4chCL0004", 12),
+    ("!:037FC4chOP03", 12),
+    ("!#007FC3M7D60204", 4),
+    ("!:017FC4MDSH05", 3),
+];
 
 #[test]
-fn a_twelve_tone_chord_play_allocates_nothing_to_read_or_evaluate() {
+fn a_chord_play_allocates_nothing_to_read_or_evaluate() {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    let chords = rows(TWELVE_TONE_CHORDS, 0);
+    let sources: Vec<&str> = CHORDS.iter().map(|&(row, _)| row).collect();
+    let chords = rows(&sources, 0);
     let chords = calls(&chords);
-    assert_eq!(chords.len(), TWELVE_TONE_CHORDS.len());
+    assert_eq!(chords.len(), CHORDS.len());
 
-    // Twelve inline Notes are the whole of what a Chord Play's answer asks
-    // for, so this is the assertion a heap-backed answer would fail.
+    // Each row is measured as the chord it claims to be, so a row that
+    // stopped answering its tones cannot pass as an allocation-free Turn.
+    for ((function, operands), &(row, tones)) in chords.iter().zip(CHORDS) {
+        match Interpreter::execute_function(*function, operands.iter().copied(), inputs.into()) {
+            Ok(Interpretation::Chord(chord)) => {
+                assert_eq!(chord.commands().len(), tones, "{row:?}");
+            }
+            other => panic!("{row:?} answered {other:?}, not a chord"),
+        }
+    }
+
+    // Inline Notes are the whole of what a Chord Play's answer asks for, so
+    // this is the assertion a heap-backed answer would fail.
     black_box(evaluate(&chords, inputs));
     let (allocations, evaluated) = measure(|| evaluate(black_box(&chords), inputs));
     assert_eq!(evaluated, chords.len(), "every chord answers");
     assert_eq!(allocations, Allocations::default(), "a chord allocated");
 
-    for row in TWELVE_TONE_CHORDS {
+    for &row in &sources {
         black_box(Parser::at(row, 0).analyze());
         let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
         assert!(analysis.error().is_none(), "{row:?} reports an error");
@@ -525,14 +566,16 @@ fn a_turn_over_atoms_allocates_nothing() {
 
 #[test]
 fn a_copy_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
-    // A Copy reads the two Cells at its input Portal as a Function, a Number
-    // or a Note, and refuses any other spelling with a `PartialInput` that owns
-    // no text. Asking which of the three the Cells spell borrows them, so a
-    // Note or an unreadable spelling costs nothing on the way through the
-    // readings it is not, and the refusal a Turn reports is itself no block.
+    // A Copy reads the two Cells at its input Portal as a Function, a Number,
+    // a Note, an Interval Set or a Voicing, and refuses any other spelling
+    // with a `PartialInput` that owns no text. Asking which of these the Cells
+    // spell borrows them, so a name or an unreadable spelling costs nothing on
+    // the way through the readings it is not, and the refusal a Turn reports
+    // is itself no block.
     //
     // `G4` is the Note: a Note spelled in hexadecimal digits, such as `C4`,
-    // reads as a Number first and never reaches the Note reading.
+    // reads as a Number first and never reaches the Note reading. `M7` is the
+    // Interval Set and `CL` the Voicing, the last reading a Copy tries.
     let tick = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     let copy = |cells: &str| {
         Interpreter::execute_function(
@@ -542,7 +585,7 @@ fn a_copy_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
         )
     };
 
-    for cells in [".+", "0A", "G4", "xx"] {
+    for cells in [".+", "0A", "G4", "M7", "CL", "xx"] {
         // Warm up, for the reason the call test gives.
         let _ = black_box(copy(cells));
         let (allocations, answer) = measure(|| copy(black_box(cells)));

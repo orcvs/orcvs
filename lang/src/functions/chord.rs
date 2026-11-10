@@ -3,8 +3,8 @@
 use arrayvec::ArrayVec;
 
 use crate::{
-    Error, InterpretationError, IntervalSet, Length, MidiChannel, Note, PlayCommand, Velocity,
-    Voicing, atom::operands, interpreter::Context,
+    Error, Function, InterpretationError, IntervalSet, Length, MidiChannel, Note, PlayCommand,
+    Velocity, Voicing, atom::operands, interpreter::Context,
 };
 
 /// The most tones any Interval Set names, and so the most Play Commands one
@@ -45,50 +45,21 @@ pub struct ChordTones {
 impl ChordTones {
     /// One ordinary Play Command per tone, lowest first: Raw for a Raw Chord
     /// Play and Timed for a Timed one.
-    pub fn commands(&self) -> impl Iterator<Item = PlayCommand> + use<'_> {
-        let (channel, velocity) = (self.channel, self.velocity);
-        let notes = self.notes.iter().copied();
-        match self.length {
-            None => Commands::Raw(notes.map(move |note| PlayCommand::Raw {
+    pub fn commands(&self) -> impl ExactSizeIterator<Item = PlayCommand> + use<'_> {
+        let (channel, velocity, length) = (self.channel, self.velocity, self.length);
+        self.notes.iter().map(move |&note| match length {
+            None => PlayCommand::Raw {
                 channel,
                 velocity,
                 note,
-            })),
-            Some(length) => Commands::Timed(notes.map(move |note| PlayCommand::Timed {
+            },
+            Some(length) => PlayCommand::Timed {
                 channel,
                 velocity,
                 note,
                 length,
-            })),
-        }
-    }
-}
-
-/// The two iterators [`ChordTones::commands`] chooses between.
-enum Commands<R, T> {
-    Raw(R),
-    Timed(T),
-}
-
-impl<R, T> Iterator for Commands<R, T>
-where
-    R: Iterator<Item = PlayCommand>,
-    T: Iterator<Item = PlayCommand>,
-{
-    type Item = PlayCommand;
-
-    fn next(&mut self) -> Option<PlayCommand> {
-        match self {
-            Self::Raw(commands) => commands.next(),
-            Self::Timed(commands) => commands.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            Self::Raw(commands) => commands.size_hint(),
-            Self::Timed(commands) => commands.size_hint(),
-        }
+            },
+        })
     }
 }
 
@@ -110,7 +81,7 @@ pub fn raw_chord_play(ctx: &mut Context) -> Result<ChordTones, Error> {
         channel,
         velocity,
         length: None,
-        notes: tones(root, set, voicing, inversion)?,
+        notes: tones(Function::RawChordPlay, root, set, voicing, inversion)?,
     })
 }
 
@@ -133,7 +104,7 @@ pub fn timed_chord_play(ctx: &mut Context) -> Result<ChordTones, Error> {
         channel,
         velocity,
         length: Some(length),
-        notes: tones(root, set, voicing, inversion)?,
+        notes: tones(Function::TimedChordPlay, root, set, voicing, inversion)?,
     })
 }
 
@@ -144,8 +115,10 @@ pub fn timed_chord_play(ctx: &mut Context) -> Result<ChordTones, Error> {
 /// lowest tone up an octave `inversion` times, and the Voicing then moves the
 /// tones it moves. A tone is checked against the Note domain only once every
 /// move has been made, because a drop or an inversion can pass through a value
-/// outside it on the way to one inside.
+/// outside it on the way to one inside. `function` names the Chord Play in
+/// the diagnostic for a tone that ends outside it.
 fn tones(
+    function: Function,
     root: Note,
     set: IntervalSet,
     voicing: Voicing,
@@ -155,8 +128,9 @@ fn tones(
     let needed = tones_needed(voicing);
     if semitones.len() < needed {
         return Err(InterpretationError::TooFewTones {
+            set,
             voicing,
-            tones: semitones.len(),
+            needed,
         }
         .into());
     }
@@ -197,7 +171,7 @@ fn tones(
             u8::try_from(tone)
                 .ok()
                 .and_then(|value| Note::try_from(value).ok())
-                .ok_or_else(|| InterpretationError::ChordToneOutOfRange { tone }.into())
+                .ok_or_else(|| InterpretationError::ChordToneOutOfRange { function, tone }.into())
         })
         .collect()
 }
@@ -329,11 +303,12 @@ mod test {
 
     #[test]
     fn expanding_a_chord_reports_how_many_commands_it_holds() {
-        // `Vec::extend` reserves from this hint, so a Tick grows its Effects
-        // once per chord rather than once per tone.
+        // `Vec::extend` reserves from the exact length, so a Tick grows its
+        // Effects once per chord rather than once per tone.
         let Interpretation::Chord(chord) = interpret("!:0102C4chCL00").unwrap() else {
             panic!("a Chord Play answers its tones");
         };
+        assert_eq!(chord.commands().len(), 12);
         assert_eq!(chord.commands().size_hint(), (12, Some(12)));
     }
 
@@ -348,7 +323,7 @@ mod test {
             Atom::Note(note(0x3C)),
             Atom::IntervalSet(IntervalSet::Major),
             Atom::Voicing(Voicing::Close),
-            Atom::Number(0x01),
+            Atom::Number(0x03),
         ];
         let timed_operands = [
             operands[0],
@@ -360,21 +335,21 @@ mod test {
             Atom::Number(0x05),
         ];
 
-        // C4, E4, G4 inverted once is E4, G4, C5.
-        let expected_raw = raw(&[0x40, 0x43, 0x48]);
-        let expected_timed = timed(&[0x40, 0x43, 0x48], 5);
+        // C4, E4, G4 inverted three times is C5, E5, G5.
+        let expected_raw = raw(&[0x48, 0x4C, 0x4F]);
+        let expected_timed = timed(&[0x48, 0x4C, 0x4F], 5);
 
         assert_eq!(
             commands(evaluate(Function::RawChordPlay, &operands).unwrap()),
             expected_raw
         );
-        assert_eq!(commands(interpret("!:0102C4M_CL01").unwrap()), expected_raw);
+        assert_eq!(commands(interpret("!:0102C4M_CL03").unwrap()), expected_raw);
         assert_eq!(
             commands(evaluate(Function::TimedChordPlay, &timed_operands).unwrap()),
             expected_timed
         );
         assert_eq!(
-            commands(interpret("!#0102C4M_CL0105").unwrap()),
+            commands(interpret("!#0102C4M_CL0305").unwrap()),
             expected_timed
         );
     }
@@ -654,8 +629,9 @@ mod test {
                 matches!(
                     interpret(&format!("!:0102{chord}")),
                     Err(Error::Interpretation(InterpretationError::TooFewTones {
+                        set: IntervalSet::Major,
                         voicing: v,
-                        tones: 3,
+                        needed: 4,
                     })) if v == voicing
                 ),
                 "{chord}"
@@ -671,16 +647,35 @@ mod test {
     }
 
     #[test]
-    fn a_tone_outside_the_midi_range_diagnoses_the_whole_chord() {
+    fn too_few_tones_names_the_voicing_its_need_and_the_set_that_falls_short() {
+        assert_eq!(
+            interpret("!:0102C4M_SH00").unwrap_err().to_string(),
+            "Voicing SH needs 4 tones and Interval Set M_ has 3, so no tone is sent"
+        );
+        assert_eq!(
+            interpret("!#0102C4s2D60004").unwrap_err().to_string(),
+            "Voicing D6 needs 4 tones and Interval Set s2 has 3, so no tone is sent"
+        );
+    }
+
+    #[test]
+    fn a_tone_outside_the_note_range_diagnoses_the_whole_chord() {
         // G9 is the Note 7F, so M_ reaches past it; C/ is 00, so a drop falls
-        // below it. Neither sends the tones that do fit.
-        for (source, tone) in [("!:0064G9M_CL00", 131), ("!:0064C/M7D200", -5)] {
+        // below it. Neither sends the tones that do fit. Every tone is moved
+        // before any is checked, so `D6` reports its lowest tone, the root
+        // dropped an octave, rather than the first one to leave the range.
+        for (source, function, tone) in [
+            ("!:0064G9M_CL00", Function::RawChordPlay, 131),
+            ("!:0064C/M7D200", Function::RawChordPlay, -5),
+            ("!:0064C/M7D600", Function::RawChordPlay, -12),
+            ("!#0064G9M_CL0004", Function::TimedChordPlay, 131),
+        ] {
             assert!(
                 matches!(
                     interpret(source),
                     Err(Error::Interpretation(
-                        InterpretationError::ChordToneOutOfRange { tone: t }
-                    )) if t == tone
+                        InterpretationError::ChordToneOutOfRange { function: f, tone: t }
+                    )) if f == function && t == tone
                 ),
                 "{source}"
             );
@@ -693,6 +688,24 @@ mod test {
                 InterpretationError::ChordToneOutOfRange { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn a_tone_outside_the_note_range_is_named_with_its_function_in_decimal() {
+        assert_eq!(
+            interpret("!:0064G9M_CL00").unwrap_err().to_string(),
+            "!: cannot sound chord tone 131, outside the MIDI note range 0–127"
+        );
+        assert_eq!(
+            interpret("!#0064C/M7D60004").unwrap_err().to_string(),
+            "!# cannot sound chord tone -12, outside the MIDI note range 0–127"
+        );
+    }
+
+    #[test]
+    fn a_tone_at_the_top_of_the_note_range_is_sent() {
+        // C9 M_ is C9, E9 and G9, and G9 is the highest Note, 7F.
+        assert_eq!(tones("C9M_CL00").unwrap(), [0x78, 0x7C, 0x7F]);
     }
 
     #[test]
