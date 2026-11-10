@@ -26,6 +26,24 @@ pub enum InterpretationError {
     #[error("Number {0:02X} cannot be converted to a Note")]
     NoteConversion(u8),
 
+    /// A Pitch Function computed a semitone outside the Note range.
+    ///
+    /// The answer diagnoses rather than wrapping or clamping, so a Note is
+    /// never silently moved to another octave. `value` is the semitone the
+    /// answer would have been, signed because Down can pass below `00`, and
+    /// rendered in hexadecimal as every other Number the Source is shown.
+    /// `function` is the declared Function so the message renders the Cells
+    /// the Source holds.
+    #[error(
+        "{function} answers {}{:02X}, outside the Note range 00–7F",
+        if *value < 0 { "-" } else { "" },
+        value.unsigned_abs()
+    )]
+    NoteOutOfRange {
+        function: crate::Function,
+        value: i16,
+    },
+
     /// A Tick-reading Function handed a zero where its cycle needs a length.
     ///
     /// Clock's and Delay's cycle is `rate * modulus` and Euclidean's is

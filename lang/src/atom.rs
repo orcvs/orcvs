@@ -898,6 +898,7 @@ define_functions! {
     DirectionalBangSouth => ("*v", BangSouth, Bang, Never, []),
     DirectionalBangWest => ("*<", BangWest, Bang, Never, []),
     Divide => ("./", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Down => ("#-", Value, Intrinsic, Never, [note: Note, number: Number]),
     Equality => (".=", Value, Intrinsic, May, [left: Number, right: Number]),
     Euclidean => ("~%", Value, Intrinsic, May, [hits: Number, steps: Number]),
     Halt => ("*!", Halt, Bang, Never, []),
@@ -925,6 +926,7 @@ define_functions! {
     TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
     Udp => ("!u", TerminalOutput, Bang, Never, []),
+    Up => ("#+", Value, Intrinsic, Never, [note: Note, number: Number]),
     WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output East n),
     WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output North n),
     WriteSouth => ("@v", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output South n),
@@ -2161,6 +2163,12 @@ mod test {
     }
 
     #[test]
+    fn pitch_functions_display_with_the_hash_family_spellings() {
+        assert_eq!(Function::Up.to_string(), "#+");
+        assert_eq!(Function::Down.to_string(), "#-");
+    }
+
+    #[test]
     fn play_functions_display_with_the_terminal_output_family_spellings() {
         assert_eq!(Function::RawPlay.to_string(), "!>");
         assert_eq!(Function::TimedPlay.to_string(), "!~");
@@ -2204,6 +2212,7 @@ mod test {
                 | Function::ConvertToNumber
                 | Function::Delay
                 | Function::Divide
+                | Function::Down
                 | Function::Equality
                 | Function::Euclidean
                 | Function::Increment
@@ -2223,6 +2232,7 @@ mod test {
                 | Function::ReadWest
                 | Function::Subtract
                 | Function::Track
+                | Function::Up
                 | Function::AbsoluteWrite
                 | Function::Push
                 | Function::WriteEast
