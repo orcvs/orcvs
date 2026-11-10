@@ -79,8 +79,13 @@ pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
 /// then an Interval Set, then a Voicing.
 ///
 /// A name that also spells a Number or a Note, as `69`, `13` and `D2` do, reads
-/// as that Atom here. That costs nothing: every reading renders back as the
-/// same two Cells, and whatever operand receives them decodes the name itself.
+/// as that Atom here. Every reading renders back as the same two Cells, so a
+/// Copy writes the same Cells whichever reading it takes. The Source Tick
+/// renders a nested answer to its Cells and decodes them with the receiving
+/// operand's [`Token::decode`](crate::Token::decode), so there `69` reaches an
+/// Interval Set operand as an Interval Set. An Atom handed straight to
+/// [`TokenKind::from_atom`](crate::operand::TokenKind::from_atom) is checked
+/// as read here, with no second decode.
 ///
 /// Each reading borrows the Cells and builds nothing on refusal: the only
 /// error a Copy reports is `PartialInput`, so an error built by a reading the

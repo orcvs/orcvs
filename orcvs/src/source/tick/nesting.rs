@@ -327,6 +327,8 @@ mod nested_property {
         match token {
             Token::Number => "01",
             Token::Note => "C4",
+            Token::IntervalSet => "M7",
+            Token::Voicing => "CL",
             Token::Untyped => "G4",
             other => panic!("no literal spells {other:?}"),
         }

@@ -327,8 +327,8 @@ impl Token {
         match self {
             Self::Number => crate::to_atom_num(spelling),
             Self::Note => crate::to_atom_note(spelling),
-            Self::IntervalSet => crate::to_atom_interval_set(spelling),
-            Self::Voicing => crate::to_atom_voicing(spelling),
+            Self::IntervalSet => crate::atom::to_atom_interval_set(spelling),
+            Self::Voicing => crate::atom::to_atom_voicing(spelling),
             Self::Untyped => crate::atom::untyped_atom(spelling),
             // The Parser fills this position structurally rather than by
             // decoding a literal against a signature: it reads two Cells,
