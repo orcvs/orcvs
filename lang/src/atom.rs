@@ -738,13 +738,17 @@ macro_rules! define_functions {
                 }
             }
 
-            /// The index of the operand whose nested Clear rests this Function,
+            /// The index of the operand whose blankness rests this Function,
             /// when its row declares `rest:`.
             ///
-            /// A Turn whose rest operand a nested Function cleared, and whose
-            /// every other operand decodes, is a rest: it performs nothing and
-            /// reports nothing. A Clear in any other operand, or of any other
-            /// Function, leaves the operand unwritten and the Turn invalid.
+            /// A Turn whose rest operand is fully blank, whether the Source
+            /// was written blank, a Portal write emptied it or a nested
+            /// Function answered a Clear, and whose every other operand
+            /// decodes, is a rest: it performs nothing and reports nothing,
+            /// and the Language Map holds its Expression as a root. A blank
+            /// or cleared slot in any other operand, or of any other
+            /// Function, and a half-written rest operand, leave the Turn
+            /// invalid.
             pub const fn rest_operand(self) -> Option<usize> {
                 match self {
                     $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+

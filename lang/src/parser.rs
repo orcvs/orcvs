@@ -25,6 +25,7 @@ use std::ops::Range;
 pub struct SourceAnalysis {
     expression: Expression,
     error: Option<Error>,
+    rests: bool,
     start: usize,
     consumed: usize,
 }
@@ -58,6 +59,22 @@ impl SourceAnalysis {
 
     pub fn is_complete(&self) -> bool {
         self.error.is_none()
+    }
+
+    ///
+    /// Whether every refusal this Expression holds is a fully blank rest
+    /// operand: the note slot of a Play with nothing written in it, beside
+    /// operands that all decode.
+    ///
+    /// Such an Expression is not complete. Its Atoms are withheld and strict
+    /// parsing refuses it, because a blank slot is not a value. It is still a
+    /// whole Play that takes its Turn, and that Turn is a Rest, so a caller
+    /// that schedules Expressions treats it as one it schedules and reports
+    /// nothing against it. A half-written slot, a slot the Source ends inside,
+    /// and every other refusal leave it `false`.
+    ///
+    pub fn rests(&self) -> bool {
+        self.rests
     }
 }
 
@@ -112,7 +129,7 @@ impl<'a> Parser<'a> {
     /// Strictly parses one complete Expression.
     #[inline]
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
-        if let Some(error) = self.take_language_unit() {
+        if let (Some(error), _) = self.take_language_unit() {
             return Err(error);
         }
         if !self.source.is_empty() {
@@ -156,7 +173,7 @@ impl<'a> Parser<'a> {
     ///
     #[inline]
     pub fn analyze(mut self) -> SourceAnalysis {
-        let error = self.take_language_unit();
+        let (error, rests) = self.take_language_unit();
         let consumed = self.consumed();
         // Forward progress belongs to the Parser, because the Parser is what
         // decides how far one Expression reaches. A caller looping over a row
@@ -172,6 +189,7 @@ impl<'a> Parser<'a> {
         SourceAnalysis {
             expression: self.expression,
             error,
+            rests,
             start: self.start,
             consumed,
         }
@@ -179,8 +197,11 @@ impl<'a> Parser<'a> {
 
     ///
     /// A Language Unit may be a Function or a standalone Atom.
+    ///
+    /// Answers the first refusal, if any, and whether the Expression rests:
+    /// see [`SourceAnalysis::rests`].
     #[inline(always)]
-    fn take_language_unit(&mut self) -> Option<Error> {
+    fn take_language_unit(&mut self) -> (Option<Error>, bool) {
         // Most Expressions need only a few pending operands. Avoid allocating
         // a stack for each parse, but spill deeper expressions to the heap:
         // this inline capacity is an optimization, not a language limit.
@@ -188,9 +209,18 @@ impl<'a> Parser<'a> {
         let mut overflow = Vec::new();
         pending.push((Token::Function, None));
         let mut error = None;
+        // Whether a refusal other than a fully blank operand slot was met.
+        // Blank slots are judged once the whole Expression is read, against
+        // the Function each one belongs to.
+        let mut refused = false;
         while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
+                let blank = self
+                    .source
+                    .as_bytes()
+                    .get(..token.len())
+                    .is_some_and(|cells| cells.iter().all(|&cell| cell == b' '));
                 match self.take_token(&token) {
                     Ok(atom) => self.expression.add_positioned(
                         token,
@@ -199,6 +229,7 @@ impl<'a> Parser<'a> {
                         parent,
                     ),
                     Err(failure) => {
+                        refused |= !blank;
                         error.get_or_insert(failure);
                         self.expression.add_positioned(
                             token,
@@ -271,6 +302,7 @@ impl<'a> Parser<'a> {
                         // claims its operands, so the layout is the one its
                         // signatures give whichever Function stands here.
                         if parent.is_some() && !function.answers_value() {
+                            refused = true;
                             error.get_or_insert(SyntaxError::NestedEffectFunction.into());
                         }
                         // A Payload claims through the next `!`, which closes
@@ -312,6 +344,7 @@ impl<'a> Parser<'a> {
                     // A refused Function advances one character.
                     // Use a character boundary for callers outside ASCII Source.
                     self.source = &start[start.chars().next().map_or(0, char::len_utf8)..];
+                    refused = true;
                     error.get_or_insert(failure);
                     self.expression.add_positioned(
                         Token::Function,
@@ -322,7 +355,8 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        error
+        let rests = error.is_some() && !refused && unbound_slots_rest(&self.expression);
+        (error, rests)
     }
 
     ///
@@ -375,6 +409,34 @@ impl<'a> Parser<'a> {
             None => None,
         }
     }
+}
+
+///
+/// Whether every operand slot of `expression` that bound no Atom is the rest
+/// operand its Function declares, so a Turn that finds it blank rests.
+///
+/// The caller has established that every such slot is fully blank, so this
+/// judges only where each one stands. A slot's position is its index among
+/// its parent's operands, which preorder lists before any later one.
+///
+fn unbound_slots_rest(expression: &Expression) -> bool {
+    let entries = || expression.positioned();
+    entries()
+        .enumerate()
+        .filter(|(_, entry)| entry.atom.is_none() && entry.token != Token::Payload)
+        .all(|(index, entry)| {
+            let Some(parent) = entry.parent else {
+                return false;
+            };
+            let Some(Atom::Function(function)) = entries().nth(parent).and_then(|p| p.atom) else {
+                return false;
+            };
+            let slot = entries()
+                .take(index)
+                .filter(|sibling| sibling.parent == Some(parent))
+                .count();
+            function.rest_operand() == Some(slot)
+        })
 }
 
 #[inline(always)]
@@ -2028,5 +2090,66 @@ mod nesting_tests {
     fn a_root_effect_function_and_a_nested_value_function_parse() {
         assert!(Parser::from("!>007FC4").analyze().is_complete());
         assert!(Parser::from(".+.x030401").analyze().is_complete());
+    }
+}
+
+#[cfg(test)]
+mod rest_tests {
+    use super::Parser;
+
+    #[test]
+    fn a_play_whose_only_blank_operand_is_its_note_rests() {
+        for source in ["!>017F  ", "!~017F  04", "!%017F  04"] {
+            let analysis = Parser::from(source).analyze();
+            assert!(analysis.rests(), "{source:?}: {:?}", analysis.error());
+            // Resting is not a value: the Atoms stay withheld, and strict
+            // parsing refuses the Source as it refuses any blank slot.
+            assert!(!analysis.is_complete(), "{source:?}");
+            assert!(analysis.expression().atoms().is_none(), "{source:?}");
+            assert!(Parser::from(source).try_parse().is_err(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn an_expression_with_any_other_refusal_does_not_rest() {
+        for source in [
+            // A half-written note is partial input.
+            "!>017FC ",
+            "!~017F 404",
+            // A blank or invalid channel, velocity or length beside the blank
+            // note still cannot say what to play.
+            "!>  7F  ",
+            "!~01    04",
+            "!~017F    ",
+            "!%017F  ZZ",
+            "!>ZZ7F  ",
+            // A note slot the row edge cuts short is one the Grid cannot hold.
+            "!>017F ",
+            "!>017F",
+            // Note to Number reads a Note too, and has no silence to rest on.
+            ".v  ",
+            // A blank operand of any Function other than a Play is refused.
+            ".+01  ",
+        ] {
+            let analysis = Parser::from(source).analyze();
+            assert!(analysis.error().is_some(), "{source:?}");
+            assert!(!analysis.rests(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_complete_play_does_not_rest() {
+        assert!(!Parser::from("!>017FC4").analyze().rests());
+    }
+
+    #[test]
+    fn a_nested_play_with_a_blank_note_does_not_rest() {
+        // A Play nested where a value is required is refused from Source
+        // alone, whatever its note holds.
+        let analysis = Parser::from(".+!>017F  01").analyze();
+        assert!(analysis.error().is_some());
+        assert!(!analysis.rests());
+        let analysis = Parser::from("!~017F  !>017FC4").analyze();
+        assert!(!analysis.rests());
     }
 }
