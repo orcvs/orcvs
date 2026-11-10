@@ -12,15 +12,16 @@
 //! Every group occupies one column two Sector Seams (16 Cells) wide, headed
 //! by a `|| … ||` Comment naming it. Each header closes its own Comment, so
 //! the six share row 0 as six Comment Language Units and leave the Cells
-//! after them to be parsed. Every group's own examples start on row 1. A group
-//! that stacks a second header inside its own band leaves that Comment
-//! unclosed, and an unclosed Comment claims the rest of its row, so that
-//! header's row must hold no Expression east of it.
+//! after them to be parsed. Every group's own examples start on row 1. A
+//! header stacked inside a band either closes its Comment, as Pitch's does on
+//! row 10 with Tick's examples east of it, or leaves it unclosed; an unclosed
+//! Comment claims the rest of its row, so that header's row must hold no
+//! Expression east of it.
 //!
 //! | Columns   | Group                                                                            |
 //! |-----------|----------------------------------------------------------------------------------|
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                         |
-//! | `16..32`  | Numeric Conversion: `.v .^`                                                      |
+//! | `16..32`  | Numeric Conversion: `.v .^`; from row 10, Pitch: `#+ #-`                         |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                        |
 //! | `48..64`  | Copies and Halt: `=^ =v =< => =$`, `*!`; from row 23, Reads: `&t &^ &v &< &> &$` |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`                 |
@@ -260,9 +261,9 @@ mod tests {
         written: bool,
     }
 
-    /// Every result row the Arithmetic, Conversion, and Tick groups' examples
-    /// write, where `column` is each group's own anchor column (Arithmetic 0,
-    /// Conversion 16, Tick 32) since each
+    /// Every result row the Arithmetic, Conversion, Pitch and Tick groups'
+    /// examples write, where `column` is each group's own anchor column
+    /// (Arithmetic 0, Conversion and Pitch 16, Tick 32) since each
     /// group's result rows are read back from its own Cells, not always the
     /// leftmost ones.
     ///
@@ -303,6 +304,9 @@ mod tests {
             // A nested `.^` writes its own `C4` under its anchor and returns
             // the same Cells, which Addition's Number operand reads as `C4`.
             result(16, 8, "C5C4"), // .+.^3C01
+            // Pitch (column 16, under its own closed header on row 10)
+            result(16, 12, "C5"), // #+C40C (Up an octave)
+            result(16, 15, "C3"), // #-C40C (Down an octave)
             // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously

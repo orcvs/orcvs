@@ -226,6 +226,68 @@ After Tick `0`:
 C4
 ```
 
+## Pitch
+
+These derive a Note from a Note, so a pitch moves without converting through Number and back. Each
+answers a Note and runs every Tick. An answer outside `00` to `7F` diagnoses and writes nothing:
+a Note never wraps into another octave.
+
+### `#+` Up
+
+`#+ note number` answers the Note `number` semitones above `note`.
+
+```orcvs
+#+C40C  #+C407
+```
+
+After Tick `0`:
+
+```orcvs tick 0
+#+C40C  #+C407
+C5      G4
+```
+
+Nested in a Play's `note`, it transposes what the Play sounds: this plays `E4`, and the nested Up
+writes the Note it answers under its own anchor.
+
+```orcvs
+**
+!>0064#+C404
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 1
+
+!>0064#+C404
+      E4
+```
+
+### `#-` Down
+
+`#- note number` answers the Note `number` semitones below `note`.
+
+```orcvs
+#-C40C  #-C403
+```
+
+After Tick `0`:
+
+```orcvs tick 0
+#-C40C  #-C403
+C3      A3
+```
+
+Below `C/`, the lowest Note, there is nothing to answer, so it diagnoses and writes nothing:
+
+```orcvs
+#-C/01
+```
+
+```orcvs tick 0 diagnoses
+#-C/01
+```
+
 ## Tick
 
 These read the Tick number or their own last answer, so they change over time. Each runs every
