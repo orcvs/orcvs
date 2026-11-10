@@ -835,8 +835,8 @@ After Tick `0`, the Addition did not run:
 
 These perform an effect: each sends one MIDI message when a Bang reaches it, and writes nothing
 into the Source. Each is inert until a Bang reaches it. An operand outside its range diagnoses and
-sends nothing, except that a Play whose note is two empty Cells rests (see **Rest** below). Choose a
-MIDI destination under the Panel's **O** to hear them.
+sends nothing, except on a Play whose note is two empty Cells: that Play rests and checks none of its
+operands' ranges (see **Rest** below). Choose a MIDI destination under the Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
@@ -849,7 +849,8 @@ MIDI destination under the Panel's **O** to hear them.
 **Rest.** A Play whose note is two empty Cells rests: a Bang reaching it sends nothing and
 diagnoses nothing. It does not matter how the note got empty. You can leave it empty, a Function
 above it can write two empty Cells into it, or a Function nested in it can answer a Clear. Its
-other operands must still be written. Half a note, such as `C `, is partial input and diagnoses.
+other operands must still be written as values, but their ranges are not checked. Half a note, such
+as `C `, is partial input and diagnoses.
 A Monophonic Play that rests leaves its channel's note sounding until that note's own length ends.
 
 ```orcvs
