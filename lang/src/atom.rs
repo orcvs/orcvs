@@ -1412,6 +1412,10 @@ mod test {
         match token {
             crate::Token::Number => Atom::Number(0),
             crate::Token::Note => Atom::Note(Note::try_from(0).expect("00 is a Note")),
+            // An Interval Set or a Voicing has no order, so the first in its
+            // table stands for its lowest.
+            crate::Token::IntervalSet => Atom::IntervalSet(crate::IntervalSet::ALL[0]),
+            crate::Token::Voicing => Atom::Voicing(crate::Voicing::ALL[0]),
             // An untyped slot carries any Language Unit, so the lowest Number
             // is one of the values it reads.
             crate::Token::Untyped => Atom::Number(0),

@@ -1326,8 +1326,8 @@ mod test {
     ///
     /// Every domain is small enough to enumerate — the 256 Numbers, the 128
     /// MIDI Notes `C/` through `G9`, the 39 Interval Sets, the 8 Voicings, and
-    /// the untyped slot's union of them with the Bang — so the round trip below sweeps them rather than sampling
-    /// them.
+    /// the untyped slot's union of them with the Bang — so the round trip
+    /// below sweeps them rather than sampling them.
     ///
     /// `mod property`'s `literal_source` draws its Source text from here, so
     /// the two operand domains are declared once: a domain narrowed in this

@@ -814,8 +814,13 @@ fn name_units(
             )),
             (_, Some(Atom::Function(function))) => Some(LanguageUnitKind::Function(function)),
             (_, Some(Atom::Bang)) => Some(LanguageUnitKind::Bang),
-            (_, Some(Atom::Number(_) | Atom::Note(_))) => Some(LanguageUnitKind::OperandLiteral),
-            _ => None,
+            // Each Atom kind has its own arm, so a new kind fails to compile
+            // here until it is given a unit.
+            (
+                _,
+                Some(Atom::IntervalSet(_) | Atom::Note(_) | Atom::Number(_) | Atom::Voicing(_)),
+            ) => Some(LanguageUnitKind::OperandLiteral),
+            (_, None) => None,
         };
         if let Some(kind) = kind {
             walk.units.push(LanguageUnit {
@@ -1153,6 +1158,32 @@ mod tests {
                 (8, vec![8, 9]),
             ]
         );
+    }
+
+    #[test]
+    fn language_map_names_interval_set_and_voicing_values_as_operand_literals() {
+        // `M7`, `CL` and `+_` read only as an Interval Set or a Voicing, so
+        // an untyped value slot claims each one as an Operand Literal with no
+        // Number or Note reading to stand in for it.
+        for source in ["@$0601M7", "@$0601CL", "@$0601+_", "@t0103M7"] {
+            let map = LanguageMap::build(Grid::with_shape(8, 1), Cells::of(source.as_bytes()));
+
+            assert_eq!(
+                map.diagnostics().count(),
+                0,
+                "{source} reports no diagnostic"
+            );
+            assert_eq!(
+                map.units().last().map(|unit| unit.kind()),
+                Some(LanguageUnitKind::OperandLiteral),
+                "{source} names its value as an Operand Literal"
+            );
+            assert_eq!(
+                unit_spellings(&map).last(),
+                Some(&(6, vec![6, 7])),
+                "{source} spans its value's two Cells"
+            );
+        }
     }
 
     #[test]

@@ -654,7 +654,7 @@ fn blend_channel(base: Color32, on_top: Color32) -> Color32 {
 /// written `07`, a lone `|`) answers Ordinary, as an unclaimed Cell does:
 /// `RenderCell::source_paint` answers it as Unclaimed because the Parser's
 /// attempted Function classification is not a Paint distinction. Diagnostic
-/// belongs to an Invalid operand slot. Number and Note Operand facts read
+/// belongs to an Invalid operand slot. Every Operand fact reads
 /// [`operand_paint`].
 ///
 fn source_paint_visuals(
@@ -2487,6 +2487,10 @@ mod tests {
             source_function_border_width: width(0.5),
             source_bang_border: border(60),
             source_bang_border_width: width(0.6),
+            source_interval_set_border: border(70),
+            source_interval_set_border_width: width(0.7),
+            source_voicing_border: border(80),
+            source_voicing_border_width: width(0.8),
             diagnostic_border,
             ..transparent_borders()
         };
@@ -2504,6 +2508,8 @@ mod tests {
             (operand(Token::Note, OperandState::Valid), role(40)),
             (SourcePaint::Function, role(50)),
             (SourcePaint::Bang, role(60)),
+            (operand(Token::IntervalSet, OperandState::Valid), role(70)),
+            (operand(Token::Voicing, OperandState::Valid), role(80)),
             (
                 operand(Token::Number, OperandState::Invalid),
                 (
@@ -2776,6 +2782,22 @@ mod tests {
                 (
                     operand(Token::Note, OperandState::Invalid),
                     theme.source_note_background,
+                ),
+                (
+                    operand(Token::IntervalSet, OperandState::Valid),
+                    theme.source_interval_set_background,
+                ),
+                (
+                    operand(Token::IntervalSet, OperandState::Invalid),
+                    theme.source_interval_set_background,
+                ),
+                (
+                    operand(Token::Voicing, OperandState::Valid),
+                    theme.source_voicing_background,
+                ),
+                (
+                    operand(Token::Voicing, OperandState::Invalid),
+                    theme.source_voicing_background,
                 ),
             ] {
                 let visuals = painted_in(paint, INPUT, &theme);

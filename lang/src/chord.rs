@@ -6,9 +6,9 @@
 
 use crate::Spelling;
 
-/// The most tones an Interval Set names: the chromatic scale's twelve. A
-/// Chord's tones are bounded by this so they fit a fixed-capacity buffer and
-/// sounding one allocates nothing.
+/// The most tones an Interval Set names: the chromatic scale's twelve. The
+/// table below is checked against it at compile time, so every Interval Set's
+/// semitones fit a buffer of this many.
 pub(crate) const MAX_TONES: usize = 12;
 
 /// Mints [`IntervalSet`] with its complete list, its names and its semitone
