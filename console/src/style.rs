@@ -1853,6 +1853,11 @@ mod tests {
         assert_ne!(number.foreground, note.foreground);
         assert_ne!(number.foreground, ordinary.foreground);
         assert_ne!(comment.foreground, ordinary.foreground);
+        assert_ne!(interval_set.foreground, number.foreground);
+        assert_ne!(interval_set.foreground, note.foreground);
+        assert_ne!(voicing.foreground, interval_set.foreground);
+        assert_ne!(voicing.foreground, number.foreground);
+        assert_ne!(voicing.foreground, note.foreground);
 
         // A changed Theme reaches `cell_visuals` on the
         // very next call — the Source Grid paints from the resolved Theme,
@@ -2785,6 +2790,22 @@ mod tests {
                 (
                     operand(Token::Note, OperandState::Invalid),
                     theme.source_note_background,
+                ),
+                (
+                    operand(Token::IntervalSet, OperandState::Valid),
+                    theme.source_interval_set_background,
+                ),
+                (
+                    operand(Token::IntervalSet, OperandState::Invalid),
+                    theme.source_interval_set_background,
+                ),
+                (
+                    operand(Token::Voicing, OperandState::Valid),
+                    theme.source_voicing_background,
+                ),
+                (
+                    operand(Token::Voicing, OperandState::Invalid),
+                    theme.source_voicing_background,
                 ),
             ] {
                 let visuals = painted_in(paint, INPUT, &theme);
