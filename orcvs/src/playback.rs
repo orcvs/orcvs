@@ -1653,6 +1653,7 @@ mod tests {
     use super::*;
     use crate::grid::{CellIndex, Grid};
 
+    mod chord_play;
     mod shipped_knobs;
     mod shipped_trackers;
     #[cfg(not(target_arch = "wasm32"))]
