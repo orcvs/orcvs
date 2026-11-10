@@ -17,7 +17,7 @@ pub use atom::{
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};
-pub use parser::{Parser, SourceAnalysis};
+pub use parser::{BLANK_PAIR, Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
 pub(crate) use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};
