@@ -298,6 +298,55 @@ define_interval_sets! {
     ChromaticScale => ("ch", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
 }
 
+/// Whether two semitone lists are the same list, in a form a `const` item can
+/// evaluate.
+const fn same_semitones(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+// Every Interval Set starts at its root, rises strictly, names at least three
+// tones, and is the only one naming its list, so the tones a set places above
+// a root include the root, are distinct and rise, and a list of semitones
+// names at most one set. A table row breaking any of these fails the build.
+const _: () = {
+    let mut index = 0;
+    while index < IntervalSet::ALL.len() {
+        let semitones = IntervalSet::ALL[index].semitones();
+        assert!(
+            semitones.len() >= 3,
+            "an Interval Set names at least three tones"
+        );
+        assert!(semitones[0] == 0, "an Interval Set starts at its root");
+        let mut tone = 1;
+        while tone < semitones.len() {
+            assert!(
+                semitones[tone - 1] < semitones[tone],
+                "an Interval Set rises strictly"
+            );
+            tone += 1;
+        }
+        let mut other = index + 1;
+        while other < IntervalSet::ALL.len() {
+            assert!(
+                !same_semitones(semitones, IntervalSet::ALL[other].semitones()),
+                "no two Interval Sets name the same semitones"
+            );
+            other += 1;
+        }
+        index += 1;
+    }
+};
+
 define_named_literal! {
     /// How a chord's tones are arranged once its Interval Set has placed them.
     /// Inversion is a separate Number operand and not part of this type.
@@ -1507,7 +1556,7 @@ mod test {
         Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
         ReplacementChange, Velocity, to_atom_num,
     };
-    use crate::{IntervalSet, Token, Voicing};
+    use crate::{Error, IntervalSet, Token, TypeError, Voicing};
 
     /// The normative names and semitones, stated from the specification rather
     /// than read from the table under test.
@@ -1582,18 +1631,74 @@ mod test {
         assert_eq!(Voicing::ALL.len(), VOICINGS.len());
     }
 
+    /// Whether `token` refuses `cells` with its own type error, carrying the
+    /// Cells it was given.
+    fn refused_as_its_type(token: Token, cells: &str) -> bool {
+        match token.decode(cells) {
+            Err(Error::Type(TypeError::IntervalSet(found))) => {
+                token == Token::IntervalSet && found == cells
+            }
+            Err(Error::Type(TypeError::Voicing(found))) => {
+                token == Token::Voicing && found == cells
+            }
+            _ => false,
+        }
+    }
+
     #[test]
     fn an_unknown_or_half_blank_name_is_refused_by_both_literal_types() {
         for token in [Token::IntervalSet, Token::Voicing] {
-            for refused in ["  ", "M ", " M", "C ", " L", "zz", "CM", "", "M", "M_ "] {
+            for refused in [
+                "  ", "M ", " M", "C ", " L", "zz", "CM", "", "M", "M_ ", "**",
+            ] {
                 assert!(
-                    token.decode(refused).is_err(),
+                    refused_as_its_type(token, refused),
                     "{token:?} admitted {refused:?}"
                 );
             }
         }
-        assert!(Token::IntervalSet.decode("CL").is_err());
-        assert!(Token::Voicing.decode("M7").is_err());
+        for near_miss in ["m8", "MX", "M7 "] {
+            assert!(
+                refused_as_its_type(Token::IntervalSet, near_miss),
+                "{near_miss:?}"
+            );
+        }
+        for near_miss in ["cl", "D4", "D1", "CLL"] {
+            assert!(
+                refused_as_its_type(Token::Voicing, near_miss),
+                "{near_miss:?}"
+            );
+        }
+    }
+
+    /// A valid Number or Note spelling that names no member is refused, so
+    /// neither type falls back to the Number or Note reading of its Cells.
+    #[test]
+    fn a_number_or_note_spelling_that_is_no_name_is_refused_by_both_literal_types() {
+        for token in [Token::IntervalSet, Token::Voicing] {
+            for spelling in ["C4", "7F", "00"] {
+                assert!(
+                    Token::Number.decode(spelling).is_ok() || Token::Note.decode(spelling).is_ok(),
+                    "{spelling:?} spells a Number or a Note"
+                );
+                assert!(
+                    refused_as_its_type(token, spelling),
+                    "{token:?} admitted {spelling:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_interval_set_and_a_voicing_refuse_each_others_names() {
+        for voicing in Voicing::ALL {
+            let name = voicing.cells().to_string();
+            assert!(refused_as_its_type(Token::IntervalSet, &name), "{name}");
+        }
+        for set in IntervalSet::ALL {
+            let name = set.cells().to_string();
+            assert!(refused_as_its_type(Token::Voicing, &name), "{name}");
+        }
     }
 
     #[test]

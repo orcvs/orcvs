@@ -461,6 +461,26 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     );
 }
 
+#[test]
+fn reading_a_resting_play_allocates_nothing() {
+    // A Play whose note slot holds two blank Cells rests: it reports no error,
+    // so it is held to the clean-row bound above and allocates nothing. Kept
+    // out of `SOURCE`, whose re-read is a published series that a new row
+    // would move.
+    for row in ["!>010A  ", "!~010A  04", "!%010A  04"] {
+        // Warm up, for the reason the call test gives.
+        black_box(Parser::at(row, 0).analyze());
+        let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
+
+        assert!(analysis.error().is_none(), "{row:?} reported an error");
+        assert_eq!(
+            allocations,
+            Allocations::default(),
+            "reading the resting {row:?} allocated"
+        );
+    }
+}
+
 /// One Turn through [`Interpreter::execute_function`], and what it allocated.
 ///
 /// The answer is dropped outside the span, so only what the Turn asked for is
@@ -493,14 +513,16 @@ fn a_turn_over_atoms_allocates_nothing() {
 
 #[test]
 fn a_copy_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
-    // A Copy reads the two Cells at its input Portal as a Function, a Number
-    // or a Note, and refuses any other spelling with a `PartialInput` that owns
-    // no text. Asking which of the three the Cells spell borrows them, so a
-    // Note or an unreadable spelling costs nothing on the way through the
-    // readings it is not, and the refusal a Turn reports is itself no block.
+    // A Copy reads the two Cells at its input Portal as a Function, a Number,
+    // a Note, an Interval Set or a Voicing, and refuses any other spelling
+    // with a `PartialInput` that owns no text. Asking which of these the Cells
+    // spell borrows them, so a name or an unreadable spelling costs nothing on
+    // the way through the readings it is not, and the refusal a Turn reports
+    // is itself no block.
     //
     // `G4` is the Note: a Note spelled in hexadecimal digits, such as `C4`,
-    // reads as a Number first and never reaches the Note reading.
+    // reads as a Number first and never reaches the Note reading. `M7` is the
+    // Interval Set and `CL` the Voicing, the last reading a Copy tries.
     let tick = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     let copy = |cells: &str| {
         Interpreter::execute_function(
@@ -510,7 +532,7 @@ fn a_copy_allocates_nothing_to_copy_or_refuse_its_portal_cells() {
         )
     };
 
-    for cells in [".+", "0A", "G4", "xx"] {
+    for cells in [".+", "0A", "G4", "M7", "CL", "xx"] {
         // Warm up, for the reason the call test gives.
         let _ = black_box(copy(cells));
         let (allocations, answer) = measure(|| copy(black_box(cells)));

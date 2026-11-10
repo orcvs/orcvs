@@ -804,7 +804,7 @@ fn name_units(
                 _,
                 Some(Atom::Number(_) | Atom::Note(_) | Atom::IntervalSet(_) | Atom::Voicing(_)),
             ) => Some(LanguageUnitKind::OperandLiteral),
-            _ => None,
+            (_, None) => None,
         };
         if let Some(kind) = kind {
             walk.units.push(LanguageUnit {
@@ -1120,6 +1120,21 @@ mod tests {
             );
             assert_eq!(map.diagnostics().count(), 0, "{name}");
         }
+
+        // The Push value slot sits after two Number operands, so the name is
+        // claimed as one unit spanning its own two Cells.
+        let map = LanguageMap::build(Grid::with_shape(8, 1), Cells::of(b"@t0103M7"));
+        assert_eq!(
+            map.units().map(|unit| unit.kind()).collect::<Vec<_>>(),
+            vec![
+                LanguageUnitKind::Function(lang::Function::Push),
+                LanguageUnitKind::OperandLiteral,
+                LanguageUnitKind::OperandLiteral,
+                LanguageUnitKind::OperandLiteral,
+            ]
+        );
+        assert_eq!(unit_spellings(&map).last(), Some(&(6, vec![6, 7])));
+        assert_eq!(map.diagnostics().count(), 0);
     }
 
     #[test]

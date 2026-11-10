@@ -20,11 +20,14 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 |---|---|---|
 | Number | `00` to `FF` | A byte in uppercase hexadecimal. `0a` and `G0` are not Numbers. |
 | Note | Pitch letter then octave | Uppercase for a natural, lowercase for a sharp, then `/` for the octave below `0` or `0` to `9`: `C4`, `c4`, `C/`. A Note is MIDI note `00` to `7F`. |
+| Interval Set | A chord or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `M_ M7 M9 MD M6 69 +M m_ m7 mM m6 m9 mB mD o_ o7 h7 b9 7_ 9_ 13 s2 s4 +_ a9`. Scales: `MA mi do ph ly mx lo hm mm p5 p3 bl wt ch`. A one-letter chord takes the filler `_`, and `B` and `D` stand for 11 and 13. `M ` is half-written, not a name. |
+| Voicing | A Voicing name | One of 8 names: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. |
 | Untyped | Any two Cells | Carried unchanged; whatever reads them at the destination decides what they mean. |
 | MIDI domains | `00` to `0F` or `00` to `7F` | Numbers that a MIDI Function also checks against a range, named in its entry. |
 
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
-where a Number is expected.
+where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
+is expected and Numbers where a Number is, and `D2` is a Voicing, a Note or a Number by position.
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
 Function that answers a value writes it into its Output Portal, the two Cells one row south of its
@@ -902,7 +905,8 @@ After Tick `0`, the Addition did not run:
 
 These perform an effect: each sends one MIDI message when a Bang reaches it, and writes nothing
 into the Source. Each is inert until a Bang reaches it. An operand outside its range diagnoses and
-sends nothing. Choose a MIDI destination under the Panel's **O** to hear them.
+sends nothing, except that a Play whose note is two empty Cells rests (see **Rest** below). Choose a
+MIDI destination under the Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
@@ -911,6 +915,24 @@ sends nothing. Choose a MIDI destination under the Panel's **O** to hear them.
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
+
+**Rest.** A Play whose note is two empty Cells rests: a Bang reaching it sends nothing and
+diagnoses nothing. It does not matter how the note got empty. You can leave it empty, a Function
+above it can write two empty Cells into it, or a Function nested in it can answer a Clear. Its
+other operands must still be written. Half a note, such as `C `, is partial input and diagnoses.
+A Monophonic Play that rests leaves its channel's note sounding until that note's own length ends.
+
+```orcvs
+**
+!>0064
+```
+
+After Tick `0`, nothing plays:
+
+```orcvs tick 0
+
+!>0064
+```
 
 ### `!>` Play
 
