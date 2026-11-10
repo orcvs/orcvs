@@ -254,6 +254,9 @@ struct DerivedExpression {
     diagnostic: Option<Diagnostic>,
     root: Option<Position>,
     function_candidate: Option<(Position, Function)>,
+    /// Whether this Expression's only refusals are fully blank rest operands:
+    /// see [`lang::SourceAnalysis::rests`].
+    rests: bool,
     span: Span,
     /// Where this Expression's Language Units sit in its row's partition,
     /// established when the Expression was built.
@@ -267,7 +270,12 @@ struct DerivedExpression {
 impl DerivedExpression {
     /// What a schedule reads of this Expression, when a schedule computes it.
     fn scheduled(&self) -> Option<ScheduledExpression<'_>> {
-        ScheduledExpression::of(self.span, self.function_candidate, &self.expression)
+        ScheduledExpression::of(
+            self.span,
+            self.function_candidate,
+            self.rests,
+            &self.expression,
+        )
     }
 }
 
@@ -644,7 +652,7 @@ impl DerivedRow {
             let executable = analysis.is_complete();
             // A Play whose only blank operand is its note is scheduled like
             // any other, and its Turn rests, so it is a root with nothing to
-            // report (ADR 0104).
+            // report.
             let rests = analysis.rests();
             let diagnostic = analysis
                 .error()
@@ -670,6 +678,7 @@ impl DerivedRow {
                 diagnostic,
                 root,
                 function_candidate,
+                rests,
                 span,
                 units,
             });
@@ -1422,7 +1431,7 @@ mod tests {
     }
 
     /// A Play whose only unwritten operand is its note rests at its Turn, so
-    /// it is a root and the Map reports nothing against it (ADR 0104).
+    /// it is a root and the Map reports nothing against it.
     #[test]
     fn a_play_whose_only_unwritten_operand_is_its_note_is_a_root() {
         for row in ["!>007F    ", "!~007F  04", "!%007F  04"] {

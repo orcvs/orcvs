@@ -103,12 +103,15 @@ impl PartialEq for RowInputs<'_> {
 /// Function stands, and for every positioned entry its Cells, its parent and
 /// how it parsed. The Function identities decide Portal access, activation and
 /// reservations, so every Portal relationship; the Cells decide claims and the
-/// row edge diagnostic; whether an entry parsed decides syntax blocking.
+/// row edge diagnostic; whether an entry parsed, or is a blank rest operand,
+/// decides syntax blocking.
 ///
 #[derive(Clone, Copy)]
 pub(in crate::source) struct ScheduledExpression<'a> {
     span: Span,
     leading: (Position, Function),
+    /// Whether every entry that bound no Atom is a fully blank rest operand.
+    rests: bool,
     expression: &'a Expression,
 }
 
@@ -116,16 +119,19 @@ impl<'a> ScheduledExpression<'a> {
     ///
     /// The scheduling facts of the Expression `expression` parsed as, which
     /// `span` covers and `leading` begins, or none when it has no leading
-    /// Function and no schedule computes it.
+    /// Function and no schedule computes it. `rests` is the Parser's
+    /// [`lang::SourceAnalysis::rests`] for it.
     ///
     pub(in crate::source) fn of(
         span: Span,
         leading: Option<(Position, Function)>,
+        rests: bool,
         expression: &'a Expression,
     ) -> Option<Self> {
         Some(Self {
             span,
             leading: leading?,
+            rests,
             expression,
         })
     }
@@ -138,6 +144,7 @@ impl<'a> ScheduledExpression<'a> {
     /// text, without the closer.
     pub(super) fn entries(self) -> impl Iterator<Item = ScheduledEntry> + 'a {
         let expression = self.expression;
+        let rests = self.rests;
         expression.positioned().map(move |entry| match entry.token {
             Token::Payload => ScheduledEntry {
                 cells: expression
@@ -150,7 +157,12 @@ impl<'a> ScheduledExpression<'a> {
             _ => ScheduledEntry {
                 cells: entry.cells.clone(),
                 parent: entry.parent,
-                parsed: Parsed::of(entry.atom.as_ref()),
+                parsed: match Parsed::of(entry.atom.as_ref()) {
+                    // In a resting Expression, every slot that bound no Atom
+                    // is a fully blank rest operand.
+                    Parsed::Unparsed if rests => Parsed::Rest,
+                    parsed => parsed,
+                },
             },
         })
     }
@@ -210,6 +222,10 @@ pub(super) struct FunctionSite {
 pub(super) enum Parsed {
     /// Its Cells bound no Atom.
     Unparsed,
+    /// Its Cells are fully blank and it is the rest operand of its parent,
+    /// so it binds no Atom and is not a syntax error: the Turn decodes it
+    /// from working Source like any operand Cells.
+    Rest,
     /// It bound an Atom that is not a Function.
     Value,
     /// It bound this Function.

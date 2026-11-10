@@ -63,7 +63,7 @@ impl Execution<'_> {
     /// The one exception is `function`'s rest operand: a Clear there, or a
     /// slot whose Cells are all blank however they got blank, makes the Turn
     /// a rest once every other operand decodes, so a Play with no note to
-    /// play sends nothing and reports nothing (ADR 0104).
+    /// play sends nothing and reports nothing.
     pub(super) fn decode(
         &self,
         node: &Computation,

@@ -1,8 +1,8 @@
 //! A Play whose note is fully blank rests, however it got blank: written blank
 //! in Source, emptied by a Portal write, or cleared by a nested Function. Its
 //! Turn sends no Play Command and nothing reports it, at the Tick or in the
-//! Language Map (ADR 0104). A half-written note, and a blank or cleared
-//! operand of any other kind, in a Play or in another Function, stays invalid.
+//! Language Map. A half-written note, and a blank or cleared operand of any
+//! other kind, in a Play or in another Function, stays invalid.
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick.
 
@@ -240,4 +240,30 @@ fn a_blank_note_beside_a_blank_or_invalid_operand_is_diagnosed_by_every_route() 
     // And a length a Portal write emptied beside a note written blank.
     let ticks = two_ticks(&[".=0101    &t0001  ", "  !~017F  04"]);
     assert!(ticks[0].0.is_empty() && !ticks[0].1.is_empty(), "{ticks:?}");
+}
+
+#[test]
+fn a_blank_note_beside_a_cleared_operand_is_diagnosed_at_every_tick() {
+    // The note is blank in Source, which alone would rest the Play, but a
+    // `&v01` reading the blank pair south of its operand clears the channel,
+    // velocity or length beside it. In the last case a Read of blank Cells
+    // clears the velocity.
+    for (play, child) in [
+        ("  !~&v017F  04", 4),
+        ("  !~01&v01  04", 6),
+        ("  !~017F  &v01", 10),
+        ("  !>&v017F  ", 4),
+        ("  !~01&>03  04", 6),
+    ] {
+        let cleared = diagnostic(
+            2,
+            1,
+            &format!("nested computation at column {child}, row 1 cleared its operand"),
+        );
+        assert_eq!(
+            two_ticks(&[".=0101", play]),
+            vec![(vec![], vec![cleared], vec![]); 2],
+            "{play:?}"
+        );
+    }
 }
