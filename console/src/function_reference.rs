@@ -20,7 +20,7 @@
 //! | Columns   | Group                                                                            |
 //! |-----------|----------------------------------------------------------------------------------|
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                         |
-//! | `16..32`  | Numeric Conversion: `.v .^`                                                      |
+//! | `16..32`  | Numeric Conversion: `.v .^`; from row 10, Pitch: `#+ #-`                         |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                        |
 //! | `48..64`  | Copies and Halt: `=^ =v =< => =$`, `*!`; from row 23, Reads: `&t &^ &v &< &> &$` |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`                 |
@@ -303,6 +303,10 @@ mod tests {
             // A nested `.^` writes its own `C4` under its anchor and returns
             // the same Cells, which Addition's Number operand reads as `C4`.
             result(16, 8, "C5C4"), // .+.^3C01
+            // Pitch (column 16, under its own closed `|| Pitch ||` header
+            // on row 10).
+            result(16, 12, "D4"), // #+C402
+            result(16, 14, "C4"), // #-D402
             // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously

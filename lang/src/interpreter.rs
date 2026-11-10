@@ -155,6 +155,7 @@ impl Interpreter {
             }
             Function::Delay => tick::delay(&mut ctx)?,
             Function::Divide => Interpretation::Cell(math::divide(&mut ctx)?),
+            Function::Down => Interpretation::Cell(functions::pitch::down(&mut ctx)?),
             Function::Equality => math::equality(&mut ctx)?,
             Function::Euclidean => tick::euclidean(&mut ctx)?,
             Function::Increment => Interpretation::Cell(tick::increment(&mut ctx)?),
@@ -197,6 +198,7 @@ impl Interpreter {
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
             Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
+            Function::Up => Interpretation::Cell(functions::pitch::up(&mut ctx)?),
             Function::Udp => functions::network::udp(&mut ctx),
             Function::Osc => functions::network::osc(&mut ctx)?,
             Function::Halt

@@ -2,6 +2,7 @@ pub(crate) mod copy;
 pub(crate) mod math;
 pub(crate) mod network;
 pub(crate) mod numeric_conversion;
+pub(crate) mod pitch;
 pub(crate) mod read;
 pub(crate) mod tick;
 pub(crate) mod track;
