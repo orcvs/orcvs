@@ -2102,8 +2102,8 @@ mod nesting_tests {
 
     #[test]
     fn strict_parsing_refuses_trailing_content_ahead_of_a_rest() {
-        // The trailing Cells follow the blank note, and the error that comes
-        // first in the Source is the one reported.
+        // Cells past the Expression are refused ahead of the blank rest
+        // operand's refusal, which strict parsing raises last.
         assert!(
             matches!(
                 Parser::from("!>017F  XX").try_parse(),

@@ -2278,13 +2278,14 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    // A rest's root has no Atoms, but every entry but its
-                    // blank rest operand bound one.
+                    // A root without Atoms is a rest: it holds a blank rest
+                    // operand, and every other entry bound an Atom.
                     prop_assert!(
                         expression.atoms().is_some()
-                            || expression.positioned().all(|entry| entry.atom.is_some()
-                                || entry.rest
-                                || entry.token == Token::Payload),
+                            || (rest
+                                && expression.positioned().all(|entry| entry.atom.is_some()
+                                    || entry.rest
+                                    || entry.token == Token::Payload)),
                         "{:?}",
                         source,
                     );
