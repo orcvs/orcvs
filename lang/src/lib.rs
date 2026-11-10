@@ -11,7 +11,7 @@ mod tick;
 
 pub use atom::{
     Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, DistanceRule, Function, IntervalSet,
-    Length, MidiChannel, Note, PositionRule, ReplacementChange, Spelling, Velocity, Voicing,
+    Length, MidiChannel, Note, PositionRule, ReplacementChange, Role, Spelling, Velocity, Voicing,
     to_atom_note, to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
@@ -284,11 +284,11 @@ pub enum PairSelection {
     /// selection; the rule is the one its row declares and binds that
     /// Function's own operands.
     Position(PositionRule),
-    /// The pair at the Position the absolute Copy's first two operands,
-    /// `src-column` and `src-row`, name: the pair it reads.
+    /// The pair at the absolute Copy's `from` Position, its first two
+    /// operands: the pair it reads.
     SourcePosition,
-    /// The pair at the Position the absolute Copy's last two operands,
-    /// `dst-column` and `dst-row`, name: the pair it writes.
+    /// The pair at the absolute Copy's `to` Position, its last two operands:
+    /// the pair it writes.
     DestinationPosition,
 }
 

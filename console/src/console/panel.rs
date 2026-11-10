@@ -14,7 +14,7 @@ use orcvs::render_frame::RenderFrame;
 use super::Console;
 use super::diagnostics_panel::summary_height;
 use crate::console_midi;
-use crate::cursor_line::cursor_line;
+use crate::cursor_line::{Part, cursor_line};
 use crate::grid_viewport::{glyph_size, snapped_cell};
 use crate::midi::{output_readout, selected_destination_name};
 use crate::theme::{Appearance, Theme};
@@ -634,8 +634,8 @@ impl Console {
 ///
 /// The Cursor Line beneath the Panel's row, `height` tall whatever it says:
 /// what the Cursor's Cell belongs to, in the monospace readout font, names and
-/// values strong and the rest weak. Text past the Panel's width is cut with an
-/// ellipsis and shown whole on hover.
+/// values strong and the rest weak. The answer holds the right edge; the lead
+/// takes the width left of it, cut with an ellipsis and shown whole on hover.
 ///
 fn show_cursor_line(ui: &mut egui::Ui, frame: &RenderFrame, height: f32) {
     let font = panel_monospace_id(ui);
@@ -643,21 +643,36 @@ fn show_cursor_line(ui: &mut egui::Ui, frame: &RenderFrame, height: f32) {
         ui.visuals().strong_text_color(),
         ui.visuals().weak_text_color(),
     );
-    let mut job = egui::text::LayoutJob::default();
-    for part in cursor_line(frame) {
-        let colour = if part.strong { strong } else { weak };
-        job.append(
-            &part.text,
-            0.0,
-            egui::TextFormat::simple(font.clone(), colour),
-        );
-    }
+    let job = |parts: &[Part]| {
+        let mut job = egui::text::LayoutJob::default();
+        for part in parts {
+            let colour = if part.strong { strong } else { weak };
+            job.append(
+                &part.text,
+                0.0,
+                egui::TextFormat::simple(font.clone(), colour),
+            );
+        }
+        job
+    };
+    let line = cursor_line(frame);
+    // The Panel's row can be wider than the window; the answer stays in view.
+    let visible = ui.clip_rect().right() - ui.next_widget_position().x;
     ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), height),
-        egui::Layout::left_to_right(egui::Align::Center),
+        egui::vec2(ui.available_width().min(visible), height),
+        egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
-            if !job.is_empty() {
-                ui.add(egui::Label::new(job).truncate().selectable(false));
+            if !line.answer.is_empty() {
+                ui.add(egui::Label::new(job(&line.answer)).selectable(false));
+            }
+            if !line.lead.is_empty() {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(
+                        egui::Label::new(job(&line.lead))
+                            .truncate()
+                            .selectable(false),
+                    );
+                });
             }
         },
     );

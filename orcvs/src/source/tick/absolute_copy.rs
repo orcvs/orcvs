@@ -1,4 +1,4 @@
-//! The absolute Copy, `=$ src-column src-row dst-column dst-row`, written as
+//! The absolute Copy, `=$ from to`, written as
 //! a performer sees it Tick after Tick.
 //!
 //! It reads the pair at its source Position with Copy's reading rules and

@@ -32,7 +32,7 @@ async fn the_cursor_line_describes_the_function_under_the_cursor() {
     harness.run_steps(2);
 
     let line = harness
-        .get_by_label("Add  .+  answers left + right   left 03   right 04   answer ..  at 00 01")
+        .get_by_label(".+ Add               left 03  right 04   answers left + right")
         .rect();
     let play = harness.get_by_label("Play").rect();
     assert!(
@@ -54,4 +54,43 @@ async fn the_cursor_line_describes_the_function_under_the_cursor() {
             .is_none()
     );
     assert_eq!(harness.get_by_label("Play").rect(), play, "the Panel moved");
+}
+
+///
+/// However little width the Panel has, a Function's answer stays whole at the
+/// right edge and the lead gives way to it.
+///
+#[tokio::test]
+async fn the_answer_holds_the_right_edge_as_the_lead_gives_way() {
+    for width in [DEFAULT_VIEW_SIZE[0], 420.0] {
+        let size = Vec2::new(width, DEFAULT_VIEW_SIZE[1]);
+        let mut harness = running_console(size);
+        {
+            let orcvs = &mut harness.state_mut().orcvs;
+            let grid = orcvs.grid();
+            for (x, content) in ".+0304".chars().enumerate() {
+                let cell = grid.index(grid.position(x, 0).expect("inside the Grid"));
+                orcvs
+                    .source()
+                    .set(cell, &content.to_string())
+                    .expect("a Cell");
+            }
+            orcvs.select(grid.position(0, 0).expect("inside the Grid"));
+        }
+        harness.run_steps(2);
+
+        let answer = harness.get_by_label("→ .. at 00 01").rect();
+        let lead = harness.get_by_label_contains(".+ Add").rect();
+        assert!(
+            answer.right() > width - 40.0 && answer.right() <= width,
+            "at width {width} the answer ends at {}",
+            answer.right()
+        );
+        assert!(
+            lead.right() <= answer.left(),
+            "at width {width} the lead ends at {}, past the answer at {}",
+            lead.right(),
+            answer.left()
+        );
+    }
 }

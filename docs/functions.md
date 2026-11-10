@@ -606,8 +606,8 @@ C4=<C4
 
 ### `=$` Absolute Copy
 
-`=$ source-column source-row destination-column destination-row` copies the pair at one position
-to another, counting columns and rows from `00 00` at the Grid's top-left. It writes nothing south
+`=$ from to` copies the pair at the position `from` to the position `to`. Each position is two
+Numbers, column then row, counted from `00 00` at the Grid's top-left. It writes nothing south
 of itself.
 
 ```orcvs
@@ -699,7 +699,7 @@ G4
 
 ### `&$` Absolute Read
 
-`&$ column row` reads the pair at a position.
+`&$ at` reads the pair at a position, two Numbers, column then row.
 
 ```orcvs
 &$0002
@@ -797,7 +797,7 @@ After Tick `0`:
 
 ### `@$` Absolute Write
 
-`@$ column row value` writes `value` at a position. A Read in its `value`, such as
+`@$ at value` writes `value` at a position, two Numbers, column then row. A Read in its `value`, such as
 `@$0003&$0005`, copies one pair to another.
 
 ```orcvs

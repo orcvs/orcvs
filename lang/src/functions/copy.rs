@@ -54,10 +54,10 @@ pub fn absolute_copy(ctx: &mut Context) -> Result<Interpretation, Error> {
 pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
     AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
-             source_column,
-             source_row,
+             from_column,
+             from_row,
              ..
-         }| (source_column, source_row),
+         }| (from_column, from_row),
     )
 }
 
@@ -68,10 +68,8 @@ pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
 pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
     AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
-             destination_column,
-             destination_row,
-             ..
-         }| (destination_column, destination_row),
+             to_column, to_row, ..
+         }| (to_column, to_row),
     )
 }
 

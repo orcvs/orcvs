@@ -865,11 +865,11 @@ macro_rules! define_functions {
                 }
             }
 
-            /// The role each declared operand plays, in signature order: `.+`
-            /// declares `left` and `right`.
-            pub const fn roles(self) -> &'static [&'static str] {
+            /// One Role per operand this Function's row declares, each covering
+            /// that one operand.
+            const fn declared_roles(self) -> &'static [Role] {
                 match self {
-                    $(Self::$variant => &[$(stringify!($role)),*],)+
+                    $(Self::$variant => &[$(Role { name: stringify!($role), operands: 1 }),*],)+
                 }
             }
 
@@ -1132,9 +1132,47 @@ macro_rules! define_functions {
     };
 }
 
+/// What one or more consecutive operands of a Function are to a reader: `.+`
+/// has the Roles `left` and `right`, and `=$` the two Position Roles `from`
+/// and `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Role {
+    /// The Role's name in the Function reference.
+    pub name: &'static str,
+    /// How many of the Function's operands, in signature order, this Role
+    /// covers. A Position is spelled as two Numbers, column then row, and is
+    /// one Role.
+    pub operands: usize,
+}
+
+impl Function {
+    /// This Function's Roles, in signature order. Together they cover every
+    /// operand its signature declares.
+    pub const fn roles(self) -> &'static [Role] {
+        const fn position(name: &'static str) -> Role {
+            Role { name, operands: 2 }
+        }
+        const FROM_TO: &[Role] = &[position("from"), position("to")];
+        const AT: &[Role] = &[position("at")];
+        const AT_VALUE: &[Role] = &[
+            position("at"),
+            Role {
+                name: "value",
+                operands: 1,
+            },
+        ];
+        match self {
+            Self::AbsoluteCopy => FROM_TO,
+            Self::AbsoluteRead => AT,
+            Self::AbsoluteWrite => AT_VALUE,
+            _ => self.declared_roles(),
+        }
+    }
+}
+
 define_functions! {
     spelled: {
-    AbsoluteCopy => ("=$", "Absolute Copy", "copies the pair at one position to another", Value, Intrinsic, May, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
+    AbsoluteCopy => ("=$", "Absolute Copy", "copies the pair at one position to another", Value, Intrinsic, May, [from_column: Number, from_row: Number, to_column: Number, to_row: Number]),
     AbsoluteDifference => (".|", "Absolute Difference", "answers the distance between left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     AbsoluteRead => ("&$", "Absolute Read", "reads the pair at a position", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row),
     AbsoluteWrite => ("@$", "Absolute Write", "writes value at a position", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row),
@@ -2567,18 +2605,28 @@ mod test {
 
     #[test]
     fn each_function_names_its_operand_roles_in_signature_order() {
-        assert_eq!(Function::Add.roles(), ["left", "right"]);
+        let names = |function: Function| -> Vec<&str> {
+            function.roles().iter().map(|role| role.name).collect()
+        };
+        assert_eq!(names(Function::Add), ["left", "right"]);
         assert_eq!(
-            Function::TimedPlay.roles(),
+            names(Function::TimedPlay),
             ["channel", "velocity", "note", "length"]
         );
+        assert_eq!(names(Function::AbsoluteCopy), ["from", "to"]);
+        assert_eq!(names(Function::AbsoluteRead), ["at"]);
+        assert_eq!(names(Function::AbsoluteWrite), ["at", "value"]);
         assert!(Function::CopyEast.roles().is_empty());
         for function in Function::ALL {
-            let roles = function.roles();
+            let roles = names(*function);
             assert_eq!(
-                roles.len(),
+                function
+                    .roles()
+                    .iter()
+                    .map(|role| role.operands)
+                    .sum::<usize>(),
                 function.signature().len(),
-                "`{function}` names a role for each operand it declares"
+                "`{function}`'s Roles cover each operand it declares"
             );
             for (index, role) in roles.iter().enumerate() {
                 assert!(

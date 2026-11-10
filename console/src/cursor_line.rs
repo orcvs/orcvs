@@ -18,33 +18,50 @@ pub(crate) struct Part {
 }
 
 ///
-/// What the Cursor's Cell in `frame` belongs to. On any Cell of a Function's
-/// Span: its name, spelling and summary, each operand's role and two Cells,
-/// then, for a Function whose answer has a fixed place, `answer`, its Output
-/// Portal's two Cells and that Portal's Position. An empty Cell reads `.`.
-/// A Comment is named. Any other Cell answers no text: a standalone pair of
-/// Cells is diagnosed text, not an Operand Literal.
+/// The Cursor Line's text: the `lead` from the left edge, `answer` held at the
+/// right edge. Either is empty when it has nothing to say.
 ///
-pub(crate) fn cursor_line(frame: &RenderFrame) -> Vec<Part> {
-    let mut parts = Vec::new();
-    let mut push = |gap: &str, text: String, strong: bool| {
-        if !parts.is_empty() {
-            parts.push(Part {
-                text: gap.to_owned(),
-                strong: false,
-            });
-        }
-        parts.push(Part { text, strong });
-    };
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct CursorLine {
+    pub(crate) lead: Vec<Part>,
+    pub(crate) answer: Vec<Part>,
+}
+
+/// The characters a Function's spelling and name fill before its operands, so
+/// operands start in one column for most Functions.
+const IDENTITY_WIDTH: usize = 18;
+/// The space between the identity, the operands and the summary.
+const SECTION_GAP: usize = 3;
+/// The space between two operands.
+const OPERAND_GAP: usize = 2;
+
+fn part(text: impl Into<String>, strong: bool) -> Part {
+    Part {
+        text: text.into(),
+        strong,
+    }
+}
+
+///
+/// What the Cursor's Cell in `frame` belongs to. On any Cell of a Function's
+/// Span: its spelling and name, each Role's name and Cells, a Position's two
+/// Numbers read as one Role, then its summary. A Function whose answer has a
+/// fixed place answers with its Output Portal's two Cells and that Portal's
+/// Position. An empty Cell reads `.`. A Comment is named. Any other Cell
+/// answers no text: a standalone pair of Cells is diagnosed text, not an
+/// Operand Literal.
+///
+pub(crate) fn cursor_line(frame: &RenderFrame) -> CursorLine {
+    let mut line = CursorLine::default();
     let Some(owner) = frame.cursor_function() else {
         if frame
             .at(frame.cursor())
             .claim()
             .is_some_and(|claim| claim.token == Token::Comment)
         {
-            push("", "Comment".to_owned(), true);
+            line.lead.push(part("|| Comment", true));
         }
-        return parts;
+        return line;
     };
     let function = owner.function;
     // The Cells' text, reading an empty Cell as `.`. Each range is one the
@@ -58,35 +75,49 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> Vec<Part> {
             .map(|cell| cell.content().unwrap_or('.'))
             .collect()
     };
-    push("", function.name().to_owned(), true);
-    push("  ", function.cells().to_string(), true);
-    push("  ", function.summary().to_owned(), false);
-    for (role, cells) in function.roles().iter().zip(&owner.operands) {
-        push("   ", (*role).to_owned(), false);
-        push(" ", pair(cells.clone()), true);
+    let identity = format!("{} {}", function.cells(), function.name());
+    let pad = IDENTITY_WIDTH.saturating_sub(identity.len()) + SECTION_GAP;
+    line.lead.push(part(identity, true));
+    line.lead.push(part(" ".repeat(pad), false));
+    let mut operands = owner.operands.iter();
+    for (index, role) in function.roles().iter().enumerate() {
+        if index > 0 {
+            line.lead.push(part(" ".repeat(OPERAND_GAP), false));
+        }
+        let value = operands
+            .by_ref()
+            .take(role.operands)
+            .map(|cells| pair(cells.clone()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        line.lead.push(part(format!("{} ", role.name), false));
+        line.lead.push(part(value, true));
     }
+    if !function.roles().is_empty() {
+        line.lead.push(part(" ".repeat(SECTION_GAP), false));
+    }
+    line.lead.push(part(function.summary(), false));
     if let Some(cells) = &owner.answer {
-        push("   ", "answer".to_owned(), false);
-        push(" ", pair(cells.clone()), true);
         let grid = frame.grid();
         let portal = grid.position_at(
             grid.cell_index(cells.start)
                 .expect("the Portal reservation lies inside its Grid"),
         );
-        push(
-            "  ",
-            format!("at {:02X} {:02X}", portal.x(), portal.y()),
+        line.answer.push(part("\u{2192} ", false));
+        line.answer.push(part(pair(cells.clone()), true));
+        line.answer.push(part(
+            format!(" at {:02X} {:02X}", portal.x(), portal.y()),
             false,
-        );
+        ));
     }
-    parts
+    line
 }
 
 #[cfg(test)]
 mod tests {
     use orcvs::app::Orcvs;
 
-    use super::cursor_line;
+    use super::{Part, cursor_line};
 
     ///
     /// The Cursor Line with `rows` written from the top-left of a 16 by 4
@@ -105,17 +136,22 @@ mod tests {
             }
         }
         orcvs.select(grid.position(cursor.0, cursor.1).expect("inside the Grid"));
-        cursor_line(&orcvs.render_frame())
-            .into_iter()
-            .map(|part| part.text)
-            .collect()
+        let text =
+            |parts: Vec<Part>| -> String { parts.into_iter().map(|part| part.text).collect() };
+        let line = cursor_line(&orcvs.render_frame());
+        let (lead, answer) = (text(line.lead), text(line.answer));
+        if answer.is_empty() {
+            lead
+        } else {
+            format!("{lead} | {answer}")
+        }
     }
 
     #[tokio::test]
     async fn a_functions_anchor_names_it_its_operands_and_its_answer() {
         assert_eq!(
             line(&[".+0304", "07"], (0, 0)),
-            "Add  .+  answers left + right   left 03   right 04   answer 07  at 00 01"
+            ".+ Add               left 03  right 04   answers left + right | → 07 at 00 01"
         );
     }
 
@@ -123,11 +159,11 @@ mod tests {
     async fn an_operand_cell_describes_the_function_that_owns_it() {
         assert_eq!(
             line(&[".+0304"], (5, 0)),
-            "Add  .+  answers left + right   left 03   right 04   answer ..  at 00 01"
+            ".+ Add               left 03  right 04   answers left + right | → .. at 00 01"
         );
         assert_eq!(
             line(&[".+.x020304"], (6, 0)),
-            "Multiply  .x  answers left * right   left 02   right 03   answer ..  at 02 01",
+            ".x Multiply          left 02  right 03   answers left * right | → .. at 02 01",
             "a nested Function owns its own operands"
         );
     }
@@ -136,7 +172,7 @@ mod tests {
     async fn a_function_cut_short_by_the_row_edge_names_the_cells_it_has() {
         assert_eq!(
             line(&["", "", "", "             .+0"], (13, 3)),
-            "Add  .+  answers left + right   left 0   right ",
+            ".+ Add               left 0  right    answers left + right",
             "the last row has no row beneath for an answer, and its operands stop at the edge"
         );
     }
@@ -145,16 +181,32 @@ mod tests {
     async fn an_effect_function_ends_after_its_operands() {
         assert_eq!(
             line(&["!>0045C4"], (0, 0)),
-            "Play  !>  sends a Note On   channel 00   velocity 45   note C4"
+            "!> Play              channel 00  velocity 45  note C4   sends a Note On"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_position_reads_as_one_operand() {
+        assert_eq!(
+            line(&["=$00020004"], (0, 0)),
+            "=$ Absolute Copy     from 00 02  to 00 04   copies the pair at one position to another"
+        );
+        assert_eq!(
+            line(&["&$0A03"], (2, 0)),
+            "&$ Absolute Read     at 0A 03   reads the pair at a position | → .. at 00 01"
+        );
+        assert_eq!(
+            line(&["@$0A0307"], (0, 0)),
+            "@$ Absolute Write    at 0A 03  value 07   writes value at a position"
         );
     }
 
     #[tokio::test]
     async fn a_comment_and_a_bang_are_named_by_their_language_unit() {
-        assert_eq!(line(&["||note||"], (3, 0)), "Comment");
+        assert_eq!(line(&["||note||"], (3, 0)), "|| Comment");
         assert_eq!(
             line(&["**"], (1, 0)),
-            "Bang  **  activates the roots aligned with it"
+            "** Bang              activates the roots aligned with it"
         );
     }
 
