@@ -1368,24 +1368,20 @@ mod test {
                 .collect(),
             // An untyped slot holds any Language Unit a literal can spell: a
             // Bang, every Number, every Note, and every Interval Set and
-            // Voicing name. One whose spelling is also a Number's, such as
-            // `C4`, `69` or `D2`, is carried as that Number, which spells the
-            // same two Cells.
+            // Voicing name. One whose spelling an earlier reading in Copy's
+            // order also takes, such as `C4`, `69` or `D2`, is carried as
+            // that reading, which spells the same two Cells, so the domain
+            // keeps each spelling once, as the Atom an untyped slot decodes.
             Token::Untyped => {
-                let not_a_number = |atom: &Atom| crate::str_to_num(&atom.to_string()).is_err();
+                let carried_as_itself = |atom: &Atom| {
+                    crate::atom::untyped_atom(&atom.to_string()).is_ok_and(|read| read == *atom)
+                };
                 std::iter::once(Atom::Bang)
                     .chain(every_atom_of(Token::Number))
-                    .chain(every_atom_of(Token::Note).into_iter().filter(not_a_number))
-                    .chain(
-                        every_atom_of(Token::IntervalSet)
-                            .into_iter()
-                            .filter(not_a_number),
-                    )
-                    .chain(
-                        every_atom_of(Token::Voicing)
-                            .into_iter()
-                            .filter(not_a_number),
-                    )
+                    .chain(every_atom_of(Token::Note))
+                    .chain(every_atom_of(Token::IntervalSet))
+                    .chain(every_atom_of(Token::Voicing))
+                    .filter(carried_as_itself)
                     .collect()
             }
             other => panic!("no operand is declared as {other:?}"),
