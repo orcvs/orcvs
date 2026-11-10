@@ -272,7 +272,8 @@ impl DerivedExpression {
 }
 
 impl<'a> ExpressionEntry<'a> {
-    /// The first Function anchor when this is a complete executable Expression.
+    /// The first Function anchor when this Expression is executable: nothing
+    /// in it was refused, though a blank rest operand may be left unbound.
     pub fn root(self) -> Option<Position> {
         self.derived.root
     }
@@ -640,7 +641,7 @@ impl DerivedRow {
             // and then recorded on the Expression, so nothing asks again.
             let units = units_range(&row.units, grid, span);
 
-            let executable = analysis.is_complete() || analysis.rests();
+            let executable = analysis.error().is_none();
             let diagnostic = analysis
                 .error()
                 .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));

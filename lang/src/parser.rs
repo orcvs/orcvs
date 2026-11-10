@@ -25,6 +25,8 @@ use std::ops::Range;
 pub struct SourceAnalysis {
     expression: Expression,
     error: Option<Error>,
+    /// Whether nothing was refused and only a blank rest operand is unbound.
+    /// Such an Expression has no `error` and can execute, but is not complete.
     rests: bool,
     start: usize,
     consumed: usize,
@@ -61,17 +63,6 @@ impl SourceAnalysis {
     /// declares. A rest does not: its rest operand holds no value.
     pub fn is_complete(&self) -> bool {
         self.error.is_none() && !self.rests
-    }
-
-    ///
-    /// Whether this Expression reports nothing and leaves only its rest
-    /// operand unbound, because that operand's Cells are blank.
-    ///
-    /// It is executable, as a complete Expression is: whether those Cells
-    /// stay blank is decided at the Turn, once a Portal has had its write.
-    ///
-    pub fn rests(&self) -> bool {
-        self.rests
     }
 }
 
@@ -1782,7 +1773,13 @@ mod property {
                     }
                 }
             } else {
-                prop_assert!(analysis.error().is_some());
+                // Every way of not completing reports an error, except a blank
+                // rest operand, which reports nothing and binds no Atom.
+                prop_assert!(
+                    analysis.error().is_some()
+                        || expression.positioned().any(|entry| entry.rest),
+                    "{spelled:?}"
+                );
                 // Every way of not completing records the Token it could not
                 // read, and that record is what withholds the Atoms above,
                 // except a nested effect Function. It reads every Token, so
@@ -2066,7 +2063,10 @@ mod nesting_tests {
         for source in ["!>017F  ", "!~017F  04", "!%017F  04"] {
             let analysis = Parser::from(source).analyze();
 
-            assert!(analysis.rests(), "{source:?}");
+            assert!(
+                analysis.expression().positioned().any(|entry| entry.rest),
+                "{source:?}"
+            );
             assert!(analysis.error().is_none(), "{source:?}");
             // It holds no value for the note, so it is not complete.
             assert!(!analysis.is_complete(), "{source:?}");
@@ -2104,7 +2104,6 @@ mod nesting_tests {
         ] {
             let analysis = Parser::from(source).analyze();
 
-            assert!(!analysis.rests(), "{source:?}");
             assert!(analysis.error().is_some(), "{source:?}");
         }
     }
