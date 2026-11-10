@@ -65,10 +65,14 @@ pub(crate) fn cursor_line(frame: &RenderFrame) -> Vec<Part> {
         push("   ", (*role).to_owned(), false);
         push(" ", pair(cells.clone()), true);
     }
-    if let Some(portal) = owner.answer {
+    if let Some(cells) = &owner.answer {
         push("   ", "answer".to_owned(), false);
-        let start = frame.grid().index(portal).get();
-        push(" ", pair(start..start + 2), true);
+        push(" ", pair(cells.clone()), true);
+        let grid = frame.grid();
+        let portal = grid.position_at(
+            grid.cell_index(cells.start)
+                .expect("the Portal reservation lies inside its Grid"),
+        );
         push(
             "  ",
             format!("at {:02X} {:02X}", portal.x(), portal.y()),

@@ -162,17 +162,16 @@ pub struct Span {
 
 ///
 /// The Function whose Span holds a Cell, as [`LanguageMap::function_at`]
-/// answers it: the Function, the Position of its first Cell, the Cells of
-/// each operand it declares, in signature order (a nested Function's are its
-/// spelling), and the first Cell of its Output Portal Reservation, the pair
-/// a static value answer is written to.
+/// answers it: the Function, the Cells of each operand it declares, in
+/// signature order (a nested Function's are its spelling), and the Cells of
+/// its Output Portal Reservation, the pair a static value answer is written
+/// to.
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct FunctionAt {
     pub function: Function,
-    pub anchor: Position,
     pub operands: Vec<std::ops::Range<usize>>,
-    pub answer: Option<Position>,
+    pub answer: Option<std::ops::Range<usize>>,
 }
 
 ///
@@ -473,21 +472,28 @@ impl LanguageMap {
     /// Source revision's composition, not this Map's.
     ///
     fn entry_at(&self, position: Position) -> Option<&lang::PositionedEntry> {
+        let (expression, claimed) = self.claimed_at(position)?;
+        expression.expression.positioned().nth(claimed)
+    }
+
+    ///
+    /// The Expression whose Span holds `position`, and the place among its
+    /// positioned entries of the one entry that claims it, when one does.
+    ///
+    /// Expression Spans are disjoint, so the reverse walk over the row stops
+    /// at the one Span that can hold the Cell.
+    ///
+    fn claimed_at(&self, position: Position) -> Option<(&DerivedExpression, usize)> {
         let index = self.grid.index(position).get();
         let row = &self.rows[index / self.grid.columns()];
-        for expression in row.expressions.iter().rev() {
-            let span = expression.span;
-            if index < span.start().get() || index > span.end().get() {
-                continue;
-            }
-            for entry in expression.expression.positioned() {
-                if entry.cells.contains(&index) {
-                    return Some(entry);
-                }
-            }
-            return None;
-        }
-        None
+        let expression = row.expressions.iter().rev().find(|expression| {
+            (expression.span.start().get()..=expression.span.end().get()).contains(&index)
+        })?;
+        let claimed = expression
+            .expression
+            .positioned()
+            .position(|entry| entry.cells.contains(&index))?;
+        Some((expression, claimed))
     }
 
     ///
@@ -496,15 +502,8 @@ impl LanguageMap {
     /// Function's Span holds, a Comment's included, answers `None`.
     ///
     pub fn function_at(&self, position: Position) -> Option<FunctionAt> {
-        let index = self.grid.index(position).get();
-        let row = &self.rows[index / self.grid.columns()];
-        let expression = row.expressions.iter().rev().find(|expression| {
-            (expression.span.start().get()..=expression.span.end().get()).contains(&index)
-        })?;
+        let (expression, claimed) = self.claimed_at(position)?;
         let entries: Vec<&lang::PositionedEntry> = expression.expression.positioned().collect();
-        let claimed = entries
-            .iter()
-            .position(|entry| entry.cells.contains(&index))?;
         let spelled = |entry: &lang::PositionedEntry| match (entry.token, entry.atom) {
             (Token::Function, Some(Atom::Function(function))) => Some(function),
             _ => None,
@@ -527,12 +526,11 @@ impl LanguageMap {
             .collect();
         Some(FunctionAt {
             function,
-            anchor,
             operands,
             answer: super::portal::PortalAccess::output_portal_reservation(
                 self.grid, anchor, function,
             )
-            .map(|reservation| self.grid.position_at(reservation.start())),
+            .map(Span::range),
         })
     }
 

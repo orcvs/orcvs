@@ -30,8 +30,10 @@ records it and supersedes ADR 0095's growing status line.
 - **A diagnostic.** When a Language Map diagnostic covers the Cell, the line shows that diagnostic
   instead, as `.scratch/source-diagnostics/issues/02` decided. That ticket builds it, after ticket 04
   here; this effort does not.
-- **Anything else.** A Comment, a Bang or a standalone Operand Literal is named by its Language
-  Unit. An empty Cell leaves the line blank, and its space stays.
+- **Anything else.** A Comment is named `Comment`. A Bang is a Bang Function, so the line describes
+  it by its Function row like any Function. An empty Cell or a standalone pair leaves the line
+  blank, and its space stays: the pair is diagnosed, and its diagnostic belongs to
+  `.scratch/source-diagnostics/issues/02`.
 - **Where the words come from.** Each Function's name and one-line summary sit beside its row in the
   Function table in `lang/src/atom.rs`. The name is the reference heading's words
   (`.|` is `Absolute Difference`, not `AbsoluteDifference`), and a test ties the table to the
