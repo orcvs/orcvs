@@ -716,6 +716,18 @@ macro_rules! declares {
     };
 }
 
+// Whether a row's `rest:` declares `ignoring blanks`. Only that word is
+// matched, so a row naming anything else after `ignoring` fails to compile
+// rather than excusing every other operand.
+macro_rules! ignores_blanks {
+    () => {
+        false
+    };
+    (blanks) => {
+        true
+    };
+}
+
 // Checks and binds `values` through `$variant`'s operand struct, for the table
 // sweep in the tests below. A row that declares no operand has nothing to bind.
 #[cfg(test)]
@@ -938,7 +950,7 @@ macro_rules! define_functions {
             /// Turn rests only when every other operand decodes.
             pub const fn rest_ignores_blanks(self) -> bool {
                 match self {
-                    $(Self::$variant => declares!($($($ignored)?)?),)+
+                    $(Self::$variant => ignores_blanks!($($($ignored)?)?),)+
                 }
             }
 

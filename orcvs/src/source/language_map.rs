@@ -273,7 +273,8 @@ impl DerivedExpression {
 
 impl<'a> ExpressionEntry<'a> {
     /// The first Function anchor when this Expression is executable: nothing
-    /// in it was refused, though a blank rest operand may be left unbound.
+    /// in it was refused, though a blank rest operand may be left unbound,
+    /// along with the blank operands a Chord Play's blank root excuses.
     pub fn root(self) -> Option<Position> {
         self.derived.root
     }
