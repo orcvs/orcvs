@@ -1809,6 +1809,8 @@ mod test {
             // An untyped slot carries any Language Unit, so the lowest Number
             // is one of the values it reads.
             crate::Token::Untyped => Atom::Number(0),
+            crate::Token::IntervalSet => Atom::IntervalSet(IntervalSet::ALL[0]),
+            crate::Token::Voicing => Atom::Voicing(Voicing::ALL[0]),
             other => panic!("no operand is declared as {other:?}"),
         }
     }

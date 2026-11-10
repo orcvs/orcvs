@@ -2191,6 +2191,8 @@ mod test {
                 expression.push_str(match token {
                     lang::Token::Number => "01",
                     lang::Token::Note => "C4",
+                    lang::Token::IntervalSet => "M7",
+                    lang::Token::Voicing => "CL",
                     other => panic!("no effect operand is declared as {other:?}"),
                 });
             }

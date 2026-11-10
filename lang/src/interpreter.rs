@@ -700,6 +700,16 @@ mod test {
                 atoms.extend(function.signature().iter().map(|token| match token {
                     Token::Number => Atom::Number(value),
                     Token::Note => Atom::Note(Note::try_from(value & 0x7F).expect("a MIDI note")),
+                    // Each value reaches a name in turn, so an answer that
+                    // depends on which name an operand carries is swept too.
+                    Token::IntervalSet => {
+                        let sets = crate::IntervalSet::ALL;
+                        Atom::IntervalSet(sets[usize::from(value) % sets.len()])
+                    }
+                    Token::Voicing => {
+                        let voicings = crate::Voicing::ALL;
+                        Atom::Voicing(voicings[usize::from(value) % voicings.len()])
+                    }
                     // A Write answers the value it carries, so the sweep
                     // hands it a Bang there: a Write that carries one answers
                     // it.
