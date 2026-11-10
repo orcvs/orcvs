@@ -57,7 +57,7 @@ The two-Cell Source encoding a nested Function hands to the inline operand it st
 _Avoid_: Typed nested result, nested value, pass-through
 
 **Pending**:
-Not a state. A Function whose spelling is known but whose arguments are not yet valid, whether malformed or not yet written, is pending only in the ordinary sense of the word: per ADR 0069 it is invalid like any other, does not evaluate, writes nothing, returns nothing and is diagnosed, and a nested parent fails with it. Source Paint shows an unwritten operand in its declared type's colour rather than as a fault.
+Not a state. A Function whose spelling is known but whose arguments are not yet valid, whether malformed or not yet written, is pending only in the ordinary sense of the word: per ADR 0069 it is invalid like any other, does not evaluate, writes nothing, returns nothing and is diagnosed, and a nested parent fails with it. The one exception is a blank rest operand, which per ADR 0104 is a Rest. Source Paint shows an unwritten operand in its declared type's colour rather than as a fault.
 _Avoid_: Pending Function, rest, Blank Answer, incomplete Expression
 
 **Pending Operand Encoding**:
