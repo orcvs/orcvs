@@ -1,10 +1,15 @@
 use crate::{
     Atom, Error, Function, FunctionInputs, NetworkSend, Output, PlayCommand, SourceEffect, Stack,
     atom::operands,
-    functions::{self, math, numeric_conversion, tick},
+    functions::{self, chord::MAX_TONES, math, numeric_conversion, tick},
 };
+use arrayvec::ArrayVec;
 
 pub struct Interpreter {}
+
+/// The Play Commands one Turn can perform, held inline so an answer of several
+/// asks the allocator for nothing.
+pub type PlayCommands = ArrayVec<PlayCommand, MAX_TONES>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Interpretation {
@@ -19,10 +24,10 @@ pub enum Interpretation {
     /// so its parent is invalid and names it.
     Clear,
     /// The one Play Command an active Terminal Output Function root performs.
-    ///
-    /// A chord is several Terminal Output roots that one Bang activates, each
-    /// answering its own command.
     Play(PlayCommand),
+    /// The Play Commands an active Chord Play root performs: one ordinary Raw
+    /// or Timed Play Command per tone, lowest tone first.
+    Plays(PlayCommands),
     /// The one Network Send an active UDP or OSC Function root performs,
     /// boxed so a Play Command's answer stays small.
     Send(Box<NetworkSend>),
@@ -196,7 +201,13 @@ impl Interpreter {
             Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
             Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
+            Function::RawChordPlay => {
+                Interpretation::Plays(functions::chord::raw_chord_play(&mut ctx)?)
+            }
             Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
+            Function::TimedChordPlay => {
+                Interpretation::Plays(functions::chord::timed_chord_play(&mut ctx)?)
+            }
             Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
             Function::Up => Interpretation::Cell(functions::pitch::up(&mut ctx)?),
             Function::Udp => functions::network::udp(&mut ctx),

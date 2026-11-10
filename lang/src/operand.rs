@@ -153,6 +153,58 @@ impl Operand for Note {
     }
 }
 
+/// An Interval Set name: the semitones a Chord Play stacks on its root.
+pub enum IntervalSet {}
+
+impl TokenKind for IntervalSet {
+    const TOKEN: Token = Token::IntervalSet;
+    type Payload = crate::IntervalSet;
+
+    #[inline(always)]
+    fn from_atom(atom: crate::Atom) -> Result<crate::IntervalSet, Error> {
+        match atom {
+            crate::Atom::IntervalSet(set) => Ok(set),
+            atom => Err(TypeError::IntervalSet(atom.into()).into()),
+        }
+    }
+}
+
+impl Operand for IntervalSet {
+    type Token = Self;
+    type Bound = crate::IntervalSet;
+
+    #[inline(always)]
+    fn bind(set: crate::IntervalSet) -> Result<crate::IntervalSet, Error> {
+        Ok(set)
+    }
+}
+
+/// A Voicing name: how a Chord Play arranges the tones of its Interval Set.
+pub enum Voicing {}
+
+impl TokenKind for Voicing {
+    const TOKEN: Token = Token::Voicing;
+    type Payload = crate::Voicing;
+
+    #[inline(always)]
+    fn from_atom(atom: crate::Atom) -> Result<crate::Voicing, Error> {
+        match atom {
+            crate::Atom::Voicing(voicing) => Ok(voicing),
+            atom => Err(TypeError::Voicing(atom.into()).into()),
+        }
+    }
+}
+
+impl Operand for Voicing {
+    type Token = Self;
+    type Bound = crate::Voicing;
+
+    #[inline(always)]
+    fn bind(voicing: crate::Voicing) -> Result<crate::Voicing, Error> {
+        Ok(voicing)
+    }
+}
+
 /// The untyped operand: any Language Unit, carried as the Atom its two Cells
 /// spell. Only a Write's `value` declares it.
 pub enum Untyped {}

@@ -982,6 +982,9 @@ mod test {
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
         let encoding = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
+            Interpretation::Plays(commands) => {
+                return resolve(commands.into_iter().map(Effect::Play).collect());
+            }
             Interpretation::Send(send) => return resolve(vec![Effect::Send(*send)]),
             Interpretation::EmptyPayload => return resolve(vec![]),
             // The rule for what an answer becomes in Cells is production's,
@@ -2191,6 +2194,8 @@ mod test {
                 expression.push_str(match token {
                     lang::Token::Number => "01",
                     lang::Token::Note => "C4",
+                    lang::Token::IntervalSet => "M7",
+                    lang::Token::Voicing => "CL",
                     other => panic!("no effect operand is declared as {other:?}"),
                 });
             }

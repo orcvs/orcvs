@@ -1034,6 +1034,7 @@ define_functions! {
     PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
+    RawChordPlay => ("!:", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
     RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
     ReadEast => ("&>", Value, Intrinsic, May, [n: Number], distance: Input East n),
     ReadNorth => ("&^", Value, Intrinsic, May, [n: Number], distance: Input North n),
@@ -1044,6 +1045,7 @@ define_functions! {
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
     Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
+    TimedChordPlay => ("!#", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
     TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
     Udp => ("!u", TerminalOutput, Bang, Never, []),
@@ -1645,6 +1647,8 @@ mod test {
             // An untyped slot carries any Language Unit, so the lowest Number
             // is one of the values it reads.
             crate::Token::Untyped => Atom::Number(0),
+            crate::Token::IntervalSet => Atom::IntervalSet(IntervalSet::ALL[0]),
+            crate::Token::Voicing => Atom::Voicing(Voicing::ALL[0]),
             other => panic!("no operand is declared as {other:?}"),
         }
     }
@@ -2049,7 +2053,9 @@ mod test {
                 "{function:?}"
             );
             match function {
-                Function::RawPlay
+                Function::RawChordPlay
+                | Function::RawPlay
+                | Function::TimedChordPlay
                 | Function::TimedPlay
                 | Function::MonophonicPlay
                 | Function::ControlChange
@@ -2466,7 +2472,9 @@ mod test {
                 Function::ControlChange
                 | Function::MonophonicPlay
                 | Function::PitchBend
+                | Function::RawChordPlay
                 | Function::RawPlay
+                | Function::TimedChordPlay
                 | Function::TimedPlay
                 | Function::Udp
                 | Function::Osc => (false, true, false),

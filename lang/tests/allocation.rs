@@ -481,6 +481,38 @@ fn turn<const N: usize>(function: Function, operands: [Atom; N]) -> Allocations 
     allocations
 }
 
+/// Chord Plays of twelve tones, the widest answer a Turn can make.
+///
+/// Separate from [`SOURCE`] because that fixture is the benchmarks' too, and
+/// a chord row would move their series for a reason unrelated to the chord.
+const TWELVE_TONE_CHORDS: &[&str] = &["!:0064C4chCL00", "!#0064C4chCL0004"];
+
+#[test]
+fn a_twelve_tone_chord_play_allocates_nothing_to_read_or_evaluate() {
+    let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
+    let chords = rows(TWELVE_TONE_CHORDS, 0);
+    let chords = calls(&chords);
+    assert_eq!(chords.len(), TWELVE_TONE_CHORDS.len());
+
+    // Twelve inline Play Commands is the whole of what a Chord Play's answer
+    // asks for, so this is the assertion a heap-backed answer would fail.
+    black_box(evaluate(&chords, inputs));
+    let (allocations, evaluated) = measure(|| evaluate(black_box(&chords), inputs));
+    assert_eq!(evaluated, chords.len(), "every chord answers");
+    assert_eq!(allocations, Allocations::default(), "a chord allocated");
+
+    for row in TWELVE_TONE_CHORDS {
+        black_box(Parser::at(row, 0).analyze());
+        let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
+        assert!(analysis.error().is_none(), "{row:?} reports an error");
+        assert_eq!(
+            allocations,
+            Allocations::default(),
+            "reading {row:?} allocated"
+        );
+    }
+}
+
 #[test]
 fn a_turn_over_atoms_allocates_nothing() {
     // The Operand Stack is inline and the answer is one Atom, so the Turn asks
