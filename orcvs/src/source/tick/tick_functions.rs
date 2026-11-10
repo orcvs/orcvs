@@ -128,8 +128,8 @@ fn a_tick_function_with_no_cycle_diagnoses_and_writes_nothing() {
             .map(|diagnostic| diagnostic.message.clone())
             .collect::<Vec<_>>(),
         vec![
-            "~* cannot count a cycle with a zero modulus".to_string(),
-            "~% cannot count a cycle with a zero step count".to_string(),
+            "~* cannot count a cycle with zero steps".to_string(),
+            "~% cannot count a cycle with zero steps".to_string(),
         ]
     );
 }

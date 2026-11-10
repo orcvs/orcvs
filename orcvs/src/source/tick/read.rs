@@ -1,7 +1,7 @@
-//! The Reads, `&^ &v &< &> n` and `&$ column row`, read as a performer sees
+//! The Reads, `&^ &v &< &> distance` and `&$ column row`, read as a performer sees
 //! them Tick after Tick.
 //!
-//! A directional Read reads the Cell pair `n` Portals from its `n` operand in
+//! A directional Read reads the Cell pair `distance` Portals from its `distance` operand in
 //! its arrow's direction, and the absolute Read the pair at a Position. Each
 //! reads with Copy's rules and writes what it reads through its Output
 //! Portal. The pair is known only at the Read's Turn, so these tests also
@@ -123,7 +123,7 @@ fn a_clock_writing_n_is_read_the_same_tick() {
 }
 
 #[test]
-fn a_clock_driven_n_steps_east_and_wraps_at_the_modulus() {
+fn a_clock_driven_distance_steps_east_and_wraps_at_the_steps() {
     // `~.0203` steps every second Tick through `00`, `01`, `02`.
     let grid = Grid::with_shape(8, 3);
     let selected: Vec<String> = quiet_rows(grid, &["  ~.0203", "&>  C4D4"], 7)
@@ -311,7 +311,7 @@ fn a_writer_before_a_west_read_in_grid_order_is_read_the_same_tick() {
 #[test]
 fn a_nested_n_that_writes_the_selected_pair_takes_its_turn_first() {
     // The nested `=^` in the north Read's slot copies `01` from below it to
-    // the pair above it, and returns `01` as `n`: the Read reads what its
+    // the pair above it, and returns `01` as `distance`: the Read reads what its
     // own operand wrote.
     let grid = Grid::with_shape(4, 3);
     let rows = ["", "&^=^", "  01"];
@@ -723,7 +723,7 @@ fn a_nested_absolute_read_returns_its_pair() {
 #[test]
 fn a_second_read_waits_only_on_writers_still_to_take_their_turn() {
     // The west Read at (4, 0) waits for `=^` at (2, 1), which writes `03`
-    // into the pair it reads and into the south Read's `n`. The south Read
+    // into the pair it reads and into the south Read's `distance`. The south Read
     // then reads (2, 3) and waits for `=^` at (2, 4). That second wait must
     // not hold the west Read on a writer that has already taken its Turn.
     let tick = first(

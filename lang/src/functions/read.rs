@@ -1,10 +1,10 @@
 use super::copy::copy;
 use crate::{Error, Interpretation, interpreter::Context, stack::Operands};
 
-/// A Read: `&^ n`, `&v n`, `&< n`, `&> n` or `&$ column row`.
+/// A Read: `&^ distance`, `&v distance`, `&< distance`, `&> distance` or `&$ column row`.
 ///
-/// The Language Unit at the pair its operands select, `n` Portals from the
-/// `n` operand in a directional Read's direction or at the absolute Read's
+/// The Language Unit at the pair its operands select, `distance` Portals from the
+/// `distance` operand in a directional Read's direction or at the absolute Read's
 /// Position, read as a Copy reads its Input Portal. The Turn supplies
 /// the Cells of that pair, so evaluation binds the operands and answers what a
 /// Copy would.

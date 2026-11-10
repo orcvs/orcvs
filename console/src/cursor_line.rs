@@ -181,7 +181,7 @@ mod tests {
     async fn an_effect_function_ends_after_its_operands() {
         assert_eq!(
             line(&["!>0045C4"], (0, 0)),
-            "!> Play              channel 00  velocity 45  note C4   sends a Note On"
+            "!> Raw Play          channel 00  velocity 45  note C4   sends a Note On, or a Note Off at velocity 00"
         );
     }
 
@@ -189,15 +189,15 @@ mod tests {
     async fn a_position_reads_as_one_operand() {
         assert_eq!(
             line(&["=$00020004"], (0, 0)),
-            "=$ Absolute Copy     from 00 02  to 00 04   copies the pair at one position to another"
+            "=$ Absolute Copy     from 00 02  to 00 04   copies the pair at from onto the pair at to"
         );
         assert_eq!(
             line(&["&$0A03"], (2, 0)),
-            "&$ Absolute Read     at 0A 03   reads the pair at a position | → .. at 00 01"
+            "&$ Absolute Read     at 0A 03   reads the pair at a Position | → .. at 00 01"
         );
         assert_eq!(
             line(&["@$0A0307"], (0, 0)),
-            "@$ Absolute Write    at 0A 03  value 07   writes value at a position"
+            "@$ Absolute Write    at 0A 03  value 07   writes value at a Position"
         );
     }
 

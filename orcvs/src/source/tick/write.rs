@@ -1,4 +1,4 @@
-//! The Writes, `@^ @v @< @> n value` and `@$ column row value`, written as a
+//! The Writes, `@^ @v @< @> distance value` and `@$ column row value`, written as a
 //! performer sees them Tick after Tick.
 //!
 //! A directional Write writes `value` to the pair the Read with the same
@@ -337,7 +337,7 @@ fn a_write_addresses_the_pair_the_read_with_the_same_arrow_reads() {
 
 #[test]
 fn a_write_at_distance_zero_steps_itself() {
-    // `@>0002` writes `02` onto its own `n`, so the next Tick it writes two
+    // `@>0002` writes `02` onto its own `distance`, so the next Tick it writes two
     // pairs east of the operand, and from then on it holds.
     let ticks = observe_at(Grid::with_shape(8, 1), &["@>0002"], 0..3);
     let rows: Vec<&str> = ticks.iter().map(|tick| tick.rows[0].as_str()).collect();

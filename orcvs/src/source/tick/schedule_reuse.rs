@@ -529,7 +529,7 @@ fn read_through_one_shared_schedule(
 
 #[test]
 fn a_south_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
-    // The Clock writes the Read's `n` as 0, 1 and 2 in turn. `=<` writes the
+    // The Clock writes the Read's `distance` as 0, 1 and 2 in turn. `=<` writes the
     // pair one row below the operand, so the Read waits for it on every Tick
     // that selects that pair and on no other.
     let rows = ["  ~.0103", "&v      ", "    =<D4", "  E4    "];
@@ -551,7 +551,7 @@ fn an_east_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
 
 #[test]
 fn a_west_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
-    // `.+02~.0102` writes the Read's `n` as 2 and 3 in turn. `=^` writes the
+    // `.+02~.0102` writes the Read's `distance` as 2 and 3 in turn. `=^` writes the
     // pair two pairs west of the operand from below.
     let rows = [
         "        .+02~.0102",
@@ -568,7 +568,7 @@ fn a_west_read_that_waits_at_its_turn_plans_as_a_fresh_schedule_does() {
 #[test]
 fn a_north_read_plans_as_a_fresh_schedule_does() {
     // `.+01~.0102` writes 1 and 2 in turn, which `=<` copies into the Read's
-    // `n` after the Read in Grid order. `=<` on the first row writes the pair
+    // `distance` after the Read in Grid order. `=<` on the first row writes the pair
     // two rows north of the operand, and takes its Turn before the Read's
     // in Grid order.
     let rows = [

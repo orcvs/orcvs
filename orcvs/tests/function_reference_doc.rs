@@ -174,6 +174,43 @@ fn every_heading_names_its_function_as_the_table_does() {
     }
 }
 
+/// An entry that spells a signature names the operands its Function's Roles
+/// name, in order.
+#[test]
+fn every_signature_names_its_functions_roles() {
+    let lines: Vec<&str> = REFERENCE.lines().collect();
+    let entries = headings(REFERENCE);
+    let mut signatures = 0;
+    for (index, (line, heading)) in entries.iter().enumerate() {
+        let spelling = heading
+            .strip_prefix('`')
+            .and_then(|rest| rest.split_once('`'))
+            .unwrap_or_else(|| panic!("line {line}: `### {heading}` names no spelling"))
+            .0;
+        let function = Function::ALL
+            .iter()
+            .find(|function| function.cells().to_string() == spelling)
+            .unwrap_or_else(|| panic!("line {line}: `{spelling}` is no Function in the table"));
+        let end = entries
+            .get(index + 1)
+            .map_or(lines.len(), |(next, _)| next - 1);
+        let signature = lines[*line..end]
+            .iter()
+            .flat_map(|text| text.split('`').skip(1).step_by(2))
+            .find_map(|span| span.strip_prefix(spelling)?.strip_prefix(' '));
+        if let Some(signature) = signature {
+            signatures += 1;
+            let roles: Vec<&str> = function.roles().iter().map(|role| role.name).collect();
+            assert_eq!(
+                signature.split(' ').collect::<Vec<_>>(),
+                roles,
+                "line {line}: the table's Roles for `{spelling}`"
+            );
+        }
+    }
+    assert!(signatures > 0, "no entry spells a signature");
+}
+
 /// Each Function's summary in the table is one short line.
 #[test]
 fn every_summary_is_one_short_line() {

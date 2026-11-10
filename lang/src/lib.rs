@@ -271,7 +271,7 @@ pub enum PairSelection {
     /// starting directly under its anchor, wherever its operands end. Push's
     /// selection.
     Lane,
-    /// The pair `n` Portals from the `n` operand's slot, the pair immediately
+    /// The pair `distance` Portals from the `distance` operand's slot, the pair immediately
     /// after the Function's spelling, in the direction its [`DistanceRule`]
     /// counts. Each step is one pair east or west, or one row north or south
     /// in the slot's columns, so a distance of zero is the slot itself. A

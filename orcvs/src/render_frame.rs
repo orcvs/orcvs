@@ -1406,8 +1406,8 @@ mod tests {
 
     #[test]
     fn each_cell_a_committed_tick_read_plays_the_input_role_and_moves_with_the_read() {
-        // `&v` reads the pair `n` rows south of its operand: (2, 1) at `01`,
-        // and (2, 2) once `n` is `02`.
+        // `&v` reads the pair `distance` rows south of its operand: (2, 1) at `01`,
+        // and (2, 2) once `distance` is `02`.
         let grid = Grid::with_shape(4, 4);
         let source = SourceCommander::new(grid);
         write_row(&source, grid, "&v01");

@@ -71,7 +71,7 @@ pub enum InterpretationError {
     /// `function` is the declared [`crate::Function`] rather than a spelling
     /// written down here, so the diagnostic renders the Cells the Source
     /// actually holds.
-    #[error("{function} cannot count a cycle with a zero {role}")]
+    #[error("{function} cannot count a cycle with zero {role}")]
     ZeroCycle {
         function: crate::Function,
         role: &'static str,
@@ -102,7 +102,7 @@ pub enum InterpretationError {
     /// [`InterpretationError::ZeroCycle`] above: only one Function can raise
     /// this, so there is nothing for a field to distinguish. It is still
     /// rendered from the declaration rather than spelled out in prose, because
-    /// a Source shown `~% cannot count a cycle with a zero step count` beside
+    /// a Source shown `~% cannot count a cycle with zero steps` beside
     /// `Euclidean cannot fit ...` has been told about two Functions where it
     /// wrote one: the spelling is what its Cells hold.
     #[error(

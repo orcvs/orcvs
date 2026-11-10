@@ -12,7 +12,7 @@ use crate::{
 #[inline]
 pub fn to_number(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack
-        .apply(|ConvertToNumber { value }: ConvertToNumber| Ok(Atom::Number(value.value())))
+        .apply(|ConvertToNumber { note }: ConvertToNumber| Ok(Atom::Number(note.value())))
 }
 
 /// Convert to Note: `.^ number`.
@@ -21,10 +21,10 @@ pub fn to_number(ctx: &mut Context) -> Result<Atom, Error> {
 /// folded into the range.
 #[inline]
 pub fn to_note(ctx: &mut Context) -> Result<Atom, Error> {
-    ctx.stack.apply(|ConvertToNote { value }: ConvertToNote| {
+    ctx.stack.apply(|ConvertToNote { number }: ConvertToNote| {
         // `Note`'s own conversion is the one range check, and its refusal
         // is the diagnostic.
-        Ok(Atom::Note(Note::try_from(value)?))
+        Ok(Atom::Note(Note::try_from(number)?))
     })
 }
 
