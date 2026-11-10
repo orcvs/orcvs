@@ -122,18 +122,18 @@ impl<'a> Parser<'a> {
     /// Strictly parses one complete Expression.
     #[inline]
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
-        let error = self.take_language_unit().or_else(|| {
-            self.blank_rest.map(|token| {
-                token
-                    .decode(BLANK_PAIR)
-                    .expect_err("a blank pair decodes to no value")
-            })
-        });
-        if let Some(error) = error {
+        if let Some(error) = self.take_language_unit() {
             return Err(error);
         }
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
+        }
+        // A blank rest operand is refused last: an operand that does not
+        // decode, and Cells past the Expression, are refused ahead of it.
+        if let Some(token) = self.blank_rest {
+            return Err(token
+                .decode(BLANK_PAIR)
+                .expect_err("a blank pair decodes to no value"));
         }
         // Every record of an Expression that reported no error carries an Atom,
         // with one exception: a Comment is a complete Language Unit that is not
@@ -1816,10 +1816,14 @@ mod property {
                 }
             } else {
                 // Every way of not completing reports an error, except a blank
-                // rest operand, which reports nothing and binds no Atom.
+                // rest operand, which reports nothing and binds no Atom. Every
+                // other entry of such an Expression bound what it reads.
                 prop_assert!(
                     analysis.error().is_some()
-                        || expression.positioned().any(|entry| entry.rest),
+                        || (expression.positioned().any(|entry| entry.rest)
+                            && expression.positioned().all(|entry| entry.atom.is_some()
+                                || entry.rest
+                                || entry.token == Token::Payload)),
                     "{spelled:?}"
                 );
                 // Every way of not completing records the Token it could not
@@ -2123,6 +2127,21 @@ mod nesting_tests {
                 .unwrap_err()
                 .to_string(),
             "expected a note, found \"  \""
+        );
+    }
+
+    #[test]
+    fn strict_parsing_refuses_trailing_content_ahead_of_a_rest() {
+        // Cells past the Expression are refused ahead of the blank rest
+        // operand's refusal, which strict parsing raises last.
+        assert!(
+            matches!(
+                Parser::from("!>017F  XX").try_parse(),
+                Err(Error::Syntax(SyntaxError::UnexpectedTrailingContent(ref trailing)))
+                    if trailing == "XX"
+            ),
+            "{:?}",
+            Parser::from("!>017F  XX").try_parse()
         );
     }
 

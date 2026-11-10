@@ -2325,7 +2325,17 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    prop_assert!(expression.atoms().is_some() || rest, "{:?}", source);
+                    // A root without Atoms is a rest: it holds a blank rest
+                    // operand, and every other entry bound an Atom.
+                    prop_assert!(
+                        expression.atoms().is_some()
+                            || (rest
+                                && expression.positioned().all(|entry| entry.atom.is_some()
+                                    || entry.rest
+                                    || entry.token == Token::Payload)),
+                        "{:?}",
+                        source,
+                    );
                     prop_assert!(span.positions().any(|position| position == root));
                 }
                 if let Some(diagnostic) = expression.diagnostic() {
