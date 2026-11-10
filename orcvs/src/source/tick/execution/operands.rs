@@ -77,6 +77,7 @@ impl Execution<'_> {
         function: Function,
         signature: lang::Tokens,
     ) -> Result<Decoded, String> {
+        let ignores_blanks = function.rest_ignores_blanks();
         let mut rests = false;
         let mut blank_refusal = None;
         let mut operands = Vec::with_capacity(node.operands.len());
@@ -88,9 +89,7 @@ impl Execution<'_> {
                     continue;
                 }
                 match token.decode(spelling) {
-                    Err(error)
-                        if function.rest_ignores_blanks() && spelling == lang::BLANK_PAIR =>
-                    {
+                    Err(error) if ignores_blanks && spelling == lang::BLANK_PAIR => {
                         blank_refusal.get_or_insert(error.to_string());
                     }
                     decoded => operands.push(decoded.map_err(|error| error.to_string())?),
@@ -106,7 +105,7 @@ impl Execution<'_> {
                 // A Clear wrote two spaces at the child's Output Portal and
                 // returns no value. The parent names the child, since
                 // nothing at the operand says which Function cleared.
-                Some(Answer::Clear) if function.rest_ignores_blanks() => {
+                Some(Answer::Clear) if ignores_blanks => {
                     blank_refusal.get_or_insert_with(|| nested(anchor, "cleared its operand"));
                     continue;
                 }

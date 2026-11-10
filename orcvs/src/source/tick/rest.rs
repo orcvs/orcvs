@@ -418,6 +418,17 @@ fn a_root_a_portal_emptied_ignores_an_operand_a_nested_read_cleared() {
 }
 
 #[test]
+fn a_root_a_portal_emptied_ignores_an_operand_left_blank_in_source() {
+    for play in ["  !:017FC4  CL00", "  !#017FC4  CL0004", "  !:  7FC4M7CL00"] {
+        assert_eq!(
+            chord_tick(&[".=0101  &t0001  ", play]),
+            (vec![], vec![]),
+            "{play:?}"
+        );
+    }
+}
+
+#[test]
 fn a_chord_rest_does_not_evaluate_a_channel_outside_its_domain() {
     assert_eq!(chord("  !:807F  M7CL00"), (vec![], vec![]));
     let (commands, diagnostics) = chord("  !:807FC4M7CL00");
