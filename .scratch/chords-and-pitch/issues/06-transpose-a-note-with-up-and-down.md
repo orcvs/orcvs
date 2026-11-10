@@ -1,6 +1,6 @@
 # 06 — Transpose a Note with Up and Down
 
-Status: ready-for-agent
+Status: resolved
 
 Blocked by: None — can start immediately
 
@@ -9,9 +9,9 @@ which answer a Note. They establish the `#` family in the Function table.
 
 ## Acceptance criteria
 
-- [ ] Each has arity, type and domain coverage, matching what the Arithmetic Functions have.
-- [ ] An answer outside `00`–`7F` diagnoses and never wraps.
-- [ ] Each works as a root and nested, writing through its Output Portal as any value Function does.
-- [ ] A nested Up or Down in a Play's note operand plays the transposed Note.
-- [ ] Both have Function reference rows with worked examples.
-- [ ] `CONTEXT.md` defines Pitch Function, Up and Down.
+- [x] Each has arity, type and domain coverage, matching what the Arithmetic Functions have.
+- [x] An answer outside `00`–`7F` diagnoses and never wraps.
+- [x] Each works as a root and nested, writing through its Output Portal as any value Function does.
+- [x] A nested Up or Down in a Play's note operand plays the transposed Note.
+- [x] Both have Function reference rows with worked examples.
+- [x] `CONTEXT.md` defines Pitch Function, Up and Down.

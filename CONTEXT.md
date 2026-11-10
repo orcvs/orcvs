@@ -158,6 +158,18 @@ _Avoid_: Cast, implicit coercion, sticky Note
 One of the nine numeric-family Functions Add `.+`, Subtract `.-`, Absolute Difference `.|`, Multiply `.x`, Divide `./`, Modulo `.%`, Minimum `.<`, Maximum `.>`, and Equality `.=`, whose shared family prefix fixes the numeric domain and whose suffix names the operation. Every member declares two Number operands and returns a value. Add, Subtract, and Multiply wrap within the byte range; Absolute Difference answers the distance between its operands rather than a wrapped Subtraction, which is why it is a Function of its own; Minimum and Maximum return one operand unchanged; and Divide and Modulo answer the truncated quotient and the remainder. A Note, or any other Atom type, reaching a Number operand position diagnoses rather than being coerced, so the Numeric Conversion Functions are the only crossing between the two numeric types. Two members answer something other than plain arithmetic: Divide and Modulo each diagnose a zero divisor, under a diagnostic naming which of the two the Source wrote, and produce no value; and Equality returns a Bang for equal operands and a Clear for unequal ones, writing `**` through its Output Portal for the first and two spaces for the second, root or nested.
 _Avoid_: Operator, infix arithmetic, boolean comparison, saturating arithmetic
 
+**Pitch Function**:
+A value Function of the `#` family, which derives a Note from a Note. The `.` family stays numeric only, so a Function that answers a Note from a Note belongs here rather than there. A Pitch Function's answer outside `00`–`7F` diagnoses under a message naming the Function and the semitone it would have been, and writes nothing: a Note never wraps into another octave and is never clamped. It nests and writes through its Output Portal as any value Function does, and nested in a Play's note operand it decides the Note the Play sounds. Up and Down are the members so far.
+_Avoid_: Transposer, scale Function, Note arithmetic, `.` family
+
+**Up**:
+The Pitch Function `#+ note number`, which answers the Note `number` semitones above `note`. The note operand reads only a Note and the number operand only a Number, as every typed operand does, so `#+3C0C` diagnoses rather than reading `3C` as a pitch. A sum above `7F` diagnoses.
+_Avoid_: Transpose, Add, `.+` on a Note
+
+**Down**:
+The Pitch Function `#- note number`, which answers the Note `number` semitones below `note`, with the operand types Up takes. A difference below `00` diagnoses.
+_Avoid_: Transpose, Subtract, `.-` on a Note
+
 **Clock Function**:
 The Tick-family Function `~.`, which answers the step its cycle is at as a Number. Both operands are Numbers: `rate` is how many Ticks one step lasts and `modulus` is how many steps the cycle holds, so the cycle is `rate * modulus` Ticks long and the answer counts `00` through `modulus - 1` and then begins again. It reads the absolute Tick of Playback as the explicit interpretation input ADR 0012 makes it, rather than counting its own activations, which is what makes the same Source Snapshot interpreted at the same Tick answer the same step, and, because a stop holds the absolute Tick (ADR 0076), what resumes a stopped Clock on the step it stopped on. The division and the modulus are taken in an integer wider than a byte before the step becomes a Number, because the absolute Tick outgrows a byte in seconds while the step it answers never does. A zero rate or a zero modulus is a cycle with no length: it diagnoses under a message naming the Function and the operand rather than reusing Division's or Modulo's, and the rate is answered first because that is signature order.
 _Avoid_: Counter, phase accumulator, tempo, bar position
@@ -187,7 +199,7 @@ What a value Function answers when it has no Language Unit to write: two spaces 
 _Avoid_: Absence Marker, null, nil, empty value, void
 
 **Atomic Function**:
-A stateless value Function whose operands and result are single Atoms: the Arithmetic and Numeric Conversion Functions, Clock and Random. An operation evaluates once and returns one Atom; a type, domain, or evaluation failure diagnoses and returns nothing. Per ADR 0063 no Function accepts or answers a series of values, so none extends across one: a pattern is written into Source Cells, and a chord is several Terminal Output roots one Bang activates.
+A stateless value Function whose operands and result are single Atoms: the Arithmetic, Numeric Conversion and Pitch Functions, Clock and Random. An operation evaluates once and returns one Atom; a type, domain, or evaluation failure diagnoses and returns nothing. Per ADR 0063 no Function accepts or answers a series of values, so none extends across one: a pattern is written into Source Cells, and a chord is several Terminal Output roots one Bang activates.
 _Avoid_: Vectorised Function, Map Function, Arithmetic Function
 
 **Portal**:
