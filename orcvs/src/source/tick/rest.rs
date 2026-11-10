@@ -7,22 +7,47 @@
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick.
 
+use std::ops::Range;
+
 use lang::{PlayCommand, Tick};
 
-use super::observed::{diagnostic, first, rows_of, source_of};
+use super::observed::{Observed, diagnostic, first, observed, source_of};
 use crate::grid::Grid;
+
+/// Diagnostics by anchor column, row and message, as [`Observed`] holds them.
+type Diagnostics = Vec<(usize, usize, String)>;
+
+/// Each Tick in `ticks` of `rows` on a `grid`: its Play Commands, the Tick
+/// observed, and the Language Map's diagnostics on row 1 read after it.
+///
+/// The Language Map is what can tell a rest from a refusal deferred to a later
+/// Tick: a Portal write lands in Source after its Tick, and the Map is rebuilt
+/// from what the Tick left.
+fn executed(
+    grid: Grid,
+    rows: &[&str],
+    ticks: Range<u64>,
+) -> Vec<(Vec<PlayCommand>, Observed, Diagnostics)> {
+    let mut source = source_of(grid, rows);
+    ticks
+        .map(|tick| {
+            let plan = source.execute(Tick::new(tick));
+            let mapped = source
+                .language_map()
+                .diagnostics()
+                .filter(|d| d.anchor().y() == 1)
+                .map(|d| diagnostic(d.anchor().x(), d.anchor().y(), &d.message))
+                .collect();
+            (plan.play_commands.clone(), observed(&source, &plan), mapped)
+        })
+        .collect()
+}
 
 /// The Play Commands and diagnostics of the first Tick of `play` on row 1,
 /// beneath the Equality that Bangs it.
-fn banged(play: &str) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>) {
-    let mut source = source_of(Grid::with_shape(16, 3), &[".=0101", play]);
-    let plan = source.execute(Tick::ZERO);
-    let diagnostics = plan
-        .diagnostics
-        .iter()
-        .map(|d| (d.anchor().x(), d.anchor().y(), d.message.clone()))
-        .collect();
-    (plan.play_commands, diagnostics)
+fn banged(play: &str) -> (Vec<PlayCommand>, Diagnostics) {
+    let (commands, tick, _) = executed(Grid::with_shape(16, 3), &[".=0101", play], 0..1).remove(0);
+    (commands, tick.diagnostics)
 }
 
 #[test]
@@ -53,44 +78,17 @@ fn mapped(grid: Grid, rows: &[&str]) -> Vec<(usize, usize)> {
 
 /// The Play Commands and diagnostics of the first Tick of `rows`, and the
 /// Source's row 1 after it.
-fn run(rows: &[&str]) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>, String) {
-    let mut source = source_of(Grid::with_shape(18, 3), rows);
-    let plan = source.execute(Tick::ZERO);
-    let diagnostics = plan
-        .diagnostics
-        .iter()
-        .map(|d| (d.anchor().x(), d.anchor().y(), d.message.clone()))
-        .collect();
-    (plan.play_commands, diagnostics, rows_of(&source)[1].clone())
+fn run(rows: &[&str]) -> (Vec<PlayCommand>, Diagnostics, String) {
+    let (commands, mut tick, _) = executed(Grid::with_shape(18, 3), rows, 0..1).remove(0);
+    (commands, tick.diagnostics, tick.rows.swap_remove(1))
 }
-
-/// Diagnostics by anchor column, row and message.
-type Diagnostics = Vec<(usize, usize, String)>;
 
 /// The Play Commands and diagnostics of each of the first two Ticks of
 /// `rows`, with the Language Map's diagnostics on row 1 read after each.
-///
-/// The second Tick is the one that can tell a rest from a refusal deferred to
-/// the first: a Portal write lands in Source after its Tick, and the Language
-/// Map is rebuilt from what the Tick left.
 fn two_ticks(rows: &[&str]) -> Vec<(Vec<PlayCommand>, Diagnostics, Diagnostics)> {
-    let mut source = source_of(Grid::with_shape(18, 3), rows);
-    (0..2)
-        .map(|tick| {
-            let plan = source.execute(Tick::new(tick));
-            let at =
-                |d: &crate::source::Diagnostic| (d.anchor().x(), d.anchor().y(), d.message.clone());
-            (
-                plan.play_commands.clone(),
-                plan.diagnostics.iter().map(at).collect(),
-                source
-                    .language_map()
-                    .diagnostics()
-                    .filter(|d| d.anchor().y() == 1)
-                    .map(at)
-                    .collect(),
-            )
-        })
+    executed(Grid::with_shape(18, 3), rows, 0..2)
+        .into_iter()
+        .map(|(commands, tick, mapped)| (commands, tick.diagnostics, mapped))
         .collect()
 }
 
