@@ -7,8 +7,8 @@
 use crate::Spelling;
 
 /// The most tones an Interval Set names: the chromatic scale's twelve. A
-/// Chord Play holds its tones in a buffer of this capacity, so no Interval
-/// Set may name more.
+/// Chord's tones are bounded by this so they fit a fixed-capacity buffer and
+/// sounding one allocates nothing.
 pub(crate) const MAX_TONES: usize = 12;
 
 /// Mints [`IntervalSet`] with its complete list, its names and its semitone
@@ -166,8 +166,8 @@ const fn same_semitones(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
-// Every Interval Set starts at its root, rises strictly, fits a Chord Play's
-// tone buffer, and is the only one naming its list, so naming a list of
+// Every Interval Set starts at its root, rises strictly, names at most
+// `MAX_TONES` semitones, and is the only one naming its list, so naming a list of
 // semitones back to an Interval Set is unambiguous.
 const _: () = {
     let mut index = 0;
@@ -176,7 +176,7 @@ const _: () = {
         let semitones = set.semitones();
         assert!(
             semitones.len() <= MAX_TONES,
-            "an Interval Set fits the tone buffer"
+            "an Interval Set names at most MAX_TONES semitones"
         );
         assert!(semitones[0] == 0, "an Interval Set starts at its root");
         let mut tone = 1;
