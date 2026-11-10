@@ -24,7 +24,9 @@ pub(super) const PANEL_ROW_HEIGHT: f32 = 52.0;
 
 /// The room the Cursor Line takes beneath the Panel's row, egui's item spacing
 /// above it included. It is there whether or not the line says anything.
-pub(super) const CURSOR_LINE_HEIGHT: f32 = 18.0;
+/// It covers one row of egui's 13 point Monospace style, 16 points tall, plus
+/// the default 3 point item spacing; Themes change colours, never that font.
+pub(super) const CURSOR_LINE_HEIGHT: f32 = 19.0;
 
 /// The height the bottom Panel takes from the window, leaving the rest to the
 /// Source Grid: its row and the Cursor Line. It is the Panel's own minimum,

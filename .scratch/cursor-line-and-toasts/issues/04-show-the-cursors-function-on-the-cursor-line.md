@@ -13,8 +13,9 @@ Cell belongs to ([spec](../spec.md), ADR 0100).
       and two Cells, then `answer`, the Output Portal's two Cells and its Position:
       `Add  .+  answers left + right   left 03   right 04   answer 06  at 00 0C`. An effect
       Function ends after its operands.
-- [x] A Comment, a Bang and a standalone Operand Literal are named by their Language Unit; an empty
-      Cell leaves the line blank.
+- [x] A Comment is named `Comment`. A Bang is a Bang Function, described by its Function row like
+      any Function. An empty Cell or a standalone pair leaves the line blank: the pair is diagnosed,
+      and its diagnostic belongs to `source-diagnostics/02`.
 - [x] One line, never wrapped: text past the Panel's width is cut with an ellipsis, and hovering the
       line shows it whole.
 - [x] Out of scope: a Cell a diagnostic covers. `source-diagnostics/02` draws the diagnostic here,
@@ -31,8 +32,8 @@ Cell belongs to ([spec](../spec.md), ADR 0100).
 or the parent of the operand or Payload it lies in), its operands' Cells and its Output Portal
 Reservation; the Render Frame carries it for the Cursor as `cursor_function`. `console::cursor_line`
 turns that and the Function table into the line's text, and the Panel draws it in a fixed
-`CURSOR_LINE_HEIGHT` beneath its row, which `BOTTOM_PANEL_HEIGHT` now includes, so the default
-window keeps its 1024 by 640 Source area. A Function whose Output Portal its operands select at the
+`CURSOR_LINE_HEIGHT` beneath its row, one row of the Monospace style plus item spacing, which
+`BOTTOM_PANEL_HEIGHT` now includes, so the default window keeps its 1024 by 640 Source area. A Function whose Output Portal its operands select at the
 Turn (the Writes, Push, Absolute Copy) shows no `answer`, since no pair is reserved before the Turn.
 A standalone pair such as `07` is diagnosed text, not an Operand Literal, so its Cell leaves the line
 blank; only a Comment is named that way.

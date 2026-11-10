@@ -21,25 +21,37 @@ struct Block {
     line: usize,
 }
 
+/// The marker a line's fence is drawn with and its info string, when the line
+/// is a fence: three or more backticks or tildes, indented or not.
+fn fence(line: &str) -> Option<(char, &str)> {
+    let line = line.trim_start();
+    let marker = line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let info = line.trim_start_matches(marker);
+    (line.len() - info.len() >= 3).then_some((marker, info.trim()))
+}
+
 fn blocks() -> Vec<Block> {
     let mut blocks = Vec::new();
-    let mut open: Option<Block> = None;
+    let mut open: Option<(char, Block)> = None;
     for (index, line) in REFERENCE.lines().enumerate() {
-        match (&mut open, line.strip_prefix("```")) {
-            (None, Some(info)) => {
-                open = Some(Block {
-                    info: info.trim().to_owned(),
-                    text: String::new(),
-                    line: index + 1,
-                })
+        match (&mut open, fence(line)) {
+            (None, Some((marker, info))) => {
+                open = Some((
+                    marker,
+                    Block {
+                        info: info.to_owned(),
+                        text: String::new(),
+                        line: index + 1,
+                    },
+                ))
             }
-            (Some(_), Some("")) => {
-                let block = open.take().expect("an open block");
+            (Some((opened, _)), Some((marker, ""))) if *opened == marker => {
+                let (_, block) = open.take().expect("an open block");
                 if block.info.split_whitespace().next() == Some("orcvs") {
                     blocks.push(block);
                 }
             }
-            (Some(block), _) => {
+            (Some((_, block)), _) => {
                 block.text.push_str(line.trim_end());
                 block.text.push('\n');
             }
@@ -86,25 +98,52 @@ fn every_function_has_an_entry() {
     }
 }
 
+/// Every `### ` heading in `text` outside a fenced block, with the line it
+/// is on, counting from 1.
+fn headings(text: &str) -> Vec<(usize, &str)> {
+    let mut fenced = None;
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            match (fenced, fence(line)) {
+                (None, Some((marker, _))) => fenced = Some(marker),
+                (Some(opened), Some((marker, ""))) if opened == marker => fenced = None,
+                _ => {}
+            }
+            fenced.is_none()
+        })
+        .filter_map(|(index, line)| line.strip_prefix("### ").map(|rest| (index + 1, rest)))
+        .collect()
+}
+
+/// A fence may be indented, as it is inside a list item, or spelled with
+/// tildes; a `### ` line inside either is the block's text, not a heading,
+/// and the fence's close ends the block.
+#[test]
+fn a_heading_scan_skips_indented_and_tilde_fences() {
+    let text = "\
+- an item
+
+  ```orcvs
+### inside an indented fence
+  ```
+
+~~~
+### inside a tilde fence
+~~~
+
+### `.+` Add
+";
+    assert_eq!(headings(text), vec![(11, "`.+` Add")]);
+}
+
 /// Every `### ` heading outside a fenced block is ``### `<spelling>` <name>``,
 /// the name is the one its Function's row in the Function table carries, and
 /// each Function has exactly one, so the two cannot drift.
 #[test]
 fn every_heading_names_its_function_as_the_table_does() {
-    let mut fenced = false;
-    let headings: Vec<(usize, &str)> = REFERENCE
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| {
-            if line.starts_with("```") {
-                fenced = !fenced;
-            }
-            !fenced
-        })
-        .filter_map(|(index, line)| line.strip_prefix("### ").map(|rest| (index + 1, rest)))
-        .collect();
     let mut headed = Vec::new();
-    for (line, heading) in headings {
+    for (line, heading) in headings(REFERENCE) {
         let (spelling, name) = heading
             .strip_prefix('`')
             .and_then(|rest| rest.split_once("` "))

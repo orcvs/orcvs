@@ -5474,3 +5474,42 @@ async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can
     assert!(harness.query_by_value("Second · 127.0.0.1").is_some());
     assert!(harness.query_by_label("Opening Second…").is_none());
 }
+
+///
+/// The Cursor Line's text, drawn in the style's Monospace font, fits the room
+/// the Panel reserves for it beneath its row, so it neither grows the Panel's
+/// content past the Panel's own height nor runs into its bottom margin.
+///
+#[tokio::test]
+async fn the_cursor_line_fits_the_room_the_panel_reserves_for_it() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    {
+        let orcvs = &mut harness.state_mut().orcvs;
+        let grid = orcvs.grid();
+        for (x, content) in ".+0304".chars().enumerate() {
+            let cell = grid.index(grid.position(x, 0).expect("inside the Grid"));
+            orcvs
+                .source()
+                .set(cell, &content.to_string())
+                .expect("a Cell");
+        }
+        orcvs.select(grid.position(0, 0).expect("inside the Grid"));
+    }
+    harness.run_steps(2);
+
+    let line = harness.get_by_label_contains("answers left + right").rect();
+    let style = harness.ctx.global_style();
+    let room = super::panel::CURSOR_LINE_HEIGHT - style.spacing.item_spacing.y;
+    assert!(
+        line.height() <= room,
+        "the line is {} tall in a room of {room}",
+        line.height()
+    );
+    let inner_bottom = DEFAULT_VIEW_SIZE[1]
+        - f32::from(super::panel::bottom_panel_frame(&style).inner_margin.bottom);
+    assert!(
+        line.bottom() <= inner_bottom,
+        "the line ends at {} below the Panel's content, which ends at {inner_bottom}",
+        line.bottom()
+    );
+}
