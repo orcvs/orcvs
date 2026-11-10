@@ -64,10 +64,11 @@ rest of the Tick plays.
 
 An empty pair is a rest. Track copies an empty pair's Cells as it copies any
 others, so it clears the Timed Play's note slot. A Timed Play with an empty note
-slot is invalid ([ADR 0069](../docs/adr/0069-an-unwritten-operand-is-invalid-input.md)):
-it sends no new note and is diagnosed, and it does not stop a note an earlier
-step started. In the shipped pattern D4 at step 1 keeps sounding through the
-empty step 2, because its four-Tick lifetime has not ended.
+slot rests ([ADR 0104](../docs/adr/0104-a-blank-note-or-root-is-a-rest-however-it-got-blank.md)):
+it sends no new note, nothing is diagnosed, and it does not stop a note an
+earlier step started. In the shipped pattern D4 at step 1 keeps sounding through
+the empty step 2, because its four-Tick lifetime has not ended. A Track nested
+in the note slot instead would rest the Play on the same steps.
 
 A value Function placed between Track and the Play behaves differently. If
 Track hands it an empty pair, it is invalid and writes nothing, so the note slot

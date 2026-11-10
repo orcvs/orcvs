@@ -845,6 +845,24 @@ sends nothing. Choose a MIDI destination under the Panel's **O** to hear them.
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
 
+**Rest.** A Play whose note is two empty Cells rests: a Bang reaching it sends nothing and
+diagnoses nothing. It does not matter how the note got empty. You can leave it empty, a Function
+above it can write two empty Cells into it, or a Function nested in it can answer a Clear. Its
+other operands must still be in range. Half a note, such as `C `, is partial input and diagnoses.
+A Monophonic Play that rests leaves its channel's note sounding until that note's own length ends.
+
+```orcvs
+**
+!>0064
+```
+
+After Tick `0`, nothing plays:
+
+```orcvs tick 0
+
+!>0064
+```
+
 ### `!>` Play
 
 `!> channel velocity note` sends a Note On, with no Note Off of its own.
