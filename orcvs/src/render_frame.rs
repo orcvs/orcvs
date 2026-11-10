@@ -207,7 +207,8 @@ impl RenderExpression {
         self.diagnostic.as_ref()
     }
 
-    /// The first Function anchor when this is a complete executable Expression.
+    /// The first Function anchor when this Expression is executable: nothing
+    /// in it was refused, though a blank rest operand may be left unbound.
     pub fn root(&self) -> Option<Position> {
         self.root
     }

@@ -18,12 +18,15 @@ fn up_and_down_write_their_note_through_the_output_portal_as_roots() {
 }
 
 #[test]
-fn a_nested_up_returns_its_note_and_writes_its_own_output_portal() {
-    // `#+C402` writes D4 south of its own anchor and returns it to Down, whose
-    // answer C4 lands south of the root.
-    let tick = first(Grid::with_shape(10, 2), &["#-#+C40202", ""]);
-    assert_eq!(tick.rows, ["#-#+C40202", "C4D4      "]);
-    quiet(&tick);
+fn a_nested_up_or_down_returns_its_note_and_writes_its_own_output_portal() {
+    // The nested Function writes its Note south of its own anchor and returns
+    // it to the root, whose answer lands south of the root: `#+C402` hands D4
+    // to Down, and `#-D402` hands C4 to Up.
+    for (expression, answer) in [("#-#+C40202", "C4D4      "), ("#+#-D40202", "D4C4      ")] {
+        let tick = first(Grid::with_shape(10, 2), &[expression, ""]);
+        assert_eq!(tick.rows, [expression, answer], "{expression}");
+        quiet(&tick);
+    }
 }
 
 #[test]
@@ -56,7 +59,7 @@ fn a_nested_up_in_a_plays_note_operand_plays_the_transposed_note() {
 
 #[test]
 fn a_nested_down_in_a_timed_plays_note_operand_plays_the_transposed_note() {
-    let (plans, _, _) = tick_by_tick(
+    let (plans, grids, _) = tick_by_tick(
         Grid::with_shape(14, 4),
         &[".=0101", "", "!~007F#-D40204", ""],
         1,
@@ -75,6 +78,7 @@ fn a_nested_down_in_a_timed_plays_note_operand_plays_the_transposed_note() {
         "{:?}",
         plans[0].diagnostics
     );
+    assert_eq!(grids[0][3], "      C4      ");
 }
 
 #[test]

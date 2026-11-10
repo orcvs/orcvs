@@ -12,10 +12,11 @@
 //! Every group occupies one column two Sector Seams (16 Cells) wide, headed
 //! by a `|| … ||` Comment naming it. Each header closes its own Comment, so
 //! the six share row 0 as six Comment Language Units and leave the Cells
-//! after them to be parsed. Every group's own examples start on row 1. A group
-//! that stacks a second header inside its own band leaves that Comment
-//! unclosed, and an unclosed Comment claims the rest of its row, so that
-//! header's row must hold no Expression east of it.
+//! after them to be parsed. Every group's own examples start on row 1. A
+//! header stacked inside a band either closes its Comment, as Pitch's does on
+//! row 10 with Tick's examples east of it, or leaves it unclosed; an unclosed
+//! Comment claims the rest of its row, so that header's row must hold no
+//! Expression east of it.
 //!
 //! | Columns   | Group                                                                            |
 //! |-----------|----------------------------------------------------------------------------------|
@@ -265,9 +266,9 @@ mod tests {
         written: bool,
     }
 
-    /// Every result row the Arithmetic, Conversion, and Tick groups' examples
-    /// write, where `column` is each group's own anchor column (Arithmetic 0,
-    /// Conversion 16, Tick 32) since each
+    /// Every result row the Arithmetic, Conversion, Pitch and Tick groups'
+    /// examples write, where `column` is each group's own anchor column
+    /// (Arithmetic 0, Conversion and Pitch 16, Tick 32) since each
     /// group's result rows are read back from its own Cells, not always the
     /// leftmost ones.
     ///

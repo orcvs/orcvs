@@ -137,6 +137,38 @@ mod test {
     }
 
     #[test]
+    fn up_and_down_move_every_note_by_every_number_and_never_wrap() {
+        // The whole operand square, against an expectation stated by the
+        // range's bounds: an answer inside `00`–`7F` is that Note, and any
+        // other answer diagnoses the Function and the semitone it reached.
+        for (function, direction) in [(Function::Up, 1), (Function::Down, -1)] {
+            for start in 0x00..=0x7F {
+                for number in 0x00..=u8::MAX {
+                    let semitone = i16::from(start) + direction * i16::from(number);
+                    let answer = evaluate(function, note(start), Atom::Number(number));
+                    match semitone {
+                        0x00..=0x7F => assert_eq!(
+                            answer.unwrap(),
+                            Interpretation::Cell(note(semitone as u8)),
+                            "{function:?} {start:02X} {number:02X}"
+                        ),
+                        _ => assert!(
+                            matches!(
+                                answer,
+                                Err(Error::Interpretation(InterpretationError::NoteOutOfRange {
+                                    function: found,
+                                    value,
+                                })) if found == function && value == semitone
+                            ),
+                            "{function:?} {start:02X} {number:02X}: {answer:?}"
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn every_transposition_up_is_undone_by_the_same_transposition_down() {
         // Over the whole Note and Number domains, Down inverts every Up that
         // answers, and an Up that refuses refuses as out of range.
@@ -230,19 +262,21 @@ mod test {
     #[test]
     fn a_missing_operand_diagnoses_as_arity() {
         for (function, body) in BODIES {
-            let mut ctx = Context::new(inputs().into(), 4);
-            ctx.stack.push(note(0x3C)).unwrap();
+            for present in [&[][..], &[note(0x3C)][..]] {
+                let mut ctx = Context::new(inputs().into(), 4);
+                for &operand in present {
+                    ctx.stack.push(operand).unwrap();
+                }
 
-            assert!(
-                matches!(
-                    body(&mut ctx),
-                    Err(Error::Argument(ArgumentError::Arity {
-                        expected: 2,
-                        found: 1
-                    }))
-                ),
-                "{function:?}"
-            );
+                assert!(
+                    matches!(
+                        body(&mut ctx),
+                        Err(Error::Argument(ArgumentError::Arity { expected: 2, found }))
+                            if found == present.len()
+                    ),
+                    "{function:?} over {present:?}"
+                );
+            }
         }
     }
 
