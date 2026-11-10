@@ -154,6 +154,18 @@ _Avoid_: Number, note-shaped Number, intrinsically typed literal
 One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Their Source literal signatures are monomorphic: `.v` consumes a Note literal and returns its underlying Number, while `.^` consumes a Number literal from `00` through `7F` and returns the corresponding Note, diagnosing `80` through `FF`. Each reads its operand only as that declared literal type, whether the characters were typed, written by a Portal, or returned by a nested Function, so conversions compose in opposite directions — `.v.^3C` and `.^.vC4` — while `.v.vC4` and `.^.^3C` diagnose, and `.+.^3C01` reads the returned `C4` as Number `C4`. A conversion never passes a value of its result type through.
 _Avoid_: Cast, implicit coercion, sticky Note
 
+**Pitch Function**:
+A stateless value Function in the `#` family, which derives a Note from a Note and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that answers a Note from a Note belongs to `#`. An answer outside `00`–`7F` diagnoses and writes nothing, rather than wrapping as an Arithmetic Function does within a byte.
+_Avoid_: Transpose operator, numeric Function, wrapping pitch
+
+**Up**:
+The Pitch Function `#+ note number`, which answers the Note `number` semitones above `note`. The note operand is a Note and the number operand a Number, so Up transposes a Note without converting it through Number and back. An answer above `7F` diagnoses and writes nothing.
+_Avoid_: Add, Transpose
+
+**Down**:
+The Pitch Function `#- note number`, which answers the Note `number` semitones below `note`. Its operands are Up's. An answer below `00` diagnoses and writes nothing.
+_Avoid_: Subtract, Transpose
+
 **Arithmetic Function**:
 One of the nine numeric-family Functions Add `.+`, Subtract `.-`, Absolute Difference `.|`, Multiply `.x`, Divide `./`, Modulo `.%`, Minimum `.<`, Maximum `.>`, and Equality `.=`, whose shared family prefix fixes the numeric domain and whose suffix names the operation. Every member declares two Number operands and returns a value. Add, Subtract, and Multiply wrap within the byte range; Absolute Difference answers the distance between its operands rather than a wrapped Subtraction, which is why it is a Function of its own; Minimum and Maximum return one operand unchanged; and Divide and Modulo answer the truncated quotient and the remainder. A Note, or any other Atom type, reaching a Number operand position diagnoses rather than being coerced, so the Numeric Conversion Functions are the only crossing between the two numeric types. Two members answer something other than plain arithmetic: Divide and Modulo each diagnose a zero divisor, under a diagnostic naming which of the two the Source wrote, and produce no value; and Equality returns a Bang for equal operands and a Clear for unequal ones, writing `**` through its Output Portal for the first and two spaces for the second, root or nested.
 _Avoid_: Operator, infix arithmetic, boolean comparison, saturating arithmetic
