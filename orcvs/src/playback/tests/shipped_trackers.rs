@@ -10,21 +10,15 @@ use super::{HandDrivenRun, note_on, stop};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, TickPlan, file};
 
-/// What one Tick delivers to the adapter, and its diagnostics as anchor
-/// column, anchor row and message.
-type Expected = (Vec<OutputCommand>, Vec<(usize, usize, String)>);
-
 ///
 /// A shipped tracker as its file is laid out: how many Ticks a step lasts,
 /// how many Ticks each Timed Play holds its note, the velocity every Play
-/// writes, whether a Portal fills the note slots, and its voices, listed in
-/// Source order.
+/// writes, and its voices, listed in Source order.
 ///
 struct Tracker<'a> {
     step_ticks: u64,
     length: u64,
     velocity: u8,
-    slot_written: bool,
     voices: &'a [Voice],
 }
 
@@ -34,18 +28,6 @@ struct Voice {
     channel: u8,
     play: (usize, usize),
     steps: Vec<Option<u8>>,
-}
-
-impl Voice {
-    ///
-    /// The diagnostic at this voice's Timed Play on an empty step, if any. A
-    /// Portal that fills the note slot clears it, so the Play finds its slot
-    /// empty; a nested Read south answers a Clear, which rests the Play
-    /// silently.
-    ///
-    fn rest(&self, slot_written: bool) -> Option<String> {
-        slot_written.then(|| "expected a note, found \"  \"".to_owned())
-    }
 }
 
 impl Tracker<'_> {
@@ -64,18 +46,16 @@ struct Sounding(Vec<(u8, u8, u64)>);
 
 impl Sounding {
     ///
-    /// What the run should deliver and diagnose at `tick` for `tracker`, and
-    /// the notes it sounds afterwards.
+    /// What the run should deliver at `tick` for `tracker`, and the notes it
+    /// sounds afterwards.
     ///
     /// Each voice is banged on the first Tick of each step. Lifetimes that end
     /// at `tick` stop first, in the order they started. An occupied step then
     /// plays its Note for the tracker's length, stopping the same Note first
-    /// if it is still sounding; an empty step's Timed Play rests, diagnosed
-    /// only as [`Voice::rest`] describes.
+    /// if it is still sounding; an empty step's Timed Play rests.
     ///
-    fn expect(&mut self, tracker: &Tracker<'_>, tick: u64) -> Expected {
+    fn expect(&mut self, tracker: &Tracker<'_>, tick: u64) -> Vec<OutputCommand> {
         let mut delivery = Vec::new();
-        let mut diagnostics = Vec::new();
         self.0.retain(|&(channel, note, due)| {
             let ends = due == tick;
             if ends {
@@ -84,29 +64,22 @@ impl Sounding {
             !ends
         });
         if !tick.is_multiple_of(tracker.step_ticks) {
-            return (delivery, diagnostics);
+            return delivery;
         }
         for voice in tracker.voices {
             let step = (tick / tracker.step_ticks) as usize % voice.steps.len();
-            match voice.steps[step] {
-                Some(note) => {
-                    let before = self.0.len();
-                    self.0
-                        .retain(|&(channel, held, _)| (channel, held) != (voice.channel, note));
-                    if self.0.len() < before {
-                        delivery.push(stop(voice.channel, note));
-                    }
-                    delivery.push(note_on(voice.channel, tracker.velocity, note));
-                    self.0.push((voice.channel, note, tick + tracker.length));
+            if let Some(note) = voice.steps[step] {
+                let before = self.0.len();
+                self.0
+                    .retain(|&(channel, held, _)| (channel, held) != (voice.channel, note));
+                if self.0.len() < before {
+                    delivery.push(stop(voice.channel, note));
                 }
-                None => diagnostics.extend(
-                    voice
-                        .rest(tracker.slot_written)
-                        .map(|message| (voice.play.0, voice.play.1, message)),
-                ),
+                delivery.push(note_on(voice.channel, tracker.velocity, note));
+                self.0.push((voice.channel, note, tick + tracker.length));
             }
         }
-        (delivery, diagnostics)
+        delivery
     }
 }
 
@@ -120,11 +93,9 @@ fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
 
 ///
 /// Runs the shipped Source File `text` for two complete loops and asserts
-/// every Tick's delivery and diagnostics against `tracker`.
-///
-/// Where a Portal fills a voice's note slot, `slot_written` is true: while the
-/// slot is empty the Language Map diagnoses the Timed Play as well. A nested
-/// Read in the slot leaves the Map nothing to diagnose, so only the Tick does.
+/// every Tick's delivery against `tracker`. A rest diagnoses nothing, so no
+/// Tick and no revision of the Language Map names a voice's Play, however its
+/// note slot is filled.
 ///
 fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     let source =
@@ -136,12 +107,8 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
 
     for tick in 0..2 * tracker.loop_ticks() {
         let plan = run.run_tick(tick);
-        let (commands, diagnostics) = sounding.expect(tracker, tick);
-        assert_eq!(
-            tick_diagnostics(&plan),
-            diagnostics,
-            "Tick {tick}'s diagnostics"
-        );
+        let commands = sounding.expect(tracker, tick);
+        assert_eq!(tick_diagnostics(&plan), [], "Tick {tick}'s diagnostics");
         assert_eq!(
             adapter.command_lists().last(),
             Some(&commands),
@@ -157,11 +124,9 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
                 .collect();
         });
         for voice in tracker.voices {
-            let step = (tick / tracker.step_ticks) as usize % voice.steps.len();
-            assert_eq!(
-                mapped.contains(&voice.play),
-                tracker.slot_written && voice.steps[step].is_none(),
-                "Tick {tick}: the Language Map's view of the Play at {:?}",
+            assert!(
+                !mapped.contains(&voice.play),
+                "Tick {tick}: the Language Map diagnosed the Play at {:?}",
                 voice.play
             );
         }
@@ -179,25 +144,24 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
 ///
 #[test]
 fn the_melody_delivers_its_first_loop_as_written_out() {
-    let rest = || vec![(2, 3, "expected a note, found \"  \"".to_owned())];
-    let expected: [Expected; 17] = [
-        (vec![note_on(0, 0x64, 60)], vec![]),
-        (vec![], vec![]),
-        (vec![note_on(0, 0x64, 62)], vec![]),
-        (vec![], vec![]),
-        (vec![stop(0, 60)], rest()),
-        (vec![], vec![]),
-        (vec![stop(0, 62), note_on(0, 0x64, 67)], vec![]),
-        (vec![], vec![]),
-        (vec![], rest()),
-        (vec![], vec![]),
-        (vec![stop(0, 67), note_on(0, 0x64, 69)], vec![]),
-        (vec![], vec![]),
-        (vec![note_on(0, 0x64, 72)], vec![]),
-        (vec![], vec![]),
-        (vec![stop(0, 69)], rest()),
-        (vec![], vec![]),
-        (vec![stop(0, 72), note_on(0, 0x64, 60)], vec![]),
+    let expected: [Vec<OutputCommand>; 17] = [
+        vec![note_on(0, 0x64, 60)],
+        vec![],
+        vec![note_on(0, 0x64, 62)],
+        vec![],
+        vec![stop(0, 60)],
+        vec![],
+        vec![stop(0, 62), note_on(0, 0x64, 67)],
+        vec![],
+        vec![],
+        vec![],
+        vec![stop(0, 67), note_on(0, 0x64, 69)],
+        vec![],
+        vec![note_on(0, 0x64, 72)],
+        vec![],
+        vec![stop(0, 69)],
+        vec![],
+        vec![stop(0, 72), note_on(0, 0x64, 60)],
     ];
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/melody.orcvs"))
@@ -207,13 +171,9 @@ fn the_melody_delivers_its_first_loop_as_written_out() {
     let mut run = HandDrivenRun::new(source, adapter.clone());
     run.begin_run();
 
-    for (tick, (delivery, diagnostics)) in expected.into_iter().enumerate() {
+    for (tick, delivery) in expected.into_iter().enumerate() {
         let plan = run.run_tick(tick as u64);
-        assert_eq!(
-            tick_diagnostics(&plan),
-            diagnostics,
-            "Tick {tick}'s diagnostics"
-        );
+        assert_eq!(tick_diagnostics(&plan), [], "Tick {tick}'s diagnostics");
         assert_eq!(
             adapter.command_lists().last(),
             Some(&delivery),
@@ -232,7 +192,6 @@ fn the_melody_plays_two_loops_with_its_empty_pairs_resting() {
             step_ticks: 2,
             length: 4,
             velocity: 0x64,
-            slot_written: true,
             voices: &[Voice {
                 channel: 0,
                 play: (2, 3),
@@ -261,7 +220,6 @@ fn orca_patch(voices: &[Voice]) -> Tracker<'_> {
         step_ticks: 1,
         length: 1,
         velocity: 0x77,
-        slot_written: false,
         voices,
     }
 }

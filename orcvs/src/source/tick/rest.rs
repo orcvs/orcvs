@@ -1,12 +1,13 @@
-//! A Play whose note a nested Function cleared rests: its Turn sends no Play
-//! Command and reports nothing. Every other Clear, in another operand of a Play
-//! or in any operand of another Function, leaves its parent invalid.
+//! A Play whose note is blank rests, however it came to be blank: its Turn sends
+//! no Play Command and reports nothing. Written blank in Source, emptied by a
+//! Portal write and cleared by a nested Function are one case. A blank anywhere
+//! else, and any Clear elsewhere, leaves its Play or Function invalid.
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick.
 
 use lang::{PlayCommand, Tick};
 
-use super::observed::{diagnostic, first, source_of};
+use super::observed::{diagnostic, first, rows_of, source_of};
 use crate::grid::Grid;
 
 /// The Play Commands and diagnostics of the first Tick of `play` on row 1,
@@ -36,6 +37,65 @@ fn every_play_rests_on_a_note_a_nested_read_of_blank_cells_cleared() {
         assert!(diagnostics.is_empty(), "{sounding:?}: {diagnostics:?}");
 
         assert_eq!(banged(resting), (vec![], vec![]), "{resting:?}");
+    }
+}
+
+/// The Language Map's diagnostics for `rows`.
+fn mapped(grid: Grid, rows: &[&str]) -> Vec<(usize, usize)> {
+    source_of(grid, rows)
+        .language_map()
+        .diagnostics()
+        .map(|d| (d.anchor().x(), d.anchor().y()))
+        .collect()
+}
+
+/// The Play Commands and diagnostics of the first Tick of `rows`, and the
+/// Source's row 1 after it.
+fn run(rows: &[&str]) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>, String) {
+    let mut source = source_of(Grid::with_shape(18, 3), rows);
+    let plan = source.execute(Tick::ZERO);
+    let diagnostics = plan
+        .diagnostics
+        .iter()
+        .map(|d| (d.anchor().x(), d.anchor().y(), d.message.clone()))
+        .collect();
+    (plan.play_commands, diagnostics, rows_of(&source)[1].clone())
+}
+
+#[test]
+fn every_play_rests_on_a_note_written_blank_in_source() {
+    for play in ["  !>017F", "  !~017F  04", "  !%017F  04"] {
+        let grid = Grid::with_shape(16, 3);
+        assert_eq!(banged(play), (vec![], vec![]), "{play:?}");
+        assert_eq!(mapped(grid, &[".=0101", play]), vec![], "{play:?}");
+    }
+}
+
+#[test]
+fn every_play_rests_on_a_note_a_portal_write_emptied() {
+    // Track writes the pair it selects over the note slot: `D4` when the pair
+    // holds it, two blank Cells when it is empty.
+    for play in ["  !>017FC4", "  !~017FC404", "  !%017FC404"] {
+        let (commands, diagnostics, _) = run(&[".=0101  &t0001D4", play]);
+        assert_eq!(commands.len(), 1, "{play:?}: {diagnostics:?}");
+        assert_eq!(diagnostics, vec![], "{play:?}");
+
+        let (commands, diagnostics, row) = run(&[".=0101  &t0001  ", play]);
+        assert_eq!(commands, vec![], "{play:?}");
+        assert_eq!(diagnostics, vec![], "{play:?}");
+        assert_eq!(&row[8..10], "  ", "{play:?}: Track emptied the slot");
+    }
+}
+
+#[test]
+fn a_blank_note_a_portal_fills_plays_the_note_written() {
+    // The same Play is a rest with Track's pair empty, and sounds what Track
+    // writes the moment the pair holds a Note.
+    for play in ["  !>017F", "  !~017F  04", "  !%017F  04"] {
+        let (commands, diagnostics, row) = run(&[".=0101  &t0001D4", play]);
+        assert_eq!(commands.len(), 1, "{play:?}: {diagnostics:?}");
+        assert_eq!(diagnostics, vec![], "{play:?}");
+        assert_eq!(&row[8..10], "D4", "{play:?}");
     }
 }
 
@@ -127,4 +187,97 @@ fn a_partly_written_note_is_not_a_rest() {
     // Written at the slot itself, the Parser reports it before any Turn.
     let source = source_of(Grid::with_shape(16, 3), &[".=0101", "  !~017FC 04"]);
     assert!(source.language_map().diagnostics().next().is_some());
+}
+
+#[test]
+fn a_half_written_note_is_diagnosed_by_every_route_on_every_play() {
+    // A nested Read of a half-typed pair: the Read refuses it and the Play
+    // names the Read.
+    for (play, read) in [
+        ("  !>017F&>01C ", 8),
+        ("  !~017F&>0204C ", 8),
+        ("  !%017F&>0204C ", 8),
+    ] {
+        let (commands, diagnostics) = banged(play);
+        assert_eq!(commands, vec![], "{play:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|(column, _, message)| *column == read
+                    && message.ends_with("has partial or invalid input")),
+            "{play:?}: {diagnostics:?}"
+        );
+    }
+    // Written in Source, the Language Map refuses it and the Tick is silent.
+    for play in ["  !>017FC ", "  !~017F C04", "  !%017FC 04"] {
+        let grid = Grid::with_shape(16, 3);
+        assert_eq!(banged(play).0, vec![], "{play:?}");
+        assert!(
+            mapped(grid, &[".=0101", play]).contains(&(2, 1)),
+            "{play:?}"
+        );
+    }
+    // A Portal writing one Cell of a pair across the slot leaves one Cell of
+    // the note: `D` lands on the note's second Cell and `4` on the Cell past it.
+    for play in ["  !>017F  ", "  !~017F  04", "  !%017F  04"] {
+        let (commands, diagnostics, row) = run(&[".=0101   &t0001D4", play]);
+        assert_eq!(commands, vec![], "{play:?}");
+        assert_eq!(&row[8..10], " D", "{play:?}");
+        assert_eq!(
+            diagnostics,
+            [diagnostic(2, 1, "expected a note, found \" D\"")],
+            "{play:?}"
+        );
+    }
+}
+
+#[test]
+fn a_blank_note_beside_a_blank_or_undecodable_operand_is_diagnosed() {
+    let grid = Grid::with_shape(16, 3);
+    for play in [
+        "  !>  7F",
+        "  !>01  ",
+        "  !~017F    ",
+        "  !%  7F  04",
+        "  !>ZZ7F",
+        "  !>01ZZ",
+        "  !~017F  ZZ",
+    ] {
+        assert_eq!(banged(play).0, vec![], "{play:?}");
+        assert!(
+            mapped(grid, &[".=0101", play]).contains(&(2, 1)),
+            "{play:?}"
+        );
+    }
+    // A nested Function that clears another operand is diagnosed even though
+    // the note slot is written blank.
+    assert_eq!(
+        banged("  !>01&v01  "),
+        (
+            vec![],
+            vec![diagnostic(
+                2,
+                1,
+                "nested computation at column 6, row 1 cleared its operand"
+            )]
+        )
+    );
+    // A note a Portal emptied, beside a length the Source left blank.
+    let (commands, diagnostics, _) = run(&[".=0101  &t0001  ", "  !~017FC4"]);
+    assert_eq!(commands, vec![]);
+    assert_eq!(
+        diagnostics,
+        [diagnostic(2, 1, "expected a number, found \"  \"")]
+    );
+}
+
+#[test]
+fn a_rest_does_not_evaluate_a_channel_outside_its_domain() {
+    // `80` decodes as a Number, and only the Interpreter asks whether it is a
+    // MIDI channel. A rest takes no evaluation, so it reports nothing, and the
+    // same channel with a note is refused.
+    assert_eq!(banged("  !>807F"), (vec![], vec![]));
+    let (commands, diagnostics) = banged("  !>807FC4");
+    assert_eq!(commands, vec![]);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
 }

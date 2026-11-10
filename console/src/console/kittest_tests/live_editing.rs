@@ -133,15 +133,6 @@ fn diagnostics(plan: &TickPlan) -> Vec<((usize, usize), String)> {
         .collect()
 }
 
-///
-/// What the Tick that empties the Timed Play's note slot diagnoses it with.
-/// While the slot stays empty the Language Map diagnoses the Play instead,
-/// and the Tick does not repeat it.
-///
-fn empty_note_slot() -> Vec<((usize, usize), String)> {
-    vec![(PLAY, "expected a note, found \"  \"".to_owned())]
-}
-
 /// Whether the Language Map diagnoses the Timed Play.
 fn map_diagnoses_the_play(harness: &Harness<'_, Console>) -> bool {
     let mut diagnosed = false;
@@ -267,7 +258,7 @@ async fn a_cleared_pair_rests_in_place_and_typing_it_back_restores_it() {
     tick(&harness, banged_tick_of(0));
     let rest = tick(&harness, banged_tick_of(1));
     assert!(rest.play_commands.is_empty(), "{:?}", rest.play_commands);
-    assert_eq!(diagnostics(&rest), empty_note_slot());
+    assert!(rest.diagnostics.is_empty(), "{:?}", rest.diagnostics);
     assert_eq!(
         notes(&tick(&harness, banged_tick_of(3))),
         [67],
@@ -348,7 +339,7 @@ async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
     tick(&harness, banged_tick_of(1));
     let rest = tick(&harness, banged_tick_of(2));
     assert!(rest.play_commands.is_empty(), "{:?}", rest.play_commands);
-    assert_eq!(diagnostics(&rest), empty_note_slot());
+    assert!(rest.diagnostics.is_empty(), "{:?}", rest.diagnostics);
 }
 
 ///
@@ -442,22 +433,17 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
                     plan.diagnostics
                 );
             }
-            // Step 6 empties the slot step 5 filled; step 7 finds it empty
-            // already, so the Language Map diagnoses the Play and the Tick
-            // does not.
-            None if step == 7 => {
+            // Step 6 empties the slot step 5 filled and step 7 finds it empty
+            // already. Both rest, and neither the Tick nor the Language Map
+            // reports either one.
+            None => {
                 assert!(plan.play_commands.is_empty(), "step {step}");
                 assert!(
                     plan.diagnostics.is_empty(),
                     "step {step}: {:?}",
                     plan.diagnostics
                 );
-                assert!(map_diagnoses_the_play(&reopened), "step {step}");
-            }
-            None => {
-                assert!(plan.play_commands.is_empty(), "step {step}");
-                assert_eq!(diagnostics(&plan), empty_note_slot(), "step {step}");
-                assert!(map_diagnoses_the_play(&reopened), "step {step}");
+                assert!(!map_diagnoses_the_play(&reopened), "step {step}");
             }
         }
         let held = tick(&reopened, banged_tick_of(step) + 1);
