@@ -314,19 +314,18 @@ const fn same_semitones(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
-// Every Interval Set starts at its root, rises strictly, names at least three
-// tones, and is the only one naming its list, so the tones a set places above
-// a root include the root, are distinct and rise, and a list of semitones
-// names at most one set. A table row breaking any of these fails the build.
+// Every Interval Set is non-empty, starts at its root, rises strictly, and is
+// the only one naming its list, so the tones a set places above a root include
+// the root, are distinct and rise, and a list of semitones names at most one
+// set. A table row breaking any of these fails the build.
 const _: () = {
     let mut index = 0;
     while index < IntervalSet::ALL.len() {
         let semitones = IntervalSet::ALL[index].semitones();
         assert!(
-            semitones.len() >= 3,
-            "an Interval Set names at least three tones"
+            !semitones.is_empty() && semitones[0] == 0,
+            "an Interval Set starts at its root"
         );
-        assert!(semitones[0] == 0, "an Interval Set starts at its root");
         let mut tone = 1;
         while tone < semitones.len() {
             assert!(
@@ -349,7 +348,6 @@ const _: () = {
 
 define_named_literal! {
     /// How a chord's tones are arranged once its Interval Set has placed them.
-    /// Inversion is a separate Number operand and not part of this type.
     Voicing {
         Close => "CL",
         Open => "OP",
@@ -361,6 +359,69 @@ define_named_literal! {
         Rootless => "RL",
     }
 }
+
+/// Whether two spellings are the same two Cells, in a form a `const` item can
+/// evaluate.
+const fn same_cells(left: Spelling, right: Spelling) -> bool {
+    let [left_west, left_east] = left.cells();
+    let [right_west, right_east] = right.cells();
+    left_west == right_west && left_east == right_east
+}
+
+/// Whether any spelling in `left` is also one in `right`.
+const fn shares_a_spelling(left: &[Spelling], right: &[Spelling]) -> bool {
+    let mut index = 0;
+    while index < left.len() {
+        let mut other = 0;
+        while other < right.len() {
+            if same_cells(left[index], right[other]) {
+                return true;
+            }
+            other += 1;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// The spelling of every name of type `$name`, in table order, as an array a
+/// `const` item can build.
+macro_rules! spellings_of {
+    ($name:ty) => {{
+        const COUNT: usize = <$name>::ALL.len();
+        let mut spellings = [Spelling::checked("  "); COUNT];
+        let mut index = 0;
+        while index < COUNT {
+            spellings[index] = <$name>::ALL[index].cells();
+            index += 1;
+        }
+        spellings
+    }};
+}
+
+// A spelling names at most one Function, Interval Set or Voicing. Uniqueness
+// within one type is the denied `unreachable_patterns` lint in each
+// `from_spelling`; this covers the pairs across types, because a reading that
+// tries one type before another would otherwise shadow the later name without
+// a diagnostic. Numbers and Notes are not checked here: they are decoded by
+// operand position, and `69`, `13` and `D2` deliberately spell one as well.
+const _: () = {
+    let functions = &spellings_of!(Function);
+    let interval_sets = &spellings_of!(IntervalSet);
+    let voicings = &spellings_of!(Voicing);
+    assert!(
+        !shares_a_spelling(interval_sets, voicings),
+        "an Interval Set and a Voicing share a spelling"
+    );
+    assert!(
+        !shares_a_spelling(functions, interval_sets),
+        "a Function and an Interval Set share a spelling"
+    );
+    assert!(
+        !shares_a_spelling(functions, voicings),
+        "a Function and a Voicing share a spelling"
+    );
+};
 
 /// One parsed value or operation: what an Expression is made of and what a
 /// value Function answers.
@@ -1398,12 +1459,12 @@ pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
 }
 
 #[inline(always)]
-pub fn to_atom_interval_set(s: &str) -> Result<Atom, Error> {
+pub(crate) fn to_atom_interval_set(s: &str) -> Result<Atom, Error> {
     interval_set_atom_from_spelling(s).ok_or_else(|| TypeError::IntervalSet(s.to_string()).into())
 }
 
 #[inline(always)]
-pub fn to_atom_voicing(s: &str) -> Result<Atom, Error> {
+pub(crate) fn to_atom_voicing(s: &str) -> Result<Atom, Error> {
     voicing_atom_from_spelling(s).ok_or_else(|| TypeError::Voicing(s.to_string()).into())
 }
 
@@ -1528,7 +1589,7 @@ mod spelling {
         }
 
         /// The two Cells, west first.
-        pub fn cells(self) -> [u8; 2] {
+        pub const fn cells(self) -> [u8; 2] {
             self.0
         }
     }
