@@ -97,7 +97,7 @@ mod test {
 
     #[test]
     fn track_answers_what_a_copy_answers_for_the_same_cells() {
-        for cells in ["D4", "01", "**", "  ", ".+"] {
+        for cells in ["D4", "01", "**", "  ", ".+", "M7", "13", "CL", "D2"] {
             assert_eq!(
                 track(1, 3, Some(cells)).unwrap(),
                 evaluate(Function::CopyEast, [], Some(cells)).unwrap(),

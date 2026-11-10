@@ -32,6 +32,20 @@ fn push_writes_its_value_into_the_selected_pair_of_the_lane_below_it() {
 }
 
 #[test]
+fn push_writes_an_interval_set_or_voicing_as_its_cells() {
+    for name in ["M7", "13", "7_", "RL", "D3"] {
+        let row = format!("@t0103{name}");
+        let tick = first(Grid::with_shape(10, 2), &[&row, "xxxxxxxxxx"]);
+        assert_eq!(
+            tick.rows,
+            [format!("{row:10}"), format!("xx{name}xxxxxx")],
+            "{row}"
+        );
+        quiet(&tick);
+    }
+}
+
+#[test]
 fn a_bang_pushed_overwrites_its_whole_pair_and_activates_the_roots_aligned_with_it() {
     // Pair 01 is (2, 1); the `**` replaces the `xx` there and activates Raw
     // Play C4 south of it.
@@ -112,6 +126,8 @@ fn an_empty_or_partially_written_operand_makes_push_invalid() {
         "@t0 03G4C4",
         "@t0103G C4",
         "@t0103xyC4",
+        "@t0103M C4",
+        "@t0103 LC4",
     ] {
         let rows = [row, "xxxxxxxxxx"];
         let source = source_of(Grid::with_shape(10, 2), &rows);

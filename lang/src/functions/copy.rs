@@ -1,6 +1,9 @@
 use crate::{
     Atom, Error, Function, Interpretation, InterpretationError,
-    atom::{note_atom_from_spelling, number_atom_from_spelling, operands::AbsoluteCopy},
+    atom::{
+        interval_set_atom_from_spelling, note_atom_from_spelling, number_atom_from_spelling,
+        operands::AbsoluteCopy, voicing_atom_from_spelling,
+    },
     expression::DEFAULT_TOKEN_LEN,
     interpreter::Context,
     stack::Operands as _,
@@ -72,7 +75,13 @@ pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
     )
 }
 
-/// The Atom two Cells spell, read as a Function, then a Number, then a Note.
+/// The Atom two Cells spell, read as a Function, then a Number, a Note, an
+/// Interval Set and a Voicing.
+///
+/// The order decides only which Atom carries the Cells: every reading renders
+/// back as the same two Cells, and the operand that receives them decodes
+/// them by its own type, so `69` copied as a Number is still `69` to an
+/// Interval Set operand.
 ///
 /// Each reading borrows the Cells and builds nothing on refusal: the only
 /// error a Copy reports is `PartialInput`, so an error built by a reading the
@@ -82,6 +91,8 @@ pub(crate) fn copied_atom(cells: &str) -> Option<Atom> {
         .map(Atom::Function)
         .or_else(|| number_atom_from_spelling(cells))
         .or_else(|| note_atom_from_spelling(cells))
+        .or_else(|| interval_set_atom_from_spelling(cells))
+        .or_else(|| voicing_atom_from_spelling(cells))
 }
 
 #[cfg(test)]
@@ -189,6 +200,47 @@ mod test {
         // run whose digits still parse is not a Number: only exactly two
         // Cells are a Language Unit a Copy can copy.
         for cells in ["", " ", "   ", "    ", "1", "001", "0001", "****"] {
+            assert!(
+                matches!(
+                    evaluate(Function::CopyEast, Some(cells)),
+                    Err(crate::Error::Interpretation(
+                        InterpretationError::PartialInput {
+                            function: Function::CopyEast
+                        }
+                    ))
+                ),
+                "{cells:?} was read as a Language Unit",
+            );
+        }
+    }
+
+    #[test]
+    fn an_interval_set_or_voicing_unit_answers_the_cells_it_holds() {
+        // Every name is carried as the two Cells it spells, whichever reading
+        // the Copy finds first, so the receiving operand decodes the name:
+        // `69` and `13` are also Numbers and `D2` is also a Note.
+        for cells in [
+            "M7", "+_", "7_", "mm", "ch", "69", "13", "CL", "D2", "D6", "RL",
+        ] {
+            let Interpretation::Cell(atom) = evaluate(Function::CopyEast, Some(cells)).unwrap()
+            else {
+                panic!("{cells:?} was not copied as a Cell");
+            };
+            assert_eq!(atom.to_string(), cells);
+        }
+        assert_eq!(
+            evaluate(Function::CopyEast, Some("M7")).unwrap(),
+            Interpretation::Cell(Atom::IntervalSet(crate::IntervalSet::MajorSeventh))
+        );
+        assert_eq!(
+            evaluate(Function::CopyEast, Some("CL")).unwrap(),
+            Interpretation::Cell(Atom::Voicing(crate::Voicing::Close))
+        );
+    }
+
+    #[test]
+    fn a_half_written_interval_set_or_voicing_is_partial_input() {
+        for cells in ["M ", " 7", "m ", "_ ", "C ", " L", "D "] {
             assert!(
                 matches!(
                     evaluate(Function::CopyEast, Some(cells)),

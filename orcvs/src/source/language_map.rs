@@ -1941,16 +1941,24 @@ mod property {
     fn complete_expression() -> BoxedStrategy<String> {
         (
             select(Function::ALL),
-            prop::collection::vec(
-                prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
-                1..=4,
-            ),
+            prop::collection::vec(any_literal_source(), 1..=4),
         )
             .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
             .prop_filter("one whole Expression", |source| {
                 Parser::from(source.as_str()).try_parse().is_ok()
             })
             .boxed()
+    }
+
+    /// Source text for one Operand Literal of any literal type.
+    fn any_literal_source() -> BoxedStrategy<String> {
+        prop_oneof![
+            literal_source(Token::Number),
+            literal_source(Token::Note),
+            literal_source(Token::IntervalSet),
+            literal_source(Token::Voicing),
+        ]
+        .boxed()
     }
 
     /// Source text for one Operand Literal of the type its position declares.
@@ -1964,6 +1972,12 @@ mod property {
                 .boxed(),
             Token::Note => (0x00u8..=0x7F)
                 .prop_map(|note| Atom::Note(Note::try_from(note).expect("a MIDI Note")).to_string())
+                .boxed(),
+            Token::IntervalSet => select(lang::IntervalSet::ALL)
+                .prop_map(|set| Atom::IntervalSet(set).to_string())
+                .boxed(),
+            Token::Voicing => select(lang::Voicing::ALL)
+                .prop_map(|voicing| Atom::Voicing(voicing).to_string())
                 .boxed(),
             other => panic!("no operand is declared as {other:?}"),
         }
@@ -1996,7 +2010,7 @@ mod property {
             2 => Just("||".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
             1 => select(standalone_spellings()),
-            2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+            2 => any_literal_source(),
             3 => complete_expression(),
         ]
         .boxed()

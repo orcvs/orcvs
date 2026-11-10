@@ -111,6 +111,10 @@ pub enum Token {
     Function,
     Note,
     Number,
+    /// A chord or scale name, read by [`crate::IntervalSet`]'s table.
+    IntervalSet,
+    /// A Voicing name, read by [`crate::Voicing`]'s table.
+    Voicing,
     /// The one slot that takes no type: a Write's `value`. It holds any
     /// two-Cell Language Unit spelling, a Bang among them, and carries it
     /// unchanged; whatever later reads those Cells decodes them by its own
@@ -307,6 +311,8 @@ impl Token {
         match self {
             Self::Number => crate::to_atom_num(spelling),
             Self::Note => crate::to_atom_note(spelling),
+            Self::IntervalSet => crate::atom::to_atom_interval_set(spelling),
+            Self::Voicing => crate::atom::to_atom_voicing(spelling),
             Self::Untyped => crate::atom::untyped_atom(spelling),
             // The Parser fills this position structurally rather than by
             // decoding a literal against a signature: it reads two Cells,
@@ -345,9 +351,13 @@ impl Token {
             // the only other thing that can stand at an operand position — is
             // exactly two by the compile-time assertion `define_functions!`
             // holds every spelling to.
-            Token::Comment | Token::Function | Token::Note | Token::Number | Token::Untyped => {
-                DEFAULT_TOKEN_LEN
-            }
+            Token::Comment
+            | Token::Function
+            | Token::Note
+            | Token::Number
+            | Token::IntervalSet
+            | Token::Voicing
+            | Token::Untyped => DEFAULT_TOKEN_LEN,
         }
     }
 

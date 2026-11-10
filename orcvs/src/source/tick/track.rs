@@ -59,9 +59,24 @@ fn track_answers_what_a_copy_answers_for_the_cells_it_reads() {
         first(grid, &["&t0103C4G4E4"]).rows,
         ["&t0103C4G4E4", "G4          "]
     );
+    // An Interval Set or Voicing is carried as the two Cells that name it.
+    assert_eq!(
+        first(grid, &["&t0103M7CLD2"]).rows,
+        ["&t0103M7CLD2", "CL          "]
+    );
+    assert_eq!(
+        first(grid, &["&t0203M7CL69"]).rows,
+        ["&t0203M7CL69", "69          "]
+    );
     // A pair that straddles two Language Units, holds a partial unit, or
     // starts a Comment is not one Language Unit.
-    for partial in ["&t0103C.+0101", "&t0103C4D 4", "&t0103C||4E4"] {
+    for partial in [
+        "&t0103C.+0101",
+        "&t0103C4D 4",
+        "&t0103C||4E4",
+        "&t0103M7M 69",
+        "&t0103M7 LD2",
+    ] {
         let tick = first(Grid::with_shape(14, 2), &[partial]);
         assert_eq!(&tick.rows[1][..2], "  ", "{partial:?}");
         assert!(

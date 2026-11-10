@@ -55,8 +55,10 @@ fn a_write_into_comment_text_writes_its_cells() {
 #[test]
 fn a_value_is_written_as_it_is_spelled() {
     // `C4` spells a Number and a Note, `G4` only a Note, `0A` only a
-    // Number, and `c4` a sharp: each is written back as its Cells.
-    for value in ["C4", "G4", "0A", "c4"] {
+    // Number, and `c4` a sharp; `M7` is an Interval Set, `69` an Interval
+    // Set and a Number, `CL` a Voicing and `D2` a Voicing and a Note: each
+    // is written back as its Cells.
+    for value in ["C4", "G4", "0A", "c4", "M7", "69", "+_", "CL", "D2"] {
         let row = format!("@$0601{value}");
         let tick = first(Grid::with_shape(8, 2), &[&row]);
         assert_eq!(tick.rows[1], format!("      {value}"), "{value}");

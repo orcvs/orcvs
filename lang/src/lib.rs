@@ -1,4 +1,5 @@
 mod atom;
+mod chord;
 mod error;
 mod expression;
 mod functions;
@@ -14,6 +15,7 @@ pub use atom::{
     MidiChannel, Note, PositionRule, ReplacementChange, Spelling, Velocity, to_atom_note,
     to_atom_num,
 };
+pub use chord::{IntervalSet, Voicing};
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
 pub use interpreter::{Interpretation, Interpreter};

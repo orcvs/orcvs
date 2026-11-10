@@ -65,6 +65,8 @@ mod test {
                 note,
                 Atom::Bang,
                 Atom::Function(Function::Add),
+                Atom::IntervalSet(crate::IntervalSet::MinorSeventh),
+                Atom::Voicing(crate::Voicing::Drop2),
             ] {
                 assert_eq!(
                     write(function, value).unwrap(),

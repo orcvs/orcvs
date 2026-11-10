@@ -97,6 +97,27 @@ fn a_partial_copy_input_diagnoses_and_writes_nothing() {
 }
 
 #[test]
+fn a_copy_relays_an_interval_set_or_voicing_as_its_cells() {
+    // `69` is also a Number and `D2` also a Note: whichever reading carries
+    // them, the Copy writes the two Cells it read.
+    for name in ["M7", "+_", "mm", "69", "CL", "D2"] {
+        let row = format!("{name}=>    ");
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 1), &[&row], 1);
+        assert_eq!(grids[0], [format!("{name}=>{name}  ")], "{name}");
+        assert!(
+            plans[0].diagnostics.is_empty(),
+            "{name}: {:?}",
+            plans[0].diagnostics
+        );
+    }
+    for half in ["M =>xx", " 7=>xx", "C =>xx"] {
+        let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 1), &[half], 1);
+        assert_eq!(grids[0], [half], "{half:?}");
+        assert_eq!(messages(&plans[0]), vec!["=> has partial or invalid input"]);
+    }
+}
+
+#[test]
 fn a_copy_does_not_transport_an_incomplete_language_unit() {
     // Cells 3–4 of `.+0102` are the last Cell of `01` and the first of
     // `02`: a slice across two Language Units, not one unit to copy.

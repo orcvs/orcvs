@@ -1325,8 +1325,8 @@ mod test {
     /// Every Atom of the domain a `Token` names, in Source order.
     ///
     /// Every domain is small enough to enumerate — the 256 Numbers, the 128
-    /// MIDI Notes `C/` through `G9`, and the untyped slot's union of them with
-    /// the Bang — so the round trip below sweeps them rather than sampling
+    /// MIDI Notes `C/` through `G9`, the 39 Interval Sets, the 8 Voicings, and
+    /// the untyped slot's union of them with the Bang — so the round trip below sweeps them rather than sampling
     /// them.
     ///
     /// `mod property`'s `literal_source` draws its Source text from here, so
@@ -1339,18 +1339,39 @@ mod test {
             Token::Note => (0x00..=0x7F)
                 .map(|value| Atom::Note(crate::Note::try_from(value).expect("a MIDI Note")))
                 .collect(),
-            // An untyped slot holds any Language Unit a literal can spell: a
-            // Bang, every Number, and every Note. A Note whose spelling is
-            // also a Number's, such as `C4`, is carried as that Number, which
-            // spells the same two Cells.
-            Token::Untyped => std::iter::once(Atom::Bang)
-                .chain(every_atom_of(Token::Number))
-                .chain(
-                    every_atom_of(Token::Note)
-                        .into_iter()
-                        .filter(|note| crate::str_to_num(&note.to_string()).is_err()),
-                )
+            Token::IntervalSet => crate::IntervalSet::ALL
+                .iter()
+                .copied()
+                .map(Atom::IntervalSet)
                 .collect(),
+            Token::Voicing => crate::Voicing::ALL
+                .iter()
+                .copied()
+                .map(Atom::Voicing)
+                .collect(),
+            // An untyped slot holds any Language Unit a literal can spell: a
+            // Bang, every Number, every Note, every Interval Set and every
+            // Voicing. A spelling an earlier reading already claims, such as
+            // the Note `C4` or the Interval Set `69`, which are also Numbers,
+            // or the Voicing `D2`, which is also a Note, is carried as that
+            // earlier reading, which spells the same two Cells.
+            Token::Untyped => {
+                let mut atoms = vec![Atom::Bang];
+                for token in [
+                    Token::Number,
+                    Token::Note,
+                    Token::IntervalSet,
+                    Token::Voicing,
+                ] {
+                    for atom in every_atom_of(token) {
+                        let cells = atom.to_string();
+                        if !atoms.iter().any(|carried| carried.to_string() == cells) {
+                            atoms.push(atom);
+                        }
+                    }
+                }
+                atoms
+            }
             other => panic!("no operand is declared as {other:?}"),
         }
     }
@@ -1644,7 +1665,12 @@ mod property {
             2 => Just("||".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
             1 => select(standalone()).prop_map(|atom| atom.to_string()),
-            2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+            2 => prop_oneof![
+                literal_source(Token::Number),
+                literal_source(Token::Note),
+                literal_source(Token::IntervalSet),
+                literal_source(Token::Voicing),
+            ],
         ]
         .boxed()
     }
@@ -1682,7 +1708,16 @@ mod property {
             (Token::Function, Atom::Function(_))
                 | (Token::Number, Atom::Number(_))
                 | (Token::Note, Atom::Note(_))
-                | (Token::Untyped, Atom::Bang | Atom::Number(_) | Atom::Note(_))
+                | (Token::IntervalSet, Atom::IntervalSet(_))
+                | (Token::Voicing, Atom::Voicing(_))
+                | (
+                    Token::Untyped,
+                    Atom::Bang
+                        | Atom::Number(_)
+                        | Atom::Note(_)
+                        | Atom::IntervalSet(_)
+                        | Atom::Voicing(_)
+                )
         )
     }
 

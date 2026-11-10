@@ -35,6 +35,29 @@ fn a_distance_counts_portals_from_the_n_operand() {
 }
 
 #[test]
+fn a_read_carries_an_interval_set_or_voicing_as_its_cells() {
+    for name in ["M7", "13", "ch", "SH", "D5"] {
+        let row = format!("&>01{name}");
+        let tick = first(Grid::with_shape(6, 2), &[&row]);
+        assert_eq!(tick.rows, [row.clone(), format!("{name}    ")], "{name}");
+        assert!(
+            tick.diagnostics.is_empty(),
+            "{name}: {:?}",
+            tick.diagnostics
+        );
+    }
+    for row in ["&>01M ", "&>01 L"] {
+        let tick = first(Grid::with_shape(6, 2), &[row, "xx"]);
+        assert_eq!(tick.rows[1], "xx    ", "{row:?}");
+        assert!(
+            tick.diagnostics.contains(&diagnostic(0, 0, &invalid("&>"))),
+            "{row:?}: {:?}",
+            tick.diagnostics
+        );
+    }
+}
+
+#[test]
 fn every_read_at_distance_zero_answers_its_own_operand() {
     for spelling in ["&^", "&v", "&<", "&>"] {
         let row = format!("{spelling}00");

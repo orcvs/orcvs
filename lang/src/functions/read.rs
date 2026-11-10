@@ -99,13 +99,14 @@ mod test {
 
     #[test]
     fn a_read_answers_what_a_copy_answers_for_the_same_cells() {
-        let copied: Vec<(&str, Interpretation)> = ["D4", "01", "**", "  ", ".+", "&<"]
-            .into_iter()
-            .map(|cells| {
-                let copy = evaluate(Function::CopyEast, [], Some(cells)).unwrap();
-                (cells, copy)
-            })
-            .collect();
+        let copied: Vec<(&str, Interpretation)> =
+            ["D4", "01", "**", "  ", ".+", "&<", "M7", "69", "SH", "D6"]
+                .into_iter()
+                .map(|cells| {
+                    let copy = evaluate(Function::CopyEast, [], Some(cells)).unwrap();
+                    (cells, copy)
+                })
+                .collect();
         for (function, _) in READS {
             let read = |cells| evaluate(function, [Atom::Number(1)], cells);
             for (cells, copy) in &copied {
@@ -115,7 +116,7 @@ mod test {
                 read(Some("G4")).unwrap(),
                 Interpretation::Cell(Atom::Note(Note::try_from(67).unwrap()))
             );
-            for cells in [None, Some("xx"), Some("D")] {
+            for cells in [None, Some("xx"), Some("D"), Some("M "), Some(" L")] {
                 assert!(
                     matches!(
                         read(cells),

@@ -108,7 +108,7 @@ impl std::fmt::Display for Encoding {
 #[cfg(test)]
 mod test {
     use super::Encoding;
-    use lang::{Atom, Function, Note, Token};
+    use lang::{Atom, Function, IntervalSet, Note, Token, Voicing};
 
     #[test]
     fn every_value_the_language_holds_renders_to_two_cells_that_read_back() {
@@ -119,6 +119,8 @@ mod test {
         atoms.extend((u8::MIN..=u8::MAX).map(Atom::Number));
         atoms.extend((0..=0x7F).map(|note| Atom::Note(Note::try_from(note).unwrap())));
         atoms.extend(Function::ALL.iter().copied().map(Atom::Function));
+        atoms.extend(IntervalSet::ALL.iter().copied().map(Atom::IntervalSet));
+        atoms.extend(Voicing::ALL.iter().copied().map(Atom::Voicing));
 
         for atom in atoms {
             let cells = Encoding::render(atom);
@@ -127,6 +129,8 @@ mod test {
             let (read, expected) = match atom {
                 Atom::Number(_) => (Token::Number.decode(&text), atom),
                 Atom::Note(_) => (Token::Note.decode(&text), atom),
+                Atom::IntervalSet(_) => (Token::IntervalSet.decode(&text), atom),
+                Atom::Voicing(_) => (Token::Voicing.decode(&text), atom),
                 Atom::Bang => (Token::Untyped.decode(&text), atom),
                 // The Bang Function's `**` is the Bang a later reader finds,
                 // not a Function spelling the Parser looks up.

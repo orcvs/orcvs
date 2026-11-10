@@ -195,8 +195,10 @@ impl From<u8> for Length {
 pub enum Atom {
     Bang,
     Function(Function),
+    IntervalSet(crate::IntervalSet),
     Note(Note),
     Number(u8),
+    Voicing(crate::Voicing),
 }
 
 /// What a Function contributes to the Expression that contains it.
@@ -1209,6 +1211,26 @@ pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
     number_atom_from_spelling(s).ok_or_else(|| TypeError::Number(s.to_string()).into())
 }
 
+/// The Interval Set Atom two Cells name, building nothing on refusal.
+pub(crate) fn interval_set_atom_from_spelling(s: &str) -> Option<Atom> {
+    crate::IntervalSet::from_spelling(s).map(Atom::IntervalSet)
+}
+
+/// The Voicing Atom two Cells name, building nothing on refusal.
+pub(crate) fn voicing_atom_from_spelling(s: &str) -> Option<Atom> {
+    crate::Voicing::from_spelling(s).map(Atom::Voicing)
+}
+
+#[inline(always)]
+pub(crate) fn to_atom_interval_set(s: &str) -> Result<Atom, Error> {
+    interval_set_atom_from_spelling(s).ok_or_else(|| TypeError::IntervalSet(s.to_string()).into())
+}
+
+#[inline(always)]
+pub(crate) fn to_atom_voicing(s: &str) -> Result<Atom, Error> {
+    voicing_atom_from_spelling(s).ok_or_else(|| TypeError::Voicing(s.to_string()).into())
+}
+
 impl From<Atom> for String {
     /// Delegates to `Display` so the two renderings can never drift apart.
     #[inline(always)]
@@ -1246,6 +1268,8 @@ impl Atom {
             // the Source and re-parsed as two Cells, so they round trip as hex.
             Atom::Number(n) => Spelling::number(n),
             Atom::Note(note) => Spelling::note(note),
+            Atom::IntervalSet(set) => set.spelling(),
+            Atom::Voicing(voicing) => voicing.spelling(),
             Atom::Function(function) => function.cells(),
         }
     }
@@ -1294,7 +1318,7 @@ mod spelling {
         /// A spelling stated as a literal, refused at compile time unless it
         /// is two printable ASCII Cells. Every caller evaluates it in a const
         /// context.
-        pub(super) const fn checked(spelling: &str) -> Self {
+        pub(crate) const fn checked(spelling: &str) -> Self {
             let bytes = spelling.as_bytes();
             assert!(
                 bytes.len() == 2 && Self::admits(bytes[0]) && Self::admits(bytes[1]),
