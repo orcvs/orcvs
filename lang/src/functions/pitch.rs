@@ -184,6 +184,19 @@ mod test {
     }
 
     #[test]
+    fn a_note_in_the_number_operand_is_refused() {
+        for (function, _) in BODIES {
+            assert!(
+                matches!(
+                    evaluate(function, note(0x3C), note(0x3C)),
+                    Err(Error::Type(TypeError::Number(found))) if found == "C4"
+                ),
+                "{function:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_non_value_operand_in_either_slot_diagnoses_as_its_declared_type() {
         for (function, _) in BODIES {
             for value in [Atom::Bang, Atom::Function(Function::Add)] {
