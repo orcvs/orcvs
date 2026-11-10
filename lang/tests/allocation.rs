@@ -312,9 +312,9 @@ fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
 
     // A call over Atom operands allocates nothing. `Interpreter::execute_function`
     // holds its Operand Stack inline, sized to the widest operand list the
-    // Function table declares, and every answer is one Atom or one Play
-    // Command, so neither the stack nor the answer asks the allocator for a
-    // block. Zero, for one pass and for four, rather than a ceiling per call:
+    // Function table declares, and every answer here is one Atom, one Play
+    // Command or a chord's inline tones, so neither the stack nor the answer
+    // asks the allocator for a block. Zero, for one pass and for four, rather than a ceiling per call:
     // a ceiling of one block per call would admit exactly the heap-backed
     // stack this rules out.
     let short = rows(SOURCE, 0);
@@ -494,8 +494,8 @@ fn a_twelve_tone_chord_play_allocates_nothing_to_read_or_evaluate() {
     let chords = calls(&chords);
     assert_eq!(chords.len(), TWELVE_TONE_CHORDS.len());
 
-    // Twelve inline Play Commands is the whole of what a Chord Play's answer
-    // asks for, so this is the assertion a heap-backed answer would fail.
+    // Twelve inline Notes are the whole of what a Chord Play's answer asks
+    // for, so this is the assertion a heap-backed answer would fail.
     black_box(evaluate(&chords, inputs));
     let (allocations, evaluated) = measure(|| evaluate(black_box(&chords), inputs));
     assert_eq!(evaluated, chords.len(), "every chord answers");

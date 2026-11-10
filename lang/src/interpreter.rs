@@ -1,15 +1,10 @@
 use crate::{
     Atom, Error, Function, FunctionInputs, NetworkSend, Output, PlayCommand, SourceEffect, Stack,
     atom::operands,
-    functions::{self, chord::MAX_TONES, math, numeric_conversion, tick},
+    functions::{self, chord::ChordTones, math, numeric_conversion, tick},
 };
-use arrayvec::ArrayVec;
 
 pub struct Interpreter {}
-
-/// The Play Commands one Turn can perform, held inline so an answer of several
-/// asks the allocator for nothing.
-pub type PlayCommands = ArrayVec<PlayCommand, MAX_TONES>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Interpretation {
@@ -25,11 +20,13 @@ pub enum Interpretation {
     Clear,
     /// The one Play Command an active Terminal Output Function root performs.
     Play(PlayCommand),
-    /// The Play Commands an active Chord Play root performs: one ordinary Raw
-    /// or Timed Play Command per tone, lowest tone first.
-    Plays(PlayCommands),
+    /// The tones an active Chord Play root performs, which
+    /// [`ChordTones::commands`] expands to one ordinary Raw or Timed Play
+    /// Command per tone, lowest tone first.
+    Chord(ChordTones),
     /// The one Network Send an active UDP or OSC Function root performs,
-    /// boxed so a Play Command's answer stays small.
+    /// boxed because a Send is wider than every other answer and every Turn's
+    /// answer would otherwise be that wide.
     Send(Box<NetworkSend>),
     /// What an active UDP Function answers for an empty Payload, `!u!`: it
     /// sends nothing and reports nothing.
@@ -202,11 +199,11 @@ impl Interpreter {
             Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawChordPlay => {
-                Interpretation::Plays(functions::chord::raw_chord_play(&mut ctx)?)
+                Interpretation::Chord(functions::chord::raw_chord_play(&mut ctx)?)
             }
             Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
             Function::TimedChordPlay => {
-                Interpretation::Plays(functions::chord::timed_chord_play(&mut ctx)?)
+                Interpretation::Chord(functions::chord::timed_chord_play(&mut ctx)?)
             }
             Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
             Function::Up => Interpretation::Cell(functions::pitch::up(&mut ctx)?),

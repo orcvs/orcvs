@@ -366,8 +366,8 @@ impl<'a> Execution<'a> {
                 .effects
                 .push(Effect::Diagnose(diagnose(node, error.to_string()))),
             Ok(Interpretation::Play(command)) => self.effects.push(Effect::Play(command)),
-            Ok(Interpretation::Plays(commands)) => {
-                self.effects.extend(commands.into_iter().map(Effect::Play));
+            Ok(Interpretation::Chord(chord)) => {
+                self.effects.extend(chord.commands().map(Effect::Play));
             }
             Ok(Interpretation::Send(send)) => self.effects.push(Effect::Send(*send)),
             Ok(Interpretation::EmptyPayload) => {}

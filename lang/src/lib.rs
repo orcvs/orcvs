@@ -16,7 +16,8 @@ pub use atom::{
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
-pub use interpreter::{Interpretation, Interpreter, PlayCommands};
+pub use functions::chord::ChordTones;
+pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{BLANK_PAIR, Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
 pub(crate) use stack::Stack;
@@ -493,23 +494,30 @@ mod test {
 
     #[test]
     fn the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against() {
-        use super::{Interpretation, PlayCommand, PlayCommands};
+        use super::{Error, Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
         // measures the answer seam. A Play Command holds no pointer, so it
         // reads 5 at every pointer width. The widest answer is a Chord Play's
-        // Play Commands, held inline so a Turn allocates nothing: twelve
-        // commands and a `u32` length, then the tag, rounded up to pointer
-        // alignment, so `Interpretation` reads 72 natively and 68 on wasm32.
+        // tones, whose shared operands and twelve inline Notes read 20 bytes:
+        // `Interpretation` carries its tag in their niche and reads 20 on
+        // wasm32, and pointer alignment rounds it to 24 natively. Both are
+        // narrower than `Error`, so the answer leaves the `Result` a Turn
+        // returns exactly as wide as `Error` makes it.
         //
-        // A failure here is notice rather than a defect: the answer seam has
-        // changed shape, and `execute_function` is the measurement to take
-        // again.
+        // The sizes are written out rather than derived from the types they
+        // describe, so a wider answer fails here. A failure is notice rather
+        // than a defect: the answer seam has changed shape, and
+        // `execute_function` is the measurement to take again.
+        let (answer, error) = if cfg!(target_pointer_width = "64") {
+            (24, 40)
+        } else {
+            (20, 24)
+        };
         assert_eq!(size_of::<PlayCommand>(), 5);
-        assert_eq!(
-            size_of::<Interpretation>(),
-            (size_of::<PlayCommands>() + size_of::<u32>()).next_multiple_of(size_of::<usize>())
-        );
+        assert_eq!(size_of::<Interpretation>(), answer);
+        assert_eq!(size_of::<Error>(), error);
+        assert_eq!(size_of::<Result<Interpretation, Error>>(), error);
     }
 
     #[test]

@@ -3,8 +3,8 @@
 use arrayvec::ArrayVec;
 
 use crate::{
-    Error, InterpretationError, IntervalSet, Note, PlayCommand, PlayCommands, Voicing,
-    atom::operands, interpreter::Context,
+    Error, InterpretationError, IntervalSet, Length, MidiChannel, Note, PlayCommand, Velocity,
+    Voicing, atom::operands, interpreter::Context,
 };
 
 /// The most tones any Interval Set names, and so the most Play Commands one
@@ -26,12 +26,78 @@ pub(crate) const MAX_TONES: usize = {
 /// The semitones one tone moves when it moves an octave.
 const OCTAVE: i16 = 12;
 
+/// What one Chord Play's Turn performs: the operands its tones share, held
+/// once, and its tones, lowest first.
+///
+/// It exists only once the whole chord has been built, so holding one means
+/// every tone is a Note. The tones are inline, and the shared operands are not
+/// repeated per tone, so every Turn's answer stays small and a chord asks the
+/// allocator for nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChordTones {
+    channel: MidiChannel,
+    velocity: Velocity,
+    /// The lifetime every tone carries, or `None` for a Raw Chord Play.
+    length: Option<Length>,
+    notes: ArrayVec<Note, MAX_TONES>,
+}
+
+impl ChordTones {
+    /// One ordinary Play Command per tone, lowest first: Raw for a Raw Chord
+    /// Play and Timed for a Timed one.
+    pub fn commands(&self) -> impl Iterator<Item = PlayCommand> + use<'_> {
+        let (channel, velocity) = (self.channel, self.velocity);
+        let notes = self.notes.iter().copied();
+        match self.length {
+            None => Commands::Raw(notes.map(move |note| PlayCommand::Raw {
+                channel,
+                velocity,
+                note,
+            })),
+            Some(length) => Commands::Timed(notes.map(move |note| PlayCommand::Timed {
+                channel,
+                velocity,
+                note,
+                length,
+            })),
+        }
+    }
+}
+
+/// The two iterators [`ChordTones::commands`] chooses between.
+enum Commands<R, T> {
+    Raw(R),
+    Timed(T),
+}
+
+impl<R, T> Iterator for Commands<R, T>
+where
+    R: Iterator<Item = PlayCommand>,
+    T: Iterator<Item = PlayCommand>,
+{
+    type Item = PlayCommand;
+
+    fn next(&mut self) -> Option<PlayCommand> {
+        match self {
+            Self::Raw(commands) => commands.next(),
+            Self::Timed(commands) => commands.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Raw(commands) => commands.size_hint(),
+            Self::Timed(commands) => commands.size_hint(),
+        }
+    }
+}
+
 /// Raw Chord Play: `!: channel velocity root set voicing inversion`.
 ///
 /// One Raw Play Command per tone, so velocity `00` stops a tone exactly as it
 /// stops a note, and the Playback Engine has nothing of its own to learn.
 #[inline(always)]
-pub fn raw_chord_play(ctx: &mut Context) -> Result<PlayCommands, Error> {
+pub fn raw_chord_play(ctx: &mut Context) -> Result<ChordTones, Error> {
     let operands::RawChordPlay {
         channel,
         velocity,
@@ -40,14 +106,12 @@ pub fn raw_chord_play(ctx: &mut Context) -> Result<PlayCommands, Error> {
         voicing,
         inversion,
     } = ctx.stack.extract()?;
-    Ok(tones(root, set, voicing, inversion)?
-        .into_iter()
-        .map(|note| PlayCommand::Raw {
-            channel,
-            velocity,
-            note,
-        })
-        .collect())
+    Ok(ChordTones {
+        channel,
+        velocity,
+        length: None,
+        notes: tones(root, set, voicing, inversion)?,
+    })
 }
 
 /// Timed Chord Play: `!# channel velocity root set voicing inversion length`.
@@ -55,7 +119,7 @@ pub fn raw_chord_play(ctx: &mut Context) -> Result<PlayCommands, Error> {
 /// One Timed Play Command per tone, so each tone owns its channel and note and
 /// stops at its own Note Off, as a Timed Play does.
 #[inline(always)]
-pub fn timed_chord_play(ctx: &mut Context) -> Result<PlayCommands, Error> {
+pub fn timed_chord_play(ctx: &mut Context) -> Result<ChordTones, Error> {
     let operands::TimedChordPlay {
         channel,
         velocity,
@@ -65,15 +129,12 @@ pub fn timed_chord_play(ctx: &mut Context) -> Result<PlayCommands, Error> {
         inversion,
         length,
     } = ctx.stack.extract()?;
-    Ok(tones(root, set, voicing, inversion)?
-        .into_iter()
-        .map(|note| PlayCommand::Timed {
-            channel,
-            velocity,
-            note,
-            length,
-        })
-        .collect())
+    Ok(ChordTones {
+        channel,
+        velocity,
+        length: Some(length),
+        notes: tones(root, set, voicing, inversion)?,
+    })
 }
 
 /// The tones a Chord Play sends, lowest first, or why the whole chord is
@@ -110,10 +171,10 @@ fn tones(
         .map(|(_, &semitone)| i16::from(root.value()) + i16::from(semitone))
         .collect();
 
+    // `tones_needed` admitted at least one tone that survives removal, so
+    // there is always a lowest tone to move.
     for _ in 0..inversion {
-        if let Some(lowest) = pitches.first_mut() {
-            *lowest += OCTAVE;
-        }
+        pitches[0] += OCTAVE;
         pitches.sort_unstable();
     }
 
@@ -179,11 +240,11 @@ const fn dropped_from_the_top(voicing: Voicing) -> &'static [usize] {
 
 #[cfg(test)]
 mod test {
-    use super::{MAX_TONES, raw_chord_play, timed_chord_play};
+    use super::{ChordTones, MAX_TONES, raw_chord_play, timed_chord_play};
     use crate::{
         Anchor, ArgumentError, Atom, Error, Function, Interpretation, InterpretationError,
-        Interpreter, IntervalSet, Length, MidiChannel, Note, PlayCommand, PlayCommands, Tick,
-        TickInputs, TypeError, Velocity, Voicing, interpreter::Context,
+        Interpreter, IntervalSet, Length, MidiChannel, Note, PlayCommand, Tick, TickInputs,
+        TypeError, Velocity, Voicing, interpreter::Context,
     };
 
     /// Evaluates Source text for one Chord Play over Operand Literals.
@@ -200,19 +261,24 @@ mod test {
         )
     }
 
+    /// The Play Commands a Chord Play's answer expands to.
+    fn commands(answer: Interpretation) -> Vec<PlayCommand> {
+        match answer {
+            Interpretation::Chord(chord) => chord.commands().collect(),
+            other => panic!("{other:?} is not a Chord Play's answer"),
+        }
+    }
+
     /// The tones `C4` with `set`, `voicing` and `inversion` answers, as Note
     /// numbers lowest first.
     fn tones(chord: &str) -> Result<Vec<u8>, Error> {
-        match interpret(&format!("!:0102{chord}"))? {
-            Interpretation::Plays(commands) => Ok(commands
-                .into_iter()
-                .map(|command| match command {
-                    PlayCommand::Raw { note, .. } => note.value(),
-                    other => panic!("{other:?} is not a Raw Play Command"),
-                })
-                .collect()),
-            other => panic!("{other:?} is not an answer of Play Commands"),
-        }
+        Ok(commands(interpret(&format!("!:0102{chord}"))?)
+            .into_iter()
+            .map(|command| match command {
+                PlayCommand::Raw { note, .. } => note.value(),
+                other => panic!("{other:?} is not a Raw Play Command"),
+            })
+            .collect())
     }
 
     fn note(value: u8) -> Note {
@@ -220,43 +286,55 @@ mod test {
     }
 
     /// The Raw Play Commands a Chord Play sends on channel 1 at velocity 2.
-    fn raw(tones: &[u8]) -> Interpretation {
-        Interpretation::Plays(
-            tones
-                .iter()
-                .map(|&tone| PlayCommand::Raw {
-                    channel: MidiChannel::try_from(1).unwrap(),
-                    velocity: Velocity::try_from(2).unwrap(),
-                    note: note(tone),
-                })
-                .collect(),
-        )
+    fn raw(tones: &[u8]) -> Vec<PlayCommand> {
+        tones
+            .iter()
+            .map(|&tone| PlayCommand::Raw {
+                channel: MidiChannel::try_from(1).unwrap(),
+                velocity: Velocity::try_from(2).unwrap(),
+                note: note(tone),
+            })
+            .collect()
+    }
+
+    /// The Timed Play Commands a Chord Play sends on channel 1 at velocity 2.
+    fn timed(tones: &[u8], length: u8) -> Vec<PlayCommand> {
+        tones
+            .iter()
+            .map(|&tone| PlayCommand::Timed {
+                channel: MidiChannel::try_from(1).unwrap(),
+                velocity: Velocity::try_from(2).unwrap(),
+                note: note(tone),
+                length: Length::from(length),
+            })
+            .collect()
     }
 
     #[test]
     fn a_raw_chord_play_answers_one_raw_play_command_per_tone_lowest_first() {
         // `C4M7` is C4, E4, G4, B4: Notes 3C, 40, 43 and 47.
         assert_eq!(
-            interpret("!:0102C4M7CL00").unwrap(),
+            commands(interpret("!:0102C4M7CL00").unwrap()),
             raw(&[0x3C, 0x40, 0x43, 0x47])
         );
     }
 
     #[test]
     fn a_timed_chord_play_answers_one_timed_play_command_per_tone_carrying_its_length() {
-        let expected = Interpretation::Plays(
-            [0x3C, 0x40, 0x43]
-                .iter()
-                .map(|&tone| PlayCommand::Timed {
-                    channel: MidiChannel::try_from(1).unwrap(),
-                    velocity: Velocity::try_from(2).unwrap(),
-                    note: note(tone),
-                    length: Length::from(0x04),
-                })
-                .collect(),
+        assert_eq!(
+            commands(interpret("!#0102C4M_CL0004").unwrap()),
+            timed(&[0x3C, 0x40, 0x43], 0x04)
         );
+    }
 
-        assert_eq!(interpret("!#0102C4M_CL0004").unwrap(), expected);
+    #[test]
+    fn expanding_a_chord_reports_how_many_commands_it_holds() {
+        // `Vec::extend` reserves from this hint, so a Tick grows its Effects
+        // once per chord rather than once per tone.
+        let Interpretation::Chord(chord) = interpret("!:0102C4chCL00").unwrap() else {
+            panic!("a Chord Play answers its tones");
+        };
+        assert_eq!(chord.commands().size_hint(), (12, Some(12)));
     }
 
     #[test]
@@ -272,7 +350,7 @@ mod test {
             Atom::Voicing(Voicing::Close),
             Atom::Number(0x01),
         ];
-        let timed = [
+        let timed_operands = [
             operands[0],
             operands[1],
             operands[2],
@@ -283,46 +361,26 @@ mod test {
         ];
 
         // C4, E4, G4 inverted once is E4, G4, C5.
-        let channel = MidiChannel::try_from(1).unwrap();
-        let velocity = Velocity::try_from(2).unwrap();
-        let expected_raw: PlayCommands = [0x40, 0x43, 0x48]
-            .iter()
-            .map(|&tone| PlayCommand::Raw {
-                channel,
-                velocity,
-                note: note(tone),
-            })
-            .collect();
-        let expected_timed: PlayCommands = [0x40, 0x43, 0x48]
-            .iter()
-            .map(|&tone| PlayCommand::Timed {
-                channel,
-                velocity,
-                note: note(tone),
-                length: Length::from(5),
-            })
-            .collect();
+        let expected_raw = raw(&[0x40, 0x43, 0x48]);
+        let expected_timed = timed(&[0x40, 0x43, 0x48], 5);
 
         assert_eq!(
-            evaluate(Function::RawChordPlay, &operands).unwrap(),
-            Interpretation::Plays(expected_raw.clone())
+            commands(evaluate(Function::RawChordPlay, &operands).unwrap()),
+            expected_raw
+        );
+        assert_eq!(commands(interpret("!:0102C4M_CL01").unwrap()), expected_raw);
+        assert_eq!(
+            commands(evaluate(Function::TimedChordPlay, &timed_operands).unwrap()),
+            expected_timed
         );
         assert_eq!(
-            interpret("!:0102C4M_CL01").unwrap(),
-            Interpretation::Plays(expected_raw)
-        );
-        assert_eq!(
-            evaluate(Function::TimedChordPlay, &timed).unwrap(),
-            Interpretation::Plays(expected_timed.clone())
-        );
-        assert_eq!(
-            interpret("!#0102C4M_CL0105").unwrap(),
-            Interpretation::Plays(expected_timed)
+            commands(interpret("!#0102C4M_CL0105").unwrap()),
+            expected_timed
         );
     }
 
     /// A Chord Play body, so the two share one arity claim.
-    type Body = fn(&mut Context) -> Result<PlayCommands, Error>;
+    type Body = fn(&mut Context) -> Result<ChordTones, Error>;
 
     #[test]
     fn each_chord_play_requires_exactly_its_declared_operands() {
@@ -396,12 +454,8 @@ mod test {
         }
         // Every byte is a length, and it travels unread.
         for length in 0..=u8::MAX {
-            let Interpretation::Plays(commands) =
-                interpret(&format!("!#007FC4M_CL00{length:02X}")).unwrap()
-            else {
-                panic!("a Chord Play answers Play Commands");
-            };
-            assert!(commands.iter().all(|command| matches!(
+            let answer = interpret(&format!("!#007FC4M_CL00{length:02X}")).unwrap();
+            assert!(commands(answer).iter().all(|command| matches!(
                 command,
                 PlayCommand::Timed { length: l, .. } if l.value() == length
             )));
@@ -469,6 +523,22 @@ mod test {
                 "{expected}"
             );
         }
+        // The Number role only Timed Chord Play declares.
+        assert!(matches!(
+            evaluate(
+                Function::TimedChordPlay,
+                &[
+                    Atom::Number(0),
+                    Atom::Number(1),
+                    note_c4,
+                    set,
+                    close,
+                    Atom::Number(0),
+                    note_c4,
+                ]
+            ),
+            Err(Error::Type(TypeError::Number(_)))
+        ));
     }
 
     #[test]
@@ -524,10 +594,10 @@ mod test {
 
     #[test]
     fn every_voicing_gives_the_tones_it_names() {
-        // C4 M7 is 3C 40 43 47. Worked by hand from ADR 0103: `OP` raises the
-        // 2nd and 4th tones an octave; `D2` lowers the 2nd from the top, `D3`
-        // the 3rd, `D5` the 2nd and 3rd, and `D6` the 2nd and 4th; `SH` keeps
-        // the 1st, 2nd and 4th; and `RL` removes the 1st.
+        // C4 M7 is 3C 40 43 47. `OP` raises the 2nd and 4th tones an octave;
+        // `D2` lowers the 2nd from the top, `D3` the 3rd, `D5` the 2nd and
+        // 3rd, and `D6` the 2nd and 4th; `SH` keeps the 1st, 2nd and 4th; and
+        // `RL` removes the 1st.
         for (chord, expected) in [
             ("C4M7CL00", &[0x3C, 0x40, 0x43, 0x47][..]),
             ("C4M7OP00", &[0x3C, 0x43, 0x4C, 0x53]),
@@ -642,10 +712,7 @@ mod test {
         // on as a Timed Play does, so a body that dropped a tone here would
         // be interpreting them itself.
         for source in ["!#0000C4M_CL0004", "!#007FC4M_CL0000"] {
-            let Interpretation::Plays(commands) = interpret(source).unwrap() else {
-                panic!("{source} answers Play Commands");
-            };
-            assert_eq!(commands.len(), 3, "{source}");
+            assert_eq!(commands(interpret(source).unwrap()).len(), 3, "{source}");
         }
     }
 }

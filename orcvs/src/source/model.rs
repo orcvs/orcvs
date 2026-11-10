@@ -982,8 +982,8 @@ mod test {
     fn plan_result(grid: Grid, root: Position, result: Interpretation) -> TickPlan {
         let encoding = match result {
             Interpretation::Play(command) => return resolve(vec![Effect::Play(command)]),
-            Interpretation::Plays(commands) => {
-                return resolve(commands.into_iter().map(Effect::Play).collect());
+            Interpretation::Chord(chord) => {
+                return resolve(chord.commands().map(Effect::Play).collect());
             }
             Interpretation::Send(send) => return resolve(vec![Effect::Send(*send)]),
             Interpretation::EmptyPayload => return resolve(vec![]),
