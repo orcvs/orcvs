@@ -77,7 +77,7 @@ pub(crate) const CONTRAST_FLOOR: f32 = 4.5;
 /// which are not Source Grid facts. Each chrome role is named for the Theme
 /// key `crate::style::style` maps the painted foreground from.
 ///
-/// Number and Note admit Valid and Invalid.
+/// Number, Note, Interval Set and Voicing admit Valid and Invalid.
 ///
 /// Pending is not a role this validator measures at all: a Pending Cell
 /// draws no glyph (`paint::tests::every_pending_operand_token_draws_no_
@@ -96,6 +96,10 @@ pub(crate) enum Role {
     NumberInvalid,
     NoteValid,
     NoteInvalid,
+    IntervalSetValid,
+    IntervalSetInvalid,
+    VoicingValid,
+    VoicingInvalid,
     Text,
     TextMuted,
     TextActive,
@@ -115,7 +119,7 @@ pub(crate) enum Role {
 impl Role {
     /// Every Source Grid role [`validate`] measures, in this enum's
     /// declaration order.
-    const SOURCE_ROLES: [Self; 8] = [
+    const SOURCE_ROLES: [Self; 12] = [
         Self::Ordinary,
         Self::Function,
         Self::Bang,
@@ -124,6 +128,10 @@ impl Role {
         Self::NumberInvalid,
         Self::NoteValid,
         Self::NoteInvalid,
+        Self::IntervalSetValid,
+        Self::IntervalSetInvalid,
+        Self::VoicingValid,
+        Self::VoicingInvalid,
     ];
 
     ///
@@ -148,6 +156,10 @@ impl Role {
             Self::NumberInvalid => Some(operand(Token::Number, OperandState::Invalid)),
             Self::NoteValid => Some(operand(Token::Note, OperandState::Valid)),
             Self::NoteInvalid => Some(operand(Token::Note, OperandState::Invalid)),
+            Self::IntervalSetValid => Some(operand(Token::IntervalSet, OperandState::Valid)),
+            Self::IntervalSetInvalid => Some(operand(Token::IntervalSet, OperandState::Invalid)),
+            Self::VoicingValid => Some(operand(Token::Voicing, OperandState::Valid)),
+            Self::VoicingInvalid => Some(operand(Token::Voicing, OperandState::Invalid)),
             Self::Text
             | Self::TextMuted
             | Self::TextActive
@@ -176,6 +188,10 @@ impl fmt::Display for Role {
             Self::NumberInvalid => "Number, Invalid",
             Self::NoteValid => "Note, Valid",
             Self::NoteInvalid => "Note, Invalid",
+            Self::IntervalSetValid => "Interval Set, Valid",
+            Self::IntervalSetInvalid => "Interval Set, Invalid",
+            Self::VoicingValid => "Voicing, Valid",
+            Self::VoicingInvalid => "Voicing, Invalid",
             Self::Text => "text",
             Self::TextMuted => "text.muted",
             Self::TextActive => "text.active",
@@ -690,8 +706,8 @@ mod tests {
     fn validate_reports_one_result_per_role_cursor_placement_and_portal_role_set_plus_seventeen_chrome_states()
      {
         let report = validate(&default_theme(Appearance::Dark));
-        // 8 Source Grid roles x 4 CursorPlacements x 4 Portal role sets
-        // = 128, the Function and Bang roles x 4 CursorPlacements x the 4
+        // 12 Source Grid roles x 4 CursorPlacements x 4 Portal role sets
+        // = 192, the Function and Bang roles x 4 CursorPlacements x the 4
         // sets holding Locked = 32, plus 17 chrome states: text on panel, input and the
         // inactive and open fills (4); text.muted on panel and input (2);
         // text.active on the hovered and active fills, framed and frameless
@@ -701,7 +717,7 @@ mod tests {
         // rather than recomputed from the same lengths `validate` sizes its
         // `Vec` from, so a change to either count is caught by an
         // independent number.
-        assert_eq!(report.results.len(), 177);
+        assert_eq!(report.results.len(), 241);
     }
 
     ///
