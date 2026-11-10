@@ -41,11 +41,11 @@ The semantic view derived from the Parser's interpretation of one Source revisio
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
 **Atom**:
-One parsed value or operation an Expression is made of: a Number, a Note, a Bang, or a Function. Every Atom has a Source encoding. A Self-Banging Function is not a kind of its own here: it is a Function, and the four spellings parse to one. An Atom is what an Expression's operands resolve to and what a value Function answers when it has one to write. A value Function's other successful answer, a Clear, is not an Atom. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
+One parsed value or operation an Expression is made of: a Number, a Note, an Interval Set, a Voicing, a Bang, or a Function. Every Atom has a Source encoding. A Self-Banging Function is not a kind of its own here: it is a Function, and the four spellings parse to one. An Atom is what an Expression's operands resolve to and what a value Function answers when it has one to write. A value Function's other successful answer, a Clear, is not an Atom. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another, or an Interval Set in one and a Number in another.
 _Avoid_: Token, glyph, symbol, cell value
 
 **Operand Literal**:
-Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context. A Write's or Push's `value` takes no type: it carries the two Cells it holds unchanged, and whatever reads them at the destination interprets them. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
+Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number, Note, Interval Set or Voicing type outside that context. A Write's or Push's `value` takes no type: it carries the two Cells it holds unchanged, and whatever reads them at the destination interprets them. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Spatial Output**:
@@ -141,6 +141,14 @@ _Avoid_: Base-36 value, decimal literal, single-glyph number
 **Note**:
 A pitched Atom carrying one MIDI note value from `00` through `7F`. In a Note operand position, its two-Cell Operand Literal uses an uppercase pitch letter for a natural or lowercase pitch letter for a sharp followed by its octave character: `/` for the octave below `0`, then `0` through `9`, such as `C/`, `C4`, or `c4`. The same Source characters may denote a Number in a Number operand position.
 _Avoid_: Number, note-shaped Number, intrinsically typed literal
+
+**Interval Set**:
+An Atom naming a list of semitones above a root: one of 25 chord names, `M_ M7 M9 MD M6 69 +M m_ m7 mM m6 m9 mB mD o_ o7 h7 b9 7_ 9_ 13 s2 s4 +_ a9`, or 14 scale names, `MA mi do ph ly mx lo hm mm p5 p3 bl wt ch`. Per ADR 0105 chords and scales are one type, no two names name the same list, and the longest, `ch`, names twelve semitones. Every name fills both Cells of its Operand Literal, so a single-letter chord takes the filler `_` and a half-blank pair such as `M ` stays partial input. Names drop an implied 7 (`mM`, `+M`, `b9`), use an established symbol (`h7`, `69`), and write 11 and 13 as the hexadecimal digits `B` and `D` (`mB`, `mD`, `MD`); `13` is the dominant 13th. `mM` and `mm` differ only by case and a slip between them is not diagnosed. A Copy, Read, Track, Write or Push carries an Interval Set as the two Cells that name it, and the receiving operand decodes them, so `69` and `13` are Interval Sets in an Interval Set operand and Numbers in a Number operand. No Function takes one yet.
+_Avoid_: chord type, scale type, chord quality
+
+**Voicing**:
+An Atom naming how a Chord's tones are arranged: `CL` close, `OP` open, `D2`, `D3`, `D5` and `D6` drops, `SH` shell or `RL` rootless. It is its own literal type rather than part of the Interval Set, and inversion is a Number rather than part of the Voicing. A Copy, Read, Track, Write or Push carries a Voicing as its two Cells, so `D2` is a Voicing in a Voicing operand and a Note in a Note operand. No Function takes one yet.
+_Avoid_: inversion, chord shape
 
 **Numeric Conversion Function**:
 One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the numeric domain and whose directional suffix identifies the result type. Their Source literal signatures are monomorphic: `.v` consumes a Note literal and returns its underlying Number, while `.^` consumes a Number literal from `00` through `7F` and returns the corresponding Note, diagnosing `80` through `FF`. Each reads its operand only as that declared literal type, whether the characters were typed, written by a Portal, or returned by a nested Function, so conversions compose in opposite directions — `.v.^3C` and `.^.vC4` — while `.v.vC4` and `.^.^3C` diagnose, and `.+.^3C01` reads the returned `C4` as Number `C4`. A conversion never passes a value of its result type through.
