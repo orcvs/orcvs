@@ -462,47 +462,67 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
 }
 
 #[test]
-fn reading_and_taking_the_turn_of_a_raw_play_with_a_blank_note_allocates_nothing() {
-    // A Raw Play whose note slot holds two blank Cells plays nothing and
-    // reports no error, so reading it is held to the clean-row bound above,
-    // and its Turn binds the absent note and answers without building a
-    // message. Kept out of `SOURCE`, whose re-read is a published series that
-    // a new row would move.
-    let row = "!>010A  ";
-    // Warm up, for the reason the call test gives.
-    black_box(Parser::at(row, 0).analyze());
-    let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
-    assert!(analysis.error().is_none(), "{row:?} reported an error");
-    assert_eq!(
-        allocations,
-        Allocations::default(),
-        "reading {row:?} allocated"
-    );
+fn reading_and_taking_the_turn_of_a_play_with_a_blank_note_allocates_nothing() {
+    // A Play whose note slot holds two blank Cells plays nothing and reports
+    // no error, so reading it is held to the clean-row bound above, and its
+    // Turn binds the absent note and answers without building a message.
+    // Kept out of `SOURCE`, whose re-read is a published series that a new
+    // row would move.
+    let channel = Some(Atom::Number(0x01));
+    let velocity = Some(Atom::Number(0x0A));
+    let length = Some(Atom::Number(0x04));
+    for (row, function, operands) in [
+        (
+            "!>010A  ",
+            Function::RawPlay,
+            &[channel, velocity, None][..],
+        ),
+        (
+            "!~010A  04",
+            Function::TimedPlay,
+            &[channel, velocity, None, length][..],
+        ),
+        (
+            "!%010A  04",
+            Function::MonophonicPlay,
+            &[channel, velocity, None, length][..],
+        ),
+    ] {
+        // Warm up, for the reason the call test gives.
+        black_box(Parser::at(row, 0).analyze());
+        let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
+        assert!(analysis.error().is_none(), "{row:?} reported an error");
+        assert_eq!(
+            allocations,
+            Allocations::default(),
+            "reading {row:?} allocated"
+        );
 
-    let operands = [Some(Atom::Number(0x01)), Some(Atom::Number(0x0A)), None];
-    let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    black_box(Interpreter::execute_function(
-        Function::RawPlay,
-        operands,
-        inputs.into(),
-    ))
-    .expect("the warm-up Turn answers");
-    let (allocations, answer) = measure(|| {
-        Interpreter::execute_function(
-            black_box(Function::RawPlay),
-            black_box(operands),
+        let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
+        black_box(Interpreter::execute_function(
+            function,
+            operands.iter().copied(),
             inputs.into(),
-        )
-    });
-    assert_eq!(
-        answer.expect("the measured Turn answers"),
-        Interpretation::BlankNote
-    );
-    assert_eq!(
-        allocations,
-        Allocations::default(),
-        "the Turn of {row:?} allocated"
-    );
+        ))
+        .expect("the warm-up Turn answers");
+        let (allocations, answer) = measure(|| {
+            Interpreter::execute_function(
+                black_box(function),
+                black_box(operands).iter().copied(),
+                inputs.into(),
+            )
+        });
+        assert_eq!(
+            answer.expect("the measured Turn answers"),
+            Interpretation::BlankNote,
+            "{row:?}"
+        );
+        assert_eq!(
+            allocations,
+            Allocations::default(),
+            "the Turn of {row:?} allocated"
+        );
+    }
 }
 
 /// One Turn through [`Interpreter::execute_function`], and what it allocated.

@@ -126,38 +126,6 @@ fn knob_change(channel: u8, controller: u8, value: u8) -> OutputCommand {
     }
 }
 
-///
-/// The Timed Plays whose Read cleared their note on a step played with
-/// `touch`, each diagnosed at its anchor: every bassline row but the one
-/// holding the step. The step sounds from its own row whatever the other two
-/// report.
-///
-fn empty_rows(touch: Touch) -> Vec<(usize, usize, &'static str)> {
-    let holding = match touch {
-        Touch::Plain => 3,
-        Touch::Accent => 7,
-        Touch::Slide => 11,
-    };
-    [
-        (
-            3,
-            "nested computation at column 10, row 3 cleared its operand",
-        ),
-        (
-            7,
-            "nested computation at column 10, row 7 cleared its operand",
-        ),
-        (
-            11,
-            "nested computation at column 10, row 11 cleared its operand",
-        ),
-    ]
-    .into_iter()
-    .filter(|&(row, _)| row != holding)
-    .map(|(row, message)| (4, row, message))
-    .collect()
-}
-
 /// `value` moved toward `target` by at most [`RATE`], never past it.
 fn glide(value: u8, target: u8) -> u8 {
     if value < target {
@@ -199,13 +167,14 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
     // its value to glide back down.
     for tick in 0..0x210 {
         let plan = run.run_tick(tick);
-        let (_, touch) = BASS[tick as usize % BASS.len()];
+        // The two bassline rows not holding the step read a blank note, which
+        // sends nothing and reports nothing.
         assert_eq!(
             plan.diagnostics
                 .iter()
                 .map(|d| (d.anchor().x(), d.anchor().y(), d.message.as_str()))
                 .collect::<Vec<_>>(),
-            empty_rows(touch),
+            [],
             "Tick {tick}"
         );
         let mut delivery = Vec::new();

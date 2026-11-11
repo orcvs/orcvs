@@ -49,8 +49,11 @@ pub fn raw_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> {
 /// requires it even where it changes nothing — velocity `00` stops the note
 /// whatever length accompanies it — so the operand is extracted here and what
 /// it means is decided by the Playback Engine that owns the Ticks it counts.
+///
+/// The note is optional by type, as Raw Play's is: the body answers no Play
+/// Command for a blank note, after every other operand has bound.
 #[inline(always)]
-pub fn timed_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
+pub fn timed_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> {
     ctx.stack.perform(
         |operands::TimedPlay {
              channel,
@@ -58,12 +61,12 @@ pub fn timed_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
              note,
              length,
          }: operands::TimedPlay| {
-            Ok(PlayCommand::Timed {
+            Ok(note.map(|note| PlayCommand::Timed {
                 channel,
                 velocity,
                 note,
                 length,
-            })
+            }))
         },
     )
 }
@@ -75,8 +78,11 @@ pub fn timed_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
 /// the Playback Engine that counts Ticks is what knows the difference. A body
 /// that tried to say so here would be interpreting musical intent inside a
 /// Tick Plan, which is the seam ADR 0001 draws.
+///
+/// A blank note answers no Play Command, so it asks the engine for nothing:
+/// the channel's held voice runs to its own Note Off.
 #[inline(always)]
-pub fn monophonic_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
+pub fn monophonic_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> {
     ctx.stack.perform(
         |operands::MonophonicPlay {
              channel,
@@ -84,12 +90,12 @@ pub fn monophonic_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
              note,
              length,
          }: operands::MonophonicPlay| {
-            Ok(PlayCommand::Mono {
+            Ok(note.map(|note| PlayCommand::Mono {
                 channel,
                 velocity,
                 note,
                 length,
-            })
+            }))
         },
     )
 }
@@ -870,6 +876,63 @@ mod test {
         ));
         let refused = evaluate_slots(Function::RawPlay, &[None, velocity, None]).unwrap_err();
         assert_eq!(refused.to_string(), r#"expected a number, found "  ""#);
+    }
+
+    #[test]
+    fn a_timed_or_monophonic_play_binds_an_absent_note_to_no_play_command() {
+        let channel = Some(Atom::Number(0x01));
+        let velocity = Some(Atom::Number(0x7F));
+        let length = Some(Atom::Number(0x04));
+        for function in [Function::TimedPlay, Function::MonophonicPlay] {
+            assert_eq!(
+                evaluate_slots(function, &[channel, velocity, None, length]).unwrap(),
+                Interpretation::BlankNote,
+                "{function}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_note_still_binds_every_other_timed_or_monophonic_play_operand() {
+        let velocity = Some(Atom::Number(0x7F));
+        let length = Some(Atom::Number(0x04));
+        for function in [Function::TimedPlay, Function::MonophonicPlay] {
+            assert!(
+                matches!(
+                    evaluate_slots(
+                        function,
+                        &[Some(Atom::Number(0x10)), velocity, None, length]
+                    ),
+                    Err(Error::Interpretation(InterpretationError::MidiChannel(
+                        0x10
+                    )))
+                ),
+                "{function}"
+            );
+            let refused =
+                evaluate_slots(function, &[Some(Atom::Number(0x01)), velocity, None, None])
+                    .unwrap_err();
+            assert_eq!(
+                refused.to_string(),
+                r#"expected a number, found "  ""#,
+                "{function}"
+            );
+            // A present value that is no Note is refused as a Note refuses it.
+            let refused = evaluate_slots(
+                function,
+                &[
+                    Some(Atom::Number(0x01)),
+                    velocity,
+                    Some(Atom::Number(0x3C)),
+                    length,
+                ],
+            )
+            .unwrap_err();
+            assert!(
+                matches!(refused, Error::Type(crate::TypeError::Note(ref found)) if found == "3C"),
+                "{function}: {refused:?}"
+            );
+        }
     }
 
     #[test]

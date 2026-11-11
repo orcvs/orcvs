@@ -4,9 +4,9 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Through `Source::execute`: a blank note on `!~` and on `!%` sends no Play Command and raises no diagnostic, for both the written and the Portal routes.
-- [ ] A half-typed or mistyped note on either is still diagnosed.
-- [ ] A blank length, or one out of range, is diagnosed on a blank step.
-- [ ] A `!%` with a blank note leaves its channel's held voice to its own Note Off: a voice already sounding is not cut short, which a playback test shows.
+- [x] Through `Source::execute`: a blank note on `!~` and on `!%` sends no Play Command and raises no diagnostic, for both the written and the Portal routes.
+- [x] A half-typed or mistyped note on either is still diagnosed.
+- [x] A blank length, or one out of range, is diagnosed on a blank step.
+- [x] A `!%` with a blank note leaves its channel's held voice to its own Note Off: a voice already sounding is not cut short, which a playback test shows.

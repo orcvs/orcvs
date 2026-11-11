@@ -204,7 +204,8 @@ impl Interpreter {
             Function::Stack => Interpretation::Cell(functions::pitch::stack(&mut ctx)?),
             Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
             Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
-            Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
+            Function::MonophonicPlay => functions::monophonic_play(&mut ctx)?
+                .map_or(Interpretation::BlankNote, Interpretation::Play),
             Function::Pick => Interpretation::Cell(functions::pitch::pick(&mut ctx)?),
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawChordPlay => {
@@ -215,7 +216,8 @@ impl Interpreter {
             Function::TimedChordPlay => {
                 Interpretation::Chord(functions::chord::timed_chord_play(&mut ctx)?)
             }
-            Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
+            Function::TimedPlay => functions::timed_play(&mut ctx)?
+                .map_or(Interpretation::BlankNote, Interpretation::Play),
             Function::Udp => functions::network::udp(&mut ctx),
             Function::Osc => functions::network::osc(&mut ctx)?,
             Function::Halt

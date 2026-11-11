@@ -133,15 +133,6 @@ fn diagnostics(plan: &TickPlan) -> Vec<((usize, usize), String)> {
         .collect()
 }
 
-///
-/// What the Tick that empties the Timed Play's note slot diagnoses it with.
-/// While the slot stays empty the Language Map diagnoses the Play instead,
-/// and the Tick does not repeat it.
-///
-fn empty_note_slot() -> Vec<((usize, usize), String)> {
-    vec![(PLAY, "expected a note, found \"  \"".to_owned())]
-}
-
 /// Whether the Language Map diagnoses the Timed Play.
 fn map_diagnoses_the_play(harness: &Harness<'_, Console>) -> bool {
     let mut diagnosed = false;
@@ -271,7 +262,7 @@ async fn a_cleared_pair_empties_its_step_in_place_and_typing_it_back_restores_it
         "{:?}",
         cleared.play_commands
     );
-    assert_eq!(diagnostics(&cleared), empty_note_slot());
+    assert_eq!(diagnostics(&cleared), [], "a blank note reports nothing");
     assert_eq!(
         notes(&tick(&harness, banged_tick_of(3))),
         [67],
@@ -352,7 +343,7 @@ async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
     tick(&harness, banged_tick_of(1));
     let empty = tick(&harness, banged_tick_of(2));
     assert!(empty.play_commands.is_empty(), "{:?}", empty.play_commands);
-    assert_eq!(diagnostics(&empty), empty_note_slot());
+    assert_eq!(diagnostics(&empty), [], "a blank note reports nothing");
 }
 
 ///
@@ -446,22 +437,16 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
                     plan.diagnostics
                 );
             }
-            // Step 6 empties the slot step 5 filled; step 7 finds it empty
-            // already, so the Language Map diagnoses the Play and the Tick
-            // does not.
-            None if step == 7 => {
+            // An empty step leaves the note blank, which sends nothing and
+            // reports nothing, from the Tick or the Language Map.
+            None => {
                 assert!(plan.play_commands.is_empty(), "step {step}");
                 assert!(
                     plan.diagnostics.is_empty(),
                     "step {step}: {:?}",
                     plan.diagnostics
                 );
-                assert!(map_diagnoses_the_play(&reopened), "step {step}");
-            }
-            None => {
-                assert!(plan.play_commands.is_empty(), "step {step}");
-                assert_eq!(diagnostics(&plan), empty_note_slot(), "step {step}");
-                assert!(map_diagnoses_the_play(&reopened), "step {step}");
+                assert!(!map_diagnoses_the_play(&reopened), "step {step}");
             }
         }
         let held = tick(&reopened, banged_tick_of(step) + 1);
@@ -474,7 +459,7 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
 /// The Tracker edits as the Melody does. Channel 4's voice, which
 /// ships empty, reads the column at x 40 from row 15, one step per row and
 /// one step per Tick: a typed step plays, clearing it silences that voice and
-/// diagnoses its Timed Play at (32, 13) alone, typing it back restores it, and
+/// reports nothing, typing it back restores it, and
 /// Save and a reopen keep the edits and start every voice at step 0.
 ///
 #[tokio::test]
@@ -507,11 +492,8 @@ async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
         cleared.play_commands
     );
     assert!(
-        diagnostics(&cleared).contains(&(
-            (32, 13),
-            "nested computation at column 38, row 13 cleared its operand".to_owned()
-        )),
-        "a cleared step diagnoses its own Play: {:?}",
+        cleared.diagnostics.is_empty(),
+        "a cleared step reports nothing: {:?}",
         cleared.diagnostics
     );
 

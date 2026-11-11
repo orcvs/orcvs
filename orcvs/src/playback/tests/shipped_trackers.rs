@@ -22,11 +22,10 @@ struct Tracker<'a> {
     voices: &'a [Voice],
 }
 
-/// One voice of a tracker: its MIDI channel, where its Timed Play is
-/// anchored, and the Note each step holds, `None` for an empty step.
+/// One voice of a tracker: its MIDI channel and the Note each step holds,
+/// `None` for an empty step.
 struct Voice {
     channel: u8,
-    play: (usize, usize),
     steps: Vec<Option<u8>>,
 }
 
@@ -83,26 +82,6 @@ impl Sounding {
     }
 }
 
-///
-/// The Plays `tracker` bangs at `tick` on an empty step, as anchor column and
-/// row. Each is invalid for want of a note, so its Turn is diagnosed there and
-/// sends nothing.
-///
-fn empty_steps(tracker: &Tracker<'_>, tick: u64) -> Vec<(usize, usize)> {
-    if !tick.is_multiple_of(tracker.step_ticks) {
-        return Vec::new();
-    }
-    let step = (tick / tracker.step_ticks) as usize;
-    let mut plays: Vec<_> = tracker
-        .voices
-        .iter()
-        .filter(|voice| voice.steps[step % voice.steps.len()].is_none())
-        .map(|voice| voice.play)
-        .collect();
-    plays.sort_by_key(|&(column, row)| (row, column));
-    plays
-}
-
 /// A Tick's diagnostic anchors as column and row, in Grid order.
 fn diagnosed_at(plan: &TickPlan) -> Vec<(usize, usize)> {
     let mut anchors: Vec<_> = plan
@@ -124,9 +103,8 @@ fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
 
 ///
 /// Runs the shipped Source File `text` for two complete loops and asserts
-/// every Tick's delivery against `tracker`. A voice banged on an empty step is
-/// diagnosed at its own Play and sends nothing, and no Tick diagnoses
-/// anything else, so an empty step costs only its own voice.
+/// every Tick's delivery against `tracker`. A voice banged on an empty step
+/// sends nothing and reports nothing, and no Tick diagnoses anything.
 ///
 fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     let source =
@@ -139,11 +117,7 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     for tick in 0..2 * tracker.loop_ticks() {
         let plan = run.run_tick(tick);
         let commands = sounding.expect(tracker, tick);
-        assert_eq!(
-            diagnosed_at(&plan),
-            empty_steps(tracker, tick),
-            "Tick {tick}'s diagnostics"
-        );
+        assert_eq!(diagnosed_at(&plan), vec![], "Tick {tick}'s diagnostics");
         assert_eq!(
             adapter.command_lists().last(),
             Some(&commands),
@@ -192,17 +166,9 @@ fn the_melody_delivers_its_first_loop_as_written_out() {
 
     for (tick, delivery) in expected.into_iter().enumerate() {
         let plan = run.run_tick(tick as u64);
-        // The Play is banged with an empty note on steps 2, 4 and 7.
-        let diagnosed = if [4, 8, 14].contains(&tick) {
-            vec![(2, 3, "expected a note, found \"  \"".to_owned())]
-        } else {
-            vec![]
-        };
-        assert_eq!(
-            tick_diagnostics(&plan),
-            diagnosed,
-            "Tick {tick}'s diagnostics"
-        );
+        // The Play is banged with an empty note on steps 2, 4 and 7, which
+        // sends nothing and reports nothing.
+        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
         assert_eq!(
             adapter.command_lists().last(),
             Some(&delivery),
@@ -223,7 +189,6 @@ fn the_melody_plays_two_loops_and_sends_nothing_on_its_empty_pairs() {
             velocity: 0x64,
             voices: &[Voice {
                 channel: 0,
-                play: (2, 3),
                 steps: vec![
                     Some(60),
                     Some(62),
@@ -340,10 +305,8 @@ const TRACKER_CHANNELS: [u8; 8] = [8, 8, 8, 9, 4, 5, 6, 7];
 
 ///
 /// The Tracker's voices in Source order: two staircases of four, voice
-/// `v` of group `g` is voice `4g + v`, on its [`TRACKER_CHANNELS`] channel,
-/// with its Timed Play anchored at column `2 + 28g + 7v + 2` on row
-/// `13 - 3v`. `notes` places a Note at a voice's step; every other step is
-/// empty.
+/// `v` of group `g` is voice `4g + v`, on its [`TRACKER_CHANNELS`] channel.
+/// `notes` places a Note at a voice's step; every other step is empty.
 ///
 fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     let mut voices = Vec::new();
@@ -352,10 +315,6 @@ fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
             let voice = 4 * group + v;
             voices.push(Voice {
                 channel: TRACKER_CHANNELS[usize::from(voice)],
-                play: (
-                    4 + 28 * usize::from(group) + 7 * usize::from(v),
-                    13 - 3 * usize::from(v),
-                ),
                 steps: steps(notes, voice, 16),
             });
         }
@@ -433,7 +392,7 @@ fn a_half_typed_step_silences_only_its_own_voice() {
     // Clearing the `2` of the kick's step-0 `C2` leaves `C `, partial input
     // for its Read. The Read is diagnosed, its Timed Play is invalid with it
     // and sends nothing, the hat and the bassline still play, and every other
-    // voice is diagnosed for its empty step and sends nothing.
+    // voice sends nothing and reports nothing for its empty step.
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/tracker.orcvs"))
             .expect("the shipped file is a Source File"),
@@ -459,14 +418,7 @@ fn a_half_typed_step_silences_only_its_own_voice() {
             ),
         ]
     );
-    let voices = tracker_voices(&[beat(16), bassline(3, 16)].concat());
-    for (column, row, message) in empty {
-        assert!(
-            message.ends_with("cleared its operand")
-                && voices.iter().any(|voice| voice.play == (column, row)),
-            "{column}, {row}: {message}"
-        );
-    }
+    assert_eq!(empty, []);
     let played: Vec<(u8, u8)> = plan
         .play_commands
         .iter()
@@ -485,15 +437,14 @@ const SEQUENCER_CHANNELS: [u8; 10] = [8, 8, 8, 3, 4, 5, 6, 7, 8, 9];
 
 ///
 /// The Sequencer's ten voices in Source order: voice `v` on its
-/// [`SEQUENCER_CHANNELS`] channel, its Timed Play anchored at column 4 on row
-/// `4 + 3v`, reading thirty-two steps along its own row. `notes` places a
+/// [`SEQUENCER_CHANNELS`] channel, reading thirty-two steps along its own
+/// row. `notes` places a
 /// Note at a voice's step; every other step is empty.
 ///
 fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     (0..10)
         .map(|voice| Voice {
             channel: SEQUENCER_CHANNELS[usize::from(voice)],
-            play: (4, 4 + 3 * usize::from(voice)),
             steps: steps(notes, voice, 32),
         })
         .collect()

@@ -3146,10 +3146,10 @@ mod tests {
 
     #[test]
     fn a_monophonic_play_whose_note_is_cleared_leaves_its_voice_sounding_to_its_own_note_off() {
-        // A Play with no note is invalid and sends no Play Command, so the
-        // engine is never asked to replace the channel's voice: the note the
-        // first Tick started runs to the stop its length scheduled, with no
-        // Note Off in between.
+        // A Play with a blank note sends no Play Command and reports nothing,
+        // so the engine is never asked to replace the channel's voice: the
+        // note the first Tick started runs to the stop its length scheduled,
+        // with no Note Off in between.
         let source = SourceCommander::new(Grid::with_shape(16, 4));
         write(&source, 0, ".=0101");
         write(&source, 32, "!%007F&>0204C4");
@@ -3159,10 +3159,12 @@ mod tests {
 
         run.run_tick(0);
         // The nested Read now copies two empty Cells, so its Clear leaves the
-        // Play invalid on every Tick that follows.
+        // note blank on every Tick that follows.
         write(&source, 44, "  ");
         for tick in 1..4 {
-            run.run_tick(tick);
+            let plan = run.run_tick(tick);
+            assert_eq!(plan.play_commands, vec![], "Tick {tick}");
+            assert_eq!(plan.diagnostics, vec![], "Tick {tick}");
             assert!(run.holds_note_ownership(), "Tick {tick}");
         }
         run.run_tick(4);
@@ -3184,9 +3186,10 @@ mod tests {
     #[test]
     fn a_monophonic_play_whose_note_goes_blank_leaves_its_voice_sounding() {
         // The note slot is Source-written and an edit blanks it, or Track
-        // writes it and its pair empties. Either way the Play is invalid on
-        // every later Bang, and the note the first Tick started runs to its
-        // own stop, with no Note Off in between.
+        // writes it and its pair empties. Either way the note is blank on
+        // every later Bang, so the Play sends nothing and reports nothing, and
+        // the note the first Tick started runs to its own stop, with no Note
+        // Off in between.
         for (route, (writes, blanked)) in [
             (&[(32, "!%007FC404")][..], 38),
             (&[(22, "&t0001C4"), (32, "!%007F  04")][..], 28),
@@ -3206,7 +3209,16 @@ mod tests {
             run.run_tick(0);
             write(&source, blanked, "  ");
             for tick in 1..4 {
-                run.run_tick(tick);
+                let plan = run.run_tick(tick);
+                assert_eq!(plan.play_commands, vec![], "route {route}, Tick {tick}");
+                assert_eq!(plan.diagnostics, vec![], "route {route}, Tick {tick}");
+                source.read_source(|source| {
+                    assert_eq!(
+                        source.language_map().diagnostics().count(),
+                        0,
+                        "route {route}, Tick {tick}"
+                    );
+                });
                 assert!(run.holds_note_ownership(), "route {route}, Tick {tick}");
             }
             run.run_tick(4);
