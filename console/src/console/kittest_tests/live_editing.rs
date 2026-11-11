@@ -146,6 +146,24 @@ fn map_diagnoses_the_play(harness: &Harness<'_, Console>) -> bool {
 }
 
 ///
+/// Asserts that `plan`, a Tick that banged the Timed Play on an empty step,
+/// sent nothing and reported nothing, and that the Language Map does not
+/// diagnose the Play either: a blank note is quiet everywhere.
+///
+fn assert_quiet(harness: &Harness<'_, Console>, plan: &TickPlan, context: &str) {
+    assert!(
+        plan.play_commands.is_empty(),
+        "{context}: {:?}",
+        plan.play_commands
+    );
+    assert_eq!(diagnostics(plan), [], "{context}: the Tick");
+    assert!(
+        !map_diagnoses_the_play(harness),
+        "{context}: the Language Map"
+    );
+}
+
+///
 /// Moves the Cursor to (`x`, `y`) with the arrow keys and checks it arrived.
 ///
 fn go_to(harness: &mut Harness<'_, Console>, x: usize, y: usize) {
@@ -315,12 +333,7 @@ async fn a_cleared_pair_empties_its_step_in_place_and_typing_it_back_restores_it
     assert_eq!(pairs(&harness), "C4    G4  A4C5  ");
     tick(&harness, banged_tick_of(0));
     let cleared = tick(&harness, banged_tick_of(1));
-    assert!(
-        cleared.play_commands.is_empty(),
-        "{:?}",
-        cleared.play_commands
-    );
-    assert_eq!(diagnostics(&cleared), [], "a blank note reports nothing");
+    assert_quiet(&harness, &cleared, "the cleared step");
     assert_eq!(
         notes(&tick(&harness, banged_tick_of(3))),
         [67],
@@ -400,8 +413,7 @@ async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
     assert_eq!(pairs(&harness), "C4D4  G4  A4C5  ");
     tick(&harness, banged_tick_of(1));
     let empty = tick(&harness, banged_tick_of(2));
-    assert!(empty.play_commands.is_empty(), "{:?}", empty.play_commands);
-    assert_eq!(diagnostics(&empty), [], "a blank note reports nothing");
+    assert_quiet(&harness, &empty, "the pasted empty step");
 }
 
 ///
@@ -495,17 +507,7 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
                     plan.diagnostics
                 );
             }
-            // An empty step leaves the note blank, which sends nothing and
-            // reports nothing, from the Tick or the Language Map.
-            None => {
-                assert!(plan.play_commands.is_empty(), "step {step}");
-                assert!(
-                    plan.diagnostics.is_empty(),
-                    "step {step}: {:?}",
-                    plan.diagnostics
-                );
-                assert!(!map_diagnoses_the_play(&reopened), "step {step}");
-            }
+            None => assert_quiet(&reopened, &plan, &format!("step {step}")),
         }
         let held = tick(&reopened, banged_tick_of(step) + 1);
         assert!(held.play_commands.is_empty(), "step {step}'s unbanged Tick");
