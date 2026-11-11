@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use lang::{Function, MidiChannel, Note, PlayCommand, Tick, Velocity};
+use lang::{Function, Length, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::portals::{
     BundlePart, BundleRefusal, LockVerdict, PortalEvent, PortalOrigin, TickPortals, WriteRefusal,
@@ -24,6 +24,16 @@ pub(in crate::source) fn raw(channel: u8, velocity: u8, note: u8) -> PlayCommand
         channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
         velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
         note: Note::try_from(note).expect("a MIDI note"),
+    }
+}
+
+/// One Timed Play Command, stated as the four Numbers a Source writes.
+pub(in crate::source) fn timed(channel: u8, velocity: u8, note: u8, length: u8) -> PlayCommand {
+    PlayCommand::Timed {
+        channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+        velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
+        note: Note::try_from(note).expect("a MIDI note"),
+        length: Length::from(length),
     }
 }
 
@@ -124,6 +134,25 @@ pub(super) fn quiet(tick: &Observed) {
 /// Asserts that `plan` diagnosed nothing.
 pub(super) fn quiet_plan(plan: &TickPlan) {
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+}
+
+/// The Play Commands the first Tick of `rows` plans, and each diagnostic it
+/// raised as [`Observed`] records it, without snapshotting the Grid.
+pub(super) fn first_tick(
+    grid: Grid,
+    rows: &[&str],
+) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>) {
+    let mut source = source_of(grid, rows);
+    let plan = source.execute(Tick::ZERO);
+    let diagnostics = plan
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            let anchor = diagnostic.anchor();
+            (anchor.x(), anchor.y(), diagnostic.message.clone())
+        })
+        .collect();
+    (plan.play_commands, diagnostics)
 }
 
 /// A diagnostic as [`Observed`] records it.

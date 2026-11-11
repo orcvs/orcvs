@@ -26,6 +26,8 @@ mod copy;
 #[cfg(test)]
 mod cycles;
 mod dependencies;
+#[cfg(test)]
+mod driven_chord;
 pub(super) mod execution;
 #[cfg(test)]
 mod fixture;
