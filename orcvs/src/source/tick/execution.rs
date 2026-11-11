@@ -311,8 +311,9 @@ impl<'a> Execution<'a> {
                     let destination = self.turn_destination(index, function, &operands)?;
                     Ok((operands, portal, destination))
                 }),
-            // A rest is a Turn taken with nothing to perform.
-            Ok(Decoded::Rest) => return None,
+            // A MIDI output with an empty operand takes its Turn and sends
+            // nothing.
+            Ok(Decoded::Empty) => return None,
             Err(message) => Err(message),
         };
         let (operands, portal, destination) = match resolved {

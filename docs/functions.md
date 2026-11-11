@@ -1015,9 +1015,9 @@ After Tick `0`, the Addition did not run:
 
 These perform an effect: each sends one MIDI message when a Bang reaches it, except a Chord Play,
 which sends one per tone, and writes nothing into the Source. Each is inert until a Bang reaches
-it. An operand outside its range diagnoses and sends nothing, except on a Play whose note is two
-empty Cells: that Play rests and checks none of its operands' ranges (see **Rest** below). Choose a
-MIDI destination under the Panel's **O** to hear them.
+it. An operand outside its range diagnoses and sends nothing, except on an output with an operand
+of two empty Cells: that output rests and checks none of its operands' ranges (see **Rest**
+below). Choose a MIDI destination under the Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
@@ -1030,12 +1030,12 @@ MIDI destination under the Panel's **O** to hear them.
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
-**Rest.** A Raw, Timed or Monophonic Play whose note is two empty Cells rests: a Bang reaching it
-sends nothing and diagnoses nothing. It does not matter how the note got empty. You can leave it
-empty, a Function above it can write two empty Cells into it, or a Function nested in it can
-answer a Clear. Its other operands must still be written as values, but their ranges are not
-checked. Half a note, such as `C `, is partial input and diagnoses.
-A Monophonic Play that rests leaves its channel's note sounding until that note's own length ends.
+**Rest.** A MIDI output with any operand of two empty Cells rests: a Bang reaching it sends
+nothing and diagnoses nothing, as Orca's `:` does with an empty port. Only the Cells matter, so
+it makes no difference whether you left them empty, a Function above wrote two empty Cells into
+them, or a Function nested there answered a Clear. Half an operand, such as `C `, is partial input
+and diagnoses, as does any operand that does not decode. A Monophonic Play that rests leaves its
+channel's note sounding until that note's own length ends.
 
 ```orcvs
 **
@@ -1159,6 +1159,21 @@ whole chord and sends nothing.
 ```orcvs tick 0 plays 4
 
 !:0064C4M7D501
+```
+
+**Rest.** A Chord Play rests as every MIDI output does: any operand of two empty Cells, the root
+or any other, sends nothing. `!#` rests the same way.
+
+```orcvs
+**
+!:0064    CL00
+```
+
+After Tick `0`, nothing plays:
+
+```orcvs tick 0
+
+!:0064    CL00
 ```
 
 ### `!#` Timed Chord Play

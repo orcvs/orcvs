@@ -1,6 +1,6 @@
 # A MIDI output with an empty operand sends nothing
 
-Status: proposed. Supersedes [ADR 0075](0075-a-play-with-a-cleared-note-rests.md) and
+Status: accepted. Supersedes [ADR 0075](0075-a-play-with-a-cleared-note-rests.md) and
 [ADR 0104](0104-a-blank-note-or-root-is-a-rest-however-it-got-blank.md), and amends
 [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md) for the Functions named below.
 

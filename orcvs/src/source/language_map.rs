@@ -273,7 +273,8 @@ impl DerivedExpression {
 
 impl<'a> ExpressionEntry<'a> {
     /// The first Function anchor when this Expression is executable: nothing
-    /// in it was refused, though a blank rest operand may be left unbound.
+    /// in it was refused, though a MIDI output's empty operands may be left
+    /// unbound.
     pub fn root(self) -> Option<Position> {
         self.derived.root
     }
@@ -1426,7 +1427,8 @@ mod tests {
 
     /// An Expression whose only unbound operands are unwritten slots inside
     /// the row is refused as a partly written one is: it is diagnosed once and
-    /// is not a root, nested slots included.
+    /// is not a root, nested slots included. A MIDI output is the exception:
+    /// its empty operands leave it a root that sends nothing.
     #[test]
     fn an_expression_waiting_on_unwritten_operands_is_diagnosed_and_not_a_root() {
         for row in [
@@ -1435,9 +1437,7 @@ mod tests {
             ".+01      ",
             ".+01.+  02",
             ".+  .+0102",
-            "!>  7F    ",
-            "!>01      ",
-            "!~007F    ",
+            "#+C4      ",
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
@@ -1451,11 +1451,19 @@ mod tests {
         }
     }
 
-    /// A Play with no note written is a root and reports nothing: its Turn
-    /// reads the slot and rests while it stays blank.
+    /// A MIDI output with an operand of two empty Cells is a root and reports
+    /// nothing: its Turn reads the Cells and sends nothing while they stay
+    /// empty.
     #[test]
-    fn a_play_whose_only_blank_operand_is_its_note_is_a_root() {
-        for row in ["!>007F    ", "!~007F  04", "!%007F  04", "!>&v017F  "] {
+    fn a_midi_output_with_an_empty_operand_is_a_root() {
+        for row in [
+            "!>007F    ",
+            "!~007F  04",
+            "!%  7FC404",
+            "!>&v017F  ",
+            "!b00  40  ",
+            "!c00  40  ",
+        ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
             assert_eq!(map.diagnostics().count(), 0, "{row:?}");
@@ -1467,11 +1475,11 @@ mod tests {
         }
     }
 
-    /// Only two whole blank Cells make a Play a root with no note: a
-    /// half-written note, a slot the row edge cuts short, and a blank note
-    /// beside an invalid operand are all still refused.
+    /// Only two whole empty Cells leave a MIDI output's operand unbound and
+    /// the output a root: a half-written operand, a slot the row edge cuts
+    /// short, and an empty operand beside an invalid one are all refused.
     #[test]
-    fn a_play_with_anything_else_unbound_is_diagnosed_and_not_a_root() {
+    fn a_midi_output_with_anything_else_unbound_is_diagnosed_and_not_a_root() {
         for (width, row) in [
             (10, "!>007FC   "),
             (10, "!>007F C  "),
@@ -2326,12 +2334,13 @@ mod property {
                 let payload = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Payload);
-                // A rest reports nothing and has no note to answer with, so
-                // it is the other Expression that holds a root and no Atoms.
-                let rest = expression.positioned().any(|entry| entry.rest);
+                // A MIDI output with an empty operand reports nothing and has
+                // no value for that operand, so it is the other Expression
+                // that holds a root and no Atoms.
+                let empty = expression.positioned().any(|entry| entry.empty);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment && !rest,
+                    expression.diagnostic().is_none() && !comment && !empty,
                     "{:?}",
                     source,
                 );
@@ -2350,13 +2359,13 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    // A root without Atoms is a rest: it holds a blank rest
-                    // operand, and every other entry bound an Atom.
+                    // A root without Atoms is a MIDI output with an empty
+                    // operand, and every other entry is empty or bound an Atom.
                     prop_assert!(
                         expression.atoms().is_some()
-                            || (rest
+                            || (empty
                                 && expression.positioned().all(|entry| entry.atom.is_some()
-                                    || entry.rest
+                                    || entry.empty
                                     || entry.token == Token::Payload)),
                         "{:?}",
                         source,

@@ -462,12 +462,24 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
 }
 
 #[test]
-fn reading_a_resting_play_allocates_nothing() {
-    // A Play whose note slot holds two blank Cells rests: it reports no error,
-    // so it is held to the clean-row bound above and allocates nothing. Kept
-    // out of `SOURCE`, whose re-read is a published series that a new row
-    // would move.
-    for row in ["!>010A  ", "!~010A  04", "!%010A  04"] {
+fn reading_a_midi_output_with_an_empty_operand_allocates_nothing() {
+    // A MIDI output with an operand of two empty Cells reports no error, so it
+    // is held to the clean-row bound above and allocates nothing. Kept out of
+    // `SOURCE`, whose re-read is a published series that a new row would move.
+    for row in [
+        "!>010A  ",
+        "!~010A  04",
+        "!%010A  04",
+        // Empty operands before and after a written one, and a wholly empty
+        // row.
+        "!:017F  M7CL00",
+        "!#017F  M7CL0004",
+        "!:  7F  M7CL00",
+        "!:017F    CL00",
+        "!#017F  M7CL00  ",
+        "!:            ",
+        "!c01  40",
+    ] {
         // Warm up, for the reason the call test gives.
         black_box(Parser::at(row, 0).analyze());
         let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
@@ -476,7 +488,7 @@ fn reading_a_resting_play_allocates_nothing() {
         assert_eq!(
             allocations,
             Allocations::default(),
-            "reading the resting {row:?} allocated"
+            "reading the empty-operand {row:?} allocated"
         );
     }
 }

@@ -210,9 +210,10 @@ pub(super) struct FunctionSite {
 pub(super) enum Parsed {
     /// Its Cells bound no Atom.
     Unparsed,
-    /// Its Cells are blank in its Function's rest operand. It binds no Atom
-    /// and blocks nothing: the Turn reads those Cells and may rest on them.
-    Rest,
+    /// It is an operand of a MIDI output whose two Cells are empty. It binds
+    /// no Atom and blocks nothing: the Turn reads those Cells, and sends
+    /// nothing while they are still empty.
+    Empty,
     /// It bound an Atom that is not a Function.
     Value,
     /// It bound this Function.
@@ -225,7 +226,7 @@ pub(super) enum Parsed {
 impl Parsed {
     fn of(entry: &lang::PositionedEntry) -> Self {
         match entry.atom {
-            None if entry.rest => Self::Rest,
+            None if entry.empty => Self::Empty,
             None => Self::Unparsed,
             Some(Atom::Function(function)) => Self::Function(function),
             Some(_) => Self::Value,

@@ -28,6 +28,8 @@ mod cycles;
 mod dependencies;
 #[cfg(test)]
 mod driven_chord;
+#[cfg(test)]
+mod empty_operand;
 pub(super) mod execution;
 #[cfg(test)]
 mod fixture;
@@ -60,8 +62,6 @@ mod push;
 mod read;
 #[cfg(test)]
 mod replacement;
-#[cfg(test)]
-mod rest;
 #[cfg(test)]
 mod schedule;
 #[cfg(test)]

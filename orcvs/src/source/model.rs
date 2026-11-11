@@ -1906,7 +1906,7 @@ mod test {
         // beneath it takes no turn. The claim is arity, one derivation, so
         // every reading of this Cell agrees that it is a slot.
         //
-        // The `**` it writes is characters in a Number operand, not a Bang, so
+        // The `**` it writes is characters in a Note operand, not a Bang, so
         // the Source is not refused silently: the parse of the written Source
         // reports that operand at the Play's anchor.
         let mut src = SourceUnderTest::new(Grid::with_shape(16, 4));
@@ -1936,7 +1936,7 @@ mod test {
             src.language_map()
                 .diagnostics()
                 .any(|diagnostic| diagnostic.start() == 16
-                    && diagnostic.message.contains("expected a number")),
+                    && diagnostic.message.contains("expected a note")),
             "the Bang in the operand slot was not reported",
         );
     }

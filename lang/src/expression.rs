@@ -81,10 +81,11 @@ pub struct PositionedEntry {
     pub parent: Option<usize>,
     pub token: Token,
     pub atom: Option<Atom>,
-    /// Whether this entry is its Function's blank rest operand: its Cells
-    /// bound no Atom, and that is no failure of the Expression. It always has
+    /// Whether this entry is an operand of a MIDI output whose two Cells are
+    /// empty. Its Cells bound no Atom, and that is no failure of the
+    /// Expression: the output sends nothing on that Turn. It always has
     /// `atom: None`.
-    pub rest: bool,
+    pub empty: bool,
 }
 
 type Record = PositionedEntry;
@@ -162,8 +163,9 @@ impl Expression {
         self.push(token, atom, cells, parent, false);
     }
 
-    /// Records a blank rest operand, which binds no Atom and refuses nothing.
-    pub(crate) fn add_rest(
+    /// Records an empty operand of a MIDI output, which binds no Atom and
+    /// refuses nothing.
+    pub(crate) fn add_empty(
         &mut self,
         token: Token,
         cells: std::ops::Range<usize>,
@@ -222,14 +224,14 @@ impl Expression {
         atom: Option<Atom>,
         cells: std::ops::Range<usize>,
         parent: Option<usize>,
-        rest: bool,
+        empty: bool,
     ) {
         self.records.push(PositionedEntry {
             cells,
             parent,
             token,
             atom,
-            rest,
+            empty,
         });
     }
 

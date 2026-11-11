@@ -156,8 +156,8 @@ fn a_nested_vertical_copy_copies_another_expressions_spelling() {
     expected.extend(steady(&rows, &[(2, 0, "same-Tick dependency cycle")], 2));
     assert_eq!(observed, expected);
 
-    // `=v` copies `!>` south. The copy's operands are unwritten, so the
-    // Language Map diagnoses it and the Tick does not report it again.
+    // `=v` copies `!>` south. The copy's operands are empty, so it is a MIDI
+    // output with nothing to send: nothing reports it.
     let rows = ["  !>007FC4", ".+=v01    ", "  !>      ", "          "];
     assert_eq!(
         observe(
@@ -167,10 +167,7 @@ fn a_nested_vertical_copy_copies_another_expressions_spelling() {
         ),
         steady(&rows, &[(0, 1, "expected a number, found \"!>\"")], 3)
     );
-    assert_eq!(
-        before_a_tick(Grid::with_shape(10, 4), &rows).1,
-        [(2, 2, "expected a number, found \"  \"".to_string())]
-    );
+    assert_eq!(before_a_tick(Grid::with_shape(10, 4), &rows).1, []);
 }
 
 #[test]

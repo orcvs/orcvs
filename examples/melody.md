@@ -64,7 +64,7 @@ rest of the Tick plays.
 
 An empty pair is a rest. Track copies an empty pair's Cells as it copies any
 others, so it clears the Timed Play's note slot. A Timed Play with an empty note
-slot rests ([ADR 0104](../docs/adr/0104-a-blank-note-or-root-is-a-rest-however-it-got-blank.md)):
+slot rests ([ADR 0106](../docs/adr/0106-a-midi-output-with-an-empty-operand-sends-nothing.md)):
 it sends no new note, nothing is diagnosed, and it does not stop a note an
 earlier step started. In the shipped pattern D4 at step 1 keeps sounding through
 the empty step 2, because its four-Tick lifetime has not ended.

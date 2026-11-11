@@ -22,9 +22,10 @@ use super::{
 pub(super) enum Decoded {
     /// The operands, in signature order.
     Operands(Vec<Atom>),
-    /// The Function's rest operand held two blank Cells or a Clear and every
-    /// other operand decoded: the Turn is taken with nothing to perform.
-    Rest,
+    /// The Function is a MIDI output and an operand's two Cells are empty,
+    /// with every other operand decoded or empty: the Turn is taken with
+    /// nothing to send.
+    Empty,
 }
 
 impl Execution<'_> {
@@ -47,7 +48,7 @@ impl Execution<'_> {
     }
 
     /// The operands of `node`'s Turn, in signature order, or
-    /// [`Decoded::Rest`] where the Turn is a rest.
+    /// [`Decoded::Empty`] where a MIDI output has nothing to send.
     ///
     /// Each operand is decoded by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
@@ -60,23 +61,26 @@ impl Execution<'_> {
     /// no written Cell refuses it as a partly written slot does. A child that
     /// answered a Clear, a pulse that did not Bang or a Copy, Read or Track
     /// of empty Cells, returns no value, and the refusal names that child.
-    /// The one exception is `function`'s rest operand: two blank Cells or a
-    /// Clear there makes the Turn a rest once every other operand decodes, so
-    /// a Play with no note to play sends nothing and reports nothing, however
-    /// its note came to be blank.
+    ///
+    /// The one exception is a MIDI output: an operand whose two Cells are
+    /// empty, or whose child answered a Clear and so wrote two empty Cells,
+    /// leaves it nothing to send. Any other operand that does not decode still
+    /// refuses the Turn, wherever it stands, so the order of the operands
+    /// does not matter and nothing is held back.
     pub(super) fn decode(
         &self,
         node: &Computation,
         function: Function,
         signature: lang::Tokens,
     ) -> Result<Decoded, String> {
-        let mut rests = false;
+        let may_be_empty = function.sends_nothing_on_an_empty_operand();
+        let mut empty = false;
         let mut operands = Vec::with_capacity(node.operands.len());
-        for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
+        for (operand, token) in node.operands.iter().zip(signature) {
             let Some(child) = self.returning_child(operand) else {
                 let spelling = self.working.text(operand.cells.clone());
-                if function.rest_operand() == Some(slot) && spelling == lang::BLANK_PAIR {
-                    rests = true;
+                if may_be_empty && spelling == lang::BLANK_PAIR {
+                    empty = true;
                     continue;
                 }
                 operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
@@ -84,8 +88,8 @@ impl Execution<'_> {
             };
             let anchor = self.schedule.lookup.nodes()[child].anchor;
             let returned = match self.turns.result(child) {
-                Some(Answer::Clear) if function.rest_operand() == Some(slot) => {
-                    rests = true;
+                Some(Answer::Clear) if may_be_empty => {
+                    empty = true;
                     continue;
                 }
                 // A Clear wrote two spaces at the child's Output Portal and
@@ -101,8 +105,8 @@ impl Execution<'_> {
                     .map_err(|error| error.to_string())?,
             );
         }
-        Ok(if rests {
-            Decoded::Rest
+        Ok(if empty {
+            Decoded::Empty
         } else {
             Decoded::Operands(operands)
         })

@@ -2,6 +2,9 @@
 
 Status: ready-for-agent
 
+The Rest stories and decisions below are replaced by `.scratch/empty-midi-operand/spec.md` and
+ADR 0106: a MIDI output with any operand of two empty Cells sends nothing, with nothing excused.
+
 Settled in design on 2026-11-10. ADRs 0103, 0104 and 0105 record the decisions. Where
 `docs/research/chords-and-patterns.md`, `docs/research/timing-operators.md` or
 `.scratch/timing-and-chords/handoff.md` disagree with this spec, this spec is right.
