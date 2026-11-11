@@ -116,7 +116,7 @@ Interval Sets.
 - Pick answers `root + set[index % n] + 12 * floor(index / n)`, where `n` is the size of the Interval Set. Index `00` is the root, and every index from `00` to `FF` is valid.
 - Stack counts positions as Pick does, from `00` at the first tone of `set`. It takes `size` tones at positions `degree`, `degree + 2`, and so on, wrapping up octaves as Pick does, and subtracts the first tone. It answers the Interval Set with exactly those semitones, and diagnoses if there is none. Every `degree` and `size` from `00` to `FF` is read: a degree past the end of the set wraps, and a size larger than the set's tone count takes wrapped tones. A `size` of `00`, or one larger than the longest name's twelve tones, matches no name and diagnoses.
 - A Chord Play's inversion is a Number from `00` to `FF`. Each step moves the lowest tone up an octave, so an inversion larger than the tone count keeps moving tones and climbs further octaves: `C4M7` inverted `05` is E5, G5, B5 and C6. A tone that ends above `7F` diagnoses the whole chord.
-- `CONTEXT.md`'s Rest, Clear and Pending entries state ADR 0104 for Raw, Timed and Monophonic Play. It gains Chord, Interval Set, Voicing, Inversion, Raw Chord Play, Timed Chord Play, Pitch Function, Pick, Up, Down and Stack as each is implemented, and Atom, Terminal Output Function, Rest, Clear and Return are amended for them then.
+- `CONTEXT.md`'s Rest, Clear and Pending entries state ADR 0104 for Raw, Timed and Monophonic Play. It gains Chord, Interval Set, Voicing, Inversion, Raw Chord Play, Timed Chord Play, Pitch Function, Pick, Up, Down and Stack as each is implemented, and Atom, Terminal Output Function, Rest, Clear, Pending and Return are amended for them then.
 - The semitone tables below are normative. `IntervalSet` in `lang/src/atom.rs` declares the same values, and a test there decodes every name to them:
 
 | Names | Semitones | Names | Semitones |
@@ -202,10 +202,11 @@ Uses the existing Playback Engine schedule and shipped-example tests.
 
 ## Further Notes
 
-- A JavaScript prototype of these Functions was used in design. It is not in the repository and nothing here depends on it. Its semitone table and its voicing, inversion, Pick and Stack arithmetic agree with this spec. It differs in four ways:
+- A JavaScript prototype of these Functions was used in design. It is not in the repository and nothing here depends on it. Its semitone table and its voicing, inversion, Pick and Stack arithmetic agree with this spec. It differs in five ways:
   - It spells Raw Chord Play `!=`. The decided spelling is `!:`.
   - It rests only on a Clear in the root, as ADR 0075 does for a note. A root written blank in Source or emptied by a Portal is diagnosed there, which ADR 0104 reverses.
   - It checks channel and velocity ranges on a Rest. Under ADR 0104 a Rest checks no operand's range.
+  - It never excuses a blank operand beside a blank root. A Source-blank operand goes to decoding and is diagnosed, and a cleared operand other than the root is excused only under its `whole` option. ADR 0104 excuses both blank and cleared operands beside a blank root.
   - It runs roots in Source order. The real scheduler orders them by dependency.
 - The real interpreter has run three nested Reads in one Timed Play, with a Clock stepping through rows. The whole nested tracker and sequencer have not been run.
 - Nothing yet shows Source or Tick diagnostics in the console, so a whole-chord diagnosis is silent to a performer.
