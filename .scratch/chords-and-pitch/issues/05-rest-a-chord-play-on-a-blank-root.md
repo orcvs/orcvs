@@ -1,6 +1,9 @@
 # 05 — Rest a Chord Play on a blank root
 
-Status: ready-for-agent
+Status: wontfix
+
+Superseded by `.scratch/empty-midi-operand/spec.md` (ADR 0106): a Chord Play sends nothing on an empty
+root as every MIDI output does on any operand of two empty Cells, so no operand excuses another.
 
 Blocked by: 01, 03
 
