@@ -154,12 +154,12 @@ fn an_operand_a_nested_function_returns_empty_sends_nothing_and_reports_nothing(
 fn an_operand_a_portal_write_emptied_sends_nothing_and_reports_nothing() {
     // A Track above the operand writes the pair it selects over it: the
     // operand's own spelling the first time, and two empty Cells the second.
-    // The channel sits beneath the Equality, so every later operand is
-    // covered.
+    // A Bang written beside the output activates it every Tick, which leaves
+    // the row above free for a Track over any operand.
     for (spelling, operands) in OUTPUTS {
-        let output = row(spelling, operands);
-        for (index, operand) in operands.iter().enumerate().skip(1) {
-            let track = format!("{:<1$}&t0001", ".=0101", 2 + spelling.len() + 2 * index);
+        let output = format!("**{spelling}{}", operands.concat());
+        for (index, operand) in operands.iter().enumerate() {
+            let track = format!("{:1$}&t0001", "", 2 + spelling.len() + 2 * index);
             let (commands, diagnostics) = run(&[&format!("{track}{operand}"), &output]);
             assert!(!commands.is_empty(), "{output:?} {index}: {diagnostics:?}");
             assert_eq!(diagnostics, vec![], "{output:?} {index}");
@@ -200,6 +200,43 @@ fn an_operand_that_does_not_decode_is_diagnosed_beside_an_empty_one() {
         let output = row_with(spelling, &with(operands, last, "  "), 0, "xx");
         assert_eq!(banged(&output).0, vec![], "{output:?}");
         assert!(!mapped(&output).is_empty(), "{output:?}");
+    }
+}
+
+#[test]
+fn a_later_operand_that_fails_at_the_turn_is_diagnosed_after_an_empty_one() {
+    // The channel is empty in Source, so the Language Map admits the row. On
+    // the Turn a Track writes a Language Unit of the wrong type over the
+    // third operand, or a Read returns it there from the row beneath that
+    // operand. The empty channel decoded first does not hide the refusal.
+    for (spelling, operands) in OUTPUTS {
+        // A Number where a note or root belongs, or a Note where a Number does.
+        let wrong = if matches!(spelling, "!c" | "!b") {
+            "G4"
+        } else {
+            "60"
+        };
+        let column = 2 + spelling.len() + 2 * 2;
+        let output = format!("**{spelling}{}", with(operands, 0, "  ").concat());
+        let track = format!("{:column$}&t0001{wrong}", "");
+        let (commands, diagnostics) = run(&[&track, &output]);
+        assert_eq!(commands, vec![], "{output:?}");
+        assert!(
+            diagnostics.iter().any(|(x, y, _)| (*x, *y) == (2, 1)),
+            "{output:?}: {diagnostics:?}"
+        );
+
+        let nested = format!(
+            "**{spelling}{}",
+            with(&with(operands, 0, "  "), 2, "&v01").concat()
+        );
+        let below = format!("{:1$}{wrong}", "", column + 2);
+        let (commands, diagnostics) = run(&["", &nested, &below]);
+        assert_eq!(commands, vec![], "{nested:?}");
+        assert!(
+            diagnostics.iter().any(|(x, y, _)| (*x, *y) == (2, 1)),
+            "{nested:?}: {diagnostics:?}"
+        );
     }
 }
 
