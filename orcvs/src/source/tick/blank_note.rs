@@ -3,11 +3,14 @@
 //! written blank in Source or a Portal write emptied it. A half-typed or
 //! mistyped note is still diagnosed, and every other operand still binds, so
 //! a blank or out-of-range channel or length is diagnosed on a blank step. A
-//! blank or a Clear in any other operand of any Function is invalid input.
-//! Either way the outcome belongs to the Play alone: every other Expression
-//! takes its Turn as before.
+//! nested Function that answers a Clear in the note leaves it blank too. A
+//! blank or a nested Clear in any other operand of any Function, such as a
+//! Play's channel or any operand of Control Change or Pitch Bend, is invalid
+//! input. Either way the outcome belongs to the Play alone: every other
+//! Expression takes its Turn as before.
 //!
-//! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick.
+//! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick, unless a test
+//! writes a Bang beside it instead.
 
 use std::ops::Range;
 
@@ -88,27 +91,29 @@ fn cleared(column: usize) -> (usize, usize, String) {
 }
 
 #[test]
-fn a_raw_play_whose_note_a_nested_read_of_blank_cells_cleared_plays_nothing() {
-    let (commands, diagnostics) = banged("  !>017F&>01C4");
-    assert_eq!(commands.len(), 1, "{diagnostics:?}");
-    assert!(diagnostics.is_empty(), "{diagnostics:?}");
-
-    assert_eq!(banged("  !>017F&>01  "), (vec![], vec![]));
-}
-
-#[test]
-fn a_timed_or_monophonic_play_whose_note_a_nested_read_of_blank_cells_cleared_plays_nothing() {
-    // Each Read selects the pair two Cells east of its operand, which holds
-    // `C4` in the first row of each pair and nothing in the second.
-    for (sounding, cleared_note) in [
-        ("  !~017F&>0204C4", "  !~017F&>0204  "),
-        ("  !%017F&>0204C4", "  !%017F&>0204  "),
+fn a_play_whose_note_a_nested_read_of_blank_cells_cleared_plays_nothing_and_reports_nothing() {
+    // Each `&>` selects the pair two Cells east of its operand, past the
+    // length where there is one, which holds `C4` in the sounding row and
+    // nothing in the cleared one. Each `&v01` selects the blank pair south of
+    // its operand.
+    let grid = Grid::with_shape(18, 3);
+    for (sounding, cleared_notes) in [
+        ("  !>017F&>01C4", ["  !>017F&>01  ", "  !>017F&v01"]),
+        ("  !~017F&>0204C4", ["  !~017F&>0204  ", "  !~017F&v0104"]),
+        ("  !%017F&>0204C4", ["  !%017F&>0204  ", "  !%017F&v0104"]),
     ] {
         let (commands, diagnostics) = banged(sounding);
         assert_eq!(commands.len(), 1, "{sounding:?}: {diagnostics:?}");
         assert!(diagnostics.is_empty(), "{sounding:?}: {diagnostics:?}");
 
-        assert_eq!(banged(cleared_note), (vec![], vec![]), "{cleared_note:?}");
+        for play in cleared_notes {
+            let ticks = executed(grid, &[".=0101", play], 0..3);
+            for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
+                assert_eq!(commands, vec![], "{play:?} Tick {tick}");
+                assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
+                assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
+            }
+        }
     }
 }
 
@@ -304,12 +309,20 @@ fn a_raw_play_with_a_blank_note_keeps_every_other_play_in_tick_order() {
 
 #[test]
 fn a_play_whose_channel_velocity_or_length_was_cleared_is_invalid() {
-    // A `&v01` reads the blank pair south of its operand.
+    // A `&v01` reads the blank pair south of its operand. A blank note beside
+    // it excuses nothing.
     for (play, child) in [
         ("  !~&v017FC404", 4),
         ("  !~01&v01C404", 6),
         ("  !~017FC4&v01", 10),
+        ("  !%&v017FC404", 4),
+        ("  !%01&v01C404", 6),
+        ("  !%017FC4&v01", 10),
         ("  !>&v017FC4", 4),
+        ("  !>01&v01C4", 6),
+        ("  !~&v017F  04", 4),
+        ("  !%01&v01  04", 6),
+        ("  !>&v017F  ", 4),
     ] {
         assert_eq!(banged(play), (vec![], vec![cleared(child)]), "{play:?}");
     }
@@ -402,9 +415,11 @@ fn a_play_with_a_blank_note_costs_no_other_expression_its_turn() {
     for play in [
         "  !>017F  .+0102",
         "  !>017F&>01  .+0102",
+        "  !~017F&>0204  .+0102",
+        "  !%017F&>0204  .+0102",
         "  !>017FC .+0102",
     ] {
-        let tick = first(Grid::with_shape(20, 3), &[".=0101", play]);
+        let tick = first(Grid::with_shape(24, 3), &[".=0101", play]);
         let addition = play.find(".+").expect("the row holds an Addition");
         assert_eq!(
             &tick.rows[2][addition..addition + 2],
@@ -419,5 +434,49 @@ fn a_play_with_a_blank_note_costs_no_other_expression_its_turn() {
             "{play:?}: {:?}",
             tick.diagnostics
         );
+    }
+}
+
+/// Every Bang-driven MIDI output, with an operand list each Turn sounds, and
+/// the index of the operand that admits a blank: a Play's note, and nothing
+/// on Control Change or Pitch Bend.
+const OUTPUTS: [(&str, &[&str], Option<usize>); 5] = [
+    ("!>", &["01", "7F", "C4"], Some(2)),
+    ("!~", &["01", "7F", "C4", "04"], Some(2)),
+    ("!%", &["01", "7F", "C4", "04"], Some(2)),
+    ("!c", &["01", "07", "40"], None),
+    ("!b", &["01", "00", "40"], None),
+];
+
+#[test]
+fn a_nested_clear_under_a_bang_driven_output_binds_to_absent_only_in_a_plays_note() {
+    // Each operand in turn is a `&v01`, which reads the blank pair south of
+    // it and answers a Clear. The output is activated by the Equality above
+    // it, or by a Bang written beside it.
+    let grid = Grid::with_shape(24, 4);
+    for (spelling, operands, admitted) in OUTPUTS {
+        for (above, beside) in [(".=0101", "  "), ("", "**")] {
+            let first_tick = |written: &str| {
+                let row = format!("{beside}{spelling}{written}");
+                let (commands, tick, _) = executed(grid, &[above, &row], 0..1).remove(0);
+                (row, commands, tick.diagnostics)
+            };
+            let (row, commands, diagnostics) = first_tick(&operands.concat());
+            assert_eq!(commands.len(), 1, "{row:?}: {diagnostics:?}");
+            assert_eq!(diagnostics, vec![], "{row:?}");
+
+            for index in 0..operands.len() {
+                let mut nested = operands.to_vec();
+                nested[index] = "&v01";
+                let (row, commands, diagnostics) = first_tick(&nested.concat());
+                let expected = if admitted == Some(index) {
+                    vec![]
+                } else {
+                    vec![cleared(2 + spelling.len() + 2 * index)]
+                };
+                assert_eq!(commands, vec![], "{row:?}");
+                assert_eq!(diagnostics, expected, "{row:?}");
+            }
+        }
     }
 }

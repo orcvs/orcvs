@@ -4,10 +4,10 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The Tick's operand decode delivers an absent value for a cleared nested slot, and binding decides what it means.
-- [ ] Through `Source::execute`: `!>`, `!~` and `!%` with a nested Read of two empty Cells in the note send nothing, and no diagnostic is reported.
-- [ ] Through `Source::execute`: a nested Clear under a plain operand, such as a channel, is diagnosed `nested computation at column X, row Y cleared its operand`, as today.
-- [ ] A nested-cleared note costs no other Expression its Turn.
-- [ ] The nested route on Bang-driven Functions (`!c`, `!b`) is covered as in #373 and #375's empty-operand tests, adapted to this rule.
+- [x] The Tick's operand decode delivers an absent value for a cleared nested slot, and binding decides what it means.
+- [x] Through `Source::execute`: `!>`, `!~` and `!%` with a nested Read of two empty Cells in the note send nothing, and no diagnostic is reported.
+- [x] Through `Source::execute`: a nested Clear under a plain operand, such as a channel, is diagnosed `nested computation at column X, row Y cleared its operand`, as today.
+- [x] A nested-cleared note costs no other Expression its Turn.
+- [x] The nested route on Bang-driven Functions (`!c`, `!b`) is covered as in #373 and #375's empty-operand tests, adapted to this rule.
