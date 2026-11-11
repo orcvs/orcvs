@@ -642,16 +642,10 @@ impl DerivedRow {
             // and then recorded on the Expression, so nothing asks again.
             let units = units_range(&row.units, grid, span);
 
-            // The Parser reads characters and refuses nothing for an
-            // unwritten operand. Each Function decides what one means: a MIDI
-            // output sends nothing, and any other Function is refused here
-            // while the Source is typed rather than at its first Turn.
-            let refusal = analysis.error().map(ToString::to_string).or_else(|| {
-                analysis
-                    .expression()
-                    .unwritten_refusal()
-                    .map(|error| error.to_string())
-            });
+            // The Parser reads characters; each Function decides what its
+            // operand slots leave it to do, and the Tick asks the same
+            // question at a Turn.
+            let refusal = analysis.verdict().map(|refusal| refusal.to_string());
             let executable = refusal.is_none();
             let diagnostic =
                 refusal.map(|refusal| Diagnostic::for_range(grid, start, end, refusal));

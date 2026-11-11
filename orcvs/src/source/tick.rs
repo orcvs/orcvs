@@ -352,6 +352,9 @@ struct Operand {
     cells: Range<usize>,
     /// The computation that answers this operand, when a Function fills it.
     child: Option<ComputationId>,
+    /// What the Source revision holds in this slot, for admitting its
+    /// Function before any Turn.
+    slot: lang::Slot,
 }
 
 struct Computation {
@@ -885,13 +888,23 @@ fn computations(
             entry_nodes.push(child);
             if let Some(parent) = parent {
                 let parent = &mut nodes[parent];
-                parent.syntax_valid &= entry.parsed.admitted_by(parent.function);
                 parent.operands.push(Operand {
                     cells: entry.cells,
                     child,
+                    slot: entry.parsed.slot(),
                 });
             }
         }
+    }
+    // Each Function decides what the slots the Source revision gave it leave
+    // it to do, as the Language Map asked while the Source was read. A
+    // refusal is the revision's, so the Turn does not repeat it.
+    for node in &mut nodes.0 {
+        node.syntax_valid = matches!(
+            node.function
+                .admit(node.operands.iter().map(|operand| operand.slot)),
+            lang::Admission::Runs | lang::Admission::SendsNothing
+        );
     }
     for node in &nodes {
         if node

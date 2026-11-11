@@ -1,3 +1,4 @@
+mod admission;
 mod atom;
 mod error;
 mod expression;
@@ -9,6 +10,7 @@ mod portal;
 mod stack;
 mod tick;
 
+pub use admission::{Admission, Slot};
 pub use atom::{
     Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, DistanceRule, Function, IntervalSet,
     Length, MidiChannel, Note, PositionRule, ReplacementChange, Spelling, Velocity, Voicing,
@@ -18,7 +20,8 @@ pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeErro
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
 pub use functions::chord::ChordTones;
 pub use interpreter::{Interpretation, Interpreter};
-pub use parser::{BLANK_PAIR, Parser, SourceAnalysis};
+pub(crate) use parser::BLANK_PAIR;
+pub use parser::{Parser, Refusal, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
 pub(crate) use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};

@@ -482,9 +482,12 @@ fn reading_a_midi_output_with_an_empty_operand_allocates_nothing() {
     ] {
         // Warm up, for the reason the call test gives.
         black_box(Parser::at(row, 0).analyze());
-        let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
+        let (allocations, runs) = measure(|| {
+            let analysis = Parser::at(black_box(row), 0).analyze();
+            analysis.verdict().is_none()
+        });
 
-        assert!(analysis.error().is_none(), "{row:?} reported an error");
+        assert!(runs, "{row:?} was refused");
         assert_eq!(
             allocations,
             Allocations::default(),

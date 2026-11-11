@@ -1,4 +1,4 @@
-use crate::{Atom, Atoms, Function};
+use crate::{Admission, Atom, Atoms, Function, Slot};
 
 // A provisional balance for short and nested Expressions; revisit with usage data.
 const INLINE_RECORD_CAPACITY: usize = 8;
@@ -84,12 +84,25 @@ pub struct PositionedEntry {
     /// Whether this entry is an operand slot whose two Cells are blank. It
     /// always has `atom: None`, and refuses nothing at parse: its Function
     /// decides what an unwritten operand means, through
-    /// [`Expression::unwritten_refusal`] while the Source is read and at the
+    /// [`crate::SourceAnalysis::verdict`] while the Source is read and at the
     /// Turn from the Cells it reads then.
     pub unwritten: bool,
 }
 
 type Record = PositionedEntry;
+
+impl PositionedEntry {
+    /// What this entry holds as an operand slot, for admitting its Function.
+    fn slot(&self) -> Slot {
+        match self.atom {
+            Some(Atom::Function(_)) => Slot::Nested,
+            Some(_) => Slot::Written,
+            None if self.unwritten => Slot::Unwritten,
+            None if self.token == Token::Payload => Slot::Written,
+            None => Slot::Malformed,
+        }
+    }
+}
 
 /// What stands at one entry of an Expression, in the two places a `Token` is
 /// read.
@@ -262,30 +275,39 @@ impl Expression {
     }
 
     ///
-    /// The refusal of the first unwritten operand whose Function does not
-    /// accept one, in Source order.
+    /// The refusal of the first Function, in Source order, that refuses the
+    /// operand slots it was given, as [`Function::admit`](crate::Function::admit)
+    /// decides.
     ///
-    /// The Parser records two blank Cells in any operand slot as unwritten
-    /// and refuses nothing for them; each Function decides. A MIDI output
-    /// sends nothing on an unwritten operand, and every other Function
-    /// refuses one as it refuses any operand that does not decode. An
-    /// unwritten operand of a refused Function is refused too, though that
-    /// Function's own refusal is already the Expression's.
+    /// A slot holding a nested Function is [`Slot::Nested`]: its Return is
+    /// known only at its Turn. A malformed slot already carries the Parser's
+    /// own error, which [`crate::SourceAnalysis::verdict`] reports first, so
+    /// only an unwritten slot builds a refusal here.
     ///
-    pub fn unwritten_refusal(&self) -> Option<crate::Error> {
-        let accepted = |record: &Record| {
-            record
-                .parent
-                .and_then(|parent| self.records.get(parent))
-                .is_some_and(|owner| {
-                    matches!(owner.atom, Some(Atom::Function(function))
-                        if function.sends_nothing_on_an_empty_operand())
-                })
-        };
+    pub(crate) fn admission_refusal(&self) -> Option<crate::Error> {
+        self.records.iter().enumerate().find_map(|(index, record)| {
+            let Some(Atom::Function(function)) = record.atom else {
+                return None;
+            };
+            let slots = self.operands_of(index).map(|(_, operand)| operand.slot());
+            match function.admit(slots) {
+                Admission::Unwritten { slot } => self
+                    .operands_of(index)
+                    .nth(slot)
+                    .map(|(_, operand)| blank_refusal(operand.token)),
+                Admission::Runs | Admission::SendsNothing | Admission::Malformed { .. } => None,
+            }
+        })
+    }
+
+    /// The operand records whose parent is the record at `index`, in
+    /// signature order.
+    fn operands_of(&self, index: usize) -> impl Iterator<Item = (usize, &Record)> {
         self.records
             .iter()
-            .find(|record| record.unwritten && !accepted(record))
-            .map(|record| blank_refusal(record.token))
+            .enumerate()
+            .skip(index + 1)
+            .filter(move |(_, record)| record.parent == Some(index))
     }
 
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
@@ -348,6 +370,26 @@ impl Default for Expression {
 }
 
 impl Token {
+    /// Reads the Cells of an operand slot this Token declares: the value
+    /// they spell, `None` when every Cell is blank, or the error for Cells
+    /// that spell no value of this Token, such as a half-written pair.
+    ///
+    /// Blank Cells mean the same here whichever way they came to be blank,
+    /// and decide nothing: what an unwritten operand means is its Function's
+    /// to say, through [`crate::Function::admit`].
+    pub fn read(self, cells: &str) -> Result<Option<Atom>, crate::Error> {
+        if cells.len() == self.len() && cells.bytes().all(|cell| cell == b' ') {
+            return Ok(None);
+        }
+        self.decode(cells).map(Some)
+    }
+
+    /// The refusal a Function gives an unwritten operand of this Token, when
+    /// [`crate::Function::admit`] answers that it refuses one.
+    pub fn unwritten_refusal(self) -> crate::Error {
+        blank_refusal(self)
+    }
+
     /// Decodes one literal encoding using the receiving operand's signature.
     ///
     /// Exhaustive rather than closed with a wildcard, so a `Token` added later
@@ -445,12 +487,6 @@ impl RecordStore {
 
     fn iter(&self) -> impl DoubleEndedIterator<Item = &Record> {
         self.inline.iter().chain(self.overflow.iter())
-    }
-
-    fn get(&self, index: usize) -> Option<&Record> {
-        self.inline
-            .get(index)
-            .or_else(|| self.overflow.get(index.checked_sub(self.inline.len())?))
     }
 
     fn len(&self) -> usize {

@@ -898,27 +898,6 @@ macro_rules! define_functions {
                 matches!(self, Self::Udp | Self::Osc)
             }
 
-            /// Whether this Function sends nothing, and reports nothing, on a
-            /// Turn where any operand's two Cells are empty.
-            ///
-            /// This is every MIDI output: every Terminal Output Function that
-            /// declares operands, since UDP and OSC take a Payload instead.
-            /// The output sees only the Cells, so empty Cells written in
-            /// Source, left by a Portal write or returned by a nested Function
-            /// are one case. One empty Cell beside a written one is partial
-            /// input, and every other Function refuses an empty operand.
-            pub const fn sends_nothing_on_an_empty_operand(self) -> bool {
-                matches!(self.output(), crate::Output::Terminal) && !self.takes_no_operand()
-            }
-
-            /// Whether an operand spelled `cells` leaves this Function
-            /// nothing to send: its two Cells are empty and this Function is
-            /// a MIDI output. The Tick asks it of the Cells it reads at the
-            /// Turn, wherever they came from.
-            pub fn sends_nothing_on(self, cells: &str) -> bool {
-                self.sends_nothing_on_an_empty_operand() && cells == crate::BLANK_PAIR
-            }
-
             /// The Portal input resolved at Turn, after cell operand validation.
             pub const fn portal_input(self) -> Option<crate::PortalInput> {
                 match self {
@@ -1912,30 +1891,6 @@ mod test {
         assert_eq!(
             seen, 9,
             "the Source-writing rows are no longer the nine expected"
-        );
-    }
-
-    #[test]
-    fn exactly_the_midi_outputs_send_nothing_on_an_empty_operand() {
-        let silent: Vec<_> = Function::ALL
-            .iter()
-            .copied()
-            .filter(|function| function.sends_nothing_on_an_empty_operand())
-            .collect();
-        assert_eq!(
-            silent,
-            [
-                Function::ControlChange,
-                Function::MonophonicPlay,
-                Function::PitchBend,
-                Function::RawChordPlay,
-                Function::RawPlay,
-                Function::TimedChordPlay,
-                Function::TimedPlay,
-            ],
-            "the rule is read from Terminal Output with operands, so a Terminal \
-             Output that declares operands and is not a MIDI output joins this \
-             list and has its empty operands accepted by the Parser and the Tick"
         );
     }
 

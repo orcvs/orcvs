@@ -12,7 +12,7 @@
 //! and reads a completed child's Return from that child's state rather than
 //! interpreting the child again.
 
-use lang::{Atom, Function};
+use lang::{Admission, Atom, Function};
 
 use super::{
     Answer, Computation, ComputationId, Encoding, Execution, Operand, Position, SCALAR_WIDTH,
@@ -22,9 +22,8 @@ use super::{
 pub(super) enum Decoded {
     /// The operands, in signature order.
     Operands(Vec<Atom>),
-    /// The Function is a MIDI output and an operand's two Cells are empty,
-    /// with every other operand decoded or empty: the Turn is taken with
-    /// nothing to send.
+    /// The Function sends nothing on what its slots hold: the Turn is taken
+    /// with nothing to send.
     Empty,
 }
 
@@ -48,42 +47,42 @@ impl Execution<'_> {
     }
 
     /// The operands of `node`'s Turn, in signature order, or
-    /// [`Decoded::Empty`] where a MIDI output has nothing to send.
+    /// [`Decoded::Empty`] where the Function has nothing to send.
     ///
-    /// Each operand is decoded by its declared Token, whichever way its
+    /// Each operand is read by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
     /// Source until consumption, and a returning child supplies its answer's
     /// two-Cell encoding. The child's Atom type does not cross: a Note
     /// returned into a Number operand is read as the Number it spells,
     /// exactly as the same characters written there by a Portal would be.
     ///
-    /// Two empty Cells are read the same way whichever way they arrived:
-    /// written in Source, left by a Portal write, or written by a child that
-    /// answered a Clear, as a pulse that did not Bang or a Copy, Read or
-    /// Track of empty Cells does. The Function decides what they mean. A MIDI
-    /// output sends nothing on them; every other Function refuses them as it
-    /// refuses any operand that does not decode, and the first such operand
-    /// refuses the Turn. A refusal of a Clear names the child that cleared.
+    /// Two blank Cells are unwritten whichever way they arrived: written in
+    /// Source, left by a Portal write, or written by a child that answered a
+    /// Clear, as a pulse that did not Bang or a Copy, Read or Track of empty
+    /// Cells does. The Function decides what its slots leave it to do, as
+    /// [`lang::Function::admit`] answers, which is the question the Language
+    /// Map asked of the Source revision. A refusal of a Clear names the child
+    /// that cleared, since nothing at the operand says which Function did.
     pub(super) fn decode(
         &self,
         node: &Computation,
         function: Function,
         signature: lang::Tokens,
     ) -> Result<Decoded, String> {
-        let mut empty = false;
-        let mut operands = Vec::with_capacity(node.operands.len());
+        let mut read = Vec::with_capacity(node.operands.len());
         for (operand, token) in node.operands.iter().zip(signature) {
             let rendered;
-            // A Clear wrote two empty Cells at the child's Output Portal, so
-            // the operand holds what a blank one holds and is read as one.
-            // Only a refusal differs: nothing at the operand says which
-            // Function cleared it, so the refusal names the child.
             let (spelling, cleared_by) = match self.returning_child(operand) {
                 None => (self.working.text(operand.cells.clone()), None),
                 Some(child) => {
                     let anchor = self.schedule.lookup.nodes()[child].anchor;
                     match self.turns.result(child) {
-                        Some(Answer::Clear) => (lang::BLANK_PAIR, Some(anchor)),
+                        // A Clear wrote two blank Cells at the child's Output
+                        // Portal, so the operand holds what a blank one holds.
+                        Some(Answer::Clear) => {
+                            rendered = Encoding::clear().to_string();
+                            (rendered.as_str(), Some(anchor))
+                        }
                         Some(Answer::Unit(atom)) => {
                             rendered = Encoding::render(atom).to_string();
                             (rendered.as_str(), None)
@@ -92,23 +91,29 @@ impl Execution<'_> {
                     }
                 }
             };
-            if function.sends_nothing_on(spelling) {
-                empty = true;
-                continue;
-            }
-            let atom = token.decode(spelling).map_err(|error| match cleared_by {
-                Some(anchor) => nested(anchor, "cleared its operand"),
-                None => error.to_string(),
-            })?;
-            if !empty {
-                operands.push(atom);
-            }
+            read.push((token, token.read(spelling), cleared_by));
         }
-        Ok(if empty {
-            Decoded::Empty
-        } else {
-            Decoded::Operands(operands)
-        })
+        let slots = read.iter().map(|(_, value, _)| match value {
+            Ok(Some(_)) => lang::Slot::Written,
+            Ok(None) => lang::Slot::Unwritten,
+            Err(_) => lang::Slot::Malformed,
+        });
+        match function.admit(slots) {
+            Admission::Runs => Ok(Decoded::Operands(
+                read.into_iter()
+                    .filter_map(|(_, value, _)| value.ok().flatten())
+                    .collect(),
+            )),
+            Admission::SendsNothing => Ok(Decoded::Empty),
+            Admission::Malformed { slot } => Err(match &read[slot] {
+                (_, Err(error), _) => error.to_string(),
+                _ => unreachable!("a malformed slot is one whose Cells failed to read"),
+            }),
+            Admission::Unwritten { slot } => Err(match read[slot] {
+                (_, _, Some(anchor)) => nested(anchor, "cleared its operand"),
+                (token, _, None) => token.unwritten_refusal().to_string(),
+            }),
+        }
     }
 
     /// The Cell after the last one `index`'s operands occupy. A returning last

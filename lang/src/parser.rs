@@ -47,6 +47,24 @@ impl SourceAnalysis {
     }
 
     ///
+    /// Why this Expression does not run, or `None` when it does.
+    ///
+    /// A syntax error comes first: Cells that spell no value, a nesting the
+    /// language refuses, or the row ending inside an operand. Then each
+    /// Function in Source order decides what its unwritten operands mean, as
+    /// [`crate::Function::admit`] answers, and the first that refuses them is
+    /// the verdict. A MIDI output with an unwritten operand runs and sends
+    /// nothing, so it is no refusal. The Tick asks the same Function the
+    /// same question at a Turn.
+    ///
+    pub fn verdict(&self) -> Option<Refusal<'_>> {
+        match &self.error {
+            Some(error) => Some(Refusal::Syntax(error)),
+            None => self.expression.admission_refusal().map(Refusal::Unwritten),
+        }
+    }
+
+    ///
     /// The Cells this Expression occupies, in the address space of the Source
     /// the Parser was given.
     ///
@@ -64,6 +82,32 @@ impl SourceAnalysis {
     /// declares. An unwritten operand does not: it holds no value.
     pub fn is_complete(&self) -> bool {
         self.error.is_none() && !self.has_unwritten
+    }
+}
+
+/// Why an Expression does not run: see [`SourceAnalysis::verdict`].
+#[derive(Debug)]
+pub enum Refusal<'a> {
+    /// The syntax error the Parser reported.
+    Syntax(&'a Error),
+    /// An operand its Function refuses because it is unwritten.
+    Unwritten(Error),
+}
+
+impl std::ops::Deref for Refusal<'_> {
+    type Target = Error;
+
+    fn deref(&self) -> &Error {
+        match self {
+            Self::Syntax(error) => error,
+            Self::Unwritten(error) => error,
+        }
+    }
+}
+
+impl std::fmt::Display for Refusal<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (**self).fmt(f)
     }
 }
 
@@ -2252,24 +2296,39 @@ mod nesting_tests {
     #[test]
     fn a_value_function_refuses_an_unwritten_operand_and_a_midi_output_does_not() {
         for source in [".v  ", ".+  01", "#+C4  ", ".+.v  01", "!>01.v  C4"] {
+            let analysis = Parser::from(source).analyze();
+            let verdict = analysis.verdict();
             assert!(
-                Parser::from(source)
-                    .analyze()
-                    .expression()
-                    .unwritten_refusal()
-                    .is_some(),
-                "{source:?}"
+                matches!(verdict.as_deref(), Some(Error::Type(_))),
+                "{source:?}: {verdict:?}"
             );
         }
-        for source in ["!>017F  ", "!:      M7CL00", "!c  0740", "!>01.v01  "] {
+        for source in ["!>017F  ", "!:      M7CL00", "!c  0740", "!>01.+0101  ", "!>    .+0102"] {
+            let analysis = Parser::from(source).analyze();
+            assert!(analysis.verdict().is_none(), "{source:?}: {:?}", analysis.verdict());
+        }
+    }
+
+    #[test]
+    fn a_half_written_operand_is_the_verdict_ahead_of_an_unwritten_one() {
+        // Slot 0 is unwritten and slot 1 is half written: the half-written
+        // operand is what is diagnosed, for a value Function and a MIDI output.
+        for (source, spelling) in [(".+  0 ", "0 "), ("!>  0 C4", "0 ")] {
+            let analysis = Parser::from(source).analyze();
+            let verdict = analysis.verdict().map(|refusal| refusal.to_string());
             assert!(
-                Parser::from(source)
-                    .analyze()
-                    .expression()
-                    .unwritten_refusal()
-                    .is_none(),
-                "{source:?}"
+                verdict.as_deref().is_some_and(|text| text.contains(spelling)),
+                "{source:?}: {verdict:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_syntax_error_is_the_verdict() {
+        let analysis = Parser::from(".+!>017FC401").analyze();
+        assert!(matches!(
+            analysis.verdict().as_deref(),
+            Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+        ));
     }
 }

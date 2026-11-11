@@ -365,3 +365,20 @@ fn a_value_function_still_refuses_an_empty_operand() {
         )]
     );
 }
+
+#[test]
+fn a_half_pair_that_arrives_at_the_turn_is_diagnosed_ahead_of_an_unwritten_operand() {
+    // Both operands of an Addition are blank in Source, so the Language Map
+    // refuses its first. On the Turn a Track one column to the right writes
+    // `D4` across the second, leaving it ` D`. The Turn diagnoses the half
+    // pair, as the Language Map would have: a malformed operand is refused
+    // ahead of an unwritten one, whatever its position.
+    let at = column(".+", 1);
+    let (_, diagnostics) = run(&[&track_at(at + 1, "D4"), "  .+    "]);
+    let at_addition: Vec<_> = diagnostics
+        .iter()
+        .filter(|(x, y, _)| (*x, *y) == (2, 1))
+        .collect();
+    assert_eq!(at_addition.len(), 1, "{diagnostics:?}");
+    assert!(at_addition[0].2.contains("\" D\""), "{diagnostics:?}");
+}
