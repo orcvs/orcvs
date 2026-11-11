@@ -10,9 +10,11 @@ ADR 0075 made a Clear in a Play's note operand a Rest, so the same pattern rests
 
 **A half-written pair stays an error.** One blank Cell in a note or root is invalid input, as ADR 0069 says.
 
-**A Chord Play's blank root ignores its other operands.** When the root is fully blank, other blank or cleared operands are not diagnosed, so a row of a pattern left wholly empty rests. A half-written operand stays an error even then. A blank Interval Set with a root present stays an error, because a root with no set cannot say what to play.
+**A Chord Play's blank root ignores its other operands.** When the root is fully blank, other blank or cleared operands, the channel included, are not diagnosed, so a row of a pattern left wholly empty rests. A half-written operand, or a written one that does not decode as its type, such as `ZZ` in the set, stays an error even then. A blank Interval Set with a root present stays an error, because a root with no set cannot say what to play.
 
 **A note Play's other operands still decode.** ADR 0075's rule stands for Raw, Timed and Monophonic Play: their channel, velocity and length are usually literals, and a blank one is a mistake rather than a musical rest.
+
+**A Rest checks no operand's range.** A Rest takes no evaluation, so on any of the five Plays a written operand outside its domain, such as channel `80`, is diagnosed only on a Turn with a note or root to play, as ADR 0075 says for a note Play. A written operand must still decode as its type.
 
 ## Consequences
 
