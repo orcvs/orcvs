@@ -228,9 +228,9 @@ C4
 
 ## Pitch
 
-Each answers a Note derived from a Note, and runs every Tick. A `note` that does not spell a Note,
-such as `3C`, is refused. An answer outside `00` to `7F` diagnoses and writes nothing: a Note never
-wraps.
+Each answers a Note or an Interval Set derived from the Note or Interval Set it reads, and runs
+every Tick. A `note` that does not spell a Note, such as `3C`, is refused. An answer outside `00` to
+`7F` diagnoses and writes nothing: a Note never wraps.
 
 ### `#+` Up
 
@@ -259,7 +259,7 @@ After Tick `0`:
 #+G901
 ```
 
-Nested in a Play's `note` operand, the Play sounds the transposed Note. The nested Up writes its
+Nested in a Play's `note` operand, the Play sounds the raised Note. The nested Up writes its
 own answer south of itself as well.
 
 ```orcvs

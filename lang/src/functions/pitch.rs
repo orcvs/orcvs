@@ -88,16 +88,26 @@ mod test {
         );
     }
 
+    /// Whether `answer` is the diagnostic for `function` reaching semitone
+    /// `expected`.
+    fn out_of_range(
+        answer: &Result<Interpretation, Error>,
+        function: Function,
+        expected: i16,
+    ) -> bool {
+        matches!(
+            answer,
+            Err(Error::Interpretation(InterpretationError::NoteOutOfRange {
+                function: found,
+                value,
+            })) if *found == function && *value == expected
+        )
+    }
+
     /// Asserts the Source text diagnoses `function` reaching `expected`.
-    fn out_of_range(source: &str, function: Function, expected: i16) {
+    fn diagnoses(source: &str, function: Function, expected: i16) {
         assert!(
-            matches!(
-                crate::interpret_source(source),
-                Err(Error::Interpretation(InterpretationError::NoteOutOfRange {
-                    function: found,
-                    value,
-                })) if found == function && value == expected
-            ),
+            out_of_range(&crate::interpret_source(source), function, expected),
             "{source}"
         );
     }
@@ -106,7 +116,7 @@ mod test {
     fn up_answers_the_note_a_number_of_semitones_above() {
         answers("#+C402", 0x3E); // D4
         answers("#+C40C", 0x48); // C5, an octave
-        answers("#+C400", 0x3C); // no transposition
+        answers("#+C400", 0x3C); // raised by no semitones
         answers("#+C/7F", 0x7F); // the whole range from the lowest Note
     }
 
@@ -114,7 +124,7 @@ mod test {
     fn down_answers_the_note_a_number_of_semitones_below() {
         answers("#-D402", 0x3C); // C4
         answers("#-C40C", 0x30); // C3, an octave
-        answers("#-C400", 0x3C); // no transposition
+        answers("#-C400", 0x3C); // lowered by no semitones
         answers("#-G97F", 0x00); // the whole range from the highest Note
     }
 
@@ -123,8 +133,8 @@ mod test {
         // `G9` is 7F, the highest Note. One semitone more names no Note, and
         // `#+C4FF` is the case byte arithmetic would wrap to the legal Note 3B.
         answers("#+G900", 0x7F);
-        out_of_range("#+G901", Function::Up, 128);
-        out_of_range("#+C4FF", Function::Up, 315);
+        diagnoses("#+G901", Function::Up, 128);
+        diagnoses("#+C4FF", Function::Up, 315);
     }
 
     #[test]
@@ -132,8 +142,8 @@ mod test {
         // `C/` is 00, the lowest Note, so nothing lies below it. `#-C4FF`
         // is the case byte arithmetic would wrap to the legal Note 3D.
         answers("#-C/00", 0x00);
-        out_of_range("#-C/01", Function::Down, -1);
-        out_of_range("#-C4FF", Function::Down, -195);
+        diagnoses("#-C/01", Function::Down, -1);
+        diagnoses("#-C4FF", Function::Down, -195);
     }
 
     #[test]
@@ -153,13 +163,7 @@ mod test {
                             "{function:?} {start:02X} {number:02X}"
                         ),
                         _ => assert!(
-                            matches!(
-                                answer,
-                                Err(Error::Interpretation(InterpretationError::NoteOutOfRange {
-                                    function: found,
-                                    value,
-                                })) if found == function && value == semitone
-                            ),
+                            out_of_range(&answer, function, semitone),
                             "{function:?} {start:02X} {number:02X}: {answer:?}"
                         ),
                     }
@@ -169,21 +173,17 @@ mod test {
     }
 
     #[test]
-    fn every_transposition_up_is_undone_by_the_same_transposition_down() {
+    fn every_up_is_undone_by_the_same_down() {
         // Over the whole Note and Number domains, Down inverts every Up that
         // answers, and an Up that refuses refuses as out of range.
         for start in 0x00..=0x7F {
             for number in 0x00..=u8::MAX {
                 let raised = evaluate(Function::Up, note(start), Atom::Number(number));
                 let Ok(Interpretation::Cell(raised)) = raised else {
+                    let semitone = i16::from(start) + i16::from(number);
                     assert!(
-                        matches!(
-                            raised,
-                            Err(Error::Interpretation(
-                                InterpretationError::NoteOutOfRange { .. }
-                            ))
-                        ),
-                        "{start:02X} {number:02X}"
+                        out_of_range(&raised, Function::Up, semitone),
+                        "{start:02X} {number:02X}: {raised:?}"
                     );
                     continue;
                 };
@@ -255,8 +255,8 @@ mod test {
     fn the_number_operand_reads_a_note_spelling_as_the_number_it_spells() {
         // A Cell pair is typed by the slot it stands in, so `C4` in the
         // number slot is Number C4, and either direction passes the range.
-        out_of_range("#+C4C4", Function::Up, 256);
-        out_of_range("#-C4C4", Function::Down, -136);
+        diagnoses("#+C4C4", Function::Up, 256);
+        diagnoses("#-C4C4", Function::Down, -136);
     }
 
     #[test]
