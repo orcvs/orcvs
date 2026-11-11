@@ -15,6 +15,8 @@ A Chord must be drivable by a Clock and a Read or Track, so what follows its roo
 
 **A scale name is valid wherever a chord name is.** `C4MA` in a Chord Play sounds all seven tones. No rule is added against it, because one type is what lets Pick and Stack serve both.
 
+**Names are case-sensitive.** A name is exactly the two Cells it is spelled with, and nothing folds case, so case carries meaning: `M` is major and `m` minor, and `cl` or `ma` is no name and is refused.
+
 **A Voicing is a separate literal type with eight names.** `CL` close, `OP` open, `D2`, `D3`, `D5`, `D6` drops, `SH` shell and `RL` rootless. Inversion is a Number operand, not part of the Voicing.
 
 **Both are carried as Numbers and Notes are.** A Copy, Read, Track, Write or Push moves the two Cells and the receiving operand decodes them, as [ADR 0061](0061-a-nested-function-returns-to-the-slot-it-occupies.md) says of any Return. `69` and `13` are also Numbers and `D2` is also a Note, which costs nothing because an Operand Literal has no type outside its operand position.
