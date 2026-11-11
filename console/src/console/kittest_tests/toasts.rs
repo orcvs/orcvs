@@ -6,6 +6,7 @@
 use egui::Vec2;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use orcvs::midi::{MidiConnectionRequest, MidiDestination, MidiDestinationId};
 use orcvs::playback::{PlaybackDiagnostic, PlaybackObservation};
 
 use super::super::tests::quiet_midi;
@@ -166,31 +167,148 @@ async fn a_dismissed_toast_stays_gone_until_its_reporter_clears() {
 }
 
 ///
-/// The Panel is the same height with no message and with messages from two
-/// Reporters, with or without the Diagnostics readouts: the Play Cell and the
+/// A MIDI service that lists one destination, `a`, whose connection refuses
+/// every message, and refuses to connect any other.
+///
+struct RefusingMidi;
+
+/// The connection [`RefusingMidi`] opens, which no message leaves.
+struct RefusingConnection;
+
+impl orcvs::midi::MidiConnection for RefusingConnection {
+    fn send(&mut self, _message: &[u8]) -> Result<(), orcvs::midi::MidiError> {
+        Err(orcvs::midi::MidiError::new("the synth refused"))
+    }
+}
+
+impl orcvs::midi::MidiBackend for RefusingMidi {
+    fn destinations(&mut self) -> Result<Vec<MidiDestination>, orcvs::midi::MidiError> {
+        Ok(vec![MidiDestination::new("a", "Synth")])
+    }
+
+    fn connect(
+        &mut self,
+        destination_id: &MidiDestinationId,
+    ) -> Result<MidiConnectionRequest, orcvs::midi::MidiError> {
+        if destination_id.as_str() == "a" {
+            Ok(MidiConnectionRequest::Ready(Box::new(RefusingConnection)))
+        } else {
+            Err(orcvs::midi::MidiError::new("that destination is gone"))
+        }
+    }
+}
+
+///
+/// Writes a clock that bangs a UDP send and a MIDI note, and starts the run.
+///
+fn play_a_udp_send_and_a_note(harness: &mut Harness<'_, Console>) {
+    crate::cursor_line::write_rows(
+        &harness.state().orcvs,
+        &[".=0101", "  !uhi!", "", ".=0101", "  !>007FC4"],
+    );
+    harness.state_mut().orcvs.toggle_playback();
+}
+
+///
+/// Raises a message from every Reporter while the run plays: a MIDI choice
+/// that cannot connect, a MIDI output that refuses each note, a refused UDP
+/// port, a UDP send to port 0 that the operating system refuses, and an
+/// engine failure.
+///
+async fn raise_every_message(harness: &mut Harness<'_, Console>) {
+    let handle = harness.state().orcvs.midi_selection_handle();
+    harness.state_mut().midi =
+        crate::midi::MidiDeviceSelection::new(handle, Box::new(RefusingMidi));
+    harness.state_mut().midi.refresh_destinations();
+    harness
+        .state_mut()
+        .midi
+        .select_destination(&MidiDestinationId::new("a"));
+    tokio::task::yield_now().await;
+    harness.run_steps(2);
+    harness
+        .state_mut()
+        .midi
+        .select_destination(&MidiDestinationId::new("gone"));
+    let refused = harness
+        .state_mut()
+        .network
+        .commit(crate::network::NetworkField::UdpPort, "not a port");
+    assert!(!refused, "the Output list took a port that is not one");
+    // Port 0 is no destination the Output list takes; the test sets it on
+    // Orcvs so the operating system refuses the send.
+    harness
+        .state_mut()
+        .orcvs
+        .set_network_destination(orcvs::network::NetworkDestination {
+            udp_port: 0,
+            ..orcvs::network::NetworkDestination::default()
+        });
+    play_a_udp_send_and_a_note(harness);
+    for _ in 0..80 {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        harness.run_steps(1);
+        let console = harness.state();
+        if console.playback_status.midi().is_some() && console.playback_status.network().is_some() {
+            break;
+        }
+    }
+    // The run's own observation, so its start does not clear the failure.
+    let observation = harness.state().orcvs.playback_observation();
+    harness.state_mut().playback_status.observe(
+        vec![PlaybackDiagnostic::ClockFailure {
+            message: "clock stopped".to_owned(),
+        }],
+        &observation,
+    );
+}
+
+///
+/// The Panel is the same height with no message and with a message from every
+/// Reporter, with or without the Diagnostics readouts: the Play Cell and the
 /// readouts stay put.
 ///
 #[tokio::test]
 async fn the_panel_keeps_its_height_whatever_the_messages() {
     for diagnostics_open in [false, true] {
-        let panel_with = |failure: Option<&str>| {
-            let mut harness = quiet_console(diagnostics_open);
-            if let Some(message) = failure {
-                fail_the_engine(&mut harness, message);
-                let refused = harness
-                    .state_mut()
-                    .network
-                    .commit(crate::network::NetworkField::UdpPort, "not a port");
-                assert!(!refused, "the Output list took a port that is not one");
-            }
+        let mut quiet = quiet_console(diagnostics_open);
+        play_a_udp_send_and_a_note(&mut quiet);
+        let mut reporting = quiet_console(diagnostics_open);
+        raise_every_message(&mut reporting).await;
+        for harness in [&mut quiet, &mut reporting] {
             harness.run_steps(3);
+        }
+
+        let console = reporting.state();
+        let standing = super::super::toasts::standing_messages(
+            &console.midi,
+            &console.network,
+            &console.playback_status,
+        );
+        let silent: Vec<_> = standing
+            .iter()
+            .filter(|(_, message)| message.is_none())
+            .map(|(reporter, _)| reporter)
+            .collect();
+        assert!(
+            silent.is_empty(),
+            "these Reporters raised no message: {silent:?}"
+        );
+
+        let panel = |harness: &Harness<'_, Console>| {
             let play = harness.get_by_label("Play").rect();
             let fps = harness.query_by_label("FPS").map(|node| node.rect());
-            (play, fps)
+            let bottom = egui::containers::panel::PanelState::load(
+                &harness.ctx,
+                super::super::tests::panel_id("bottom_panel"),
+            )
+            .expect("the Panel is present")
+            .outer_rect;
+            (play, fps, bottom)
         };
         assert_eq!(
-            panel_with(None),
-            panel_with(Some("clock stopped")),
+            panel(&quiet),
+            panel(&reporting),
             "a message moved the Panel, Diagnostics open: {diagnostics_open}"
         );
     }

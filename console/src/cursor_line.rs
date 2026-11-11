@@ -47,8 +47,9 @@ fn part(text: impl Into<String>, strong: bool) -> Part {
 /// Span: its spelling and name, each Role's name and Cells, a Position's two
 /// Numbers read as one Role, then its summary. A Function whose answer has a
 /// fixed place answers with its Output Portal's two Cells and that Portal's
-/// Position. An empty Cell reads `.`. A Comment is named. Any other Cell
-/// answers no text: a standalone pair of Cells is diagnosed text, not an
+/// Position. An empty Cell among a Role's or the answer's Cells reads `.`.
+/// Off a Function's Span, a Comment is named and any other Cell, empty or
+/// not, answers no text: a standalone pair of Cells is diagnosed text, not an
 /// Operand Literal.
 ///
 pub(crate) fn cursor_line(frame: &RenderFrame) -> CursorLine {
