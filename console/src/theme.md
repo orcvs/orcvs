@@ -192,9 +192,11 @@ property out.
 | `source.ordinary`, `diagnostic.border`, `text` | `#C8C8C8` |
 | `source.comment` | `#555555` |
 | `source.number` | `#898989` |
+| `source.interval_set` | `#9A9A9A` |
+| `source.voicing` | `#B0B0B0` |
 | `source.note`, `input_portal.background`, `locked.border` | `#CCCCCC` |
 | `source.bang`, `source.bang.border`, `button.pressed.background`, `button.pressed.border` | `#00FF00` |
-| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#222222` |
+| `source.number.background`, `source.note.background`, `source.interval_set.background`, `source.voicing.background`, `source.number.border`, `source.note.border`, `source.interval_set.border`, `source.voicing.border` | `#222222` |
 | `source.function.background`, `source.function.border`, `output_portal.border`, `button.background`, `button.border` | `#444444` |
 | `source.bang.background` | `#111111` |
 | `diagnostic.foreground` | `#FF3B3B` |
@@ -209,7 +211,7 @@ property out.
 | `text.muted` | `#C8C8C899` |
 | `grid.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width`, `source.bang.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
-| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
+| `cell.selection.border.width`, `cursor.border.width`, `region.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.interval_set.border.width`, `source.voicing.border.width`, `source.function.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
 | `diagnostic.border.width`, `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
 | `minimap.source_view` | `#FFFFFF` |
@@ -235,9 +237,11 @@ property out.
 | `source.ordinary`, `text` | `#373737` |
 | `source.comment` | `#ADADAD` |
 | `source.number` | `#616161` |
+| `source.interval_set` | `#434343` |
+| `source.voicing` | `#525252` |
 | `source.note`, `locked.border` | `#333333` |
 | `source.bang`, `button.pressed.background`, `button.pressed.border` | `#D100D1` |
-| `source.number.background`, `source.note.background`, `source.number.border`, `source.note.border` | `#DDDDDD` |
+| `source.number.background`, `source.note.background`, `source.interval_set.background`, `source.voicing.background`, `source.number.border`, `source.note.border`, `source.interval_set.border`, `source.voicing.border` | `#DDDDDD` |
 | `source.function.background`, `source.function.border`, `output_portal.border`, `button.background`, `button.border` | `#BBBBBB` |
 | `source.bang.border` | `#FF00FF` |
 | `diagnostic.foreground`, `diagnostic.border` | `#C70000` |
@@ -252,7 +256,7 @@ property out.
 | `text.muted` | `#373737AF` |
 | `grid.border.width`, `cell.selection.border.width`, `input_portal.border.width`, `source.ordinary.border.width`, `source.comment.border.width` | 0.5 |
 | `sector.seam.width` | 0.75 |
-| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
+| `cursor.border.width`, `region.border.width`, `diagnostic.border.width`, `output_portal.border.width`, `locked.border.width`, `source.number.border.width`, `source.note.border.width`, `source.interval_set.border.width`, `source.voicing.border.width`, `source.function.border.width`, `source.bang.border.width`, `panel.border.width`, `selection.border.width`, `widget.border.width`, `button.border.width` | 1 |
 | `widget.inactive.border.width` | 0 |
 | `input.cursor.width`, `panel.separator.width` | 2 |
 | `minimap.source_view` | `#000000` |
@@ -320,6 +324,7 @@ and can be selected.
 Each Source Paint role paints its foreground and background from the resolved
 Theme: `source.ordinary` (also Char), `source.comment`,
 `source.function`, `source.bang`, `source.number`, `source.note`,
+`source.interval_set`, `source.voicing`,
 `diagnostic.*` and `output_portal.*`, each with its own
 `.background`. `Theme → Source colours`, its Fill tint slider and its "Reset to
 theme defaults" are gone, and the old `source_paint` storage key is left
@@ -329,7 +334,7 @@ Each role background is its own stored colour, alpha included. There is no
 `fill_tint` property: changing a role's foreground does not recalculate its
 background. Every recognized Function Cell — nested
 Functions included — and
-every Operand Cell (its declared Token: Number or Note, whether the operand is still Pending, Valid, or Invalid) paints its role
+every Operand Cell (its declared Token: Number, Note, Interval Set or Voicing, whether the operand is still Pending, Valid, or Invalid) paints its role
 background, and a Bang paints `source.bang.background`. Comment, an empty
 unclaimed Cell, and a Leftover Char have a transparent one. A refused Function spelling takes none either (see
 Diagnostic, below) — only a Function entry the Parser recognized does. Role
@@ -427,7 +432,7 @@ measured for colour vision. It measures glyphs only: never background tints
 against each other, and never anomalous trichromacy.
 
 A Pending operand Cell draws no glyph, so `validate` has no Pending role to
-measure — `Role` (Number, Note) carries Valid and Invalid only.
+measure — `Role` (Number, Note, Interval Set, Voicing) carries Valid and Invalid only.
 
 `contrast::tests::shipped_theme_gate` runs over every built-in the registry
 holds: every state of a role held to the floor clears 4.5:1, and a Comment

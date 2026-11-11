@@ -192,7 +192,7 @@ mod nested_property {
     use crate::source::language_map::LanguageMap;
     use crate::source::tick::observed::{diagnostic, first};
     use crate::source::tick::{Cells, Tick, plan};
-    use lang::{Atom, Function, Note, Parser, Token, Tokens};
+    use lang::{Atom, Function, IntervalSet, Note, Parser, Token, Tokens, Voicing};
     use proptest::collection::vec;
     use proptest::prelude::*;
     use proptest::sample::select;
@@ -218,10 +218,18 @@ mod nested_property {
             Token::Note => (0x00u8..=0x7F)
                 .prop_map(|note| Atom::Note(Note::try_from(note).unwrap()).to_string())
                 .boxed(),
+            Token::IntervalSet => select(IntervalSet::ALL)
+                .prop_map(|set| Atom::IntervalSet(set).to_string())
+                .boxed(),
+            Token::Voicing => select(Voicing::ALL)
+                .prop_map(|voicing| Atom::Voicing(voicing).to_string())
+                .boxed(),
             // An untyped slot carries any Language Unit a literal spells.
             Token::Untyped => prop_oneof![
                 literal_source(Token::Number),
                 literal_source(Token::Note),
+                literal_source(Token::IntervalSet),
+                literal_source(Token::Voicing),
                 Just("**".to_owned()),
             ]
             .boxed(),
@@ -319,6 +327,8 @@ mod nested_property {
         match token {
             Token::Number => "01",
             Token::Note => "C4",
+            Token::IntervalSet => "M7",
+            Token::Voicing => "CL",
             Token::Untyped => "G4",
             other => panic!("no literal spells {other:?}"),
         }

@@ -41,11 +41,19 @@ The semantic view derived from the Parser's interpretation of one Source revisio
 _Avoid_: Overlay Grid, parsed Source state, semantic Source
 
 **Atom**:
-One parsed value or operation an Expression is made of: a Number, a Note, a Bang, or a Function. Every Atom has a Source encoding. A Self-Banging Function is not a kind of its own here: it is a Function, and the four spellings parse to one. An Atom is what an Expression's operands resolve to and what a value Function answers when it has one to write. A value Function's other successful answer, a Clear, is not an Atom. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
+One parsed value or operation an Expression is made of: a Number, a Note, an Interval Set, a Voicing, a Bang, or a Function. Every Atom has a Source encoding. A Self-Banging Function is not a kind of its own here: it is a Function, and the four spellings parse to one. An Atom is what an Expression's operands resolve to and what a value Function answers when it has one to write. A value Function's other successful answer, a Clear, is not an Atom. It is the parsed unit rather than the Cells that spell it, so the same two Source characters can be a Number in one operand position and a Note in another.
 _Avoid_: Token, glyph, symbol, cell value
 
+**Interval Set**:
+A two-Cell name for a list of semitones above a root, one of 25 chords or 14 scales. Every name fills both Cells, so a half-blank pair is partial input and a chord with a one-character name takes the filler `_`. A scale name is valid wherever a chord name is. `mM` (minor-major seventh) and `mm` (melodic minor) differ only by case, and a slip between them is accepted as the other name rather than diagnosed. `69` and `13` are also Numbers: an Operand Literal has no type outside the operand position that receives it.
+_Avoid_: Chord type, scale type, chord symbol
+
+**Voicing**:
+A two-Cell name for how a chord's tones are arranged once its Interval Set has placed them: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. `D2`, `D3`, `D5` and `D6` are also Notes and Numbers, and the operand position receiving them decides. Inversion is a separate Number operand and not part of a Voicing.
+_Avoid_: Chord shape, arrangement
+
 **Operand Literal**:
-Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number or Note type outside that context. A Write's or Push's `value` takes no type: it carries the two Cells it holds unchanged, and whatever reads them at the destination interprets them. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
+Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number, Note, Interval Set or Voicing type outside that context. A Write's or Push's `value` takes no type: it carries the two Cells it holds unchanged, and whatever reads them at the destination interprets them. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Spatial Output**:

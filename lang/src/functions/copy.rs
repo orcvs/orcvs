@@ -1,6 +1,9 @@
 use crate::{
     Atom, Error, Function, Interpretation, InterpretationError,
-    atom::{note_atom_from_spelling, number_atom_from_spelling, operands::AbsoluteCopy},
+    atom::{
+        interval_set_atom_from_spelling, note_atom_from_spelling, number_atom_from_spelling,
+        operands::AbsoluteCopy, voicing_atom_from_spelling,
+    },
     expression::DEFAULT_TOKEN_LEN,
     interpreter::Context,
     stack::Operands as _,
@@ -72,7 +75,17 @@ pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
     )
 }
 
-/// The Atom two Cells spell, read as a Function, then a Number, then a Note.
+/// The Atom two Cells spell, read as a Function, then a Number, then a Note,
+/// then an Interval Set, then a Voicing.
+///
+/// A name that also spells a Number or a Note, as `69`, `13` and `D2` do, reads
+/// as that Atom here. Every reading renders back as the same two Cells, so a
+/// Copy writes the same Cells whichever reading it takes. The Source Tick
+/// renders a nested answer to its Cells and decodes them with the receiving
+/// operand's [`Token::decode`](crate::Token::decode), so there `69` reaches an
+/// Interval Set operand as an Interval Set. An Atom handed straight to
+/// [`TokenKind::from_atom`](crate::operand::TokenKind::from_atom) is checked
+/// as read here, with no second decode.
 ///
 /// Each reading borrows the Cells and builds nothing on refusal: the only
 /// error a Copy reports is `PartialInput`, so an error built by a reading the
@@ -82,6 +95,8 @@ pub(crate) fn copied_atom(cells: &str) -> Option<Atom> {
         .map(Atom::Function)
         .or_else(|| number_atom_from_spelling(cells))
         .or_else(|| note_atom_from_spelling(cells))
+        .or_else(|| interval_set_atom_from_spelling(cells))
+        .or_else(|| voicing_atom_from_spelling(cells))
 }
 
 #[cfg(test)]
@@ -89,7 +104,7 @@ mod test {
     use super::copy;
     use crate::{
         Anchor, Atom, Function, FunctionInputs, Interpretation, InterpretationError, Interpreter,
-        PortalSource, Tick, TickInputs, interpreter::Context,
+        IntervalSet, PortalSource, Tick, TickInputs, Voicing, interpreter::Context,
     };
 
     // Decode admitted Portal Cells. Alignment and partial Spans are
@@ -127,6 +142,54 @@ mod test {
             evaluate(Function::CopyWest, Some("01")).unwrap(),
             Interpretation::Cell(Atom::Number(1))
         );
+    }
+
+    #[test]
+    fn every_interval_set_and_voicing_name_is_copied_as_the_cells_it_spells() {
+        let names = IntervalSet::ALL
+            .iter()
+            .map(|set| set.cells().to_string())
+            .chain(
+                Voicing::ALL
+                    .iter()
+                    .map(|voicing| voicing.cells().to_string()),
+            );
+        for name in names {
+            let Interpretation::Cell(atom) = evaluate(Function::CopyEast, Some(&name)).unwrap()
+            else {
+                panic!("{name} was not carried");
+            };
+            assert_eq!(atom.to_string(), name, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_name_that_spells_nothing_else_reads_as_its_own_type() {
+        assert_eq!(
+            evaluate(Function::CopyEast, Some("M7")).unwrap(),
+            Interpretation::Cell(Atom::IntervalSet(IntervalSet::MajorSeventh))
+        );
+        assert_eq!(
+            evaluate(Function::CopyEast, Some("CL")).unwrap(),
+            Interpretation::Cell(Atom::Voicing(Voicing::Close))
+        );
+    }
+
+    #[test]
+    fn partial_input_is_still_refused_with_names_in_the_reading() {
+        for cells in ["M ", " 7", "CL ", "C ", " L", "m", "xx"] {
+            assert!(
+                matches!(
+                    evaluate(Function::CopyEast, Some(cells)),
+                    Err(crate::Error::Interpretation(
+                        InterpretationError::PartialInput {
+                            function: Function::CopyEast
+                        }
+                    ))
+                ),
+                "{cells:?} was read as a Language Unit",
+            );
+        }
     }
 
     #[test]

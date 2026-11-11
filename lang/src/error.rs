@@ -188,6 +188,12 @@ pub enum TypeError {
     #[error("expected a number, found {0:?}")]
     Number(String),
 
+    #[error("expected an Interval Set, found {0:?}")]
+    IntervalSet(String),
+
+    #[error("expected a Voicing, found {0:?}")]
+    Voicing(String),
+
     /// An untyped slot whose Cells spell no Language Unit, an empty pair
     /// among them.
     #[error("expected a Language Unit, found {0:?}")]

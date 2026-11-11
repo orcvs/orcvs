@@ -89,6 +89,8 @@ enum GlyphChannel {
     Comment,
     Number,
     Note,
+    IntervalSet,
+    Voicing,
     Function,
     Bang,
     Diagnostic,
@@ -104,6 +106,8 @@ impl fmt::Display for GlyphChannel {
             Self::Comment => "Comment",
             Self::Number => "Number",
             Self::Note => "Note",
+            Self::IntervalSet => "Interval Set",
+            Self::Voicing => "Voicing",
             Self::Function => "Function",
             Self::Bang => "Bang",
             Self::Diagnostic => "Diagnostic",
@@ -457,13 +461,19 @@ impl Role {
             (Some(PortalRole::Locked), _) => GlyphChannel::Locked,
             (None, Self::Function) => GlyphChannel::Function,
             (None, Self::Bang) => GlyphChannel::Bang,
-            (None, Self::NumberInvalid | Self::NoteInvalid) if diagnostic => {
-                GlyphChannel::Diagnostic
-            }
+            (
+                None,
+                Self::NumberInvalid
+                | Self::NoteInvalid
+                | Self::IntervalSetInvalid
+                | Self::VoicingInvalid,
+            ) if diagnostic => GlyphChannel::Diagnostic,
             (None, Self::Ordinary) => GlyphChannel::Ordinary,
             (None, Self::Comment) => GlyphChannel::Comment,
             (None, Self::NumberValid | Self::NumberInvalid) => GlyphChannel::Number,
             (None, Self::NoteValid | Self::NoteInvalid) => GlyphChannel::Note,
+            (None, Self::IntervalSetValid | Self::IntervalSetInvalid) => GlyphChannel::IntervalSet,
+            (None, Self::VoicingValid | Self::VoicingInvalid) => GlyphChannel::Voicing,
             (
                 None,
                 Self::Text
@@ -691,10 +701,10 @@ mod tests {
     #[test]
     fn distinguish_reports_one_result_per_channel_pair_and_dichromacy() {
         let report = distinguish(&default_theme(Appearance::Light));
-        // 9 channels choose 2 = 36 pairs, times 3 dichromacies. Stated as
+        // 11 channels choose 2 = 55 pairs, times 3 dichromacies. Stated as
         // one literal rather than recomputed from the same lengths the code
         // iterates.
-        assert_eq!(report.results.len(), 108);
+        assert_eq!(report.results.len(), 165);
         for result in &report.results {
             assert_ne!(result.first, result.second);
         }
@@ -829,7 +839,9 @@ mod tests {
     ///
     /// A light glyph definition that clears contrast and fails colour
     /// vision. Only the glyph channels differ from the light default:
-    /// holding the chrome keys fixed is what isolates the glyphs.
+    /// holding the chrome keys fixed is what isolates the glyphs. The
+    /// Interval Set and Voicing Cells keep their default glyphs on Number's
+    /// fill, as every operand literal type shares one fill in the built-ins.
     ///
     fn rejected_light_glyphs() -> Theme {
         let tint =
@@ -851,6 +863,8 @@ mod tests {
             source_number_background: tint(number),
             source_note: opaque(note),
             source_note_background: tint(note),
+            source_interval_set_background: tint(number),
+            source_voicing_background: tint(number),
             source_function: opaque(function),
             source_function_background: tint(function),
             source_bang: opaque(bang),

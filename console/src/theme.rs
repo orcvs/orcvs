@@ -142,18 +142,24 @@ macro_rules! style_catalogue {
                 SourceComment(source_comment) => "source.comment",
                 SourceNumber(source_number) => "source.number",
                 SourceNote(source_note) => "source.note",
+                SourceIntervalSet(source_interval_set) => "source.interval_set",
+                SourceVoicing(source_voicing) => "source.voicing",
                 SourceFunction(source_function) => "source.function",
                 SourceBang(source_bang) => "source.bang",
                 SourceOrdinaryBackground(source_ordinary_background) => "source.ordinary.background",
                 SourceCommentBackground(source_comment_background) => "source.comment.background",
                 SourceNumberBackground(source_number_background) => "source.number.background",
                 SourceNoteBackground(source_note_background) => "source.note.background",
+                SourceIntervalSetBackground(source_interval_set_background) => "source.interval_set.background",
+                SourceVoicingBackground(source_voicing_background) => "source.voicing.background",
                 SourceFunctionBackground(source_function_background) => "source.function.background",
                 SourceBangBackground(source_bang_background) => "source.bang.background",
                 SourceOrdinaryBorder(source_ordinary_border) => "source.ordinary.border",
                 SourceCommentBorder(source_comment_border) => "source.comment.border",
                 SourceNumberBorder(source_number_border) => "source.number.border",
                 SourceNoteBorder(source_note_border) => "source.note.border",
+                SourceIntervalSetBorder(source_interval_set_border) => "source.interval_set.border",
+                SourceVoicingBorder(source_voicing_border) => "source.voicing.border",
                 SourceFunctionBorder(source_function_border) => "source.function.border",
                 SourceBangBorder(source_bang_border) => "source.bang.border",
                 DiagnosticForeground(diagnostic_foreground) => "diagnostic.foreground",
@@ -210,6 +216,8 @@ macro_rules! style_catalogue {
                 SourceCommentBorder(source_comment_border_width) => "source.comment.border.width",
                 SourceNumberBorder(source_number_border_width) => "source.number.border.width",
                 SourceNoteBorder(source_note_border_width) => "source.note.border.width",
+                SourceIntervalSetBorder(source_interval_set_border_width) => "source.interval_set.border.width",
+                SourceVoicingBorder(source_voicing_border_width) => "source.voicing.border.width",
                 SourceFunctionBorder(source_function_border_width) => "source.function.border.width",
                 SourceBangBorder(source_bang_border_width) => "source.bang.border.width",
                 ButtonBorder(button_border_width) => "button.border.width",
@@ -265,18 +273,24 @@ pub struct Theme {
     pub(crate) source_comment: Color32,
     pub(crate) source_number: Color32,
     pub(crate) source_note: Color32,
+    pub(crate) source_interval_set: Color32,
+    pub(crate) source_voicing: Color32,
     pub(crate) source_function: Color32,
     pub(crate) source_bang: Color32,
     pub(crate) source_ordinary_background: Color32,
     pub(crate) source_comment_background: Color32,
     pub(crate) source_number_background: Color32,
     pub(crate) source_note_background: Color32,
+    pub(crate) source_interval_set_background: Color32,
+    pub(crate) source_voicing_background: Color32,
     pub(crate) source_function_background: Color32,
     pub(crate) source_bang_background: Color32,
     pub(crate) source_ordinary_border: Color32,
     pub(crate) source_comment_border: Color32,
     pub(crate) source_number_border: Color32,
     pub(crate) source_note_border: Color32,
+    pub(crate) source_interval_set_border: Color32,
+    pub(crate) source_voicing_border: Color32,
     pub(crate) source_function_border: Color32,
     pub(crate) source_bang_border: Color32,
 
@@ -352,6 +366,8 @@ pub struct Theme {
     pub(crate) source_comment_border_width: GridWidth,
     pub(crate) source_number_border_width: GridWidth,
     pub(crate) source_note_border_width: GridWidth,
+    pub(crate) source_interval_set_border_width: GridWidth,
+    pub(crate) source_voicing_border_width: GridWidth,
     pub(crate) source_function_border_width: GridWidth,
     pub(crate) source_bang_border_width: GridWidth,
     pub(crate) button_border_width: GridWidth,
@@ -498,18 +514,24 @@ pub fn grayscale_dark() -> Theme {
         source_comment: straight_rgba(0x55_55_55_FF),
         source_number: straight_rgba(0x89_89_89_FF),
         source_note: straight_rgba(0xCC_CC_CC_FF),
+        source_interval_set: straight_rgba(0x9A_9A_9A_FF),
+        source_voicing: straight_rgba(0xB0_B0_B0_FF),
         source_function: straight_rgba(0xE6_E6_E6_FF),
         source_bang: straight_rgba(0x00_FF_00_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
         source_number_background: straight_rgba(0x22_22_22_FF),
         source_note_background: straight_rgba(0x22_22_22_FF),
+        source_interval_set_background: straight_rgba(0x22_22_22_FF),
+        source_voicing_background: straight_rgba(0x22_22_22_FF),
         source_function_background: straight_rgba(0x44_44_44_FF),
         source_bang_background: straight_rgba(0x11_11_11_FF),
         source_ordinary_border: straight_rgba(0x00_00_00_00),
         source_comment_border: straight_rgba(0x00_00_00_00),
         source_number_border: straight_rgba(0x22_22_22_FF),
         source_note_border: straight_rgba(0x22_22_22_FF),
+        source_interval_set_border: straight_rgba(0x22_22_22_FF),
+        source_voicing_border: straight_rgba(0x22_22_22_FF),
         source_function_border: straight_rgba(0x44_44_44_FF),
         source_bang_border: straight_rgba(0x00_FF_00_FF),
 
@@ -574,6 +596,8 @@ pub fn grayscale_dark() -> Theme {
         source_comment_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         source_number_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_interval_set_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_voicing_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_bang_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         button_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
@@ -620,18 +644,24 @@ pub fn grayscale_light() -> Theme {
         source_comment: straight_rgba(0xAD_AD_AD_FF),
         source_number: straight_rgba(0x61_61_61_FF),
         source_note: straight_rgba(0x33_33_33_FF),
+        source_interval_set: straight_rgba(0x43_43_43_FF),
+        source_voicing: straight_rgba(0x52_52_52_FF),
         source_function: straight_rgba(0x19_19_19_FF),
         source_bang: straight_rgba(0xD1_00_D1_FF),
         source_ordinary_background: straight_rgba(0x00_00_00_00),
         source_comment_background: straight_rgba(0x00_00_00_00),
         source_number_background: straight_rgba(0xDD_DD_DD_FF),
         source_note_background: straight_rgba(0xDD_DD_DD_FF),
+        source_interval_set_background: straight_rgba(0xDD_DD_DD_FF),
+        source_voicing_background: straight_rgba(0xDD_DD_DD_FF),
         source_function_background: straight_rgba(0xBB_BB_BB_FF),
         source_bang_background: straight_rgba(0xFF_FF_FF_FF),
         source_ordinary_border: straight_rgba(0x00_00_00_00),
         source_comment_border: straight_rgba(0x00_00_00_00),
         source_number_border: straight_rgba(0xDD_DD_DD_FF),
         source_note_border: straight_rgba(0xDD_DD_DD_FF),
+        source_interval_set_border: straight_rgba(0xDD_DD_DD_FF),
+        source_voicing_border: straight_rgba(0xDD_DD_DD_FF),
         source_function_border: straight_rgba(0xBB_BB_BB_FF),
         source_bang_border: straight_rgba(0xFF_00_FF_FF),
 
@@ -696,6 +726,8 @@ pub fn grayscale_light() -> Theme {
         source_comment_border_width: GridWidth::from_points(0.5).expect("0.5 is within 0..=1"),
         source_number_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_note_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_interval_set_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
+        source_voicing_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_function_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         source_bang_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
         button_border_width: GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
@@ -869,9 +901,10 @@ mod tests {
     ///
     /// Where two Source roles draw glyphs a viewer cannot tell apart, closer
     /// than the colour-vision floor on the Grid background, the Cell around
-    /// them must still differ, in fill or in a border that draws, or the two
-    /// meanings read as one. A border draws only while it is visible and
-    /// wider than zero. The two Portals may draw alike: both mark a Cell the
+    /// them must still differ by as much, in fill or in a border that draws,
+    /// or the two meanings read as one. A fill or border merely unequal is
+    /// not enough: two near greys read as one Cell. A border draws only while
+    /// it is visible and wider than zero. The two Portals may draw alike: both mark a Cell the
     /// Tick reached, and `theme.md` records which built-ins draw them alike.
     ///
     #[test]
@@ -906,6 +939,20 @@ mod tests {
                     theme.source_note_background,
                     theme.source_note_border,
                     theme.source_note_border_width,
+                ),
+                (
+                    "Interval Set",
+                    theme.source_interval_set,
+                    theme.source_interval_set_background,
+                    theme.source_interval_set_border,
+                    theme.source_interval_set_border_width,
+                ),
+                (
+                    "Voicing",
+                    theme.source_voicing,
+                    theme.source_voicing_background,
+                    theme.source_voicing_border,
+                    theme.source_voicing_border_width,
                 ),
                 (
                     "Function",
@@ -957,9 +1004,12 @@ mod tests {
                 for (second, other_glyph, other_fill, other_border) in &roles[index + 1..] {
                     let portals = (*first, *second) == ("Output Portal", "Input Portal");
                     let ground = theme.grid_background;
-                    if !seen_apart(ground.blend(*glyph), ground.blend(*other_glyph)) && !portals {
+                    let apart = |first: Color32, second: Color32| {
+                        seen_apart(ground.blend(first), ground.blend(second))
+                    };
+                    if !apart(*glyph, *other_glyph) && !portals {
                         assert!(
-                            (fill, border) != (other_fill, other_border),
+                            apart(*fill, *other_fill) || apart(*border, *other_border),
                             "{}: {first} and {second} read alike in glyph, fill and border",
                             theme.identity
                         );

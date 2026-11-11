@@ -32,8 +32,8 @@ pub(crate) trait Carried {
 #[cfg(test)]
 mod test {
     use crate::{
-        Anchor, Atom, Error, Function, Interpretation, Interpreter, Note, Tick, TickInputs,
-        TypeError,
+        Anchor, Atom, Error, Function, Interpretation, Interpreter, IntervalSet, Note, Tick,
+        TickInputs, TypeError, Voicing,
     };
 
     const WRITES: [Function; 6] = [
@@ -65,6 +65,8 @@ mod test {
                 note,
                 Atom::Bang,
                 Atom::Function(Function::Add),
+                Atom::IntervalSet(IntervalSet::MajorSeventh),
+                Atom::Voicing(Voicing::Close),
             ] {
                 assert_eq!(
                     write(function, value).unwrap(),

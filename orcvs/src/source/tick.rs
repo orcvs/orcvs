@@ -14,6 +14,8 @@ mod bang_activation;
 #[cfg(test)]
 mod bang_function;
 #[cfg(test)]
+mod carried_names;
+#[cfg(test)]
 mod clear;
 #[cfg(test)]
 mod conflicts;

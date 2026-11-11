@@ -189,14 +189,250 @@ impl From<u8> for Length {
     }
 }
 
+/// One closed set of two-Cell names, as a Copy enum with the spelling each
+/// variant fills.
+///
+/// Each generated enum names its members once, in one table, so a name cannot
+/// have a spelling and no variant or the reverse. A spelling is checked at
+/// compile time to be two printable Cells, and two rows sharing a spelling are
+/// an unreachable arm the denied lint turns into a compile error.
+macro_rules! define_named_literal {
+    ($(#[$doc:meta])* $name:ident { $($variant:ident => $spelling:literal),+ $(,)? }) => {
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum $name {
+            $($variant,)+
+        }
+
+        impl $name {
+            /// Every name of this type, in table order.
+            pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
+
+            /// The two Cells this name spells.
+            pub const fn cells(self) -> Spelling {
+                match self {
+                    $(Self::$variant => const { Spelling::checked($spelling) },)+
+                }
+            }
+
+            /// The name `spelling` spells, if it spells one. A half-blank pair
+            /// spells none, so partial input is not read as a name.
+            #[deny(unreachable_patterns)]
+            pub(crate) fn from_spelling(spelling: &str) -> Option<Self> {
+                match spelling {
+                    $($spelling => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+/// One [`IntervalSet`] row per name, giving the spelling and the semitones
+/// above the root beside each other.
+macro_rules! define_interval_sets {
+    ($(#[$doc:meta])* $($variant:ident => ($spelling:literal, [$($semitone:literal),+])),+ $(,)?) => {
+        define_named_literal! {
+            $(#[$doc])*
+            IntervalSet {
+                $($variant => $spelling,)+
+            }
+        }
+
+        impl IntervalSet {
+            /// The semitones above the root, lowest first.
+            pub const fn semitones(self) -> &'static [u8] {
+                match self {
+                    $(Self::$variant => &[$($semitone),+],)+
+                }
+            }
+        }
+    };
+}
+
+define_interval_sets! {
+    /// A list of semitones above a root, named by a chord or a scale.
+    ///
+    /// One type serves both, so an operand taking an Interval Set accepts a
+    /// chord or a scale. Every name fills both Cells, a one-character chord
+    /// name taking the filler `_`, so a half-typed pair stays recognisably
+    /// partial.
+    Major => ("M_", [0, 4, 7]),
+    MajorSeventh => ("M7", [0, 4, 7, 11]),
+    MajorNinth => ("M9", [0, 4, 7, 11, 14]),
+    MajorThirteenth => ("MD", [0, 4, 7, 11, 14, 21]),
+    MajorSixth => ("M6", [0, 4, 7, 9]),
+    SixNine => ("69", [0, 4, 7, 9, 14]),
+    AugmentedMajorSeventh => ("+M", [0, 4, 8, 11]),
+    Minor => ("m_", [0, 3, 7]),
+    MinorSeventh => ("m7", [0, 3, 7, 10]),
+    MinorMajorSeventh => ("mM", [0, 3, 7, 11]),
+    MinorSixth => ("m6", [0, 3, 7, 9]),
+    MinorNinth => ("m9", [0, 3, 7, 10, 14]),
+    MinorEleventh => ("mB", [0, 3, 7, 10, 14, 17]),
+    MinorThirteenth => ("mD", [0, 3, 7, 10, 14, 21]),
+    Diminished => ("o_", [0, 3, 6]),
+    DiminishedSeventh => ("o7", [0, 3, 6, 9]),
+    HalfDiminished => ("h7", [0, 3, 6, 10]),
+    DominantFlatNinth => ("b9", [0, 4, 7, 10, 13]),
+    DominantSeventh => ("7_", [0, 4, 7, 10]),
+    DominantNinth => ("9_", [0, 4, 7, 10, 14]),
+    DominantThirteenth => ("13", [0, 4, 7, 10, 14, 21]),
+    SuspendedSecond => ("s2", [0, 2, 7]),
+    SuspendedFourth => ("s4", [0, 5, 7]),
+    Augmented => ("+_", [0, 4, 8]),
+    AddNine => ("a9", [0, 4, 7, 14]),
+    MajorScale => ("MA", [0, 2, 4, 5, 7, 9, 11]),
+    NaturalMinorScale => ("mi", [0, 2, 3, 5, 7, 8, 10]),
+    DorianScale => ("do", [0, 2, 3, 5, 7, 9, 10]),
+    PhrygianScale => ("ph", [0, 1, 3, 5, 7, 8, 10]),
+    LydianScale => ("ly", [0, 2, 4, 6, 7, 9, 11]),
+    MixolydianScale => ("mx", [0, 2, 4, 5, 7, 9, 10]),
+    LocrianScale => ("lo", [0, 1, 3, 5, 6, 8, 10]),
+    HarmonicMinorScale => ("hm", [0, 2, 3, 5, 7, 8, 11]),
+    MelodicMinorScale => ("mm", [0, 2, 3, 5, 7, 9, 11]),
+    MajorPentatonicScale => ("p5", [0, 2, 4, 7, 9]),
+    MinorPentatonicScale => ("p3", [0, 3, 5, 7, 10]),
+    BluesScale => ("bl", [0, 3, 5, 6, 7, 10]),
+    WholeToneScale => ("wt", [0, 2, 4, 6, 8, 10]),
+    ChromaticScale => ("ch", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
+}
+
+/// Whether two semitone lists are the same list, in a form a `const` item can
+/// evaluate.
+const fn same_semitones(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+// Every Interval Set is non-empty, starts at its root, rises strictly, and is
+// the only one naming its list, so the tones a set places above a root include
+// the root, are distinct and rise, and a list of semitones names at most one
+// set. A table row breaking any of these fails the build.
+const _: () = {
+    let mut index = 0;
+    while index < IntervalSet::ALL.len() {
+        let semitones = IntervalSet::ALL[index].semitones();
+        assert!(
+            !semitones.is_empty() && semitones[0] == 0,
+            "an Interval Set starts at its root"
+        );
+        let mut tone = 1;
+        while tone < semitones.len() {
+            assert!(
+                semitones[tone - 1] < semitones[tone],
+                "an Interval Set rises strictly"
+            );
+            tone += 1;
+        }
+        let mut other = index + 1;
+        while other < IntervalSet::ALL.len() {
+            assert!(
+                !same_semitones(semitones, IntervalSet::ALL[other].semitones()),
+                "no two Interval Sets name the same semitones"
+            );
+            other += 1;
+        }
+        index += 1;
+    }
+};
+
+define_named_literal! {
+    /// How a chord's tones are arranged once its Interval Set has placed them.
+    Voicing {
+        Close => "CL",
+        Open => "OP",
+        DropTwo => "D2",
+        DropThree => "D3",
+        DropFive => "D5",
+        DropSix => "D6",
+        Shell => "SH",
+        Rootless => "RL",
+    }
+}
+
+/// Whether two spellings are the same two Cells, in a form a `const` item can
+/// evaluate.
+const fn same_cells(left: Spelling, right: Spelling) -> bool {
+    let [left_west, left_east] = left.cells();
+    let [right_west, right_east] = right.cells();
+    left_west == right_west && left_east == right_east
+}
+
+/// Whether any spelling in `left` is also one in `right`.
+const fn shares_a_spelling(left: &[Spelling], right: &[Spelling]) -> bool {
+    let mut index = 0;
+    while index < left.len() {
+        let mut other = 0;
+        while other < right.len() {
+            if same_cells(left[index], right[other]) {
+                return true;
+            }
+            other += 1;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// The spelling of every name of type `$name`, in table order, as an array a
+/// `const` item can build.
+macro_rules! spellings_of {
+    ($name:ty) => {{
+        const COUNT: usize = <$name>::ALL.len();
+        let mut spellings = [Spelling::checked("  "); COUNT];
+        let mut index = 0;
+        while index < COUNT {
+            spellings[index] = <$name>::ALL[index].cells();
+            index += 1;
+        }
+        spellings
+    }};
+}
+
+// A spelling names at most one Function, Interval Set or Voicing. Uniqueness
+// within one type is the denied `unreachable_patterns` lint in each
+// `from_spelling`; this covers the pairs across types, because a reading that
+// tries one type before another would otherwise shadow the later name without
+// a diagnostic. Numbers and Notes are not checked here: they are decoded by
+// operand position, and `69`, `13` and `D2` deliberately spell one as well.
+const _: () = {
+    let functions = &spellings_of!(Function);
+    let interval_sets = &spellings_of!(IntervalSet);
+    let voicings = &spellings_of!(Voicing);
+    assert!(
+        !shares_a_spelling(interval_sets, voicings),
+        "an Interval Set and a Voicing share a spelling"
+    );
+    assert!(
+        !shares_a_spelling(functions, interval_sets),
+        "a Function and an Interval Set share a spelling"
+    );
+    assert!(
+        !shares_a_spelling(functions, voicings),
+        "a Function and a Voicing share a spelling"
+    );
+};
+
 /// One parsed value or operation: what an Expression is made of and what a
 /// value Function answers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Atom {
     Bang,
     Function(Function),
+    IntervalSet(IntervalSet),
     Note(Note),
     Number(u8),
+    Voicing(Voicing),
 }
 
 /// What a Function contributes to the Expression that contains it.
@@ -1181,6 +1417,18 @@ pub(crate) fn number_atom_from_spelling(s: &str) -> Option<Atom> {
     crate::number_from_spelling(s).map(Atom::Number)
 }
 
+/// The Interval Set Atom two Cells spell, borrowing them and building nothing
+/// on refusal.
+pub(crate) fn interval_set_atom_from_spelling(s: &str) -> Option<Atom> {
+    IntervalSet::from_spelling(s).map(Atom::IntervalSet)
+}
+
+/// The Voicing Atom two Cells spell, borrowing them and building nothing on
+/// refusal.
+pub(crate) fn voicing_atom_from_spelling(s: &str) -> Option<Atom> {
+    Voicing::from_spelling(s).map(Atom::Voicing)
+}
+
 /// The Atom an untyped slot holds: the Language Unit two Cells spell, a Bang
 /// included.
 ///
@@ -1204,6 +1452,16 @@ pub fn to_atom_note(s: &str) -> Result<Atom, Error> {
 #[inline(always)]
 pub fn to_atom_num(s: &str) -> Result<Atom, Error> {
     number_atom_from_spelling(s).ok_or_else(|| TypeError::Number(s.to_string()).into())
+}
+
+#[inline(always)]
+pub(crate) fn to_atom_interval_set(s: &str) -> Result<Atom, Error> {
+    interval_set_atom_from_spelling(s).ok_or_else(|| TypeError::IntervalSet(s.to_string()).into())
+}
+
+#[inline(always)]
+pub(crate) fn to_atom_voicing(s: &str) -> Result<Atom, Error> {
+    voicing_atom_from_spelling(s).ok_or_else(|| TypeError::Voicing(s.to_string()).into())
 }
 
 impl From<Atom> for String {
@@ -1244,6 +1502,8 @@ impl Atom {
             Atom::Number(n) => Spelling::number(n),
             Atom::Note(note) => Spelling::note(note),
             Atom::Function(function) => function.cells(),
+            Atom::IntervalSet(set) => set.cells(),
+            Atom::Voicing(voicing) => voicing.cells(),
         }
     }
 }
@@ -1325,7 +1585,7 @@ mod spelling {
         }
 
         /// The two Cells, west first.
-        pub fn cells(self) -> [u8; 2] {
+        pub const fn cells(self) -> [u8; 2] {
             self.0
         }
     }
@@ -1355,6 +1615,167 @@ mod test {
         Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
         ReplacementChange, Velocity, to_atom_num,
     };
+    use crate::{Error, IntervalSet, Token, TypeError, Voicing};
+
+    /// The normative names and semitones, stated from the specification rather
+    /// than read from the table under test.
+    const INTERVAL_SETS: [(&str, &[u8]); 39] = [
+        ("M_", &[0, 4, 7]),
+        ("M7", &[0, 4, 7, 11]),
+        ("M9", &[0, 4, 7, 11, 14]),
+        ("MD", &[0, 4, 7, 11, 14, 21]),
+        ("M6", &[0, 4, 7, 9]),
+        ("69", &[0, 4, 7, 9, 14]),
+        ("+M", &[0, 4, 8, 11]),
+        ("m_", &[0, 3, 7]),
+        ("m7", &[0, 3, 7, 10]),
+        ("mM", &[0, 3, 7, 11]),
+        ("m6", &[0, 3, 7, 9]),
+        ("m9", &[0, 3, 7, 10, 14]),
+        ("mB", &[0, 3, 7, 10, 14, 17]),
+        ("mD", &[0, 3, 7, 10, 14, 21]),
+        ("o_", &[0, 3, 6]),
+        ("o7", &[0, 3, 6, 9]),
+        ("h7", &[0, 3, 6, 10]),
+        ("b9", &[0, 4, 7, 10, 13]),
+        ("7_", &[0, 4, 7, 10]),
+        ("9_", &[0, 4, 7, 10, 14]),
+        ("13", &[0, 4, 7, 10, 14, 21]),
+        ("s2", &[0, 2, 7]),
+        ("s4", &[0, 5, 7]),
+        ("+_", &[0, 4, 8]),
+        ("a9", &[0, 4, 7, 14]),
+        ("MA", &[0, 2, 4, 5, 7, 9, 11]),
+        ("mi", &[0, 2, 3, 5, 7, 8, 10]),
+        ("do", &[0, 2, 3, 5, 7, 9, 10]),
+        ("ph", &[0, 1, 3, 5, 7, 8, 10]),
+        ("ly", &[0, 2, 4, 6, 7, 9, 11]),
+        ("mx", &[0, 2, 4, 5, 7, 9, 10]),
+        ("lo", &[0, 1, 3, 5, 6, 8, 10]),
+        ("hm", &[0, 2, 3, 5, 7, 8, 11]),
+        ("mm", &[0, 2, 3, 5, 7, 9, 11]),
+        ("p5", &[0, 2, 4, 7, 9]),
+        ("p3", &[0, 3, 5, 7, 10]),
+        ("bl", &[0, 3, 5, 6, 7, 10]),
+        ("wt", &[0, 2, 4, 6, 8, 10]),
+        ("ch", &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
+    ];
+
+    /// The eight Voicing names, stated from the specification.
+    const VOICINGS: [&str; 8] = ["CL", "OP", "D2", "D3", "D5", "D6", "SH", "RL"];
+
+    #[test]
+    fn every_interval_set_name_decodes_to_its_semitones() {
+        for (name, semitones) in INTERVAL_SETS {
+            let atom = Token::IntervalSet.decode(name).expect(name);
+            let Atom::IntervalSet(set) = atom else {
+                panic!("{name} decoded to {atom:?}");
+            };
+            assert_eq!(set.semitones(), semitones, "{name}");
+            assert_eq!(atom.to_string(), name, "{name} spells itself back");
+        }
+        assert_eq!(IntervalSet::ALL.len(), INTERVAL_SETS.len());
+    }
+
+    #[test]
+    fn every_voicing_name_decodes_and_spells_itself_back() {
+        for name in VOICINGS {
+            let atom = Token::Voicing.decode(name).expect(name);
+            assert!(
+                matches!(atom, Atom::Voicing(_)),
+                "{name} decoded to {atom:?}"
+            );
+            assert_eq!(atom.to_string(), name, "{name} spells itself back");
+        }
+        assert_eq!(Voicing::ALL.len(), VOICINGS.len());
+    }
+
+    /// Whether `token` refuses `cells` with its own type error, carrying the
+    /// Cells it was given.
+    fn refused_as_its_type(token: Token, cells: &str) -> bool {
+        match token.decode(cells) {
+            Err(Error::Type(TypeError::IntervalSet(found))) => {
+                token == Token::IntervalSet && found == cells
+            }
+            Err(Error::Type(TypeError::Voicing(found))) => {
+                token == Token::Voicing && found == cells
+            }
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn an_unknown_or_half_blank_name_is_refused_by_both_literal_types() {
+        for token in [Token::IntervalSet, Token::Voicing] {
+            for refused in [
+                "  ", "M ", " M", "C ", " L", "zz", "CM", "", "M", "M_ ", "**",
+            ] {
+                assert!(
+                    refused_as_its_type(token, refused),
+                    "{token:?} admitted {refused:?}"
+                );
+            }
+        }
+        for near_miss in ["m8", "MX", "M7 "] {
+            assert!(
+                refused_as_its_type(Token::IntervalSet, near_miss),
+                "{near_miss:?}"
+            );
+        }
+        for near_miss in ["cl", "D4", "D1", "CLL"] {
+            assert!(
+                refused_as_its_type(Token::Voicing, near_miss),
+                "{near_miss:?}"
+            );
+        }
+    }
+
+    /// A valid Number or Note spelling that names no member is refused, so
+    /// neither type falls back to the Number or Note reading of its Cells.
+    #[test]
+    fn a_number_or_note_spelling_that_is_no_name_is_refused_by_both_literal_types() {
+        for token in [Token::IntervalSet, Token::Voicing] {
+            for spelling in ["C4", "7F", "00"] {
+                assert!(
+                    Token::Number.decode(spelling).is_ok() || Token::Note.decode(spelling).is_ok(),
+                    "{spelling:?} spells a Number or a Note"
+                );
+                assert!(
+                    refused_as_its_type(token, spelling),
+                    "{token:?} admitted {spelling:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_interval_set_and_a_voicing_refuse_each_others_names() {
+        for voicing in Voicing::ALL {
+            let name = voicing.cells().to_string();
+            assert!(refused_as_its_type(Token::IntervalSet, &name), "{name}");
+        }
+        for set in IntervalSet::ALL {
+            let name = set.cells().to_string();
+            assert!(refused_as_its_type(Token::Voicing, &name), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_name_that_also_spells_a_number_or_note_is_read_by_the_position_receiving_it() {
+        let set = |name| Token::IntervalSet.decode(name).expect(name);
+        assert_eq!(Token::Number.decode("69").unwrap(), Atom::Number(0x69));
+        assert!(matches!(set("69"), Atom::IntervalSet(_)));
+        assert_eq!(Token::Number.decode("13").unwrap(), Atom::Number(0x13));
+        assert!(matches!(set("13"), Atom::IntervalSet(_)));
+
+        let d2 = Note::try_from(0x26).unwrap();
+        assert_eq!(Token::Note.decode("D2").unwrap(), Atom::Note(d2));
+        assert_eq!(Token::Number.decode("D2").unwrap(), Atom::Number(0xD2));
+        assert!(matches!(
+            Token::Voicing.decode("D2").unwrap(),
+            Atom::Voicing(_)
+        ));
+    }
 
     /// Every ordered pair of Functions, which is what a replacement is: the
     /// incoming Function beside the one a computation is running. A Function
@@ -1388,6 +1809,8 @@ mod test {
             // An untyped slot carries any Language Unit, so the lowest Number
             // is one of the values it reads.
             crate::Token::Untyped => Atom::Number(0),
+            crate::Token::IntervalSet => Atom::IntervalSet(IntervalSet::ALL[0]),
+            crate::Token::Voicing => Atom::Voicing(Voicing::ALL[0]),
             other => panic!("no operand is declared as {other:?}"),
         }
     }

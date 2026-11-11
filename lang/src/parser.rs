@@ -1311,18 +1311,34 @@ mod test {
             Token::Note => (0x00..=0x7F)
                 .map(|value| Atom::Note(crate::Note::try_from(value).expect("a MIDI Note")))
                 .collect(),
-            // An untyped slot holds any Language Unit a literal can spell: a
-            // Bang, every Number, and every Note. A Note whose spelling is
-            // also a Number's, such as `C4`, is carried as that Number, which
-            // spells the same two Cells.
-            Token::Untyped => std::iter::once(Atom::Bang)
-                .chain(every_atom_of(Token::Number))
-                .chain(
-                    every_atom_of(Token::Note)
-                        .into_iter()
-                        .filter(|note| crate::str_to_num(&note.to_string()).is_err()),
-                )
+            Token::IntervalSet => crate::IntervalSet::ALL
+                .iter()
+                .copied()
+                .map(Atom::IntervalSet)
                 .collect(),
+            Token::Voicing => crate::Voicing::ALL
+                .iter()
+                .copied()
+                .map(Atom::Voicing)
+                .collect(),
+            // An untyped slot holds any Language Unit a literal can spell: a
+            // Bang, every Number, every Note, and every Interval Set and
+            // Voicing name. One whose spelling an earlier reading in Copy's
+            // order also takes, such as `C4`, `69` or `D2`, is carried as
+            // that reading, which spells the same two Cells, so the domain
+            // keeps each spelling once, as the Atom an untyped slot decodes.
+            Token::Untyped => {
+                let carried_as_itself = |atom: &Atom| {
+                    crate::atom::untyped_atom(&atom.to_string()).is_ok_and(|read| read == *atom)
+                };
+                std::iter::once(Atom::Bang)
+                    .chain(every_atom_of(Token::Number))
+                    .chain(every_atom_of(Token::Note))
+                    .chain(every_atom_of(Token::IntervalSet))
+                    .chain(every_atom_of(Token::Voicing))
+                    .filter(carried_as_itself)
+                    .collect()
+            }
             other => panic!("no operand is declared as {other:?}"),
         }
     }
@@ -1616,7 +1632,12 @@ mod property {
             2 => Just("||".to_owned()),
             2 => select(Function::ALL).prop_map(|function| function.to_string()),
             1 => select(standalone()).prop_map(|atom| atom.to_string()),
-            2 => prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+            2 => prop_oneof![
+                literal_source(Token::Number),
+                literal_source(Token::Note),
+                literal_source(Token::IntervalSet),
+                literal_source(Token::Voicing),
+            ],
         ]
         .boxed()
     }
@@ -1654,7 +1675,16 @@ mod property {
             (Token::Function, Atom::Function(_))
                 | (Token::Number, Atom::Number(_))
                 | (Token::Note, Atom::Note(_))
-                | (Token::Untyped, Atom::Bang | Atom::Number(_) | Atom::Note(_))
+                | (Token::IntervalSet, Atom::IntervalSet(_))
+                | (Token::Voicing, Atom::Voicing(_))
+                | (
+                    Token::Untyped,
+                    Atom::Bang
+                        | Atom::Number(_)
+                        | Atom::Note(_)
+                        | Atom::IntervalSet(_)
+                        | Atom::Voicing(_)
+                )
         )
     }
 

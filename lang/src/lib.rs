@@ -10,9 +10,9 @@ mod stack;
 mod tick;
 
 pub use atom::{
-    Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, DistanceRule, Function, Length,
-    MidiChannel, Note, PositionRule, ReplacementChange, Spelling, Velocity, to_atom_note,
-    to_atom_num,
+    Atom, Atoms, BendLsb, BendMsb, ControlValue, Controller, DistanceRule, Function, IntervalSet,
+    Length, MidiChannel, Note, PositionRule, ReplacementChange, Spelling, Velocity, Voicing,
+    to_atom_note, to_atom_num,
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
