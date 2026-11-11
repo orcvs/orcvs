@@ -4,7 +4,7 @@ use arrayvec::ArrayVec;
 
 use crate::{
     Error, Function, InterpretationError, IntervalSet, Length, MidiChannel, Note, PlayCommand,
-    Velocity, Voicing, atom::operands, interpreter::Context,
+    Velocity, Voicing, atom::operands, functions::pitch::note_at, interpreter::Context,
 };
 
 /// The most tones any Interval Set names, and so the most Play Commands one
@@ -45,22 +45,63 @@ pub struct ChordTones {
 impl ChordTones {
     /// One ordinary Play Command per tone, lowest first: Raw for a Raw Chord
     /// Play and Timed for a Timed one.
+    ///
+    /// The kind is chosen once for the whole chord, so the per-tone step only
+    /// builds a command.
     pub fn commands(&self) -> impl ExactSizeIterator<Item = PlayCommand> + use<'_> {
-        let (channel, velocity, length) = (self.channel, self.velocity, self.length);
-        self.notes.iter().map(move |&note| match length {
-            None => PlayCommand::Raw {
+        let (channel, velocity) = (self.channel, self.velocity);
+        let notes = self.notes.iter();
+        match self.length {
+            None => Commands::Raw(notes.map(move |&note| PlayCommand::Raw {
                 channel,
                 velocity,
                 note,
-            },
-            Some(length) => PlayCommand::Timed {
+            })),
+            Some(length) => Commands::Timed(notes.map(move |&note| PlayCommand::Timed {
                 channel,
                 velocity,
                 note,
                 length,
-            },
-        })
+            })),
+        }
     }
+}
+
+/// The tones of one chord as Raw or as Timed Play Commands: two iterators of
+/// one item type behind a single one, so [`ChordTones::commands`] answers
+/// without boxing.
+enum Commands<R, T> {
+    Raw(R),
+    Timed(T),
+}
+
+impl<R, T> Iterator for Commands<R, T>
+where
+    R: Iterator<Item = PlayCommand>,
+    T: Iterator<Item = PlayCommand>,
+{
+    type Item = PlayCommand;
+
+    fn next(&mut self) -> Option<PlayCommand> {
+        match self {
+            Self::Raw(commands) => commands.next(),
+            Self::Timed(commands) => commands.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Raw(commands) => commands.size_hint(),
+            Self::Timed(commands) => commands.size_hint(),
+        }
+    }
+}
+
+impl<R, T> ExactSizeIterator for Commands<R, T>
+where
+    R: ExactSizeIterator<Item = PlayCommand>,
+    T: ExactSizeIterator<Item = PlayCommand>,
+{
 }
 
 /// Raw Chord Play: `!: channel velocity root set voicing inversion`.
@@ -125,34 +166,31 @@ fn tones(
     inversion: u8,
 ) -> Result<ArrayVec<Note, MAX_TONES>, Error> {
     let semitones = set.semitones();
-    let needed = tones_needed(voicing);
-    if semitones.len() < needed {
+    if semitones.len() < voicing.tones_needed() {
         return Err(InterpretationError::TooFewTones {
+            function,
             set,
             voicing,
-            needed,
         }
         .into());
     }
 
     // Every semitone table is listed lowest first, so filtering by position
     // keeps the tones sorted. `i16` holds every value a move can reach: the
-    // highest is `7F + 15 + 12 * FF`, and the lowest a drop below `00`.
+    // highest is `7F + 15 + 12 * (FF + 1)`, the inversions and then the `OP`
+    // octave, and the lowest a drop below `00`.
     let mut pitches: ArrayVec<i16, MAX_TONES> = semitones
         .iter()
         .enumerate()
-        .filter(|&(position, _)| keeps(voicing, position))
+        .filter(|&(position, _)| voicing.keeps(position))
         .map(|(_, &semitone)| i16::from(root.value()) + i16::from(semitone))
         .collect();
 
     // `tones_needed` admitted at least one tone that survives removal, so
     // there is always a lowest tone to move.
-    for _ in 0..inversion {
-        pitches[0] += OCTAVE;
-        pitches.sort_unstable();
-    }
+    invert(&mut pitches, inversion);
 
-    if voicing == Voicing::Open {
+    if voicing.opens() {
         for pitch in pitches.iter_mut().skip(1).step_by(2) {
             *pitch += OCTAVE;
         }
@@ -160,7 +198,7 @@ fn tones(
     // `tones_needed` admitted at least as many tones as the deepest position
     // dropped, so the subtraction cannot pass the first tone.
     let top = pitches.len();
-    for &position in dropped_from_the_top(voicing) {
+    for &position in voicing.dropped_from_the_top() {
         pitches[top - position] -= OCTAVE;
     }
     pitches.sort_unstable();
@@ -168,53 +206,96 @@ fn tones(
     pitches
         .into_iter()
         .map(|tone| {
-            u8::try_from(tone)
-                .ok()
-                .and_then(|value| Note::try_from(value).ok())
+            note_at(tone)
                 .ok_or_else(|| InterpretationError::ChordToneOutOfRange { function, tone }.into())
         })
         .collect()
 }
 
-/// How many tones an Interval Set must hold for `voicing` to mean what it says.
-const fn tones_needed(voicing: Voicing) -> usize {
-    match voicing {
-        Voicing::Close => 1,
-        Voicing::Open | Voicing::DropTwo | Voicing::Rootless => 2,
-        Voicing::DropThree | Voicing::DropFive => 3,
-        Voicing::DropSix | Voicing::Shell => 4,
+/// Moves the lowest of `pitches`, sorted lowest first and not empty, up an
+/// octave `inversion` times, keeping them sorted.
+///
+/// Only the raised tone is out of place after each move, so it is moved into
+/// its place among the others, which stay in order.
+fn invert(pitches: &mut [i16], inversion: u8) {
+    for _ in 0..inversion {
+        let raised = pitches[0] + OCTAVE;
+        pitches[0] = raised;
+        let place = pitches[1..].partition_point(|&pitch| pitch < raised);
+        pitches[..=place].rotate_left(1);
     }
 }
 
-/// Whether `voicing` keeps the tone at `position`, counted from zero.
-const fn keeps(voicing: Voicing, position: usize) -> bool {
-    match voicing {
-        Voicing::Shell => matches!(position, 0 | 1 | 3),
-        Voicing::Rootless => position != 0,
-        Voicing::Close
-        | Voicing::Open
-        | Voicing::DropTwo
-        | Voicing::DropThree
-        | Voicing::DropFive
-        | Voicing::DropSix => true,
-    }
+/// Which tones a Voicing keeps, by position counted from zero at the lowest.
+enum Kept {
+    /// Every tone but these, which are the lowest positions.
+    AllBut(&'static [usize]),
+    /// Only these, listed lowest first.
+    Only(&'static [usize]),
 }
 
-/// The positions a drop voicing lowers an octave, counted from the top from
-/// one. The digit in a drop voicing's name is the sum of these.
-const fn dropped_from_the_top(voicing: Voicing) -> &'static [usize] {
-    match voicing {
-        Voicing::DropTwo => &[2],
-        Voicing::DropThree => &[3],
-        Voicing::DropFive => &[2, 3],
-        Voicing::DropSix => &[2, 4],
-        Voicing::Close | Voicing::Open | Voicing::Shell | Voicing::Rootless => &[],
+/// A Voicing's rules, in the order a Chord Play applies them: the tones it
+/// keeps, the tones it raises, and the tones it drops. How many tones it needs
+/// is read off those rules, so a new Voicing states each rule once.
+impl Voicing {
+    const fn kept(self) -> Kept {
+        match self {
+            Self::Shell => Kept::Only(&[0, 1, 3]),
+            Self::Rootless => Kept::AllBut(&[0]),
+            Self::Close
+            | Self::Open
+            | Self::DropTwo
+            | Self::DropThree
+            | Self::DropFive
+            | Self::DropSix => Kept::AllBut(&[]),
+        }
+    }
+
+    /// Whether the Voicing keeps the tone at `position`, counted from zero.
+    fn keeps(self, position: usize) -> bool {
+        match self.kept() {
+            Kept::AllBut(removed) => !removed.contains(&position),
+            Kept::Only(kept) => kept.contains(&position),
+        }
+    }
+
+    /// Whether the Voicing raises every second kept tone an octave.
+    fn opens(self) -> bool {
+        self == Self::Open
+    }
+
+    /// The positions a drop voicing lowers an octave, counted from the top
+    /// from one. The digit in a drop voicing's name is the sum of these.
+    const fn dropped_from_the_top(self) -> &'static [usize] {
+        match self {
+            Self::DropTwo => &[2],
+            Self::DropThree => &[3],
+            Self::DropFive => &[2, 3],
+            Self::DropSix => &[2, 4],
+            Self::Close | Self::Open | Self::Shell | Self::Rootless => &[],
+        }
+    }
+
+    /// How many tones an Interval Set must hold for the Voicing to mean what
+    /// it says: every position it names exists, and enough tones survive
+    /// removal for each move to have a tone to act on.
+    pub(crate) fn tones_needed(self) -> usize {
+        let deepest_drop = self.dropped_from_the_top().iter().copied().max();
+        let moved = deepest_drop
+            .unwrap_or(1)
+            .max(if self.opens() { 2 } else { 1 });
+        match self.kept() {
+            Kept::AllBut(removed) => removed.len() + moved,
+            Kept::Only(kept) => kept
+                .last()
+                .map_or(moved, |&highest| (highest + 1).max(moved)),
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{ChordTones, MAX_TONES, raw_chord_play, timed_chord_play};
+    use super::{ChordTones, MAX_TONES, OCTAVE, invert, raw_chord_play, timed_chord_play};
     use crate::{
         Anchor, ArgumentError, Atom, Error, Function, Interpretation, InterpretationError,
         Interpreter, IntervalSet, Length, MidiChannel, Note, PlayCommand, Tick, TickInputs,
@@ -629,9 +710,9 @@ mod test {
                 matches!(
                     interpret(&format!("!:0102{chord}")),
                     Err(Error::Interpretation(InterpretationError::TooFewTones {
+                        function: Function::RawChordPlay,
                         set: IntervalSet::Major,
                         voicing: v,
-                        needed: 4,
                     })) if v == voicing
                 ),
                 "{chord}"
@@ -647,15 +728,62 @@ mod test {
     }
 
     #[test]
-    fn too_few_tones_names_the_voicing_its_need_and_the_set_that_falls_short() {
+    fn too_few_tones_names_the_function_the_set_the_voicing_and_its_need() {
         assert_eq!(
             interpret("!:0102C4M_SH00").unwrap_err().to_string(),
-            "Voicing SH needs 4 tones and Interval Set M_ has 3, so no tone is sent"
+            "!: cannot voice Interval Set M_ as SH: the Voicing needs 4 tones and the set has 3, \
+             so no tone is sent"
         );
         assert_eq!(
             interpret("!#0102C4s2D60004").unwrap_err().to_string(),
-            "Voicing D6 needs 4 tones and Interval Set s2 has 3, so no tone is sent"
+            "!# cannot voice Interval Set s2 as D6: the Voicing needs 4 tones and the set has 3, \
+             so no tone is sent"
         );
+    }
+
+    #[test]
+    fn each_voicing_needs_the_tones_its_rules_act_on() {
+        // `OP` raises a second tone and `RL` keeps one past the root it
+        // removes; each drop needs its deepest position; `SH` names the 4th.
+        for (voicing, needed) in [
+            (Voicing::Close, 1),
+            (Voicing::Open, 2),
+            (Voicing::DropTwo, 2),
+            (Voicing::DropThree, 3),
+            (Voicing::DropFive, 3),
+            (Voicing::DropSix, 4),
+            (Voicing::Shell, 4),
+            (Voicing::Rootless, 2),
+        ] {
+            assert_eq!(voicing.tones_needed(), needed, "{voicing:?}");
+        }
+    }
+
+    #[test]
+    fn inverting_matches_raising_the_lowest_tone_and_sorting_every_time() {
+        // Every Interval Set over the lowest and highest roots, at every
+        // inversion, against the definition: raise the lowest an octave and
+        // sort the whole chord again.
+        for set in IntervalSet::ALL {
+            for root in [0x00_i16, 0x3C, 0x7F] {
+                let start: Vec<i16> = set
+                    .semitones()
+                    .iter()
+                    .map(|&semitone| root + i16::from(semitone))
+                    .collect();
+                let mut expected = start.clone();
+                for inversion in 0..=u8::MAX {
+                    let mut pitches = start.clone();
+                    invert(&mut pitches, inversion);
+                    assert_eq!(
+                        pitches, expected,
+                        "{set:?} on {root:02X}, inversion {inversion}"
+                    );
+                    expected[0] += OCTAVE;
+                    expected.sort_unstable();
+                }
+            }
+        }
     }
 
     #[test]

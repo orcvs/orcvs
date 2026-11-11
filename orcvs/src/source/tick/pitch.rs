@@ -6,7 +6,7 @@ use lang::{Length, MidiChannel, Note, PlayCommand, Velocity};
 use crate::grid::Grid;
 
 use super::fixture::{messages, tick_by_tick};
-use super::observed::{first, quiet, raw};
+use super::observed::{first, quiet, quiet_plan, raw};
 
 #[test]
 fn up_and_down_write_their_note_through_the_output_portal_as_roots() {
@@ -32,8 +32,14 @@ fn a_nested_up_or_down_returns_its_note_and_writes_its_own_output_portal() {
 #[test]
 fn an_answer_outside_the_note_range_diagnoses_and_writes_nothing() {
     for (expression, message) in [
-        ("#+G901", "#+ cannot answer 128 as a Note"),
-        ("#-C/01", "#- cannot answer -1 as a Note"),
+        (
+            "#+G901",
+            "#+ cannot answer semitone 128 (decimal), outside the Note range 00–7F",
+        ),
+        (
+            "#-C/01",
+            "#- cannot answer semitone -1 (decimal), outside the Note range 00–7F",
+        ),
     ] {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[expression, "A4"], 1);
         assert_eq!(messages(&plans[0]), [message], "{expression}");
@@ -42,23 +48,19 @@ fn an_answer_outside_the_note_range_diagnoses_and_writes_nothing() {
 }
 
 #[test]
-fn a_nested_up_in_a_plays_note_operand_plays_the_transposed_note() {
+fn a_nested_up_in_a_plays_note_operand_plays_the_raised_note() {
     let (plans, grids, _) = tick_by_tick(
         Grid::with_shape(12, 4),
         &[".=0101", "", "!>007F#+C402", ""],
         1,
     );
     assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 0x3E)]);
-    assert!(
-        plans[0].diagnostics.is_empty(),
-        "{:?}",
-        plans[0].diagnostics
-    );
+    quiet_plan(&plans[0]);
     assert_eq!(grids[0][3], "      D4    ");
 }
 
 #[test]
-fn a_nested_down_in_a_timed_plays_note_operand_plays_the_transposed_note() {
+fn a_nested_down_in_a_timed_plays_note_operand_plays_the_lowered_note() {
     let (plans, grids, _) = tick_by_tick(
         Grid::with_shape(14, 4),
         &[".=0101", "", "!~007F#-D40204", ""],
@@ -73,11 +75,7 @@ fn a_nested_down_in_a_timed_plays_note_operand_plays_the_transposed_note() {
             length: Length::from(4),
         }]
     );
-    assert!(
-        plans[0].diagnostics.is_empty(),
-        "{:?}",
-        plans[0].diagnostics
-    );
+    quiet_plan(&plans[0]);
     assert_eq!(grids[0][3], "      C4      ");
 }
 
@@ -91,11 +89,7 @@ fn an_up_above_a_note_slot_writes_the_note_the_play_sounds() {
         1,
     );
     assert_eq!(plans[0].play_commands, vec![raw(0, 0x7F, 0x3E)]);
-    assert!(
-        plans[0].diagnostics.is_empty(),
-        "{:?}",
-        plans[0].diagnostics
-    );
+    quiet_plan(&plans[0]);
     assert_eq!(&grids[0][2][..8], "!>007FD4");
 }
 
@@ -112,7 +106,7 @@ fn a_nested_up_outside_the_note_range_sends_nothing() {
     assert_eq!(
         messages(&plans[0]),
         [
-            "#+ cannot answer 128 as a Note",
+            "#+ cannot answer semitone 128 (decimal), outside the Note range 00–7F",
             "nested computation at column 6, row 2 returned nothing"
         ]
     );

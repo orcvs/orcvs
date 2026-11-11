@@ -121,6 +121,11 @@ pub(super) fn quiet(tick: &Observed) {
     assert!(tick.diagnostics.is_empty(), "{:?}", tick.diagnostics);
 }
 
+/// Asserts that `plan` diagnosed nothing.
+pub(super) fn quiet_plan(plan: &TickPlan) {
+    assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
+}
+
 /// A diagnostic as [`Observed`] records it.
 pub(super) fn diagnostic(x: usize, y: usize, message: &str) -> (usize, usize, String) {
     (x, y, message.to_string())

@@ -1,7 +1,7 @@
 use crate::{
     Atom, Error, Function, FunctionInputs, NetworkSend, Output, PlayCommand, SourceEffect, Stack,
     atom::operands,
-    functions::{self, chord::ChordTones, math, numeric_conversion, tick},
+    functions::{self, chord::ChordTones, math, numeric_conversion, pitch, tick},
 };
 
 pub struct Interpreter {}
@@ -157,7 +157,7 @@ impl Interpreter {
             }
             Function::Delay => tick::delay(&mut ctx)?,
             Function::Divide => Interpretation::Cell(math::divide(&mut ctx)?),
-            Function::Down => Interpretation::Cell(functions::pitch::down(&mut ctx)?),
+            Function::Down => Interpretation::Cell(pitch::down(&mut ctx)?),
             Function::Equality => math::equality(&mut ctx)?,
             Function::Euclidean => tick::euclidean(&mut ctx)?,
             Function::Increment => Interpretation::Cell(tick::increment(&mut ctx)?),
@@ -172,6 +172,7 @@ impl Interpreter {
             Function::ReadSouth => functions::read::read::<operands::ReadSouth>(&mut ctx)?,
             Function::ReadWest => functions::read::read::<operands::ReadWest>(&mut ctx)?,
             Function::Track => functions::track::track(&mut ctx)?,
+            Function::Up => Interpretation::Cell(pitch::up(&mut ctx)?),
             Function::AbsoluteWrite => Interpretation::Cell(functions::write::write::<
                 operands::AbsoluteWrite,
             >(&mut ctx)?),
@@ -206,7 +207,6 @@ impl Interpreter {
                 Interpretation::Chord(functions::chord::timed_chord_play(&mut ctx)?)
             }
             Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
-            Function::Up => Interpretation::Cell(functions::pitch::up(&mut ctx)?),
             Function::Udp => functions::network::udp(&mut ctx),
             Function::Osc => functions::network::osc(&mut ctx)?,
             Function::Halt

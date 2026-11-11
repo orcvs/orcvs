@@ -31,8 +31,10 @@ pub enum InterpretationError {
     /// `value` is the semitone the arithmetic reached, which may be negative
     /// or past a byte, so the message states it unfolded. It is rendered in
     /// decimal because a hexadecimal rendering of a negative value would
-    /// read as a legal Number.
-    #[error("{function} cannot answer {value} as a Note")]
+    /// read as a legal Number, and the message says so beside the range,
+    /// which it spells in hexadecimal as the MIDI channel and data byte
+    /// diagnostics spell theirs.
+    #[error("{function} cannot answer semitone {value} (decimal), outside the Note range 00–7F")]
     NoteOutOfRange {
         function: crate::Function,
         value: i16,
@@ -173,16 +175,20 @@ pub enum InterpretationError {
 
     /// A Chord Play's Interval Set holds fewer tones than its Voicing needs,
     /// so the Voicing cannot mean what it says and no tone is sent.
+    ///
+    /// The need and the count are read off the Voicing and the set, so the
+    /// message cannot disagree with the rule that refused the chord.
     #[error(
-        "Voicing {} needs {needed} tones and Interval Set {} has {}, so no tone is sent",
-        voicing.cells(),
+        "{function} cannot voice Interval Set {} as {}: the Voicing needs {} tones and the set has {}, so no tone is sent",
         set.cells(),
+        voicing.cells(),
+        voicing.tones_needed(),
         set.semitones().len()
     )]
     TooFewTones {
+        function: crate::Function,
         set: crate::IntervalSet,
         voicing: crate::Voicing,
-        needed: usize,
     },
 
     /// A Chord Play computed a tone outside the MIDI note range, so the whole

@@ -10,7 +10,7 @@ ignores other blank or cleared operands, so a wholly empty pattern row rests.
 ## Acceptance criteria
 
 - [x] Both Chord Plays rest on a blank root by each of the three routes, sending nothing and diagnosing nothing.
-- [x] A blank root with blank or cleared velocity, set, voicing, inversion or length is still a Rest.
+- [x] A blank root with blank or cleared channel, velocity, set, voicing, inversion or length is still a Rest, and a Rest checks no operand's range.
 - [x] A half-written operand beside a blank root is diagnosed.
 - [x] A blank Interval Set with a root present is diagnosed.
 - [x] The Language Map admits a Chord Play with a blank root as a root.

@@ -96,7 +96,23 @@ fn a_chord_that_cannot_be_built_whole_diagnoses_and_sends_nothing() {
 fn a_chord_play_is_invalid_where_a_value_is_required() {
     let row = "  .+!:007FC4M_CL0001";
     let source = source_of(Grid::with_shape(20, 3), &[".=0101", row]);
-    assert_eq!(source.language_map().diagnostics().count(), 1);
+    let reported: Vec<_> = source
+        .language_map()
+        .diagnostics()
+        .map(|diagnostic| {
+            (
+                diagnostic.message.clone(),
+                diagnostic.anchor().x(),
+                diagnostic.anchor().y(),
+            )
+        })
+        .collect();
+    // The refusal is the nesting rule, raised from Source alone and anchored
+    // at the Expression the Chord Play stands in.
+    assert_eq!(
+        reported,
+        vec![(lang::SyntaxError::NestedEffectFunction.to_string(), 2, 1)]
+    );
 
     let (commands, _) = banged(row);
     assert_eq!(commands, vec![]);

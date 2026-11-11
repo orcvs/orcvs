@@ -228,9 +228,9 @@ C4
 
 ## Pitch
 
-Each answers a Note derived from a Note, and runs every Tick. A `note` that does not spell a Note,
-such as `3C`, is refused. An answer outside `00` to `7F` diagnoses and writes nothing: a Note never
-wraps.
+Each answers a Note or an Interval Set derived from the Note or Interval Set it reads, and runs
+every Tick. A `note` that does not spell a Note, such as `3C`, is refused. An answer outside `00` to
+`7F` diagnoses and writes nothing: a Note never wraps.
 
 ### `#+` Up
 
@@ -259,7 +259,7 @@ After Tick `0`:
 #+G901
 ```
 
-Nested in a Play's `note` operand, the Play sounds the transposed Note. The nested Up writes its
+Nested in a Play's `note` operand, the Play sounds the raised Note. The nested Up writes its
 own answer south of itself as well.
 
 ```orcvs
@@ -279,8 +279,7 @@ After Tick `0`:
 
 ### `#-` Down
 
-`#- note number` answers the Note `number` semitones below `note`. `C/` is the lowest Note, so
-going below it diagnoses and writes nothing.
+`#- note number` answers the Note `number` semitones below `note`.
 
 ```orcvs
 #-D402
@@ -291,6 +290,18 @@ After Tick `0`:
 ```orcvs tick 0
 #-D402
 C4
+```
+
+`C/` is the lowest Note, so going below it diagnoses and writes nothing.
+
+```orcvs
+#-C/01
+```
+
+After Tick `0`:
+
+```orcvs tick 0 diagnoses
+#-C/01
 ```
 
 ## Tick
@@ -920,11 +931,11 @@ Chord Play whose root, is two empty Cells: that Play rests and checks none of it
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
-**Rest.** A Play whose note is two empty Cells rests: a Bang reaching it sends nothing and
-diagnoses nothing. It does not matter how the note got empty. You can leave it empty, a Function
-above it can write two empty Cells into it, or a Function nested in it can answer a Clear. Its
-other operands must still be written as values, but their ranges are not checked. Half a note, such
-as `C `, is partial input and diagnoses.
+**Rest.** A Raw, Timed or Monophonic Play whose note is two empty Cells rests: a Bang reaching it
+sends nothing and diagnoses nothing. It does not matter how the note got empty. You can leave it
+empty, a Function above it can write two empty Cells into it, or a Function nested in it can
+answer a Clear. Its other operands must still be written as values, but their ranges are not
+checked. Half a note, such as `C `, is partial input and diagnoses.
 A Monophonic Play that rests leaves its channel's note sounding until that note's own length ends.
 
 ```orcvs
