@@ -715,42 +715,6 @@ macro_rules! carried {
     };
 }
 
-// The position of a row's `rest:` role among its declared roles. Naming a role
-// the row does not declare, or one whose operand is not a Note, fails to
-// compile.
-macro_rules! rest_operand {
-    ([$($role:ident: $operand:ident),*]) => {
-        None
-    };
-    ([$($role:ident: $operand:ident),*], $rest:ident) => {
-        Some(const {
-            rest_index(
-                &[$(stringify!($role)),*],
-                &[$(stringify!($operand)),*],
-                stringify!($rest),
-            )
-        })
-    };
-}
-
-/// The position of `rest` among `roles`, evaluated where a row is declared.
-/// `operands` are the roles' operand types in the same order, and the rest
-/// role's must be a Note: a rest is the silence of a note that did not arrive.
-const fn rest_index(roles: &[&str], operands: &[&str], rest: &str) -> usize {
-    let mut index = 0;
-    while index < roles.len() {
-        if same_name(roles[index], rest) {
-            assert!(
-                same_name(operands[index], "Note"),
-                "a `rest:` role's operand must be a Note"
-            );
-            return index;
-        }
-        index += 1;
-    }
-    panic!("a `rest:` role must be one the row declares");
-}
-
 /// Whether two names spell the same bytes, where `==` on `str` is not const.
 const fn same_name(left: &str, right: &str) -> bool {
     let (left, right) = (left.as_bytes(), right.as_bytes());
@@ -945,7 +909,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])? $(, rest: $rest:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -1139,20 +1103,6 @@ macro_rules! define_functions {
                 }
             }
 
-            /// The index of the operand a Function rests on when it is blank,
-            /// when its row declares `rest:`.
-            ///
-            /// A Turn whose rest operand holds two blank Cells or a nested
-            /// Clear, and whose every other operand decodes, is a rest: it
-            /// performs nothing and reports nothing. A blank or cleared Cell
-            /// anywhere else, or in any operand of a Function with no rest
-            /// operand, leaves the Turn invalid.
-            pub const fn rest_operand(self) -> Option<usize> {
-                match self {
-                    $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+
-                }
-            }
-
             /// The token each declared operand is read as, in signature order.
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
@@ -1316,7 +1266,7 @@ define_functions! {
     Maximum => (".>", "Maximum", "answers the larger of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Minimum => (".<", "Minimum", "answers the smaller of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Modulo => (".%", "Modulo", "answers the remainder of left / right", Value, Intrinsic, Never, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", "Monophonic Play", "replaces its channel's Monophonic note for length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    MonophonicPlay => ("!%", "Monophonic Play", "replaces its channel's Monophonic note for length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Multiply => (".x", "Multiply", "answers left * right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Osc => ("!o", "OSC", "sends its Payload as one OSC message", TerminalOutput, Bang, Never, []),
     Pick => ("#p", "Pick", "answers the Note at position index of set above root", Value, Intrinsic, Never, [root: Note, set: IntervalSet, index: Number]),
@@ -1324,7 +1274,7 @@ define_functions! {
     Push => ("@t", "Push", "writes value at pair index % count of the row below", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", "Random", "answers a Number from minimum to maximum", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
     RawChordPlay => ("!:", "Raw Chord Play", "sends a Note On for each tone of a chord", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
-    RawPlay => ("!>", "Raw Play", "sends a Note On, or a Note Off at velocity 00", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
+    RawPlay => ("!>", "Raw Play", "sends a Note On, or a Note Off at velocity 00", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note]),
     ReadEast => ("&>", "Read East", "reads the pair distance pairs east of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input East distance),
     ReadNorth => ("&^", "Read North", "reads the pair distance rows north of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input North distance),
     ReadSouth => ("&v", "Read South", "reads the pair distance rows south of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input South distance),
@@ -1336,7 +1286,7 @@ define_functions! {
     Stack => ("#s", "Stack", "answers the chord of size tones built on degree of set", Value, Intrinsic, Never, [set: IntervalSet, degree: Number, size: Number]),
     Subtract => (".-", "Subtract", "answers left - right", Value, Intrinsic, Never, [left: Number, right: Number]),
     TimedChordPlay => ("!#", "Timed Chord Play", "sends a chord, each tone stopped after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
-    TimedPlay => ("!~", "Timed Play", "sends a Note On and its Note Off after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    TimedPlay => ("!~", "Timed Play", "sends a Note On and its Note Off after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length]),
     Track => ("&t", "Track", "reads pair index % count after its operands", Value, Intrinsic, May, [index: Number, count: Number]),
     Udp => ("!u", "UDP", "sends its Payload as one UDP datagram", TerminalOutput, Bang, Never, []),
     Up => ("#+", "Up", "answers the Note number semitones above note", Value, Intrinsic, Never, [note: Note, number: Number]),
@@ -2137,33 +2087,6 @@ mod test {
             seen, 9,
             "the Source-writing rows are no longer the nine expected"
         );
-    }
-
-    #[test]
-    fn exactly_the_note_playing_functions_rest_on_their_note_operand() {
-        // A rest is a silent Turn, so only a Function whose note says what
-        // sounds may declare one, and the operand it names is that note.
-        let resting: Vec<_> = Function::ALL
-            .iter()
-            .copied()
-            .filter_map(|function| Some((function, function.rest_operand()?)))
-            .collect();
-        assert_eq!(
-            resting,
-            [
-                (Function::MonophonicPlay, 2),
-                (Function::RawPlay, 2),
-                (Function::TimedPlay, 2),
-            ]
-        );
-        for (function, index) in resting {
-            assert_eq!(function.output(), crate::Output::Terminal, "{function:?}");
-            assert_eq!(
-                function.signature()[index],
-                crate::Token::Note,
-                "{function:?}"
-            );
-        }
     }
 
     #[test]

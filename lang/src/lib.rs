@@ -18,7 +18,7 @@ pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeErro
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
 pub use functions::chord::ChordTones;
 pub use interpreter::{Interpretation, Interpreter};
-pub use parser::{BLANK_PAIR, Parser, SourceAnalysis};
+pub use parser::{Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
 pub(crate) use stack::Stack;
 pub use tick::{Anchor, Tick, TickInputs};

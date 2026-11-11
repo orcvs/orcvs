@@ -461,26 +461,6 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
     );
 }
 
-#[test]
-fn reading_a_resting_play_allocates_nothing() {
-    // A Play whose note slot holds two blank Cells rests: it reports no error,
-    // so it is held to the clean-row bound above and allocates nothing. Kept
-    // out of `SOURCE`, whose re-read is a published series that a new row
-    // would move.
-    for row in ["!>010A  ", "!~010A  04", "!%010A  04"] {
-        // Warm up, for the reason the call test gives.
-        black_box(Parser::at(row, 0).analyze());
-        let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
-
-        assert!(analysis.error().is_none(), "{row:?} reported an error");
-        assert_eq!(
-            allocations,
-            Allocations::default(),
-            "reading the resting {row:?} allocated"
-        );
-    }
-}
-
 /// One Turn through [`Interpreter::execute_function`], and what it allocated.
 ///
 /// The answer is dropped outside the span, so only what the Turn asked for is

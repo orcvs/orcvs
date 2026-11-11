@@ -12,20 +12,11 @@
 //! and reads a completed child's Return from that child's state rather than
 //! interpreting the child again.
 
-use lang::{Atom, Function};
+use lang::Atom;
 
 use super::{
     Answer, Computation, ComputationId, Encoding, Execution, Operand, Position, SCALAR_WIDTH,
 };
-
-/// What a Turn's operands decode to.
-pub(super) enum Decoded {
-    /// The operands, in signature order.
-    Operands(Vec<Atom>),
-    /// The Function's rest operand held two blank Cells or a Clear and every
-    /// other operand decoded: the Turn is taken with nothing to perform.
-    Rest,
-}
 
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
@@ -46,8 +37,7 @@ impl Execution<'_> {
         })
     }
 
-    /// The operands of `node`'s Turn, in signature order, or
-    /// [`Decoded::Rest`] where the Turn is a rest.
+    /// The operands of `node`'s Turn, in signature order.
     ///
     /// Each operand is decoded by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
@@ -60,34 +50,20 @@ impl Execution<'_> {
     /// no written Cell refuses it as a partly written slot does. A child that
     /// answered a Clear, a pulse that did not Bang or a Copy, Read or Track
     /// of empty Cells, returns no value, and the refusal names that child.
-    /// The one exception is `function`'s rest operand: two blank Cells or a
-    /// Clear there makes the Turn a rest once every other operand decodes, so
-    /// a Play with no note to play sends nothing and reports nothing, however
-    /// its note came to be blank.
     pub(super) fn decode(
         &self,
         node: &Computation,
-        function: Function,
         signature: lang::Tokens,
-    ) -> Result<Decoded, String> {
-        let mut rests = false;
+    ) -> Result<Vec<Atom>, String> {
         let mut operands = Vec::with_capacity(node.operands.len());
-        for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
+        for (operand, token) in node.operands.iter().zip(signature) {
             let Some(child) = self.returning_child(operand) else {
                 let spelling = self.working.text(operand.cells.clone());
-                if function.rest_operand() == Some(slot) && spelling == lang::BLANK_PAIR {
-                    rests = true;
-                    continue;
-                }
                 operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
                 continue;
             };
             let anchor = self.schedule.lookup.nodes()[child].anchor;
             let returned = match self.turns.result(child) {
-                Some(Answer::Clear) if function.rest_operand() == Some(slot) => {
-                    rests = true;
-                    continue;
-                }
                 // A Clear wrote two spaces at the child's Output Portal and
                 // returns no value. The parent names the child, since
                 // nothing at the operand says which Function cleared.
@@ -101,11 +77,7 @@ impl Execution<'_> {
                     .map_err(|error| error.to_string())?,
             );
         }
-        Ok(if rests {
-            Decoded::Rest
-        } else {
-            Decoded::Operands(operands)
-        })
+        Ok(operands)
     }
 
     /// The Cell after the last one `index`'s operands occupy. A returning last

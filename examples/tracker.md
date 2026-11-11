@@ -83,7 +83,7 @@ For voice 0, the kick, with its machine at rows 12 and 13:
 | (2, 12) `~*0101` | Delay | Writes `**` at (2, 13) every Tick, which activates the Timed Play at (4, 13). |
 | (12, 12) `.+02~.0110` | Add, with a nested Clock | Adds `02` to the step and writes the sum into the Read's `n` slot at (12, 13). The nested Clock also writes its count at (16, 13). |
 | (4, 13) `!~0877&v  01` | Timed Play with a nested Read south | Channel `08` (MIDI channel 9 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&v`, whose `n` operand at (12, 13) is the Add's sum. |
-| (12, 15) to (13, 30) | Comment text | The voice's sixteen steps, one Note per row. An empty row is a silent rest, as in Orca. |
+| (12, 15) to (13, 30) | Comment text | The voice's sixteen steps, one Note per row. An empty row sends nothing, and its Timed Play is diagnosed. |
 
 `&v n` reads the pair `n` rows south of its own `n` operand, so with the offset
 `02` step 0 is row 15. The nested Read also writes the Note it reads one row

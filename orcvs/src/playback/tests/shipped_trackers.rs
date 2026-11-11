@@ -52,7 +52,7 @@ impl Sounding {
     /// Each voice is banged on the first Tick of each step. Lifetimes that end
     /// at `tick` stop first, in the order they started. An occupied step then
     /// plays its Note for the tracker's length, stopping the same Note first
-    /// if it is still sounding; an empty step's Timed Play rests.
+    /// if it is still sounding; an empty step's Timed Play sends nothing.
     ///
     fn expect(&mut self, tracker: &Tracker<'_>, tick: u64) -> Vec<OutputCommand> {
         let mut delivery = Vec::new();
@@ -83,6 +83,37 @@ impl Sounding {
     }
 }
 
+///
+/// The Plays `tracker` bangs at `tick` on an empty step, as anchor column and
+/// row. Each is invalid for want of a note, so its Turn is diagnosed there and
+/// sends nothing.
+///
+fn empty_steps(tracker: &Tracker<'_>, tick: u64) -> Vec<(usize, usize)> {
+    if !tick.is_multiple_of(tracker.step_ticks) {
+        return Vec::new();
+    }
+    let step = (tick / tracker.step_ticks) as usize;
+    let mut plays: Vec<_> = tracker
+        .voices
+        .iter()
+        .filter(|voice| voice.steps[step % voice.steps.len()].is_none())
+        .map(|voice| voice.play)
+        .collect();
+    plays.sort_by_key(|&(column, row)| (row, column));
+    plays
+}
+
+/// A Tick's diagnostic anchors as column and row, in Grid order.
+fn diagnosed_at(plan: &TickPlan) -> Vec<(usize, usize)> {
+    let mut anchors: Vec<_> = plan
+        .diagnostics
+        .iter()
+        .map(|d| (d.anchor().x(), d.anchor().y()))
+        .collect();
+    anchors.sort_by_key(|&(column, row)| (row, column));
+    anchors
+}
+
 /// A Tick's diagnostics as anchor column, anchor row and message.
 fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
     plan.diagnostics
@@ -93,9 +124,9 @@ fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
 
 ///
 /// Runs the shipped Source File `text` for two complete loops and asserts
-/// every Tick's delivery against `tracker`. A rest diagnoses nothing, so no
-/// Tick and no revision of the Language Map names a voice's Play, however its
-/// note slot is filled.
+/// every Tick's delivery against `tracker`. A voice banged on an empty step is
+/// diagnosed at its own Play and sends nothing, and no Tick diagnoses
+/// anything else, so an empty step costs only its own voice.
 ///
 fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     let source =
@@ -108,28 +139,16 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     for tick in 0..2 * tracker.loop_ticks() {
         let plan = run.run_tick(tick);
         let commands = sounding.expect(tracker, tick);
-        assert_eq!(tick_diagnostics(&plan), [], "Tick {tick}'s diagnostics");
+        assert_eq!(
+            diagnosed_at(&plan),
+            empty_steps(tracker, tick),
+            "Tick {tick}'s diagnostics"
+        );
         assert_eq!(
             adapter.command_lists().last(),
             Some(&commands),
             "Tick {tick}'s delivery"
         );
-
-        let mut mapped = Vec::new();
-        source.read_source(|source| {
-            mapped = source
-                .language_map()
-                .diagnostics()
-                .map(|d| (d.anchor().x(), d.anchor().y()))
-                .collect();
-        });
-        for voice in tracker.voices {
-            assert!(
-                !mapped.contains(&voice.play),
-                "Tick {tick}: the Language Map diagnosed the Play at {:?}",
-                voice.play
-            );
-        }
     }
     assert_eq!(
         adapter.command_lists().len() as u64,
@@ -173,7 +192,17 @@ fn the_melody_delivers_its_first_loop_as_written_out() {
 
     for (tick, delivery) in expected.into_iter().enumerate() {
         let plan = run.run_tick(tick as u64);
-        assert_eq!(tick_diagnostics(&plan), [], "Tick {tick}'s diagnostics");
+        // The Play is banged with an empty note on steps 2, 4 and 7.
+        let diagnosed = if [4, 8, 14].contains(&tick) {
+            vec![(2, 3, "expected a note, found \"  \"".to_owned())]
+        } else {
+            vec![]
+        };
+        assert_eq!(
+            tick_diagnostics(&plan),
+            diagnosed,
+            "Tick {tick}'s diagnostics"
+        );
         assert_eq!(
             adapter.command_lists().last(),
             Some(&delivery),
@@ -183,7 +212,7 @@ fn the_melody_delivers_its_first_loop_as_written_out() {
 }
 
 #[test]
-fn the_melody_plays_two_loops_with_its_empty_pairs_resting() {
+fn the_melody_plays_two_loops_and_sends_nothing_on_its_empty_pairs() {
     // C4 D4 __ G4 __ A4 C5 __ at `~.0208`, each held `04`, as
     // `examples/melody.md` describes.
     assert_two_loops(
@@ -338,7 +367,7 @@ fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
 fn the_tracker_plays_the_808_beat_and_the_acid_bassline() {
     // Kick, snare and hat on the first three voices, on the kit's channel
     // `08`, the bassline on voice 3 on the acid channel `09`, and every other
-    // voice resting: every voice steps once a Tick through sixteen steps, at
+    // voice silent: every voice steps once a Tick through sixteen steps, at
     // velocity `77`, the byte Orca's default `f` sends.
     assert_two_loops(
         include_bytes!("../../../../examples/tracker.orcvs"),
@@ -404,7 +433,7 @@ fn a_half_typed_step_silences_only_its_own_voice() {
     // Clearing the `2` of the kick's step-0 `C2` leaves `C `, partial input
     // for its Read. The Read is diagnosed, its Timed Play is invalid with it
     // and sends nothing, the hat and the bassline still play, and every other
-    // voice rests silently.
+    // voice is diagnosed for its empty step and sends nothing.
     let source = SourceCommander::with_source(
         file::read(include_bytes!("../../../../examples/tracker.orcvs"))
             .expect("the shipped file is a Source File"),
@@ -414,12 +443,11 @@ fn a_half_typed_step_silences_only_its_own_voice() {
 
     let plan = source.execute(Tick::ZERO);
 
-    let half_typed = plan
+    let (half_typed, empty): (Vec<_>, Vec<_>) = plan
         .diagnostics
         .iter()
         .map(|d| (d.anchor().x(), d.anchor().y(), d.message.as_str()))
-        .filter(|&(_, row, _)| row == 13)
-        .collect::<Vec<_>>();
+        .partition(|&(column, row, _)| row == 13 && column < 11);
     assert_eq!(
         half_typed,
         [
@@ -431,7 +459,14 @@ fn a_half_typed_step_silences_only_its_own_voice() {
             ),
         ]
     );
-    assert_eq!(plan.diagnostics.len(), 2, "{:?}", plan.diagnostics);
+    let voices = tracker_voices(&[beat(16), bassline(3, 16)].concat());
+    for (column, row, message) in empty {
+        assert!(
+            message.ends_with("cleared its operand")
+                && voices.iter().any(|voice| voice.play == (column, row)),
+            "{column}, {row}: {message}"
+        );
+    }
     let played: Vec<(u8, u8)> = plan
         .play_commands
         .iter()
@@ -468,7 +503,7 @@ fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
 fn the_sequencer_plays_the_808_beat_and_the_acid_bassline_over_both_bars() {
     // Kick, snare and hat on the first three voices, on the kit's channel
     // `08`, and the bassline on the last, on the acid channel `09`, over both
-    // bars; every other voice rests, silently.
+    // bars; every other voice sends nothing.
     assert_two_loops(
         include_bytes!("../../../../examples/sequencer.orcvs"),
         &orca_patch(&sequencer_voices(&[beat(32), bassline(9, 32)].concat())),

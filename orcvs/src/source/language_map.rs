@@ -294,8 +294,7 @@ impl DerivedExpression {
 }
 
 impl<'a> ExpressionEntry<'a> {
-    /// The first Function anchor when this Expression is executable: nothing
-    /// in it was refused, though a blank rest operand may be left unbound.
+    /// The first Function anchor when this is a complete executable Expression.
     pub fn root(self) -> Option<Position> {
         self.derived.root
     }
@@ -723,7 +722,7 @@ impl DerivedRow {
             // and then recorded on the Expression, so nothing asks again.
             let units = units_range(&row.units, grid, span);
 
-            let executable = analysis.error().is_none();
+            let executable = analysis.is_complete();
             let diagnostic = analysis
                 .error()
                 .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
@@ -1517,54 +1516,12 @@ mod tests {
             ".+01      ",
             ".+01.+  02",
             ".+  .+0102",
-            "!>  7F    ",
-            "!>01      ",
-            "!~007F    ",
+            "!>007F    ",
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
             let diagnostics: Vec<_> = map.diagnostics().collect();
             assert_eq!(diagnostics.len(), 1, "{row:?}: {diagnostics:?}");
-            assert!(
-                map.expressions()
-                    .all(|expression| expression.root().is_none()),
-                "{row:?} became a root"
-            );
-        }
-    }
-
-    /// A Play with no note written is a root and reports nothing: its Turn
-    /// reads the slot and rests while it stays blank.
-    #[test]
-    fn a_play_whose_only_blank_operand_is_its_note_is_a_root() {
-        for row in ["!>007F    ", "!~007F  04", "!%007F  04", "!>&v017F  "] {
-            let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
-
-            assert_eq!(map.diagnostics().count(), 0, "{row:?}");
-            assert!(
-                map.expressions()
-                    .any(|expression| expression.root().is_some()),
-                "{row:?} is not a root"
-            );
-        }
-    }
-
-    /// Only two whole blank Cells make a Play a root with no note: a
-    /// half-written note, a slot the row edge cuts short, and a blank note
-    /// beside an invalid operand are all still refused.
-    #[test]
-    fn a_play_with_anything_else_unbound_is_diagnosed_and_not_a_root() {
-        for (width, row) in [
-            (10, "!>007FC   "),
-            (10, "!>007F C  "),
-            (10, "!~ZZ7F  04"),
-            (10, "!~007F  ZZ"),
-            (6, "!>007F"),
-            (7, "!>007F "),
-        ] {
-            let map = LanguageMap::build(Grid::with_shape(width, 1), Cells::of(row.as_bytes()));
-
-            assert!(map.diagnostics().next().is_some(), "{row:?}");
             assert!(
                 map.expressions()
                     .all(|expression| expression.root().is_none()),
@@ -2408,12 +2365,9 @@ mod property {
                 let payload = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Payload);
-                // A rest reports nothing and has no note to answer with, so
-                // it is the other Expression that holds a root and no Atoms.
-                let rest = expression.positioned().any(|entry| entry.rest);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment && !rest,
+                    expression.diagnostic().is_none() && !comment,
                     "{:?}",
                     source,
                 );
@@ -2432,17 +2386,7 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    // A root without Atoms is a rest: it holds a blank rest
-                    // operand, and every other entry bound an Atom.
-                    prop_assert!(
-                        expression.atoms().is_some()
-                            || (rest
-                                && expression.positioned().all(|entry| entry.atom.is_some()
-                                    || entry.rest
-                                    || entry.token == Token::Payload)),
-                        "{:?}",
-                        source,
-                    );
+                    prop_assert!(expression.atoms().is_some(), "{:?}", source);
                     prop_assert!(span.positions().any(|position| position == root));
                 }
                 if let Some(diagnostic) = expression.diagnostic() {

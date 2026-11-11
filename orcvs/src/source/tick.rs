@@ -14,6 +14,8 @@ mod bang_activation;
 #[cfg(test)]
 mod bang_function;
 #[cfg(test)]
+mod blank_note;
+#[cfg(test)]
 mod carried_names;
 #[cfg(test)]
 mod chord_play;
@@ -58,8 +60,6 @@ mod push;
 mod read;
 #[cfg(test)]
 mod replacement;
-#[cfg(test)]
-mod rest;
 #[cfg(test)]
 mod schedule;
 #[cfg(test)]

@@ -62,17 +62,19 @@ Turn goes first, and Track reads after it. If that writer waits on Track in
 turn, the two form a same-Tick dependency cycle, which is diagnosed while the
 rest of the Tick plays.
 
-An empty pair is a rest. Track copies an empty pair's Cells as it copies any
-others, so it clears the Timed Play's note slot. A Timed Play with an empty note
-slot rests ([ADR 0104](../docs/adr/0104-a-blank-note-or-root-is-a-rest-however-it-got-blank.md)):
-it sends no new note, nothing is diagnosed, and it does not stop a note an
-earlier step started. In the shipped pattern D4 at step 1 keeps sounding through
-the empty step 2, because its four-Tick lifetime has not ended.
+An empty pair plays nothing. Track copies an empty pair's Cells as it copies
+any others, so it clears the Timed Play's note slot. A Timed Play with an empty
+note slot is invalid ([ADR 0107](../docs/adr/0107-a-blank-note-is-invalid-input-however-it-got-blank.md)):
+it sends no new note and is diagnosed, and it does not stop a note an earlier
+step started. In the shipped pattern D4 at step 1 keeps sounding through the
+empty step 2, because its four-Tick lifetime has not ended. The diagnostic
+belongs to the Play alone, and the rest of the Tick plays.
 
 A value Function placed between Track and the Play behaves differently. If
 Track hands it an empty pair, it is invalid and writes nothing, so the note slot
 keeps the last Note it wrote and the next Bang plays that Note again. Leave
-Track writing straight into the note slot when you want empty pairs to rest.
+Track writing straight into the note slot when you want empty pairs to stay
+silent.
 
 ## While you edit
 

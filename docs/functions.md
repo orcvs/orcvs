@@ -28,7 +28,7 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
 where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
 is expected and Numbers where a Number is, and `D2` is a Voicing, a Note or a Number by position.
-An empty operand diagnoses, except a Play's `note`, which rests (see **Rest**).
+An empty operand diagnoses.
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
 Function that answers a value writes it into its Output Portal, the two Cells one row south of its
@@ -46,7 +46,7 @@ which kind of Function it is.
 
 **Clear.** Some value Functions answer a Clear rather than a value: they write two empty Cells. An
 invalid Function writes nothing at all, so its last answer stays where it was. Nested, a Clear
-leaves its parent invalid, except in a Play's `note`, where it is a rest.
+leaves its parent invalid.
 
 **Examples.** An example shows the Source before any Tick, then the Source after the Ticks named
 above each later block, counted from Tick `0`.
@@ -1030,9 +1030,8 @@ After Tick `0`, the Add did not run:
 
 These perform an effect: each sends one MIDI message when a Bang reaches it, except a Chord Play,
 which sends one per tone, and writes nothing into the Source. Each is inert until a Bang reaches
-it. An operand outside its range diagnoses and sends nothing, except on a Play whose note is two
-empty Cells: that Play rests and checks none of its operands' ranges (see **Rest** below). Choose a
-MIDI destination under the Panel's **O** to hear them.
+it. An operand outside its range diagnoses and sends nothing. Choose a MIDI destination under
+the Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
@@ -1045,24 +1044,12 @@ MIDI destination under the Panel's **O** to hear them.
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
-**Rest.** A Raw, Timed or Monophonic Play whose note is two empty Cells rests: a Bang reaching it
-sends nothing and diagnoses nothing. It does not matter how the note got empty. You can leave it
-empty, a Function above it can write two empty Cells into it, or a Function nested in it can
-answer a Clear. Its other operands must still be written as values, but their ranges are not
-checked. Half a note, such as `C `, is partial input and diagnoses.
-A Monophonic Play that rests leaves its channel's note sounding until that note's own length ends.
-
-```orcvs
-**
-!>0064
-```
-
-After Tick `0`, nothing plays:
-
-```orcvs tick 0
-
-!>0064
-```
+**An empty note.** A Raw, Timed or Monophonic Play whose note is empty, or half written, is
+invalid: a Bang reaching it sends nothing, and the Play is diagnosed. It does not matter how the
+note got empty. You can leave it empty, a Function above it can write two empty Cells into it, or a
+Function nested in it can answer a Clear. The diagnostic belongs to that Play alone: every other
+Function still runs. A Monophonic Play with no note leaves its channel's note sounding until that
+note's own length ends.
 
 ### `!>` Raw Play
 
