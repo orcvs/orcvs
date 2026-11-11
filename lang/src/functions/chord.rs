@@ -216,8 +216,7 @@ fn tones(
 /// octave `inversion` times, keeping them sorted.
 ///
 /// Only the raised tone is out of place after each move, so it is moved into
-/// its place among the others, which stay in order, rather than sorting them
-/// all again.
+/// its place among the others, which stay in order.
 fn invert(pitches: &mut [i16], inversion: u8) {
     for _ in 0..inversion {
         let raised = pitches[0] + OCTAVE;
