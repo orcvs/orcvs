@@ -81,11 +81,11 @@ pub struct PositionedEntry {
     pub parent: Option<usize>,
     pub token: Token,
     pub atom: Option<Atom>,
-    /// Whether this entry is two blank Cells its Function's rest may excuse:
+    /// Whether this entry is two blank Cells its Function's rest excuses:
     /// its rest operand, or an operand beside one that ignores blanks. Its
     /// Cells bound no Atom, and that is no failure of the Expression. It
     /// always has `atom: None`.
-    pub rest: bool,
+    pub excused: bool,
 }
 
 type Record = PositionedEntry;
@@ -163,9 +163,9 @@ impl Expression {
         self.push(token, atom, cells, parent, false);
     }
 
-    /// Records a blank operand a rest excuses, which binds no Atom and refuses
-    /// nothing.
-    pub(crate) fn add_rest(
+    /// Records a blank operand its Function's rest excuses, which binds no
+    /// Atom and refuses nothing.
+    pub(crate) fn add_excused(
         &mut self,
         token: Token,
         cells: std::ops::Range<usize>,
@@ -174,12 +174,12 @@ impl Expression {
         self.push(token, None, cells, parent, true);
     }
 
-    /// Turns every rest entry back into a plain unbound one, for an Expression
-    /// whose written rest operand refuses the blanks beside it.
-    pub(crate) fn withdraw_rests(&mut self) {
+    /// Turns every excused entry back into a plain unbound one, for an
+    /// Expression whose written rest operand refuses the blanks beside it.
+    pub(crate) fn withdraw_excused(&mut self) {
         self.records
             .iter_mut()
-            .for_each(|record| record.rest = false);
+            .for_each(|record| record.excused = false);
     }
 
     ///
@@ -232,14 +232,14 @@ impl Expression {
         atom: Option<Atom>,
         cells: std::ops::Range<usize>,
         parent: Option<usize>,
-        rest: bool,
+        excused: bool,
     ) {
         self.records.push(PositionedEntry {
             cells,
             parent,
             token,
             atom,
-            rest,
+            excused,
         });
     }
 

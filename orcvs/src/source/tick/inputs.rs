@@ -213,7 +213,7 @@ pub(super) enum Parsed {
     /// Its Cells are blank where its Function's rest may excuse them: in the
     /// rest operand, or beside one that ignores blanks. It binds no Atom and
     /// blocks nothing: the Turn reads those Cells and may rest on them.
-    Rest,
+    Excused,
     /// It bound an Atom that is not a Function.
     Value,
     /// It bound this Function.
@@ -226,7 +226,7 @@ pub(super) enum Parsed {
 impl Parsed {
     fn of(entry: &lang::PositionedEntry) -> Self {
         match entry.atom {
-            None if entry.rest => Self::Rest,
+            None if entry.excused => Self::Excused,
             None => Self::Unparsed,
             Some(Atom::Function(function)) => Self::Function(function),
             Some(_) => Self::Value,

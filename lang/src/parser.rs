@@ -77,10 +77,12 @@ pub struct Parser<'a> {
     /// address rather than as an offset into a fragment.
     start: usize,
     /// The Token of the first blank operand read as a rest: the rest operand,
-    /// or an operand its Function lets a blank rest operand excuse. Strict
-    /// parsing refuses it, since a blank operand holds no value to yield, and
-    /// builds that refusal only when it is reported.
-    blank_rest: Option<Token>,
+    /// or an operand its Function lets a blank rest operand excuse. Its
+    /// refusal is built only when it is reported. A written rest operand
+    /// reports it at once, in Cell order, ahead of whatever is read after;
+    /// otherwise strict parsing reports it last, since a blank operand holds
+    /// no value to yield.
+    excused: Option<Token>,
 }
 
 impl<'a> Parser<'a> {
@@ -103,7 +105,7 @@ impl<'a> Parser<'a> {
             len: source.len(),
             source,
             start,
-            blank_rest: None,
+            excused: None,
         }
     }
 
@@ -137,9 +139,12 @@ impl<'a> Parser<'a> {
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
-        // A blank rest operand is refused last: an operand that does not
-        // decode, and Cells past the Expression, are refused ahead of it.
-        if let Some(token) = self.blank_rest {
+        // A blank rest operand alone is refused here, after an operand that
+        // does not decode and after Cells past the Expression. A blank operand
+        // that a written rest operand refuses was refused when that rest
+        // operand was read, in Cell order, so a blank before it comes ahead of
+        // any later operand that does not decode.
+        if let Some(token) = self.excused {
             return Err(Self::blank_refusal(token));
         }
         // Every record of an Expression that reported no error carries an Atom,
@@ -195,7 +200,7 @@ impl<'a> Parser<'a> {
 
         SourceAnalysis {
             expression: self.expression,
-            rests: error.is_none() && self.blank_rest.is_some(),
+            rests: error.is_none() && self.excused.is_some(),
             error,
             start: self.start,
             consumed,
@@ -223,9 +228,9 @@ impl<'a> Parser<'a> {
                 && self.peek_next() != Some(BLANK_PAIR)
             {
                 rest_written = true;
-                if let Some(blank) = self.blank_rest.take() {
+                if let Some(blank) = self.excused.take() {
                     error.get_or_insert(Self::blank_refusal(blank));
-                    self.expression.withdraw_rests();
+                    self.expression.withdraw_excused();
                 }
             }
             if token != Token::Function && !self.is_function_next() {
@@ -233,12 +238,12 @@ impl<'a> Parser<'a> {
                 // it: the refusal decoding would build is reported only by
                 // strict parsing or a written rest operand, so a resting row
                 // reads without allocating.
-                let blank_rest = blank_operand == BlankOperand::Rest
+                let excusable = blank_operand == BlankOperand::Rest
                     || (blank_operand == BlankOperand::BesideRest && !rest_written);
-                if blank_rest && self.peek_next() == Some(BLANK_PAIR) {
+                if excusable && self.peek_next() == Some(BLANK_PAIR) {
                     self.next_token(BLANK_PAIR.len());
-                    self.blank_rest.get_or_insert(token);
-                    self.expression.add_rest(
+                    self.excused.get_or_insert(token);
+                    self.expression.add_excused(
                         token,
                         cell_start..self.start + self.consumed(),
                         parent,
@@ -348,6 +353,17 @@ impl<'a> Parser<'a> {
                                 index,
                             );
                         }
+                        // The excused-blank state is kept for the whole
+                        // Expression, which is this Function's own only while a
+                        // Function that declares a rest stands outermost. Each
+                        // such Function answers no value, so nested it has
+                        // already refused the Expression above.
+                        debug_assert!(
+                            function.rest_operand().is_none()
+                                || parent.is_none()
+                                || error.is_some(),
+                            "a Function that declares a rest is refused anywhere but outermost"
+                        );
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
                         for (slot, token) in function.signature().iter().enumerate().rev() {
@@ -448,8 +464,8 @@ enum BlankOperand {
 impl BlankOperand {
     fn at(function: Function, slot: usize) -> Self {
         match function.rest_operand() {
-            Some(rest) if rest == slot => Self::Rest,
-            Some(_) if function.rest_ignores_blanks() => Self::BesideRest,
+            Some(rest) if rest.slot == slot => Self::Rest,
+            Some(rest) if rest.ignores_blanks => Self::BesideRest,
             _ => Self::Refused,
         }
     }
@@ -1867,9 +1883,9 @@ mod property {
                 // other entry of such an Expression bound what it reads.
                 prop_assert!(
                     analysis.error().is_some()
-                        || (expression.positioned().any(|entry| entry.rest)
+                        || (expression.positioned().any(|entry| entry.excused)
                             && expression.positioned().all(|entry| entry.atom.is_some()
-                                || entry.rest
+                                || entry.excused
                                 || entry.token == Token::Payload)),
                     "{spelled:?}"
                 );
@@ -2160,7 +2176,10 @@ mod nesting_tests {
             let analysis = Parser::from(source).analyze();
 
             assert!(
-                analysis.expression().positioned().any(|entry| entry.rest),
+                analysis
+                    .expression()
+                    .positioned()
+                    .any(|entry| entry.excused),
                 "{source:?}"
             );
             assert!(analysis.error().is_none(), "{source:?}");
@@ -2213,7 +2232,10 @@ mod nesting_tests {
 
             assert!(analysis.error().is_some(), "{source:?}");
             assert!(
-                analysis.expression().positioned().all(|entry| !entry.rest),
+                analysis
+                    .expression()
+                    .positioned()
+                    .all(|entry| !entry.excused),
                 "{source:?}"
             );
         }
@@ -2284,6 +2306,19 @@ mod nesting_tests {
             "{:?}",
             Parser::from("!>017F  XX").try_parse()
         );
+    }
+
+    #[test]
+    fn a_blank_operand_a_written_root_refuses_is_refused_in_cell_order() {
+        // The written root refuses the blank channel as it is read, ahead of
+        // the set after it that does not decode and of trailing Cells.
+        for source in ["!:  7FC4ZZCL00", "!:  7FC4M7CL00XX"] {
+            assert_eq!(
+                Parser::from(source).try_parse().unwrap_err().to_string(),
+                "expected a number, found \"  \"",
+                "{source:?}"
+            );
+        }
     }
 
     #[test]

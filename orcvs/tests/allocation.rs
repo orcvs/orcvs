@@ -725,6 +725,57 @@ fn a_playback_tick_allocates_no_more_than_the_locked_tick() {
     );
 }
 
+/// A Source on a small Grid holding `rows`, written in one revision.
+fn source_of_rows(rows: &[&str]) -> Source {
+    let grid = Grid::with_shape(18, 3);
+    let mut source = Source::new(grid);
+    let writes = rows
+        .iter()
+        .enumerate()
+        .flat_map(|(row, text)| {
+            text.bytes()
+                .enumerate()
+                .filter(|(_, byte)| *byte != b' ')
+                .map(move |(column, byte)| (row * grid.columns() + column, byte))
+        })
+        .map(|(idx, byte)| CellWrite {
+            cell: cell(grid, idx),
+            content: CellContent::new(byte).expect("fixture Source is printable ASCII"),
+        })
+        .collect::<Vec<_>>();
+    source.write_cells(&writes);
+    source
+}
+
+#[test]
+fn a_resting_chord_play_turn_allocates_nothing_for_the_blank_operands_its_root_excuses() {
+    // Both Chord Plays rest on a blank root each Tick an Equality Bangs them.
+    // The blanks a resting root excuses would refuse the Turn only if the root
+    // were written, so the Turn builds no refusal for them: a wholly empty
+    // row costs a Tick no more than a row blank only at its root.
+    for (root_only, empty) in [
+        ("  !:017F  M7CL00", "  !:            "),
+        ("  !#017F  M7CL0004", "  !#              "),
+    ] {
+        let mut next = 0;
+        let execute = |source: &mut Source, tick| {
+            black_box(black_box(source).execute(tick));
+        };
+        let root_only_tick = measure_settled_tick(
+            &mut source_of_rows(&[".=0101", root_only]),
+            &mut next,
+            execute,
+        );
+        let empty_tick =
+            measure_settled_tick(&mut source_of_rows(&[".=0101", empty]), &mut next, execute);
+
+        assert!(
+            empty_tick.blocks <= root_only_tick.blocks,
+            "{empty:?} allocated {empty_tick:?} against {root_only_tick:?} for {root_only:?}"
+        );
+    }
+}
+
 #[test]
 fn reading_the_cells_to_compare_them_allocates_nothing() {
     // The console's unsaved-changes check compares the Cells against the text

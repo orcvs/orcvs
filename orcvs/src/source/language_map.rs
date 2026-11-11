@@ -2304,7 +2304,7 @@ mod property {
                     .any(|entry| entry.token == Token::Payload);
                 // A rest reports nothing and has no note to answer with, so
                 // it is the other Expression that holds a root and no Atoms.
-                let rest = expression.positioned().any(|entry| entry.rest);
+                let rest = expression.positioned().any(|entry| entry.excused);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
                     expression.diagnostic().is_none() && !comment && !rest,
@@ -2332,7 +2332,7 @@ mod property {
                         expression.atoms().is_some()
                             || (rest
                                 && expression.positioned().all(|entry| entry.atom.is_some()
-                                    || entry.rest
+                                    || entry.excused
                                     || entry.token == Token::Payload)),
                         "{:?}",
                         source,

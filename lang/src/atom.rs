@@ -722,15 +722,34 @@ macro_rules! rest_operand {
     ([$($role:ident: $operand:ident),*]) => {
         None
     };
-    ([$($role:ident: $operand:ident),*], $rest:ident) => {
-        Some(const {
-            rest_index(
-                &[$(stringify!($role)),*],
-                &[$(stringify!($operand)),*],
-                stringify!($rest),
-            )
+    ([$($role:ident: $operand:ident),*], $rest:ident $(, $ignored:ident)?) => {
+        Some(crate::RestOperand {
+            slot: const {
+                rest_index(
+                    &[$(stringify!($role)),*],
+                    &[$(stringify!($operand)),*],
+                    stringify!($rest),
+                )
+            },
+            ignores_blanks: ignores_blanks!($($ignored)?),
         })
     };
+}
+
+/// The operand a Function rests on when it is blank, as its row's `rest:`
+/// declares it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RestOperand {
+    /// The operand's index in signature order.
+    pub slot: usize,
+    /// Whether a blank rest operand excuses the Function's other blank or
+    /// cleared operands, when the row declares `rest: ... ignoring blanks`.
+    ///
+    /// A Function that rests this way takes a wholly empty row as a rest. An
+    /// operand half-written or otherwise unreadable beside the blank rest
+    /// operand still refuses the Turn. Without this, a Turn rests only when
+    /// every other operand decodes.
+    pub ignores_blanks: bool,
 }
 
 /// The position of `rest` among `roles`, evaluated where a row is declared.
@@ -986,32 +1005,18 @@ macro_rules! define_functions {
                 }
             }
 
-            /// The index of the operand a Function rests on when it is blank,
-            /// when its row declares `rest:`.
+            /// The operand a Function rests on when it is blank, when its row
+            /// declares `rest:`.
             ///
             /// A Turn whose rest operand holds two blank Cells or a nested
             /// Clear, and whose every other operand decodes, is a rest: it
             /// performs nothing and reports nothing. A blank or cleared Cell
             /// anywhere else, or in any operand of a Function with no rest
             /// operand, leaves the Turn invalid, unless
-            /// [`Self::rest_ignores_blanks`] excuses it.
-            pub const fn rest_operand(self) -> Option<usize> {
+            /// [`RestOperand::ignores_blanks`] excuses it.
+            pub const fn rest_operand(self) -> Option<crate::RestOperand> {
                 match self {
-                    $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+
-                }
-            }
-
-            /// Whether a blank rest operand excuses this Function's other
-            /// blank or cleared operands, when its row declares `rest: ...
-            /// ignoring blanks`.
-            ///
-            /// A Function that rests this way takes a wholly empty row as a
-            /// rest. An operand half-written or otherwise unreadable beside
-            /// the blank rest operand still refuses the Turn. Without this, a
-            /// Turn rests only when every other operand decodes.
-            pub const fn rest_ignores_blanks(self) -> bool {
-                match self {
-                    $(Self::$variant => ignores_blanks!($($($ignored)?)?),)+
+                    $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest $(, $ignored)?)?),)+
                 }
             }
 
@@ -1992,7 +1997,7 @@ mod test {
         let resting: Vec<_> = Function::ALL
             .iter()
             .copied()
-            .filter_map(|function| Some((function, function.rest_operand()?)))
+            .filter_map(|function| Some((function, function.rest_operand()?.slot)))
             .collect();
         assert_eq!(
             resting,
@@ -2019,7 +2024,11 @@ mod test {
         let ignoring: Vec<_> = Function::ALL
             .iter()
             .copied()
-            .filter(|function| function.rest_ignores_blanks())
+            .filter(|function| {
+                function
+                    .rest_operand()
+                    .is_some_and(|rest| rest.ignores_blanks)
+            })
             .collect();
 
         assert_eq!(ignoring, [Function::RawChordPlay, Function::TimedChordPlay]);

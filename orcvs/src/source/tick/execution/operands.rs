@@ -77,39 +77,42 @@ impl Execution<'_> {
         function: Function,
         signature: lang::Tokens,
     ) -> Result<Decoded, String> {
-        let ignores_blanks = function.rest_ignores_blanks();
+        let rest = function.rest_operand();
+        let rest_slot = rest.map(|rest| rest.slot);
+        let ignores_blanks = rest.is_some_and(|rest| rest.ignores_blanks);
         let mut rests = false;
-        let mut blank_refusal = None;
+        let mut excused = None;
         let mut operands = Vec::with_capacity(node.operands.len());
         for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
             let Some(child) = self.returning_child(operand) else {
                 let spelling = self.working.text(operand.cells.clone());
-                if function.rest_operand() == Some(slot) && spelling == lang::BLANK_PAIR {
-                    rests = true;
-                    continue;
-                }
-                match token.decode(spelling) {
-                    Err(error) if ignores_blanks && spelling == lang::BLANK_PAIR => {
-                        blank_refusal.get_or_insert(error.to_string());
+                if spelling == lang::BLANK_PAIR {
+                    if rest_slot == Some(slot) {
+                        rests = true;
+                        continue;
                     }
-                    decoded => operands.push(decoded.map_err(|error| error.to_string())?),
+                    if ignores_blanks {
+                        excused.get_or_insert(Excused::Blank(token));
+                        continue;
+                    }
                 }
+                operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
                 continue;
             };
             let anchor = self.schedule.lookup.nodes()[child].anchor;
             let returned = match self.turns.result(child) {
-                Some(Answer::Clear) if function.rest_operand() == Some(slot) => {
+                Some(Answer::Clear) if rest_slot == Some(slot) => {
                     rests = true;
+                    continue;
+                }
+                Some(Answer::Clear) if ignores_blanks => {
+                    excused.get_or_insert(Excused::Cleared(anchor));
                     continue;
                 }
                 // A Clear wrote two spaces at the child's Output Portal and
                 // returns no value. The parent names the child, since
                 // nothing at the operand says which Function cleared.
-                Some(Answer::Clear) if ignores_blanks => {
-                    blank_refusal.get_or_insert_with(|| nested(anchor, "cleared its operand"));
-                    continue;
-                }
-                Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
+                Some(Answer::Clear) => return Err(Excused::Cleared(anchor).refusal()),
                 Some(Answer::Unit(atom)) => Encoding::render(atom),
                 None => return Err(nested(anchor, "returned nothing")),
             };
@@ -122,8 +125,8 @@ impl Execution<'_> {
         if rests {
             return Ok(Decoded::Rest);
         }
-        match blank_refusal {
-            Some(refusal) => Err(refusal),
+        match excused {
+            Some(excused) => Err(excused.refusal()),
             None => Ok(Decoded::Operands(operands)),
         }
     }
@@ -139,6 +142,30 @@ impl Execution<'_> {
                 None => operand.cells.end,
             },
             None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
+        }
+    }
+}
+
+/// The first operand a rest operand that ignores blanks would excuse, kept
+/// until the rest operand proves written. Its refusal is built only then, so
+/// a resting Turn builds none.
+#[derive(Clone, Copy)]
+enum Excused {
+    /// Two blank Cells, in an operand that reads this Token.
+    Blank(lang::Token),
+    /// The nested computation at this anchor answered a Clear.
+    Cleared(Position),
+}
+
+impl Excused {
+    /// The refusal this operand gives once nothing excuses it.
+    fn refusal(self) -> String {
+        match self {
+            Self::Blank(token) => token
+                .decode(lang::BLANK_PAIR)
+                .expect_err("a blank pair decodes to no value")
+                .to_string(),
+            Self::Cleared(anchor) => nested(anchor, "cleared its operand"),
         }
     }
 }
