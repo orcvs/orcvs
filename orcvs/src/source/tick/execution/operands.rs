@@ -77,33 +77,42 @@ impl Execution<'_> {
         let mut empty = false;
         let mut operands = Vec::with_capacity(node.operands.len());
         for (operand, token) in node.operands.iter().zip(signature) {
-            let Some(child) = self.returning_child(operand) else {
-                let spelling = self.working.text(operand.cells.clone());
-                if may_be_empty && spelling == lang::BLANK_PAIR {
-                    empty = true;
-                    continue;
-                }
-                operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
+            let rendered;
+            let spelling = match self.returning_child(operand) {
+                None => self.working.text(operand.cells.clone()),
+                Some(child) => match self.turns.result(child) {
+                    // A Clear wrote two empty Cells at the child's Output
+                    // Portal, so the operand holds what a blank one holds.
+                    Some(Answer::Clear) if may_be_empty => lang::BLANK_PAIR,
+                    // A Clear returns no value. The parent names the child,
+                    // since nothing at the operand says which Function
+                    // cleared.
+                    Some(Answer::Clear) => {
+                        return Err(nested(
+                            self.schedule.lookup.nodes()[child].anchor,
+                            "cleared its operand",
+                        ));
+                    }
+                    Some(Answer::Unit(atom)) => {
+                        rendered = Encoding::render(atom).to_string();
+                        &rendered
+                    }
+                    None => {
+                        return Err(nested(
+                            self.schedule.lookup.nodes()[child].anchor,
+                            "returned nothing",
+                        ));
+                    }
+                },
+            };
+            if may_be_empty && spelling == lang::BLANK_PAIR {
+                empty = true;
                 continue;
-            };
-            let anchor = self.schedule.lookup.nodes()[child].anchor;
-            let returned = match self.turns.result(child) {
-                Some(Answer::Clear) if may_be_empty => {
-                    empty = true;
-                    continue;
-                }
-                // A Clear wrote two spaces at the child's Output Portal and
-                // returns no value. The parent names the child, since
-                // nothing at the operand says which Function cleared.
-                Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
-                Some(Answer::Unit(atom)) => Encoding::render(atom),
-                None => return Err(nested(anchor, "returned nothing")),
-            };
-            operands.push(
-                token
-                    .decode(&returned.to_string())
-                    .map_err(|error| error.to_string())?,
-            );
+            }
+            let atom = token.decode(spelling).map_err(|error| error.to_string())?;
+            if !empty {
+                operands.push(atom);
+            }
         }
         Ok(if empty {
             Decoded::Empty

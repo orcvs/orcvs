@@ -752,7 +752,7 @@ fn a_midi_output_turn_allocates_nothing_more_for_more_empty_operands() {
     // Each MIDI output sends nothing on an empty operand each Tick an Equality
     // Bangs it. The Turn builds no refusal for an empty operand, so a wholly
     // empty row costs a Tick no more than a row with one empty operand.
-    for (root_only, empty) in [
+    for (one_empty, empty) in [
         ("  !>017F  ", "  !>      "),
         ("  !c01  40", "  !c      "),
         ("  !b0100  ", "  !b      "),
@@ -763,8 +763,8 @@ fn a_midi_output_turn_allocates_nothing_more_for_more_empty_operands() {
         let execute = |source: &mut Source, tick| {
             black_box(black_box(source).execute(tick));
         };
-        let root_only_tick = measure_settled_tick(
-            &mut source_of_rows(&[".=0101", root_only]),
+        let one_empty_tick = measure_settled_tick(
+            &mut source_of_rows(&[".=0101", one_empty]),
             &mut next,
             execute,
         );
@@ -772,8 +772,8 @@ fn a_midi_output_turn_allocates_nothing_more_for_more_empty_operands() {
             measure_settled_tick(&mut source_of_rows(&[".=0101", empty]), &mut next, execute);
 
         assert!(
-            empty_tick.blocks <= root_only_tick.blocks,
-            "{empty:?} allocated {empty_tick:?} against {root_only_tick:?} for {root_only:?}"
+            empty_tick.blocks <= one_empty_tick.blocks,
+            "{empty:?} allocated {empty_tick:?} against {one_empty_tick:?} for {one_empty:?}"
         );
     }
 }

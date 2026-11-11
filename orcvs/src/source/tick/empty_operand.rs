@@ -11,8 +11,9 @@ use std::ops::Range;
 
 use lang::{PlayCommand, Tick};
 
-use super::observed::{Observed, diagnostic, first, observed, source_of};
+use super::observed::{Observed, diagnostic, first, first_tick, observed, source_of};
 use crate::grid::Grid;
+use crate::source::Source;
 
 /// Diagnostics by anchor column, row and message, as [`Observed`] holds them.
 type Diagnostics = Vec<(usize, usize, String)>;
@@ -40,25 +41,15 @@ fn row(spelling: &str, operands: &[&str]) -> String {
 }
 
 /// `operands` with operand `index` replaced by `cells`.
-fn with(operands: &[&str], index: usize, cells: &str) -> Vec<String> {
+fn with<'a>(operands: &[&'a str], index: usize, cells: &'a str) -> Vec<&'a str> {
+    let mut operands = operands.to_vec();
+    operands[index] = cells;
     operands
-        .iter()
-        .enumerate()
-        .map(|(at, operand)| {
-            if at == index {
-                cells.to_string()
-            } else {
-                (*operand).to_string()
-            }
-        })
-        .collect()
 }
 
 /// Row 1 for `spelling` with operand `index` replaced by `cells`.
 fn row_with(spelling: &str, operands: &[&str], index: usize, cells: &str) -> String {
-    let operands = with(operands, index, cells);
-    let operands: Vec<&str> = operands.iter().map(String::as_str).collect();
-    row(spelling, &operands)
+    row(spelling, &with(operands, index, cells))
 }
 
 /// Each Tick in `ticks` of `rows`: its Play Commands, the Tick observed, and
@@ -81,8 +72,7 @@ fn executed(rows: &[&str], ticks: Range<u64>) -> Vec<(Vec<PlayCommand>, Observed
 
 /// The Play Commands and the Tick's diagnostics of the first Tick of `rows`.
 fn run(rows: &[&str]) -> (Vec<PlayCommand>, Diagnostics) {
-    let (commands, tick, _) = executed(rows, 0..1).remove(0);
-    (commands, tick.diagnostics)
+    first_tick(grid(), rows)
 }
 
 /// The first Tick of `output` on row 1, beneath the Equality that Bangs it.
@@ -90,9 +80,14 @@ fn banged(output: &str) -> (Vec<PlayCommand>, Diagnostics) {
     run(&[".=0101", output])
 }
 
+/// The Source for `output` on row 1, beneath the Equality that Bangs it.
+fn source(output: &str) -> Source {
+    source_of(grid(), &[".=0101", output])
+}
+
 /// The Language Map's diagnostics for `output` on row 1.
 fn mapped(output: &str) -> Vec<(usize, usize)> {
-    source_of(grid(), &[".=0101", output])
+    source(output)
         .language_map()
         .diagnostics()
         .map(|d| (d.anchor().x(), d.anchor().y()))
@@ -101,7 +96,7 @@ fn mapped(output: &str) -> Vec<(usize, usize)> {
 
 /// Whether the Language Map schedules `output` on row 1 as a root.
 fn is_root(output: &str) -> bool {
-    source_of(grid(), &[".=0101", output])
+    source(output)
         .language_map()
         .expressions()
         .any(|expression| {
@@ -190,9 +185,7 @@ fn a_half_written_operand_is_diagnosed_even_beside_an_empty_one() {
 
             // An empty operand anywhere else does not hide it.
             let beside = (index + 1) % operands.len();
-            let operands = with(operands, index, &half);
-            let operands: Vec<&str> = operands.iter().map(String::as_str).collect();
-            let output = row_with(spelling, &operands, beside, "  ");
+            let output = row_with(spelling, &with(operands, index, &half), beside, "  ");
             assert_eq!(banged(&output).0, vec![], "{output:?}");
             assert!(!mapped(&output).is_empty(), "{output:?}");
         }
@@ -204,9 +197,7 @@ fn an_operand_that_does_not_decode_is_diagnosed_beside_an_empty_one() {
     // `xx` spells no Number, Note, Interval Set or Voicing.
     for (spelling, operands) in OUTPUTS {
         let last = operands.len() - 1;
-        let operands = with(operands, last, "  ");
-        let operands: Vec<&str> = operands.iter().map(String::as_str).collect();
-        let output = row_with(spelling, &operands, 0, "xx");
+        let output = row_with(spelling, &with(operands, last, "  "), 0, "xx");
         assert_eq!(banged(&output).0, vec![], "{output:?}");
         assert!(!mapped(&output).is_empty(), "{output:?}");
     }
