@@ -49,8 +49,10 @@ error reaches no other Expression.
 
 - An empty step in a pattern is quiet and clean: the shipped Melody, Tracker, Sequencer and Knobs
   examples raise no diagnostic for it.
-- A Play with a blank note allocates nothing on the Tick path: binding no value and returning no
-  command build no message and no collection.
+- Reading a Play with a blank note, and taking its Turn, allocate nothing: binding no value and
+  returning no command build no message and no collection. `lang/tests/allocation.rs` measures the
+  parse and the Turn. The Tick's decode of a Turn's operands costs a blank-note Play what it costs
+  any Function, and that cost is not measured here.
 - Making another operand optional is a change to its declared type, and needs no change to the
   Parser, the Language Map or the Tick.
 - A Chord Play's root stays a plain Note. An empty pattern row also blanks the Interval Set, Voicing
