@@ -81,6 +81,10 @@ pub struct PositionedEntry {
     pub parent: Option<usize>,
     pub token: Token,
     pub atom: Option<Atom>,
+    /// Whether this entry is its Function's blank rest operand: its Cells
+    /// bound no Atom, and that is no failure of the Expression. It always has
+    /// `atom: None`.
+    pub rest: bool,
 }
 
 type Record = PositionedEntry;
@@ -151,7 +155,17 @@ impl Expression {
             token != Token::Payload,
             "a Payload enters an Expression only with its text"
         );
-        self.push(token, atom, cells, parent);
+        self.push(token, atom, cells, parent, false);
+    }
+
+    /// Records a blank rest operand, which binds no Atom and refuses nothing.
+    pub(crate) fn add_rest(
+        &mut self,
+        token: Token,
+        cells: std::ops::Range<usize>,
+        parent: Option<usize>,
+    ) {
+        self.push(token, None, cells, parent, true);
     }
 
     ///
@@ -174,7 +188,7 @@ impl Expression {
             "an Expression holds at most one Comment"
         );
         self.comment = Some(text);
-        self.push(Token::Comment, None, cells, parent);
+        self.push(Token::Comment, None, cells, parent, false);
     }
 
     ///
@@ -195,7 +209,7 @@ impl Expression {
             start: text.start,
             end: text.end,
         });
-        self.push(Token::Payload, None, cells, Some(function));
+        self.push(Token::Payload, None, cells, Some(function), false);
     }
 
     fn push(
@@ -204,12 +218,14 @@ impl Expression {
         atom: Option<Atom>,
         cells: std::ops::Range<usize>,
         parent: Option<usize>,
+        rest: bool,
     ) {
         self.records.push(PositionedEntry {
             cells,
             parent,
             token,
             atom,
+            rest,
         });
     }
 

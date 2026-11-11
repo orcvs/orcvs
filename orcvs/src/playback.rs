@@ -3180,6 +3180,52 @@ mod tests {
     }
 
     #[test]
+    fn a_monophonic_play_whose_note_goes_blank_leaves_its_voice_sounding() {
+        // The note slot is Source-written and an edit blanks it, or Track
+        // writes it and its pair empties. Either way the note rests on every
+        // later Bang, and the note the first Tick started runs to its own
+        // stop, with no Note Off in between.
+        for (route, (writes, blanked)) in [
+            (&[(32, "!%007FC404")][..], 38),
+            (&[(22, "&t0001C4"), (32, "!%007F  04")][..], 28),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let source = SourceCommander::new(Grid::with_shape(16, 4));
+            write(&source, 0, ".=0101");
+            for &(cell, text) in writes {
+                write(&source, cell, text);
+            }
+            let adapter = InMemoryOutputAdapter::default();
+            let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
+            run.begin_run();
+
+            run.run_tick(0);
+            write(&source, blanked, "  ");
+            for tick in 1..4 {
+                run.run_tick(tick);
+                assert!(run.holds_note_ownership(), "route {route}, Tick {tick}");
+            }
+            run.run_tick(4);
+
+            assert_eq!(
+                adapter.command_lists(),
+                vec![
+                    vec![note_on(0, 0x7F, 60)],
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![stop(0, 60)],
+                ],
+                "route {route}"
+            );
+            assert!(!run.holds_note_ownership(), "route {route}");
+            assert_eq!(run.drain_diagnostics(), vec![], "route {route}");
+        }
+    }
+
+    #[test]
     fn a_scheduled_stop_is_due_at_an_absolute_tick_rather_than_at_a_clock_tick() {
         let source = SourceCommander::new(Grid::with_shape(10, 9));
         write(&source, 20, "!~007FC402");

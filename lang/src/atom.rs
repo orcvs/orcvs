@@ -738,13 +738,14 @@ macro_rules! define_functions {
                 }
             }
 
-            /// The index of the operand whose nested Clear rests this Function,
+            /// The index of the operand a Function rests on when it is blank,
             /// when its row declares `rest:`.
             ///
-            /// A Turn whose rest operand a nested Function cleared, and whose
-            /// every other operand decodes, is a rest: it performs nothing and
-            /// reports nothing. A Clear in any other operand, or of any other
-            /// Function, leaves the operand unwritten and the Turn invalid.
+            /// A Turn whose rest operand holds two blank Cells or a nested
+            /// Clear, and whose every other operand decodes, is a rest: it
+            /// performs nothing and reports nothing. A blank or cleared Cell
+            /// anywhere else, or in any operand of a Function with no rest
+            /// operand, leaves the Turn invalid.
             pub const fn rest_operand(self) -> Option<usize> {
                 match self {
                     $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+
