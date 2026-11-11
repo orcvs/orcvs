@@ -1680,6 +1680,31 @@ mod tests {
     }
 
     ///
+    /// The anchors of the Functions the Language Map diagnoses in `source`, as
+    /// column and row in Grid order. A value a Function writes into an empty Cell
+    /// is Ordinary Source that names no Function, and the Map's diagnosis of it is
+    /// left out.
+    ///
+    fn functions_mapped(source: &crate::source::SourceCommander) -> Vec<(usize, usize)> {
+        let mut anchors = Vec::new();
+        source.read_source(|source| {
+            let map = source.language_map();
+            let functions: Vec<_> = map
+                .units()
+                .filter(|unit| matches!(unit.kind(), crate::source::LanguageUnitKind::Function(_)))
+                .map(|unit| unit.anchor())
+                .collect();
+            anchors = map
+                .diagnostics()
+                .filter(|d| functions.contains(&d.anchor()))
+                .map(|d| (d.anchor().x(), d.anchor().y()))
+                .collect();
+        });
+        anchors.sort_by_key(|&(column, row)| (row, column));
+        anchors
+    }
+
+    ///
     /// The Note Off an adapter is handed for `channel` and `note`.
     ///
     fn stop(channel: u8, note: u8) -> OutputCommand {

@@ -2,8 +2,8 @@
 //! Live editing of the shipped trackers through the console's own input and
 //! file workflows.
 //!
-//! Each test opens a copy of `examples/melody.orcvs` or
-//! `examples/tracker.orcvs` through the Open path, edits
+//! Each test opens a copy of `examples/melody.orcvs`,
+//! `examples/tracker.orcvs` or a one-Play Source through the Open path, edits
 //! it with the keys, clipboard events and menu items a viewer uses, and runs
 //! Ticks against the Source the console owns. A Tick here is
 //! `SourceCommander::execute`, the call Playback makes for each Tick it runs,
@@ -238,6 +238,64 @@ async fn a_half_typed_note_is_diagnosed_once_and_finishing_it_plays_it() {
         "{:?}",
         finished.diagnostics
     );
+}
+
+/// A Delay banging a Timed Play on every Tick, the Play's note slot at
+/// (8, 1) left blank, so nothing but the note is missing.
+const BLANK_NOTE: &str = "~*0101\n  !~0064  04\n";
+
+/// The Language Map's diagnostics as anchor and message.
+fn mapped(harness: &Harness<'_, Console>) -> Vec<((usize, usize), String)> {
+    let mut mapped = Vec::new();
+    harness.state().orcvs.source().read_source(|source| {
+        mapped = source
+            .language_map()
+            .diagnostics()
+            .map(|d| ((d.anchor().x(), d.anchor().y()), d.message.clone()))
+            .collect();
+    });
+    mapped
+}
+
+///
+/// A Note typed into a Play's blank note slot goes from blank, which sends
+/// and reports nothing, through half written, which the Language Map
+/// diagnoses at the Play, to whole, which plays. No step of the typing leaves
+/// a written note silent and undiagnosed.
+///
+#[tokio::test]
+async fn a_note_typed_into_a_blank_note_slot_is_diagnosed_until_it_plays() {
+    let dir = TempDir::new();
+    let (mut harness, _) = console_with(&dir, "blank-note.orcvs", BLANK_NOTE);
+    let play = (2, 1);
+
+    assert_eq!(mapped(&harness), [], "a blank note is not diagnosed");
+    let blank = tick(&harness, 0);
+    assert_eq!(diagnostics(&blank), [], "a blank note reports nothing");
+    assert_eq!(notes(&blank), [], "a blank note plays nothing");
+
+    go_to(&mut harness, 8, 1);
+    type_text(&mut harness, "E");
+    assert_eq!(text(&harness, 1, 8..10), "E ");
+    assert_eq!(
+        mapped(&harness),
+        [
+            (play, "expected a note, found \"E \"".to_owned()),
+            ((8, 1), "invalid Language Unit character 'E'".to_owned())
+        ],
+        "the Language Map"
+    );
+    // The Language Map diagnoses the Play before any Turn, so the Tick
+    // leaves it out rather than report it twice.
+    let half = tick(&harness, 1);
+    assert_eq!(diagnostics(&half), [], "the Tick");
+    assert_eq!(notes(&half), [], "a half-written note plays nothing");
+
+    type_text(&mut harness, "5");
+    assert_eq!(mapped(&harness), [], "a whole note is not diagnosed");
+    let whole = tick(&harness, 2);
+    assert_eq!(diagnostics(&whole), [], "a whole note reports nothing");
+    assert_eq!(notes(&whole), [76], "E5");
 }
 
 ///

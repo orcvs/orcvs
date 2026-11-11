@@ -1044,12 +1044,14 @@ the Panel's **O** to hear them.
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
-**An empty note.** A Raw, Timed or Monophonic Play whose note is empty, or half written, is
-invalid: a Bang reaching it sends nothing, and the Play is diagnosed. It does not matter how the
-note got empty. You can leave it empty, a Function above it can write two empty Cells into it, or a
-Function nested in it can answer a Clear. The diagnostic belongs to that Play alone: every other
-Function still runs. A Monophonic Play with no note leaves its channel's note sounding until that
-note's own length ends.
+**An empty note.** The note of a Raw, Timed or Monophonic Play is optional. A Bang reaching a Play
+whose note is empty sends nothing and reports nothing, so an empty step in a pattern is a quiet
+step. It does not matter how the note got empty. You can leave it empty, a Function above it can
+write two empty Cells into it, or a Function nested in it can answer a Clear. The Play's other
+operands are still checked: an empty or out-of-range channel, velocity or length is diagnosed
+whether the note is there or not. A half-written or mistyped note, such as `C ` or `ZZ`, is an
+error: the Play is diagnosed and sends nothing. A Monophonic Play with no note leaves its channel's
+note sounding until that note's own length ends. A Chord Play's root is not optional.
 
 ### `!>` Raw Play
 

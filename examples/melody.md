@@ -63,12 +63,12 @@ turn, the two form a same-Tick dependency cycle, which is diagnosed while the
 rest of the Tick plays.
 
 An empty pair plays nothing. Track copies an empty pair's Cells as it copies
-any others, so it clears the Timed Play's note slot. A Timed Play with an empty
-note slot is invalid ([ADR 0107](../docs/adr/0107-a-blank-note-is-invalid-input-however-it-got-blank.md)):
-it sends no new note and is diagnosed, and it does not stop a note an earlier
-step started. In the shipped pattern D4 at step 1 keeps sounding through the
-empty step 2, because its four-Tick lifetime has not ended. The diagnostic
-belongs to the Play alone, and the rest of the Tick plays.
+any others, so it clears the Timed Play's note slot. A Play's note may be
+empty ([ADR 0108](../docs/adr/0108-a-plays-note-is-optional-by-type.md)), so a
+Timed Play with an empty note slot sends no new note and reports nothing, and
+it does not stop a note an earlier step started. In the shipped pattern D4 at
+step 1 keeps sounding through the empty step 2, because its four-Tick lifetime
+has not ended.
 
 A value Function placed between Track and the Play behaves differently. If
 Track hands it an empty pair, it is invalid and writes nothing, so the note slot

@@ -8,7 +8,7 @@
 //! step at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
 
-use super::{HandDrivenRun, note_on, stop};
+use super::{HandDrivenRun, functions_mapped, note_on, stop};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{ControlValue, Controller, MidiChannel, SourceCommander, file};
 
@@ -156,7 +156,7 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
         );
     });
     let adapter = InMemoryOutputAdapter::default();
-    let mut run = HandDrivenRun::new(source, adapter.clone());
+    let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
     let mut values = [0u8; KNOBS.len()];
     // Each sounding note and the Tick its Timed Play ends, in the order they
@@ -176,6 +176,13 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
                 .collect::<Vec<_>>(),
             [],
             "Tick {tick}"
+        );
+        // Once each Add has written its row's Read offset, the Language Map
+        // diagnoses no Function, the blank-note rows' Plays included.
+        assert_eq!(
+            functions_mapped(&source),
+            vec![],
+            "Tick {tick}'s Language Map"
         );
         let mut delivery = Vec::new();
         sounding.retain(|&(note, due)| {

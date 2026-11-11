@@ -6,25 +6,29 @@
 //! handed. The expected notes are written out per voice beside the file they
 //! describe, so a change to either shows up here.
 
-use super::{HandDrivenRun, note_on, stop};
+use super::{HandDrivenRun, functions_mapped, note_on, stop};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, TickPlan, file};
 
 ///
 /// A shipped tracker as its file is laid out: how many Ticks a step lasts,
 /// how many Ticks each Timed Play holds its note, the velocity every Play
-/// writes, and its voices, listed in Source order.
+/// writes, its voices, listed in Source order, and the anchors of the
+/// Functions the Language Map diagnoses before the first Tick, each waiting
+/// on an operand a Portal writes at that Tick.
 ///
 struct Tracker<'a> {
     step_ticks: u64,
     length: u64,
     velocity: u8,
     voices: &'a [Voice],
+    waiting: Vec<(usize, usize)>,
 }
 
-/// One voice of a tracker: its MIDI channel and the Note each step holds,
-/// `None` for an empty step.
+/// One voice of a tracker: its Timed Play's anchor as column and row, its
+/// MIDI channel, and the Note each step holds, `None` for an empty step.
 struct Voice {
+    play: (usize, usize),
     channel: u8,
     steps: Vec<Option<u8>>,
 }
@@ -104,7 +108,10 @@ fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
 ///
 /// Runs the shipped Source File `text` for two complete loops and asserts
 /// every Tick's delivery against `tracker`. A voice banged on an empty step
-/// sends nothing and reports nothing, and no Tick diagnoses anything.
+/// sends nothing and reports nothing: no Tick diagnoses anything, and once
+/// the first Tick has written what `tracker`'s waiting Functions read, no
+/// revision of the Language Map diagnoses a Function, however a voice's note
+/// slot is filled.
 ///
 fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     let source =
@@ -113,11 +120,23 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
     let mut sounding = Sounding::default();
+    let mut waiting = tracker.waiting.clone();
+    waiting.sort_by_key(|&(column, row)| (row, column));
+    assert_eq!(
+        functions_mapped(&source),
+        waiting,
+        "the Language Map before Tick 0"
+    );
 
     for tick in 0..2 * tracker.loop_ticks() {
         let plan = run.run_tick(tick);
         let commands = sounding.expect(tracker, tick);
         assert_eq!(diagnosed_at(&plan), vec![], "Tick {tick}'s diagnostics");
+        assert_eq!(
+            functions_mapped(&source),
+            vec![],
+            "Tick {tick}'s Language Map"
+        );
         assert_eq!(
             adapter.command_lists().last(),
             Some(&commands),
@@ -187,7 +206,10 @@ fn the_melody_plays_two_loops_and_sends_nothing_on_its_empty_pairs() {
             step_ticks: 2,
             length: 4,
             velocity: 0x64,
+            // Track waits on the Clock's count for its `index`.
+            waiting: vec![(8, 2)],
             voices: &[Voice {
+                play: (2, 3),
                 channel: 0,
                 steps: vec![
                     Some(60),
@@ -207,7 +229,9 @@ fn the_melody_plays_two_loops_and_sends_nothing_on_its_empty_pairs() {
 ///
 /// A Learn Orca patch's voices as Orca plays them: every voice steps once a
 /// Tick and holds its note for one, at velocity `77`, the byte Orca's default
-/// `f` sends, and a nested Read fills each note slot.
+/// `f` sends, and a nested Read fills each note slot. Until the first Tick
+/// each Read's offset waits on its Add, so the Language Map diagnoses every
+/// voice's Play.
 ///
 fn orca_patch(voices: &[Voice]) -> Tracker<'_> {
     Tracker {
@@ -215,6 +239,7 @@ fn orca_patch(voices: &[Voice]) -> Tracker<'_> {
         length: 1,
         velocity: 0x77,
         voices,
+        waiting: voices.iter().map(|voice| voice.play).collect(),
     }
 }
 
@@ -314,6 +339,10 @@ fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
         for group in 0..2 {
             let voice = 4 * group + v;
             voices.push(Voice {
+                play: (
+                    4 + 7 * usize::from(v) + 28 * usize::from(group),
+                    13 - 3 * usize::from(v),
+                ),
                 channel: TRACKER_CHANNELS[usize::from(voice)],
                 steps: steps(notes, voice, 16),
             });
@@ -444,6 +473,7 @@ const SEQUENCER_CHANNELS: [u8; 10] = [8, 8, 8, 3, 4, 5, 6, 7, 8, 9];
 fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     (0..10)
         .map(|voice| Voice {
+            play: (4, 4 + 3 * usize::from(voice)),
             channel: SEQUENCER_CHANNELS[usize::from(voice)],
             steps: steps(notes, voice, 32),
         })

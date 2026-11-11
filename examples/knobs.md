@@ -44,7 +44,7 @@ The bassline plays on channel `09`, the Built-in Synth's 303-style voice
 (ADR 0099). Its three rows are the same voice of the Sequencer example, each
 reading the same sixteen steps and playing them its own way. Each step holds a
 Note in one row and is empty in the other two, where its Timed Play sends
-nothing and is diagnosed.
+nothing and reports nothing.
 
 | Row | Timed Play | How its Notes play |
 | --- | --- | --- |
