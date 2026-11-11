@@ -51,6 +51,7 @@ area.
   high at 2×. The room is the Source's, not the window's, so open docked Diagnostics take height
   from it, and the console's smallest window, 300 by 220 points, never shows the Minimap.
 - The bottom panel's row and its status line are never under the Minimap, so ADR 0095's line
-  beneath the Panel's row stays for its own reasons.
+  beneath the Panel's row stays for its own reasons. ADR 0100 later replaces that line with the
+  Cursor Line and moves the messages to Toasts in the window's top-right corner.
 - A phone-width web console holds the picture at 1 pixel per Cell. Its page settings still open
   it closed (ADR 0091).
