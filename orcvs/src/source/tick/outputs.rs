@@ -123,14 +123,14 @@ fn a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing(
 }
 
 #[test]
-fn a_banged_play_with_an_unwritten_note_is_diagnosed_and_emits_nothing() {
-    // The Bang gives the timing and the note slot gives what plays. With
-    // no note written the Play is invalid input: nothing plays, and the
-    // Language Map diagnoses it from Source, so the Tick does not repeat it.
+fn a_banged_play_with_an_unwritten_note_emits_nothing_and_reports_nothing() {
+    // The Bang gives the timing and the note slot gives what plays. A Raw
+    // Play's note is optional, so with no note written nothing plays and
+    // neither the Language Map nor the Tick reports anything.
     let grid = Grid::with_shape(16, 4);
     for (play, commands, diagnosed) in [
         ("!>007FC4", vec![raw(0, 0x7F, 60)], vec![]),
-        ("!>007F", vec![], vec![(0, 2)]),
+        ("!>007F", vec![], vec![]),
     ] {
         let bytes = snapshot(grid, &[".=0101", "", play, ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -155,18 +155,19 @@ fn a_banged_play_with_an_unwritten_note_is_diagnosed_and_emits_nothing() {
 }
 
 #[test]
-fn a_banged_play_whose_nested_track_copies_an_empty_pair_is_diagnosed() {
+fn a_banged_play_whose_nested_track_copies_an_empty_pair_plays_nothing() {
     // Track stands in the note slot and copies the pair its index
-    // selects. `C4` plays; the empty pair is a Clear, which leaves the note
-    // unwritten, so the Play sends nothing and names the Track.
+    // selects. `C4` plays; the empty pair is a Clear, which leaves the
+    // Raw Play's optional note absent, so it sends nothing and reports
+    // nothing.
     let grid = Grid::with_shape(16, 4);
     for (play, commands, diagnosed) in [
-        ("!>007F&t0002C4  ", vec![raw(0, 0x7F, 60)], vec![]),
         (
-            "!>007F&t0102C4  ",
-            vec![],
-            vec!["nested computation at column 6, row 2 cleared its operand"],
+            "!>007F&t0002C4  ",
+            vec![raw(0, 0x7F, 60)],
+            Vec::<&str>::new(),
         ),
+        ("!>007F&t0102C4  ", vec![], vec![]),
     ] {
         let bytes = snapshot(grid, &[".=0101", "", play, ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));

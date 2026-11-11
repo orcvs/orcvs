@@ -22,19 +22,23 @@ use crate::{Error, PlayCommand, atom::operands, interpreter::Context};
 /// Function that diagnoses has produced no Play Command at all, and a new MIDI
 /// terminal Function inherits its validation from its declaration rather than
 /// from a body that remembers to ask for it.
+///
+/// The note is optional by type: a blank note binds to `None`, and the body
+/// answers no Play Command for it. Every other operand has bound by then, so
+/// a blank note excuses no other operand's diagnostic.
 #[inline(always)]
-pub fn raw_play(ctx: &mut Context) -> Result<PlayCommand, Error> {
+pub fn raw_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> {
     ctx.stack.perform(
         |operands::RawPlay {
              channel,
              velocity,
              note,
          }: operands::RawPlay| {
-            Ok(PlayCommand::Raw {
+            Ok(note.map(|note| PlayCommand::Raw {
                 channel,
                 velocity,
                 note,
-            })
+            }))
         },
     )
 }
@@ -168,7 +172,7 @@ mod test {
 
     /// A terminal body, so the two spellings that share a claim can be stated
     /// once and asserted over rather than written out for each.
-    type Terminal = fn(&mut Context) -> Result<PlayCommand, Error>;
+    type Terminal<T = PlayCommand> = fn(&mut Context) -> Result<T, Error>;
 
     /// Calls a shipped body with `operands` on the stack in signature order.
     ///
@@ -176,7 +180,7 @@ mod test {
     /// before it dispatches, so an arity claim made through `evaluate` observes
     /// that guard rather than the Function it names. The bodies own their
     /// arity demand, so the tests that pin it reach them here.
-    fn call_body(body: Terminal, operands: &[Atom]) -> Result<PlayCommand, Error> {
+    fn call_body<T>(body: Terminal<T>, operands: &[Atom]) -> Result<T, Error> {
         let mut ctx = Context::new(inputs().into(), 4);
         for operand in operands.iter().rev() {
             ctx.stack.push(Some(*operand)).unwrap();
@@ -202,11 +206,11 @@ mod test {
 
         assert_eq!(
             result,
-            PlayCommand::Raw {
+            Some(PlayCommand::Raw {
                 channel: MidiChannel::try_from(0).unwrap(),
                 velocity: Velocity::try_from(0x7F).unwrap(),
                 note: Note::try_from(60).unwrap(),
-            }
+            })
         );
 
         // Exactly three arguments were consumed
@@ -745,13 +749,14 @@ mod test {
     #[test]
     fn a_plain_operand_refuses_an_absent_value_as_it_refuses_a_blank_slot() {
         let channel = Some(Atom::Number(0x00));
-        let velocity = Some(Atom::Number(0x7F));
-        let refused = evaluate_slots(Function::RawPlay, &[channel, velocity, None]).unwrap_err();
-        assert_eq!(refused.to_string(), r#"expected a note, found "  ""#);
-        // The message a blank note slot written in the Source gives.
+        let controller = Some(Atom::Number(0x07));
+        let refused =
+            evaluate_slots(Function::ControlChange, &[channel, controller, None]).unwrap_err();
+        assert_eq!(refused.to_string(), r#"expected a number, found "  ""#);
+        // The message a blank value slot written in the Source gives.
         assert_eq!(
             refused.to_string(),
-            interpret("!>007F  ").unwrap_err().to_string()
+            interpret("!c0007  ").unwrap_err().to_string()
         );
         assert!(
             matches!(
@@ -771,15 +776,100 @@ mod test {
 
     #[test]
     fn an_absent_operand_is_refused_before_any_operand_outside_its_domain() {
-        // A channel of `10` is outside its domain, and the absent note after
+        // A channel of `10` is outside its domain, and the absent value after
         // it is still what diagnoses: an absent value is refused with the
         // type checks, which every domain check follows.
         let refused = evaluate_slots(
-            Function::RawPlay,
-            &[Some(Atom::Number(0x10)), Some(Atom::Number(0x7F)), None],
+            Function::ControlChange,
+            &[Some(Atom::Number(0x10)), Some(Atom::Number(0x07)), None],
         )
         .unwrap_err();
-        assert_eq!(refused.to_string(), r#"expected a note, found "  ""#);
+        assert_eq!(refused.to_string(), r#"expected a number, found "  ""#);
+    }
+
+    #[test]
+    fn a_raw_play_binds_an_absent_note_to_no_play_command() {
+        let channel = Some(Atom::Number(0x01));
+        let velocity = Some(Atom::Number(0x7F));
+        assert_eq!(
+            evaluate_slots(Function::RawPlay, &[channel, velocity, None]).unwrap(),
+            Interpretation::BlankNote
+        );
+    }
+
+    #[test]
+    fn a_raw_play_binds_a_present_note_to_its_play_command() {
+        let note = Note::try_from(0x3C).unwrap();
+        assert_eq!(
+            evaluate_slots(
+                Function::RawPlay,
+                &[
+                    Some(Atom::Number(0x01)),
+                    Some(Atom::Number(0x7F)),
+                    Some(Atom::Note(note))
+                ],
+            )
+            .unwrap(),
+            Interpretation::Play(PlayCommand::Raw {
+                channel: MidiChannel::try_from(0x01).unwrap(),
+                velocity: Velocity::try_from(0x7F).unwrap(),
+                note,
+            })
+        );
+    }
+
+    #[test]
+    fn a_raw_play_refuses_a_present_value_that_is_no_note_as_a_note_operand_does() {
+        // Up's `note` is a plain Note operand: what it refuses, a Raw Play's
+        // note refuses with the same diagnostic.
+        for value in [
+            Atom::Number(0x3C),
+            Atom::Bang,
+            Atom::Function(Function::Add),
+        ] {
+            let refused = evaluate_slots(
+                Function::RawPlay,
+                &[
+                    Some(Atom::Number(0x01)),
+                    Some(Atom::Number(0x7F)),
+                    Some(value),
+                ],
+            )
+            .unwrap_err();
+            let plain = evaluate(Function::Up, &[value, Atom::Number(0x01)]).unwrap_err();
+            assert_eq!(refused.to_string(), plain.to_string(), "{value:?}");
+            assert!(matches!(refused, Error::Type(_)), "{value:?}: {refused:?}");
+        }
+        // Half-typed and mistyped notes are refused from the Source.
+        for source in ["!>017FC ", "!>017F C", "!>017FZZ"] {
+            assert!(interpret(source).is_err(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn an_absent_note_still_binds_every_other_raw_play_operand() {
+        let velocity = Some(Atom::Number(0x7F));
+        assert!(matches!(
+            evaluate_slots(
+                Function::RawPlay,
+                &[Some(Atom::Number(0x10)), velocity, None]
+            ),
+            Err(Error::Interpretation(InterpretationError::MidiChannel(
+                0x10
+            )))
+        ));
+        assert!(matches!(
+            evaluate_slots(
+                Function::RawPlay,
+                &[Some(Atom::Number(0x01)), Some(Atom::Number(0x80)), None]
+            ),
+            Err(Error::Interpretation(InterpretationError::MidiDataByte {
+                role: "velocity",
+                value: 0x80,
+            }))
+        ));
+        let refused = evaluate_slots(Function::RawPlay, &[None, velocity, None]).unwrap_err();
+        assert_eq!(refused.to_string(), r#"expected a number, found "  ""#);
     }
 
     #[test]

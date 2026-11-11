@@ -715,7 +715,7 @@ macro_rules! carried {
             }
         }
     };
-    ($variant:ident, [$role:ident: $operand:ident $(, $($rest:tt)*)?]) => {
+    ($variant:ident, [$role:ident: $operand:ident $(<$param:ident>)? $(, $($rest:tt)*)?]) => {
         carried!($variant, [$($($rest)*)?]);
     };
 }
@@ -931,7 +931,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident $(<$param:ident>)?),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -1129,7 +1129,17 @@ macro_rules! define_functions {
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(<<crate::operand::$operand as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
+                        &[$(<<crate::operand::$operand $(<crate::operand::$param>)? as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
+                    },)+
+                }
+            }
+
+            /// Whether each declared operand admits a slot that holds no
+            /// value, in signature order: what its operand type answers.
+            pub(crate) const fn blank_admitted(self) -> &'static [bool] {
+                match self {
+                    $(Self::$variant => const {
+                        &[$(crate::operand::admits_blank::<crate::operand::$operand $(<crate::operand::$param>)?>(),)*]
                     },)+
                 }
             }
@@ -1146,11 +1156,11 @@ macro_rules! define_functions {
         pub(crate) mod operands {
             $(operands! {
                 $variant,
-                [$($role: crate::operand::$operand),*]
+                [$($role: crate::operand::$operand $(<crate::operand::$param>)?),*]
                 $(, $portal_role: $portal_type)?
             })+
 
-            $(carried!($variant, [$($role: $operand),*]);)+
+            $(carried!($variant, [$($role: $operand $(<$param>)?),*]);)+
         }
 
         /// How a directional Read's or Write's operands count the distance to
@@ -1319,7 +1329,7 @@ define_functions! {
     Push => ("@t", "Push", "writes value at pair index % count of the row below", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", "Random", "answers a Number from minimum to maximum", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
     RawChordPlay => ("!:", "Raw Chord Play", "sends a Note On for each tone of a chord", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
-    RawPlay => ("!>", "Raw Play", "sends a Note On, or a Note Off at velocity 00", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note]),
+    RawPlay => ("!>", "Raw Play", "sends a Note On, or a Note Off at velocity 00", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Optional<Note>]),
     ReadEast => ("&>", "Read East", "reads the pair distance pairs east of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input East distance),
     ReadNorth => ("&^", "Read North", "reads the pair distance rows north of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input North distance),
     ReadSouth => ("&v", "Read South", "reads the pair distance rows south of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input South distance),

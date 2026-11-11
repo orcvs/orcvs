@@ -1,8 +1,12 @@
-//! A Play whose note is blank is invalid input, however it came to be blank: it
-//! sends no Play Command and is diagnosed. Written blank in Source, emptied by
-//! a Portal write and cleared by a nested Function are one case, as a blank or
-//! a Clear in any other operand of any Function is. The diagnostic belongs to
-//! the Play alone: every other Expression takes its Turn as before.
+//! A Raw Play's note is optional by type: a blank note sends no Play Command
+//! and reports nothing, whether it was written blank in Source or a Portal
+//! write emptied it. A half-typed or mistyped note is still diagnosed, and
+//! every other operand still binds, so a blank or out-of-range channel is
+//! diagnosed on a blank step. A Timed or Monophonic Play declares a plain
+//! note, so a blank note there is invalid input, however it came to be blank,
+//! as a blank or a Clear in any other operand of any Function is. Either way
+//! the outcome belongs to the Play alone: every other Expression takes its
+//! Turn as before.
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick.
 
@@ -49,6 +53,15 @@ fn banged(play: &str) -> (Vec<PlayCommand>, Diagnostics) {
     (commands, tick.diagnostics)
 }
 
+/// Every Language Map diagnostic for `rows`, with its message.
+fn mapped_of(grid: Grid, rows: &[&str]) -> Diagnostics {
+    source_of(grid, rows)
+        .language_map()
+        .diagnostics()
+        .map(|d| diagnostic(d.anchor().x(), d.anchor().y(), &d.message))
+        .collect()
+}
+
 /// The Language Map's diagnostics for `rows`.
 fn mapped(grid: Grid, rows: &[&str]) -> Vec<(usize, usize)> {
     source_of(grid, rows)
@@ -76,11 +89,19 @@ fn cleared(column: usize) -> (usize, usize, String) {
 }
 
 #[test]
-fn every_play_is_diagnosed_on_a_note_a_nested_read_of_blank_cells_cleared() {
+fn a_raw_play_whose_note_a_nested_read_of_blank_cells_cleared_plays_nothing() {
+    let (commands, diagnostics) = banged("  !>017F&>01C4");
+    assert_eq!(commands.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    assert_eq!(banged("  !>017F&>01  "), (vec![], vec![]));
+}
+
+#[test]
+fn a_timed_or_monophonic_play_is_diagnosed_on_a_note_a_nested_read_of_blank_cells_cleared() {
     // Each Read selects the pair two Cells east of its operand, which holds
     // `C4` in the first row of each pair and nothing in the second.
     for (sounding, cleared_note) in [
-        ("  !>017F&>01C4", "  !>017F&>01  "),
         ("  !~017F&>0204C4", "  !~017F&>0204  "),
         ("  !%017F&>0204C4", "  !%017F&>0204  "),
     ] {
@@ -97,10 +118,24 @@ fn every_play_is_diagnosed_on_a_note_a_nested_read_of_blank_cells_cleared() {
 }
 
 #[test]
-fn every_play_with_a_note_written_blank_in_source_is_diagnosed_from_source() {
+fn a_raw_play_with_a_note_written_blank_in_source_plays_nothing_and_reports_nothing() {
+    let grid = Grid::with_shape(16, 3);
+    for play in ["  !>017F  ", "  !>017F  .+0102"] {
+        let ticks = executed(grid, &[".=0101", play], 0..3);
+        for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
+            assert_eq!(commands, vec![], "{play:?} Tick {tick}");
+            assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
+            assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
+        }
+        assert_eq!(mapped_of(grid, &[".=0101", play]), vec![], "{play:?}");
+    }
+}
+
+#[test]
+fn a_timed_or_monophonic_play_with_a_note_written_blank_in_source_is_diagnosed_from_source() {
     // The Parser refuses the blank note, so the Language Map diagnoses the
     // Play and its Turn is blocked without repeating the report.
-    for play in ["  !>017F", "  !~017F  04", "  !%017F  04"] {
+    for play in ["  !~017F  04", "  !%017F  04"] {
         let grid = Grid::with_shape(16, 3);
         assert_eq!(banged(play), (vec![], vec![]), "{play:?}");
         assert_eq!(mapped(grid, &[".=0101", play]), vec![(2, 1)], "{play:?}");
@@ -108,10 +143,31 @@ fn every_play_with_a_note_written_blank_in_source_is_diagnosed_from_source() {
 }
 
 #[test]
-fn every_play_is_diagnosed_on_a_note_a_portal_write_emptied() {
+fn a_raw_play_whose_note_a_portal_write_emptied_plays_nothing_and_reports_nothing() {
     // Track writes the pair it selects over the note slot: `D4` when the pair
     // holds it, two blank Cells when it is empty.
-    for play in ["  !>017FC4", "  !~017FC404", "  !%017FC404"] {
+    let grid = Grid::with_shape(18, 3);
+    let play = "  !>017FC4";
+    let (commands, diagnostics, _) = run(&[".=0101  &t0001D4", play]);
+    assert_eq!(commands.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics, vec![]);
+
+    let rows = [".=0101  &t0001  ", play];
+    let ticks = executed(grid, &rows, 0..2);
+    let (_, observed, _) = &ticks[0];
+    assert_eq!(&observed.rows[1][8..10], "  ", "Track emptied the slot");
+    for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
+        assert_eq!(commands, vec![], "Tick {tick}");
+        assert_eq!(observed.diagnostics, vec![], "Tick {tick}");
+        assert_eq!(mapped, vec![], "Tick {tick}");
+    }
+}
+
+#[test]
+fn a_timed_or_monophonic_play_is_diagnosed_on_a_note_a_portal_write_emptied() {
+    // Track writes the pair it selects over the note slot: `D4` when the pair
+    // holds it, two blank Cells when it is empty.
+    for play in ["  !~017FC404", "  !%017FC404"] {
         let (commands, diagnostics, _) = run(&[".=0101  &t0001D4", play]);
         assert_eq!(commands.len(), 1, "{play:?}: {diagnostics:?}");
         assert_eq!(diagnostics, vec![], "{play:?}");
@@ -150,6 +206,55 @@ fn a_cleared_note_leaves_the_clear_under_the_nested_read() {
     );
     assert_eq!(tick.rows[2], "                ");
     assert_eq!(tick.diagnostics, [cleared(8)]);
+}
+
+#[test]
+fn a_raw_play_with_a_blank_note_still_diagnoses_its_channel_and_velocity() {
+    let grid = Grid::with_shape(16, 3);
+    // A blank channel or velocity is refused from Source, beside a blank note
+    // as beside any other.
+    for play in ["  !>  7F  ", "  !>01    "] {
+        assert_eq!(banged(play), (vec![], vec![]), "{play:?}");
+        assert_eq!(mapped(grid, &[".=0101", play]), vec![(2, 1)], "{play:?}");
+    }
+    // A channel or velocity outside its domain is refused at the Turn, on a
+    // blank step as on a sounding one.
+    for (play, message) in [
+        ("  !>107F  ", "MIDI channel 10 is outside the range 00–0F"),
+        ("  !>0180  ", "MIDI velocity 80 is outside the range 00–7F"),
+    ] {
+        assert_eq!(
+            banged(play),
+            (vec![], vec![diagnostic(2, 1, message)]),
+            "{play:?}"
+        );
+        assert_eq!(mapped(grid, &[".=0101", play]), vec![], "{play:?}");
+    }
+}
+
+#[test]
+fn a_raw_play_with_a_blank_note_keeps_every_other_play_in_tick_order() {
+    // Three Plays, each Banged by its own Equality: the blank one between two
+    // sounding ones leaves both their commands in order.
+    let rows = [
+        ".=0101",
+        "  !>017FD4",
+        ".=0101",
+        "  !>017F  ",
+        ".=0101",
+        "  !>017FC4",
+    ];
+    let (commands, observed, mapped) = executed(Grid::with_shape(12, 6), &rows, 0..1).remove(0);
+    let notes: Vec<_> = commands
+        .iter()
+        .map(|command| match command {
+            PlayCommand::Raw { note, .. } => note.value(),
+            other => panic!("{other:?} is not a Raw Play"),
+        })
+        .collect();
+    assert_eq!(notes, vec![62, 60]);
+    assert_eq!(observed.diagnostics, vec![]);
+    assert_eq!(mapped, vec![]);
 }
 
 #[test]

@@ -1,6 +1,4 @@
-use crate::{
-    ArgumentError, Atom, Error, Function, Interpretation, InterpretationError, PlayCommand,
-};
+use crate::{ArgumentError, Atom, Error, Function, Interpretation, InterpretationError};
 use arrayvec::ArrayVec;
 
 /// The operands one Function declares, named by the role each position plays.
@@ -201,13 +199,14 @@ impl Stack {
     /// Performs one Terminal Output Function over its declared operands.
     ///
     /// The effect twin of [`Stack::apply`]: `command` states one Play Command
-    /// exactly as an arithmetic body states one Atom, and runs only once
-    /// every operand has bound, so a Function that diagnoses performs nothing.
+    /// exactly as an arithmetic body states one Atom, or none where its
+    /// Function's optional note is blank, and runs only once every operand
+    /// has bound, so a Function that diagnoses performs nothing.
     #[inline(always)]
-    pub(crate) fn perform<O, F>(&mut self, command: F) -> Result<PlayCommand, Error>
+    pub(crate) fn perform<O, F, C>(&mut self, command: F) -> Result<C, Error>
     where
         O: Operands,
-        F: FnOnce(O) -> Result<PlayCommand, Error>,
+        F: FnOnce(O) -> Result<C, Error>,
     {
         command(self.extract::<O>()?)
     }
@@ -283,9 +282,10 @@ mod test {
         on_stack(stack, numeric_conversion::to_note)
     }
 
-    /// Raw Play: `functions::raw_play`.
+    /// Raw Play: `functions::raw_play`, over a written note.
     fn play(stack: &mut Stack) -> Result<PlayCommand, Error> {
         on_stack(stack, functions::raw_play)
+            .map(|command| command.expect("a Raw Play of a written note answers a command"))
     }
 
     /// Control Change: `functions::control_change`.

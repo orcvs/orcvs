@@ -119,15 +119,14 @@ impl<'a> Parser<'a> {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
         // Every record of an Expression that reported no error carries an Atom,
-        // with one exception: a Comment is a complete Language Unit that is not
-        // a value, so it records a Token and nothing else. Strict parsing
-        // yields values, and has none to yield here.
+        // with three exceptions, each refused below: a Comment and a Payload,
+        // which record a Token and text no Atom holds, and a blank slot its
+        // operand type admits, which holds no value. Strict parsing yields
+        // values, and has none to yield for any of them.
         //
-        // The Comment alone decides the refusal, and the Atoms are collected
-        // only when there is none. Do not read the refusal off absent Atoms:
-        // an atomless record that is not a Comment and reported no error is a
-        // Parser defect, and answering it as a Comment would name one the
-        // Source does not hold.
+        // The Comment decides the refusal ahead of the blank slot, and the
+        // Atoms are collected only when neither is there, so an atomless
+        // record is never answered as a Comment the Source does not hold.
         if self.expression.comment().is_some() {
             return Err(SyntaxError::CommentIsNotAValue.into());
         }
@@ -139,6 +138,19 @@ impl<'a> Parser<'a> {
             .any(|token| token == Token::Payload)
         {
             return Err(SyntaxError::PayloadIsNotAValue.into());
+        }
+        // A blank slot its operand type admits refused nothing and holds no
+        // value, so there is none to yield for it. It is refused as its token
+        // refuses two blank Cells.
+        if let Some(blank) = self
+            .expression
+            .positioned()
+            .find(|entry| entry.atom.is_none())
+        {
+            return Err(blank
+                .token
+                .decode(crate::operand::BLANK)
+                .expect_err("two blank Cells decode to no value"));
         }
         Ok(self
             .expression
@@ -186,11 +198,24 @@ impl<'a> Parser<'a> {
         // this inline capacity is an optimization, not a language limit.
         let mut pending = arrayvec::ArrayVec::<_, 16>::new();
         let mut overflow = Vec::new();
-        pending.push((Token::Function, None));
+        pending.push((Token::Function, false, None));
         let mut error = None;
-        while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
+        while let Some((token, blank_admitted, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
+                // A blank slot whose operand type admits one holds no value
+                // and refuses nothing. It is recorded without decoding, so
+                // the refusal a decode would build is never built.
+                if blank_admitted && self.is_blank_next(token.len()) {
+                    self.next_token(token.len());
+                    self.expression.add_positioned(
+                        token,
+                        None,
+                        cell_start..self.start + self.consumed(),
+                        parent,
+                    );
+                    continue;
+                }
                 match self.take_token(&token) {
                     Ok(atom) => self.expression.add_positioned(
                         token,
@@ -296,8 +321,9 @@ impl<'a> Parser<'a> {
                         }
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
-                        for token in function.signature().iter().rev() {
-                            let item = (*token, Some(index));
+                        let slots = function.signature().iter().zip(function.blank_admitted());
+                        for (token, blank_admitted) in slots.rev() {
+                            let item = (*token, *blank_admitted, Some(index));
                             // Overflow is always popped first, so any occupied
                             // overflow has a full inline stack beneath it.
                             if pending.is_full() {
@@ -355,6 +381,15 @@ impl<'a> Parser<'a> {
             }
             None => None,
         }
+    }
+
+    /// Whether the next `count` Cells are all blank. A slot cut short by the
+    /// end of the Source is not.
+    #[inline(always)]
+    fn is_blank_next(&self, count: usize) -> bool {
+        self.source
+            .get(..count)
+            .is_some_and(|cells| cells.bytes().all(|cell| cell == b' '))
     }
 
     #[inline(always)]
@@ -1565,14 +1600,27 @@ mod property {
     }
 
     /// One Function spelled with a literal in each operand position its
-    /// signature declares: the shape strict parsing accepts whole.
+    /// signature declares: the shape strict parsing accepts whole. A position
+    /// whose operand type admits a blank slot is sometimes left blank, which
+    /// analysis reads whole and strict parsing refuses.
     fn complete_expression() -> BoxedStrategy<String> {
         select(Function::ALL.to_vec())
             .prop_flat_map(|function| {
                 let operands: Vec<BoxedStrategy<String>> = function
                     .signature()
                     .iter()
-                    .map(|token| literal_source(*token))
+                    .zip(function.blank_admitted())
+                    .map(|(token, blank_admitted)| {
+                        if *blank_admitted {
+                            prop_oneof![
+                                3 => literal_source(*token),
+                                1 => Just(" ".repeat(token.len())),
+                            ]
+                            .boxed()
+                        } else {
+                            literal_source(*token)
+                        }
+                    })
                     .collect();
                 (Just(function), operands)
             })
@@ -1758,6 +1806,23 @@ mod property {
                     Some(atoms) => {
                         prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end])
                     }
+                    // Every atomless record of a complete Expression that
+                    // is not a Comment is a blank slot its operand type
+                    // admits: Cells written blank, never a placeholder for
+                    // Source that did not read.
+                    None if expression.comment().is_none() => {
+                        let atomless = expression
+                            .positioned()
+                            .filter(|entry| entry.atom.is_none() && entry.token != Token::Payload);
+                        for entry in atomless {
+                            prop_assert!(
+                                spelled[entry.cells.clone()].bytes().all(|cell| cell == b' '),
+                                "{:?} completed with an unread {:?} slot",
+                                spelled,
+                                entry.token,
+                            );
+                        }
+                    }
                     None => {
                         prop_assert_eq!(
                             expression.tokens().collect::<Vec<_>>(),
@@ -1853,10 +1918,17 @@ mod property {
                 .expression()
                 .tokens()
                 .any(|token| token == Token::Payload);
+            // A blank slot its operand type admits reads complete and holds
+            // no value for strict parsing to yield.
+            let blank = analysis
+                .expression()
+                .positioned()
+                .any(|entry| entry.atom.is_none() && entry.token != Token::Comment);
             let complete = analysis.is_complete()
                 && analysis.cells().end == source.len()
                 && !comment
-                && !payload;
+                && !payload
+                && !blank;
             prop_assert_eq!(parsed.is_ok(), complete, "{:?}", source);
 
             if let Ok(atoms) = parsed {
@@ -2061,5 +2133,63 @@ mod nesting_tests {
     fn a_root_effect_function_and_a_nested_value_function_parse() {
         assert!(Parser::from("!>007FC4").analyze().is_complete());
         assert!(Parser::from(".+.x030401").analyze().is_complete());
+    }
+}
+
+#[cfg(test)]
+mod blank_slot_tests {
+    use super::Parser;
+    use crate::{Error, Token, TypeError};
+
+    #[test]
+    fn a_blank_raw_play_note_is_recorded_absent_and_reports_nothing() {
+        let analysis = Parser::from("!>017F  ").analyze();
+
+        assert!(analysis.error().is_none(), "{:?}", analysis.error());
+        assert!(analysis.is_complete());
+        assert_eq!(analysis.cells(), 0..8);
+        let note = analysis
+            .expression()
+            .positioned()
+            .last()
+            .expect("the note slot is recorded");
+        assert_eq!(
+            (note.token, note.cells.clone(), note.atom, note.parent),
+            (Token::Note, 6..8, None, Some(0))
+        );
+    }
+
+    #[test]
+    fn a_half_typed_or_mistyped_raw_play_note_is_refused() {
+        for source in ["!>017FC ", "!>017F C", "!>017FZZ", "!>017F ", "!>017F"] {
+            assert!(
+                Parser::from(source).analyze().error().is_some(),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_blank_plain_operand_beside_a_blank_note_is_still_refused() {
+        for source in ["!>  7F  ", "!>01    "] {
+            assert!(
+                matches!(
+                    Parser::from(source).analyze().error(),
+                    Some(Error::Type(TypeError::Number(_)))
+                ),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_parsing_refuses_a_blank_note_it_has_no_value_to_yield_for() {
+        assert_eq!(
+            Parser::from("!>017F  ")
+                .try_parse()
+                .unwrap_err()
+                .to_string(),
+            "expected a note, found \"  \""
+        );
     }
 }

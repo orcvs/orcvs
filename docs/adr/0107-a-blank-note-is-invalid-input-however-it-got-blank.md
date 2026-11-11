@@ -1,6 +1,6 @@
 # A blank note is invalid input, however it got blank
 
-Status: accepted. Supersedes [ADR 0075](0075-a-play-with-a-cleared-note-rests.md) and
+Status: superseded by [ADR 0108](0108-a-plays-note-is-optional-by-type.md): a Play's note is optional by type, so a blank note plays nothing and raises no diagnostic. It was accepted. Supersedes [ADR 0075](0075-a-play-with-a-cleared-note-rests.md) and
 [ADR 0104](0104-a-blank-note-or-root-is-a-rest-however-it-got-blank.md): Orcvs has no Rest.
 Restores [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md)'s rule that an unwritten slot is
 invalid input, and [ADR 0073](0073-a-function-with-nothing-to-write-answers-nothing.md)'s rule that a

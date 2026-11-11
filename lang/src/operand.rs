@@ -1,9 +1,10 @@
 //! The operand types a Function declares, as Rust types.
 //!
 //! A Function's row in the table names one of these types per role. The type
-//! decides three things together: the [`Token`] the Parser reads a literal in
-//! that slot as, the payload extraction yields for it, and the value the
-//! Function body receives. [`Operand::bind`] takes exactly the payload its
+//! decides four things together: the [`Token`] the Parser reads a literal in
+//! that slot as, the payload extraction yields for it, the value the
+//! Function body receives, and whether the slot may hold no value
+//! ([`Operand::BLANK`]). [`Operand::bind`] takes exactly the payload its
 //! [`Operand::Token`] yields, so an operand whose token and bind disagree does
 //! not compile:
 //!
@@ -99,6 +100,15 @@ pub trait Operand {
     /// Fallible because a domain may be narrower than its token: a MIDI
     /// channel is read as a Number and is a channel only once this admits it.
     fn bind(payload: <Self::Token as TokenKind>::Payload) -> Result<Self::Bound, Error>;
+
+    /// What a slot that holds no value binds to — blank Cells, or a nested
+    /// Function that answered a Clear — or `None` where this operand requires
+    /// a value and refuses the slot.
+    ///
+    /// Whether an operand admits a blank slot is this answer, so the Parser,
+    /// which reads a blank slot as absent only where it is admitted, and
+    /// binding cannot disagree. Only [`Optional`] admits one.
+    const BLANK: Option<Self::Bound> = None;
 }
 
 /// A Number: `00`–`FF`.
@@ -268,6 +278,37 @@ pub type BendLsb = Domain<crate::BendLsb>;
 /// The Pitch Bend high half over a Number literal.
 pub type BendMsb = Domain<crate::BendMsb>;
 
+/// `O`, or no value: a slot that admits blank Cells.
+///
+/// It is read as `O`'s token and binds a present value through `O::bind`, so
+/// a value `O` refuses is refused with `O`'s diagnostic. A slot that holds no
+/// value binds to `None` rather than being refused.
+pub struct Optional<O>(core::marker::PhantomData<O>, core::convert::Infallible);
+
+impl<O: Operand> Operand for Optional<O> {
+    type Token = O::Token;
+    type Bound = Option<O::Bound>;
+
+    #[inline(always)]
+    fn bind(payload: <O::Token as TokenKind>::Payload) -> Result<Option<O::Bound>, Error> {
+        O::bind(payload).map(Some)
+    }
+
+    const BLANK: Option<Option<O::Bound>> = Some(None);
+}
+
+/// Whether `O` admits a slot that holds no value, for the Function table's
+/// signature constants.
+pub(crate) const fn admits_blank<O: Operand>() -> bool {
+    let blank = O::BLANK;
+    let admits = blank.is_some();
+    // A `const fn` cannot run the destructor of a generic `Bound`. The table
+    // evaluates this at compile time only, so forgetting the copy leaks
+    // nothing at run time.
+    core::mem::forget(blank);
+    admits
+}
+
 /// A Play lifetime over a Number literal. Every byte is a length, so this
 /// converts where the MIDI domains validate.
 pub enum Length {}
@@ -283,29 +324,30 @@ impl Operand for Length {
 }
 
 /// The two Cells a slot that holds no value shows.
-const BLANK: &str = "  ";
+pub(crate) const BLANK: &str = "  ";
 
-/// The Atom in operand slot `slot`, or `O`'s refusal of a slot that holds
-/// none: blank Cells, or a nested Function that answered a Clear.
+/// `O`'s refusal of operand slot `slot`, which holds no value.
 #[inline(always)]
-fn present<O: Operand>(atom: Option<crate::Atom>, slot: usize) -> Result<crate::Atom, Error> {
-    atom.ok_or_else(|| {
-        let refusal = match O::Token::TOKEN.decode(BLANK) {
-            Err(refusal) => refusal,
-            Ok(atom) => unreachable!("every Atom spells a written Language Unit, not {atom}"),
-        };
-        crate::ArgumentError::Absent {
-            slot,
-            refusal: Box::new(refusal),
-        }
-        .into()
-    })
+fn absent<O: Operand>(slot: usize) -> Error {
+    let refusal = match O::Token::TOKEN.decode(BLANK) {
+        Err(refusal) => refusal,
+        Ok(atom) => unreachable!("every Atom spells a written Language Unit, not {atom}"),
+    };
+    crate::ArgumentError::Absent {
+        slot,
+        refusal: Box::new(refusal),
+    }
+    .into()
 }
 
-/// Checks operand slot `slot` against `O`'s token.
+/// Checks operand slot `slot` against `O`'s token. A slot that holds no value
+/// passes only where `O` admits one.
 #[inline(always)]
 pub(crate) fn check<O: Operand>(atom: Option<crate::Atom>, slot: usize) -> Result<(), Error> {
-    O::Token::from_atom(present::<O>(atom, slot)?).map(drop)
+    match atom {
+        Some(atom) => O::Token::from_atom(atom).map(drop),
+        None => O::BLANK.map(drop).ok_or_else(|| absent::<O>(slot)),
+    }
 }
 
 /// Binds operand slot `slot` to `O`.
@@ -314,5 +356,8 @@ pub(crate) fn bind_atom<O: Operand>(
     atom: Option<crate::Atom>,
     slot: usize,
 ) -> Result<O::Bound, Error> {
-    O::bind(O::Token::from_atom(present::<O>(atom, slot)?)?)
+    match atom {
+        Some(atom) => O::bind(O::Token::from_atom(atom)?),
+        None => O::BLANK.ok_or_else(|| absent::<O>(slot)),
+    }
 }

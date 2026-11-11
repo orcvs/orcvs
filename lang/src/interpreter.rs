@@ -15,8 +15,9 @@ pub enum Interpretation {
     /// Orca's bang ports write `.`, and a Copy, Read or Track of two empty
     /// Cells.
     ///
-    /// Nested, it returns no value: the operand it stands in is unwritten,
-    /// so its parent is invalid and names it.
+    /// Nested, it returns no value: the operand it stands in holds none, so
+    /// a parent whose operand type requires a value is invalid and names it,
+    /// and an optional operand binds to no value.
     Clear,
     /// The one Play Command an active Terminal Output Function root performs.
     Play(PlayCommand),
@@ -31,6 +32,9 @@ pub enum Interpretation {
     /// What an active UDP Function answers for an empty Payload, `!u!`: it
     /// sends nothing and reports nothing.
     EmptyPayload,
+    /// What an active Play root answers for a blank note: it sends nothing
+    /// and reports nothing.
+    BlankNote,
     /// The lock one active locking Function root places on the Expression
     /// root at its Output Portal.
     ///
@@ -206,7 +210,8 @@ impl Interpreter {
             Function::RawChordPlay => {
                 Interpretation::Chord(functions::chord::raw_chord_play(&mut ctx)?)
             }
-            Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
+            Function::RawPlay => functions::raw_play(&mut ctx)?
+                .map_or(Interpretation::BlankNote, Interpretation::Play),
             Function::TimedChordPlay => {
                 Interpretation::Chord(functions::chord::timed_chord_play(&mut ctx)?)
             }

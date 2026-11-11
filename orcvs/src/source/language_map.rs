@@ -289,7 +289,12 @@ struct DerivedExpression {
 impl DerivedExpression {
     /// What a schedule reads of this Expression, when a schedule computes it.
     fn scheduled(&self) -> Option<ScheduledExpression<'_>> {
-        ScheduledExpression::of(self.span, self.function_candidate, &self.expression)
+        ScheduledExpression::of(
+            self.span,
+            self.function_candidate,
+            &self.expression,
+            self.diagnostic.is_some(),
+        )
     }
 }
 
@@ -1516,7 +1521,8 @@ mod tests {
             ".+01      ",
             ".+01.+  02",
             ".+  .+0102",
-            "!>007F    ",
+            "!c0007    ",
+            "!>  7F    ",
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
