@@ -503,13 +503,13 @@ mod test {
         // `Interpretation` carries its tag in their niche and reads 20 on
         // wasm32, and pointer alignment rounds it to 24 natively.
         //
-        // The answer's sizes are written out rather than derived from the
-        // types they describe, so a wider answer fails here. A failure is
-        // notice rather than a defect: the answer seam has changed shape, and
-        // `execute_function` is the measurement to take again. `Error` is
-        // held only to the relation the seam relies on, that the answer is no
-        // wider than it, so the `Result` a Turn returns is exactly as wide as
-        // `Error` makes it; a change to `Error` alone is not the answer's.
+        // The answer's sizes are written out so a wider answer fails here.
+        // A failure is notice rather than a defect: the answer seam has
+        // changed shape, and `execute_function` is the measurement to take
+        // again. `Error` is held only to the relation the seam relies on, that
+        // the answer is no wider than it, so the `Result` a Turn returns is
+        // exactly as wide as `Error` makes it; a change to `Error` alone is
+        // not the answer's.
         let answer = if cfg!(target_pointer_width = "64") {
             24
         } else {
