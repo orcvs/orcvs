@@ -1523,6 +1523,7 @@ mod tests {
             ".+  .+0102",
             "!c0007    ",
             "!>  7F    ",
+            "!>01      ",
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
