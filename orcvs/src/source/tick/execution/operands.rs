@@ -92,7 +92,7 @@ impl Execution<'_> {
                         continue;
                     }
                     if ignores_blanks {
-                        excused.get_or_insert(Excused::Blank(token));
+                        excused.get_or_insert(Unsupplied::Blank(token));
                         continue;
                     }
                 }
@@ -106,13 +106,13 @@ impl Execution<'_> {
                     continue;
                 }
                 Some(Answer::Clear) if ignores_blanks => {
-                    excused.get_or_insert(Excused::Cleared(anchor));
+                    excused.get_or_insert(Unsupplied::Cleared(anchor));
                     continue;
                 }
                 // A Clear wrote two spaces at the child's Output Portal and
                 // returns no value. The parent names the child, since
                 // nothing at the operand says which Function cleared.
-                Some(Answer::Clear) => return Err(Excused::Cleared(anchor).refusal()),
+                Some(Answer::Clear) => return Err(Unsupplied::Cleared(anchor).refusal()),
                 Some(Answer::Unit(atom)) => Encoding::render(atom),
                 None => return Err(nested(anchor, "returned nothing")),
             };
@@ -146,21 +146,29 @@ impl Execution<'_> {
     }
 }
 
-/// The first operand a rest operand that ignores blanks would excuse, kept
-/// until the rest operand proves written. Its refusal is built only then, so
-/// a resting Turn builds none.
+/// An operand that supplies no value, held so its refusal is built only when
+/// it is reported.
+///
+/// `decode` reports a Clear in an operand nothing excuses at once. The first
+/// operand a rest operand that ignores blanks would excuse is kept until the
+/// rest operand proves written, so a resting Turn builds no refusal.
 #[derive(Clone, Copy)]
-enum Excused {
+enum Unsupplied {
     /// Two blank Cells, in an operand that reads this Token.
     Blank(lang::Token),
     /// The nested computation at this anchor answered a Clear.
     Cleared(Position),
 }
 
-impl Excused {
-    /// The refusal this operand gives once nothing excuses it.
+impl Unsupplied {
+    /// The refusal this operand gives where nothing excuses it.
     fn refusal(self) -> String {
         match self {
+            // Only an operand of a Function whose rest ignores blanks is held
+            // as a blank, and every Token such a signature reads refuses a
+            // blank pair, as `lang`'s
+            // `every_token_a_rest_excuses_refuses_a_blank_pair` checks across
+            // the Function table.
             Self::Blank(token) => token
                 .decode(lang::BLANK_PAIR)
                 .expect_err("a blank pair decodes to no value")

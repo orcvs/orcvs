@@ -25,10 +25,14 @@ use std::ops::Range;
 pub struct SourceAnalysis {
     expression: Expression,
     error: Option<Error>,
-    /// Whether nothing was refused and only blank operands a rest excuses are
-    /// unbound. Such an Expression has no `error` and can execute, but is not
-    /// complete.
-    rests: bool,
+    /// Whether nothing was refused and at least one operand holds a blank a
+    /// rest operand excuses: the blank rest operand itself, or a blank beside
+    /// a rest operand that ignores blanks and was not written in Source. That
+    /// rest operand may be blank or a nested Function, so `!:017F&v01  CL00`
+    /// holds an excused blank Interval Set beside a nested root. Such an
+    /// Expression has no `error` and can execute, but an excused operand is
+    /// unbound, so it is not complete.
+    has_excused: bool,
     start: usize,
     consumed: usize,
 }
@@ -61,9 +65,9 @@ impl SourceAnalysis {
     }
 
     /// Whether every entry of this Expression bound what its signature
-    /// declares. A rest does not: its rest operand holds no value.
+    /// declares. An excused blank operand does not: it holds no value.
     pub fn is_complete(&self) -> bool {
-        self.error.is_none() && !self.rests
+        self.error.is_none() && !self.has_excused
     }
 }
 
@@ -139,11 +143,14 @@ impl<'a> Parser<'a> {
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
-        // A blank rest operand alone is refused here, after an operand that
-        // does not decode and after Cells past the Expression. A blank operand
-        // that a written rest operand refuses was refused when that rest
-        // operand was read, in Cell order, so a blank before it comes ahead of
-        // any later operand that does not decode.
+        // The first excused blank is refused here, after an operand that does
+        // not decode and after Cells past the Expression. It holds no value
+        // to yield, whether it is the blank rest operand or a blank that
+        // operand excused beside it: strict parsing of `!:      M7CL00`
+        // reports the blank channel. A blank that a written rest operand
+        // refuses was refused when that rest operand was read, in Cell order,
+        // so a blank before it comes ahead of any later operand that does not
+        // decode.
         if let Some(token) = self.excused {
             return Err(Self::blank_refusal(token));
         }
@@ -200,7 +207,7 @@ impl<'a> Parser<'a> {
 
         SourceAnalysis {
             expression: self.expression,
-            rests: error.is_none() && self.excused.is_some(),
+            has_excused: error.is_none() && self.excused.is_some(),
             error,
             start: self.start,
             consumed,
@@ -2115,7 +2122,7 @@ mod positioned_tests {
 
 #[cfg(test)]
 mod nesting_tests {
-    use super::Parser;
+    use super::{BLANK_PAIR, Parser};
     use crate::{Atom, Error, Function, SyntaxError};
 
     #[test]
@@ -2216,6 +2223,43 @@ mod nesting_tests {
     fn strict_parsing_refuses_a_chord_play_with_a_blank_operand() {
         assert!(Parser::from("!:017F  M7CL00").try_parse().is_err());
         assert!(Parser::from("!:01    M7CL00").try_parse().is_err());
+    }
+
+    #[test]
+    fn every_token_a_rest_excuses_refuses_a_blank_pair() {
+        // `Parser::blank_refusal` and the Turn build an excused blank's
+        // refusal by decoding a blank pair, so every Token a rest can excuse
+        // must refuse one: each rest operand's, and every Token of a
+        // signature whose rest ignores blanks.
+        let mut ignoring_blanks = 0;
+        for function in Function::ALL {
+            let Some(rest) = function.rest_operand() else {
+                continue;
+            };
+            ignoring_blanks += usize::from(rest.ignores_blanks);
+            for (slot, token) in function.signature().iter().enumerate() {
+                if slot == rest.slot || rest.ignores_blanks {
+                    assert!(
+                        token.decode(BLANK_PAIR).is_err(),
+                        "{function:?} operand {slot} reads {token:?}, which decodes a blank pair"
+                    );
+                }
+            }
+        }
+        assert!(ignoring_blanks > 0, "some Function's rest ignores blanks");
+    }
+
+    #[test]
+    fn strict_parsing_reports_the_first_excused_blank_of_a_resting_chord_play() {
+        // The blank channel comes before the blank root, so it is the blank
+        // strict parsing refuses.
+        assert_eq!(
+            Parser::from("!:      M7CL00")
+                .try_parse()
+                .unwrap_err()
+                .to_string(),
+            "expected a number, found \"  \""
+        );
     }
 
     #[test]

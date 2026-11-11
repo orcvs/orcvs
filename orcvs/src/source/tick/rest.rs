@@ -455,13 +455,43 @@ fn a_root_a_portal_emptied_ignores_an_operand_a_nested_read_cleared() {
 }
 
 #[test]
-fn a_root_written_in_source_refuses_an_operand_left_blank_until_a_portal_empties_it() {
+fn a_root_written_beside_a_blank_rests_on_the_tick_a_portal_empties_it() {
     // The Language Map reads the root as Source holds it before the Tick, so
-    // the blank operand beside it is refused there. That refusal holds the
-    // Turn, which sends nothing and repeats nothing. Track leaves the root
-    // blank in Source, so the Map rebuilt after the Tick, and every later
-    // Tick, rest.
+    // it refuses the operand left blank beside it. That refusal holds a Turn
+    // only while every operand still holds what Source held when it was
+    // mapped. Track's write changes the root, so the Turn runs on the Tick
+    // and decodes what Track wrote.
     for play in ["  !:017FC4  CL00", "  !#017FC4  CL0004", "  !:  7FC4M7CL00"] {
+        // With `D4` in Track's pair, the Turn that runs refuses the blank
+        // operand. On the next Tick Source holds `D4` as it was mapped, so
+        // the Map's refusal holds the Turn, which repeats nothing.
+        let rows = [".=0101  &t0001D4", play];
+        assert!(
+            mapped(Grid::with_shape(40, 4), &rows).contains(&(2, 1)),
+            "{play:?}"
+        );
+        let ticks = executed(Grid::with_shape(40, 4), &rows, 0..2);
+        let (commands, observed, after) = &ticks[0];
+        assert_eq!(commands, &vec![], "{play:?}");
+        assert_eq!(&observed.diagnostics, after, "{play:?}");
+        assert_eq!(
+            observed
+                .diagnostics
+                .iter()
+                .map(|(x, y, _)| (*x, *y))
+                .collect::<Vec<_>>(),
+            vec![(2, 1)],
+            "{play:?}"
+        );
+        let (commands, observed, after) = &ticks[1];
+        assert_eq!(commands, &vec![], "{play:?}");
+        assert_eq!(observed.diagnostics, vec![], "{play:?}");
+        assert_eq!(after.len(), 1, "{play:?}");
+
+        // With Track's pair empty, the same Turn runs and rests: it sends
+        // nothing and reports nothing. Track leaves the root blank in Source,
+        // so the Map rebuilt after the Tick admits the row and the next Tick
+        // rests as well.
         let rows = [".=0101  &t0001  ", play];
         assert!(
             mapped(Grid::with_shape(40, 4), &rows).contains(&(2, 1)),
