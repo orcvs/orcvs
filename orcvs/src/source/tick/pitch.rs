@@ -32,8 +32,14 @@ fn a_nested_up_or_down_returns_its_note_and_writes_its_own_output_portal() {
 #[test]
 fn an_answer_outside_the_note_range_diagnoses_and_writes_nothing() {
     for (expression, message) in [
-        ("#+G901", "#+ cannot answer 128 as a Note"),
-        ("#-C/01", "#- cannot answer -1 as a Note"),
+        (
+            "#+G901",
+            "#+ cannot answer semitone 128 (decimal), outside the Note range 00–7F",
+        ),
+        (
+            "#-C/01",
+            "#- cannot answer semitone -1 (decimal), outside the Note range 00–7F",
+        ),
     ] {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &[expression, "A4"], 1);
         assert_eq!(messages(&plans[0]), [message], "{expression}");
@@ -112,7 +118,7 @@ fn a_nested_up_outside_the_note_range_sends_nothing() {
     assert_eq!(
         messages(&plans[0]),
         [
-            "#+ cannot answer 128 as a Note",
+            "#+ cannot answer semitone 128 (decimal), outside the Note range 00–7F",
             "nested computation at column 6, row 2 returned nothing"
         ]
     );
