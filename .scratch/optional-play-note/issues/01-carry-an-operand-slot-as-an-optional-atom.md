@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each module on the path passes an absent operand on without interpreting it; only binding branches on it.
-- [ ] A plain operand refuses an absent value with the diagnostic it gives today: the same message and anchor for a blank slot, and `nested computation at column X, row Y cleared its operand` for a nested Clear.
-- [ ] A blank plain operand is still diagnosed in the Language Map before any Tick.
-- [ ] Every existing test passes unchanged, apart from mechanical signature updates.
-- [ ] `evaluate` tests in lang show a plain operand refusing an absent value with today's message.
+- [x] Each module on the path passes an absent operand on without interpreting it; only binding branches on it.
+- [x] A plain operand refuses an absent value with the diagnostic it gives today: the same message and anchor for a blank slot, and `nested computation at column X, row Y cleared its operand` for a nested Clear.
+- [x] A blank plain operand is still diagnosed in the Language Map before any Tick.
+- [x] Every existing test passes unchanged, apart from mechanical signature updates.
+- [x] `evaluate` tests in lang show a plain operand refusing an absent value with today's message.

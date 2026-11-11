@@ -101,12 +101,14 @@ impl Interpreter {
     /// clock, static, or thread-local is read, so the same Function over the
     /// same operands and inputs answers the same way every time.
     ///
-    /// The operands are taken in signature order, one Atom each.
+    /// The operands are taken in signature order, one slot each: the Atom it
+    /// holds, or `None` where it holds no value, which only the declared
+    /// operand type decides the meaning of.
     ///
     /// ```
     /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Tick, TickInputs};
     /// let answer = Interpreter::execute_function(
-    ///     Function::Subtract, [Atom::Number(9), Atom::Number(2)],
+    ///     Function::Subtract, [Some(Atom::Number(9)), Some(Atom::Number(2))],
     ///     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
     /// ).unwrap();
     /// assert_eq!(answer, Interpretation::Cell(Atom::Number(7)));
@@ -117,7 +119,7 @@ impl Interpreter {
         inputs: FunctionInputs<'_>,
     ) -> Result<Interpretation, Error>
     where
-        I: IntoIterator<Item = Atom>,
+        I: IntoIterator<Item = Option<Atom>>,
         I::IntoIter: ExactSizeIterator + DoubleEndedIterator,
     {
         let operands = operands.into_iter();
@@ -246,7 +248,7 @@ mod test {
     /// Evaluates one Function over literal operands, the way a Turn hands
     /// them over once it has resolved them.
     fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
-        let operands = operands.iter().copied();
+        let operands = operands.iter().copied().map(Some);
         Interpreter::execute_function(function, operands, inputs().into())
     }
 
@@ -916,7 +918,7 @@ mod test {
                         );
                         let answer = Interpreter::execute_function(
                             function,
-                            operands.iter().copied(),
+                            operands.iter().copied().map(Some),
                             inputs,
                         );
                         if matches!(answer, Ok(Interpretation::Clear)) {

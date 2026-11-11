@@ -37,7 +37,7 @@ mod test {
     ) -> Result<Interpretation, crate::Error> {
         Interpreter::execute_function(
             function,
-            operands,
+            operands.map(Some),
             FunctionInputs::with_portal_source(
                 TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
                 PortalSource::from_cells(cells),
@@ -61,13 +61,13 @@ mod test {
             assert_eq!(rule.direction(), direction, "{function:?}");
             for distance in [0, 1, 0xFF] {
                 assert_eq!(
-                    rule.distance(&[Atom::Number(distance)]).unwrap(),
+                    rule.distance(&[Some(Atom::Number(distance))]).unwrap(),
                     distance,
                     "{direction:?}"
                 );
             }
             assert!(
-                matches!(rule.distance(&[note]), Err(crate::Error::Type(_))),
+                matches!(rule.distance(&[Some(note)]), Err(crate::Error::Type(_))),
                 "{direction:?}"
             );
         }
@@ -76,14 +76,15 @@ mod test {
     #[test]
     fn an_absolute_read_addresses_column_then_row() {
         let position = |column, row| {
-            PositionRule::AbsoluteRead.position(&[Atom::Number(column), Atom::Number(row)])
+            PositionRule::AbsoluteRead
+                .position(&[Some(Atom::Number(column)), Some(Atom::Number(row))])
         };
         assert_eq!(position(0, 0).unwrap(), (0, 0));
         assert_eq!(position(0x3A, 0x18).unwrap(), (0x3A, 0x18));
         assert_eq!(position(0xFF, 0xFF).unwrap(), (0xFF, 0xFF));
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
-            PositionRule::AbsoluteRead.position(&[Atom::Number(0), note]),
+            PositionRule::AbsoluteRead.position(&[Some(Atom::Number(0)), Some(note)]),
             Err(crate::Error::Type(_))
         ));
         assert_eq!(

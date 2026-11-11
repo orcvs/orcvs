@@ -56,7 +56,7 @@ fn execute_function(c: &mut Criterion) {
     // One scalar Add over resolved operands is the call a Turn makes for the
     // commonest Expression.
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    let operands = [Atom::Number(0x01), Atom::Number(0x02)];
+    let operands = [Some(Atom::Number(0x01)), Some(Atom::Number(0x02))];
 
     // The operands are handed over by value, so each iteration's copy is
     // built outside the timed routine.
@@ -81,17 +81,21 @@ fn execute_function(c: &mut Criterion) {
 /// Stack, the bind, the Function body and the answer.
 fn execute_function_operands(c: &mut Criterion) {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    let turns: [(&str, Function, Vec<Atom>); 3] = [
-        ("Add", Function::Add, vec![Atom::Number(1), Atom::Number(2)]),
+    let turns: [(&str, Function, Vec<Option<Atom>>); 3] = [
+        (
+            "Add",
+            Function::Add,
+            vec![Some(Atom::Number(1)), Some(Atom::Number(2))],
+        ),
         (
             "ConvertToNote",
             Function::ConvertToNote,
-            vec![Atom::Number(0x3C)],
+            vec![Some(Atom::Number(0x3C))],
         ),
         (
             "Subtract",
             Function::Subtract,
-            vec![Atom::Number(3), Atom::Number(1)],
+            vec![Some(Atom::Number(3)), Some(Atom::Number(1))],
         ),
     ];
 

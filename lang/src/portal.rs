@@ -30,7 +30,7 @@ impl InputPortal {
     ///
     pub fn resolve(
         self,
-        operands: &[Atom],
+        operands: &[Option<Atom>],
         operand_columns: usize,
     ) -> Result<PortalAddress, Error> {
         match self {
@@ -44,7 +44,7 @@ impl PairSelection {
     ///
     /// Where the selected pair stands for its Function's Turn.
     ///
-    /// `operands` are the values the Turn resolved, and `operand_columns` is
+    /// `operands` are the slots the Turn resolved, and `operand_columns` is
     /// how many columns east of the anchor the Function and its operands
     /// occupy, nested operands included: `orcvs` knows how they lie in the
     /// Grid. The rule takes the values of only the address operands that
@@ -72,7 +72,7 @@ impl PairSelection {
     ///
     pub fn resolve(
         self,
-        operands: &[Atom],
+        operands: &[Option<Atom>],
         operand_columns: usize,
     ) -> Result<PortalAddress, Error> {
         match self {
@@ -361,7 +361,12 @@ mod test {
         function
             .input_portal()
             .expect("the Function declares an Input Portal")
-            .resolve(operands, operand_columns)
+            .resolve(&slots(operands), operand_columns)
+    }
+
+    /// `operands` as the slots a Turn resolves, each holding its Atom.
+    fn slots(operands: &[Atom]) -> Vec<Option<Atom>> {
+        operands.iter().copied().map(Some).collect()
     }
 
     /// The offset `function`'s declared Input Portal resolves to.
@@ -532,7 +537,7 @@ mod test {
         let value = Atom::Note(Note::try_from(67).unwrap());
         let selected = |function: Function, operands: &[Atom], operand_columns| {
             selection(function)
-                .resolve(operands, operand_columns)
+                .resolve(&slots(operands), operand_columns)
                 .unwrap()
         };
         for (read, write) in [
@@ -566,7 +571,7 @@ mod test {
         }
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
-            selection(Function::WriteEast).resolve(&[note, value], 6),
+            selection(Function::WriteEast).resolve(&[Some(note), Some(value)], 6),
             Err(Error::Type(_))
         ));
     }
@@ -580,7 +585,7 @@ mod test {
             let operands = operands.map(Atom::Number);
             let read = address(Function::AbsoluteCopy, &operands, 10).unwrap();
             let written = selection(Function::AbsoluteCopy)
-                .resolve(&operands, 10)
+                .resolve(&slots(&operands), 10)
                 .unwrap();
             (read, written)
         };
@@ -615,7 +620,7 @@ mod test {
             );
             assert!(
                 matches!(
-                    selection(Function::AbsoluteCopy).resolve(&operands, 10),
+                    selection(Function::AbsoluteCopy).resolve(&slots(&operands), 10),
                     Err(Error::Type(_))
                 ),
                 "{slot}"
@@ -630,7 +635,7 @@ mod test {
         let value = Atom::Note(Note::try_from(67).unwrap());
         let push = |index, count, operand_columns| {
             selection(Function::Push).resolve(
-                &[Atom::Number(index), Atom::Number(count), value],
+                &slots(&[Atom::Number(index), Atom::Number(count), value]),
                 operand_columns,
             )
         };
@@ -652,7 +657,7 @@ mod test {
         ));
         let note = Atom::Note(Note::try_from(60).unwrap());
         assert!(matches!(
-            selection(Function::Push).resolve(&[note, Atom::Number(3), value], 8),
+            selection(Function::Push).resolve(&slots(&[note, Atom::Number(3), value]), 8),
             Err(Error::Type(_))
         ));
     }
@@ -662,7 +667,7 @@ mod test {
         let evaluated = |operands: [Atom; 2]| {
             Interpreter::execute_function(
                 Function::Track,
-                operands,
+                operands.map(Some),
                 FunctionInputs::with_portal_source(
                     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
                     PortalSource::from_cells(Some("D4")),

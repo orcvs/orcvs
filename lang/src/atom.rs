@@ -672,23 +672,28 @@ macro_rules! operands {
             const FUNCTION: crate::Function = crate::Function::$variant;
 
             #[inline(always)]
-            fn check(operands: &[crate::Atom]) -> Result<(), crate::Error> {
+            fn check(operands: &[Option<crate::Atom>]) -> Result<(), crate::Error> {
                 let [$($role),+] = operands else {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
-                $(crate::operand::check::<$operand>(*$role)?;)+
+                let mut slots = 0..;
+                $(crate::operand::check::<$operand>(*$role, crate::stack::next_slot(&mut slots))?;)+
                 Ok(())
             }
 
             // Field initialisers evaluate in signature order, so the first
             // operand outside its domain is the one that diagnoses.
             #[inline(always)]
-            fn bind(operands: &[crate::Atom]) -> Result<Self, crate::Error> {
+            fn bind(operands: &[Option<crate::Atom>]) -> Result<Self, crate::Error> {
                 let [$($role),+] = operands else {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
+                let mut slots = 0..;
                 Ok(Self {
-                    $($role: crate::operand::bind_atom::<$operand>(*$role)?,)+
+                    $($role: crate::operand::bind_atom::<$operand>(
+                        *$role,
+                        crate::stack::next_slot(&mut slots),
+                    )?,)+
                 })
             }
         }
@@ -878,6 +883,23 @@ macro_rules! declares {
     };
 }
 
+// Checks `operands` through `$variant`'s operand struct. A row that declares no
+// operand admits only an empty list.
+macro_rules! check_declared {
+    ($variant:ident, [], $operands:expr) => {{
+        let operands: &[Option<crate::Atom>] = $operands;
+        if operands.is_empty() {
+            Ok(())
+        } else {
+            Err(crate::stack::arity(Function::$variant, operands.len()))
+        }
+    }};
+    ($variant:ident, [$($role:ident),+], $operands:expr) => {{
+        use crate::stack::Operands as _;
+        operands::$variant::check($operands)
+    }};
+}
+
 // Checks and binds `values` through `$variant`'s operand struct, for the table
 // sweep in the tests below. A row that declares no operand has nothing to bind.
 #[cfg(test)]
@@ -887,8 +909,8 @@ macro_rules! bind_declared {
     };
     ($variant:ident, [$($role:ident),+], $values:expr) => {{
         use crate::stack::Operands as _;
-        let values: &[crate::Atom] = $values;
-        operands::$variant::checked_bind(values).map(drop)
+        let values: Vec<Option<crate::Atom>> = $values.iter().copied().map(Some).collect();
+        operands::$variant::checked_bind(&values).map(drop)
     }};
 }
 
@@ -1158,7 +1180,7 @@ macro_rules! define_functions {
             /// Turn resolved, checked against that Function's own signature so
             /// they diagnose as its evaluation would: a Write's `value` follows
             /// its `distance` and is never read.
-            pub(crate) fn distance(self, values: &[Atom]) -> Result<u8, Error> {
+            pub(crate) fn distance(self, values: &[Option<Atom>]) -> Result<u8, Error> {
                 match self {
                     $($(Self::$variant => {
                         use crate::stack::Operands as _;
@@ -1188,13 +1210,36 @@ macro_rules! define_functions {
             /// Function's Turn resolved, checked against that Function's own
             /// signature so they diagnose as its evaluation would: a Write's
             /// `value` follows the Position and is never read.
-            pub(crate) fn position(self, values: &[Atom]) -> Result<(u8, u8), Error> {
+            pub(crate) fn position(self, values: &[Option<Atom>]) -> Result<(u8, u8), Error> {
                 match self {
                     $($(Self::$variant => {
                         use crate::stack::Operands as _;
                         operands::$variant::checked_bind(values)
                             .map(|operands::$variant { $p_column, $p_row, .. }| ($p_column, $p_row))
                     })?)+
+                }
+            }
+        }
+
+        impl Function {
+            /// Checks `operands`, given in signature order, as this
+            /// Function's evaluation checks them before it reads any domain
+            /// or Portal: their count, and each slot against its declared
+            /// token. A slot that holds no value is refused here by an operand
+            /// type that requires one, with
+            /// [`ArgumentError::Absent`](crate::ArgumentError::Absent).
+            ///
+            /// ```
+            /// use lang::{ArgumentError, Atom, Error, Function};
+            /// assert!(Function::Add.check_operands(&[Some(Atom::Number(1)); 2]).is_ok());
+            /// assert!(matches!(
+            ///     Function::Add.check_operands(&[Some(Atom::Number(1)), None]),
+            ///     Err(Error::Argument(ArgumentError::Absent { slot: 1, .. }))
+            /// ));
+            /// ```
+            pub fn check_operands(self, operands: &[Option<Atom>]) -> Result<(), Error> {
+                match self {
+                    $(Self::$variant => check_declared!($variant, [$($role),*], operands),)+
                 }
             }
         }
@@ -2195,10 +2240,13 @@ mod test {
                     };
                     assert_eq!(spelling.next(), Some(arrow), "{function:?}");
                 }
-                let bind = |values: &[Atom]| match selection {
-                    PairSelection::Distance(rule) => Some(rule.distance(values).map(drop)),
-                    PairSelection::Position(rule) => Some(rule.position(values).map(drop)),
-                    _ => None,
+                let bind = |values: &[Atom]| {
+                    let values: Vec<Option<Atom>> = values.iter().copied().map(Some).collect();
+                    match selection {
+                        PairSelection::Distance(rule) => Some(rule.distance(&values).map(drop)),
+                        PairSelection::Position(rule) => Some(rule.position(&values).map(drop)),
+                        _ => None,
+                    }
                 };
                 let arity = function.signature().len();
                 let Some(own) = bind(&vec![Atom::Number(1); arity]) else {

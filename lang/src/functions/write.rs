@@ -17,7 +17,7 @@ pub fn write<O: Operands + Carried>(ctx: &mut Context) -> Result<Atom, Error> {
 /// A `count` of zero selects no pair and diagnoses as a wrap by zero does,
 /// as Track's does, and operands outside their domain diagnose as they would
 /// at evaluation.
-pub(crate) fn lane_pair(operands: &[Atom]) -> Result<u8, Error> {
+pub(crate) fn lane_pair(operands: &[Option<Atom>]) -> Result<u8, Error> {
     Push::checked_bind(operands)
         .and_then(|Push { index, count, .. }| selected_pair(Function::Push, index, count))
 }
@@ -51,7 +51,7 @@ mod test {
         operands.push(value);
         Interpreter::execute_function(
             function,
-            operands,
+            operands.into_iter().map(Some),
             TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
         )
     }
@@ -83,7 +83,7 @@ mod test {
         assert!(matches!(
             Interpreter::execute_function(
                 Function::WriteEast,
-                [note, Atom::Number(1)],
+                [note, Atom::Number(1)].map(Some),
                 TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
             ),
             Err(Error::Type(TypeError::Number(_)))

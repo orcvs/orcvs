@@ -20,7 +20,9 @@ pub(crate) trait Operands: Sized {
     const FUNCTION: Function;
 
     /// Checks every operand against its role's token, in signature order.
-    fn check(operands: &[Atom]) -> Result<(), Error>;
+    /// A slot that holds no value is refused here by a role that requires
+    /// one, so it diagnoses before any operand's domain.
+    fn check(operands: &[Option<Atom>]) -> Result<(), Error>;
 
     /// Binds each declared role to its operand, in signature order.
     ///
@@ -29,14 +31,14 @@ pub(crate) trait Operands: Sized {
     /// a channel only once its domain conversion succeeds. Every arity and
     /// type diagnostic is already raised by the time this runs, so a domain
     /// diagnostic can never displace one.
-    fn bind(operands: &[Atom]) -> Result<Self, Error>;
+    fn bind(operands: &[Option<Atom>]) -> Result<Self, Error>;
 
     /// Checks `operands` against the signature, then binds them.
     ///
     /// Every type diagnostic precedes every domain diagnostic, so a caller
     /// that reads operands its Turn resolved diagnoses them as the
     /// Function's evaluation would.
-    fn checked_bind(operands: &[Atom]) -> Result<Self, Error> {
+    fn checked_bind(operands: &[Option<Atom>]) -> Result<Self, Error> {
         Self::check(operands)?;
         Self::bind(operands)
     }
@@ -53,6 +55,15 @@ pub(crate) fn arity(function: Function, found: usize) -> Error {
         found,
     }
     .into()
+}
+
+/// The signature position of the next role a generated check or bind reads,
+/// counting from the start of `slots`.
+#[inline(always)]
+pub(crate) fn next_slot(slots: &mut core::ops::RangeFrom<usize>) -> usize {
+    let slot = slots.start;
+    slots.start += 1;
+    slot
 }
 
 /// The widest operand list any Function declares, and the capacity of every
@@ -81,9 +92,10 @@ const MAX_OPERANDS: usize = {
 
 /// The operand stack one Function evaluation runs against.
 ///
-/// It holds one Atom per operand: every operand a Function reads is a single
+/// It holds one slot per operand: every operand a Function reads is a single
 /// two-Cell value, whether an Operand Literal supplied it or a nested Function
-/// answered it.
+/// answered it, or `None` where the slot holds no value. Only binding decides
+/// what an empty slot means.
 ///
 /// The storage is inline, `MAX_OPERANDS` slots, so building one for a Turn
 /// asks the allocator for nothing. That capacity is sufficient because the
@@ -92,7 +104,7 @@ const MAX_OPERANDS: usize = {
 /// building the stack, and no signature is longer than `MAX_OPERANDS`.
 #[derive(Debug)]
 pub struct Stack {
-    inner: ArrayVec<Atom, MAX_OPERANDS>,
+    inner: ArrayVec<Option<Atom>, MAX_OPERANDS>,
     /// Never above `MAX_OPERANDS`, so every push [`Stack::push`] admits has an
     /// inline slot and exhaustion is always its diagnostic, never a panic.
     limit: usize,
@@ -117,7 +129,7 @@ impl Stack {
     #[inline(always)]
     pub(crate) fn with_operands<I>(operands: I) -> Result<Self, Error>
     where
-        I: DoubleEndedIterator<Item = Atom> + ExactSizeIterator,
+        I: DoubleEndedIterator<Item = Option<Atom>> + ExactSizeIterator,
     {
         let mut stack = Self::new(operands.len());
         for operand in operands.rev() {
@@ -126,9 +138,9 @@ impl Stack {
         Ok(stack)
     }
 
-    /// Pushes one value, diagnosing a stack with no slot left.
+    /// Pushes one operand slot, diagnosing a stack with no slot left.
     #[inline(always)]
-    pub(crate) fn push(&mut self, atom: Atom) -> Result<(), Error> {
+    pub(crate) fn push(&mut self, atom: Option<Atom>) -> Result<(), Error> {
         if self.inner.len() == self.limit {
             return Err(InterpretationError::OperandStackExhausted {
                 capacity: self.limit,
@@ -142,7 +154,7 @@ impl Stack {
     /// Pops one slot, so a test can read what a Function left behind.
     /// Evaluation consumes operands only through the declared pops below.
     #[cfg(test)]
-    pub(crate) fn pop_value(&mut self) -> Option<Atom> {
+    pub(crate) fn pop_value(&mut self) -> Option<Option<Atom>> {
         self.inner.pop()
     }
 
@@ -156,10 +168,10 @@ impl Stack {
     #[inline(always)]
     pub(crate) fn extract<O: Operands>(&mut self) -> Result<O, Error> {
         let expected = O::FUNCTION.signature().len();
-        // One Atom per operand the signature declares, and `MAX_OPERANDS` is
+        // One slot per operand the signature declares, and `MAX_OPERANDS` is
         // the widest signature the table holds, so the push below is total: no
         // Function can declare an operand list this buffer cannot take.
-        let mut operands: ArrayVec<Atom, MAX_OPERANDS> = ArrayVec::new();
+        let mut operands: ArrayVec<Option<Atom>, MAX_OPERANDS> = ArrayVec::new();
 
         for found in 0..expected {
             operands.push(
@@ -317,7 +329,7 @@ mod test {
     fn push_all(stack: &mut Stack, operands: impl IntoIterator<Item = Atom>) {
         let operands: Vec<Atom> = operands.into_iter().collect();
         for operand in operands.into_iter().rev() {
-            stack.push(operand).unwrap();
+            stack.push(Some(operand)).unwrap();
         }
     }
 
@@ -424,7 +436,7 @@ mod test {
     #[test]
     fn a_conversion_over_one_atom_answers_an_ordinary_atom() {
         let mut stack = empty_stack();
-        stack.push(Atom::Number(0x3C)).unwrap();
+        stack.push(Some(Atom::Number(0x3C))).unwrap();
 
         assert_eq!(to_note(&mut stack).unwrap(), note(0x3C));
         assert_eq!(stack.pop_value(), None);
@@ -434,7 +446,7 @@ mod test {
     fn an_evaluation_fault_in_a_conversion_answers_the_fault_the_conversion_raised() {
         // `80` names no MIDI Note.
         let mut stack = empty_stack();
-        stack.push(Atom::Number(0x80)).unwrap();
+        stack.push(Some(Atom::Number(0x80))).unwrap();
 
         assert!(matches!(
             to_note(&mut stack),
@@ -447,7 +459,7 @@ mod test {
     #[test]
     fn a_non_number_operand_diagnoses_where_conversion_to_note_pops_it() {
         let mut stack = empty_stack();
-        stack.push(Atom::Bang).unwrap();
+        stack.push(Some(Atom::Bang)).unwrap();
 
         assert!(matches!(
             to_note(&mut stack),
@@ -466,7 +478,7 @@ mod test {
         ));
 
         let mut stack = empty_stack();
-        stack.push(Atom::Number(1)).unwrap();
+        stack.push(Some(Atom::Number(1))).unwrap();
 
         assert!(matches!(
             stack.extract::<operands::Add>(),
@@ -485,7 +497,7 @@ mod test {
 
         // Too few operands, with the one supplied outside the channel domain.
         let mut stack = empty_stack();
-        stack.push(Atom::Number(0xFF)).unwrap();
+        stack.push(Some(Atom::Number(0xFF))).unwrap();
 
         assert!(
             matches!(
@@ -556,19 +568,19 @@ mod test {
         // Playback rather than the Expression. A two-slot stack states the
         // behaviour independently of any Expression's size.
         let mut stack = Stack::new(2);
-        stack.push(Atom::Number(0)).unwrap();
-        stack.push(Atom::Number(1)).unwrap();
+        stack.push(Some(Atom::Number(0))).unwrap();
+        stack.push(Some(Atom::Number(1))).unwrap();
 
         assert!(matches!(
-            stack.push(Atom::Number(2)),
+            stack.push(Some(Atom::Number(2))),
             Err(Error::Interpretation(
                 InterpretationError::OperandStackExhausted { capacity: 2 }
             ))
         ));
 
         // The refused value displaced nothing already on the stack.
-        assert_eq!(stack.pop_value(), Some(Atom::Number(1)));
-        assert_eq!(stack.pop_value(), Some(Atom::Number(0)));
+        assert_eq!(stack.pop_value(), Some(Some(Atom::Number(1))));
+        assert_eq!(stack.pop_value(), Some(Some(Atom::Number(0))));
     }
 
     #[test]
@@ -577,7 +589,7 @@ mod test {
         // past that. The Interpreter never asks for more, and a caller that
         // did still gets the diagnostic: the limit is clamped to the storage,
         // so the checked push refuses before the storage could overflow.
-        let operands = (0..MAX_OPERANDS + 1).map(|number| Atom::Number(number as u8));
+        let operands = (0..MAX_OPERANDS + 1).map(|number| Some(Atom::Number(number as u8)));
 
         assert!(matches!(
             Stack::with_operands(operands),
@@ -589,13 +601,16 @@ mod test {
 
     #[test]
     fn operands_pop_back_in_signature_order() {
-        let mut stack =
-            Stack::with_operands([Atom::Number(1), Atom::Number(2), Atom::Number(3)].into_iter())
-                .unwrap();
+        let mut stack = Stack::with_operands(
+            [Atom::Number(1), Atom::Number(2), Atom::Number(3)]
+                .map(Some)
+                .into_iter(),
+        )
+        .unwrap();
 
-        assert_eq!(stack.pop_value(), Some(Atom::Number(1)));
-        assert_eq!(stack.pop_value(), Some(Atom::Number(2)));
-        assert_eq!(stack.pop_value(), Some(Atom::Number(3)));
+        assert_eq!(stack.pop_value(), Some(Some(Atom::Number(1))));
+        assert_eq!(stack.pop_value(), Some(Some(Atom::Number(2))));
+        assert_eq!(stack.pop_value(), Some(Some(Atom::Number(3))));
         assert_eq!(stack.pop_value(), None);
     }
 

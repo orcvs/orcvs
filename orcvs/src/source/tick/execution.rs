@@ -303,7 +303,7 @@ impl<'a> Execution<'a> {
         let node = &lookup.nodes()[index];
         let function = self.turns.function(index);
         let tick = tick_inputs(self.tick, node.anchor);
-        let resolved = self.decode(node, signature).and_then(|operands| {
+        let resolved = self.decode(node, function, signature).and_then(|operands| {
             self.turn_portal(index, function, &operands)
                 .and_then(|portal| {
                     let destination = self.turn_destination(index, function, &operands)?;
@@ -388,7 +388,7 @@ impl<'a> Execution<'a> {
         &self,
         index: ComputationId,
         function: Function,
-        operands: &[Atom],
+        operands: &[Option<Atom>],
     ) -> Result<InputSite, String> {
         let Some(declared) = function.input_portal() else {
             return Ok(InputSite::Undeclared);
@@ -451,7 +451,7 @@ impl<'a> Execution<'a> {
         &self,
         index: ComputationId,
         function: Function,
-        operands: &[Atom],
+        operands: &[Option<Atom>],
     ) -> Result<Option<Result<Position, PortalError>>, String> {
         let Output::Dynamic(selection) = function.output() else {
             return Ok(None);

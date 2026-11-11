@@ -487,6 +487,48 @@ fn a_nested_read_that_reads_empty_cells_makes_its_parent_invalid() {
 }
 
 #[test]
+fn a_function_whose_operand_a_nested_read_cleared_reads_no_portal() {
+    // Increment reads its previous value one row south. Its modulus is the
+    // nested Read at (4, 0), which reads the empty pair at (8, 0), so the
+    // Increment's operands do not bind and its Turn reads nothing.
+    let grid = Grid::with_shape(10, 2);
+    let rows = ["~+01&>01  "];
+    assert_eq!(
+        reads(grid, &rows),
+        [(
+            (4, 0),
+            Function::ReadEast,
+            PortalOrigin::Selected,
+            Ok(vec![(8, 0), (9, 0)])
+        )]
+    );
+    assert_eq!(
+        first(grid, &rows).diagnostics,
+        [diagnostic(
+            0,
+            0,
+            "nested computation at column 4, row 0 cleared its operand"
+        )]
+    );
+}
+
+#[test]
+fn an_operand_a_nested_read_cleared_diagnoses_before_a_later_one_that_does_not_decode() {
+    // The left Read at (2, 0) reads the empty pair at (12, 0), and the right
+    // Read at (6, 0) returns the Note `G4`, which spells no Number. The left
+    // operand comes first in the Addition's signature, so it is the one named.
+    let tick = first(Grid::with_shape(14, 2), &[".+&>04&>01G4  "]);
+    assert_eq!(
+        tick.diagnostics,
+        [diagnostic(
+            0,
+            0,
+            "nested computation at column 2, row 0 cleared its operand"
+        )]
+    );
+}
+
+#[test]
 fn a_timed_play_plays_the_note_a_nested_read_supplies() {
     // Equality's Bang at (0, 1) activates Timed Play at (2, 1). The Read's
     // operand is at (10, 1), its length is the `04` at (12, 1), and two pairs

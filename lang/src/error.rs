@@ -297,4 +297,13 @@ pub enum SyntaxError {
 pub enum ArgumentError {
     #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
     Arity { expected: usize, found: usize },
+
+    /// An operand slot that holds no value, refused by an operand type that
+    /// requires one. `slot` counts the Function's operands in signature
+    /// order, so a caller that knows why the slot is empty, such as a nested
+    /// Function that answered a Clear, can say so. `refusal` is what the
+    /// operand's token answers for two blank Cells, so a slot that holds no
+    /// value diagnoses as a blank slot written in the Source does.
+    #[error("{refusal}")]
+    Absent { slot: usize, refusal: Box<Error> },
 }

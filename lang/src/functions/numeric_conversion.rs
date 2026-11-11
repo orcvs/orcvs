@@ -58,7 +58,7 @@ mod test {
 
     /// Exercises conversion dispatch with one resolved language value.
     fn evaluate(function: Function, value: Atom) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, [value], inputs().into())
+        Interpreter::execute_function(function, [Some(value)], inputs().into())
     }
 
     /// Evaluates `outer` over the Return of the flat Source text `inner`, as
@@ -178,11 +178,11 @@ mod test {
         for ((function, body), operand) in BODIES.into_iter().zip([Atom::Number(0x3C), note(0x3C)])
         {
             let mut ctx = Context::new(inputs().into(), 4);
-            ctx.stack.push(Atom::Bang).unwrap();
-            ctx.stack.push(operand).unwrap();
+            ctx.stack.push(Some(Atom::Bang)).unwrap();
+            ctx.stack.push(Some(operand)).unwrap();
 
             assert!(body(&mut ctx).is_ok(), "{function:?}");
-            assert_eq!(ctx.stack.pop_value(), Some(Atom::Bang));
+            assert_eq!(ctx.stack.pop_value(), Some(Some(Atom::Bang)));
         }
     }
 

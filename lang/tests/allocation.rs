@@ -284,7 +284,7 @@ fn evaluate(calls: &[Call], inputs: TickInputs) -> usize {
         evaluated += usize::from(
             Interpreter::execute_function(
                 black_box(*function),
-                black_box(operands).iter().copied(),
+                black_box(operands).iter().copied().map(Some),
                 black_box(inputs).into(),
             )
             .is_ok(),
@@ -466,6 +466,7 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
 /// The answer is dropped outside the span, so only what the Turn asked for is
 /// counted; the operands are built by the caller, outside it too.
 fn turn<const N: usize>(function: Function, operands: [Atom; N]) -> Allocations {
+    let operands = operands.map(Some);
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     // Warm up, for the reason the call test gives.
     black_box(Interpreter::execute_function(
@@ -506,7 +507,11 @@ fn a_chord_play_allocates_nothing_to_read_or_evaluate() {
     // Each row is measured as the chord it claims to be, so a row that
     // stopped answering its tones cannot pass as an allocation-free Turn.
     for ((function, operands), &(row, tones)) in chords.iter().zip(CHORDS) {
-        match Interpreter::execute_function(*function, operands.iter().copied(), inputs.into()) {
+        match Interpreter::execute_function(
+            *function,
+            operands.iter().copied().map(Some),
+            inputs.into(),
+        ) {
             Ok(Interpretation::Chord(chord)) => {
                 assert_eq!(chord.commands().len(), tones, "{row:?}");
             }

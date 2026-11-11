@@ -159,7 +159,11 @@ mod test {
 
     /// Exercises Function dispatch with resolved operands in signature order.
     fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, operands.to_vec(), inputs().into())
+        Interpreter::execute_function(
+            function,
+            operands.iter().copied().map(Some),
+            inputs().into(),
+        )
     }
 
     /// A terminal body, so the two spellings that share a claim can be stated
@@ -175,7 +179,7 @@ mod test {
     fn call_body(body: Terminal, operands: &[Atom]) -> Result<PlayCommand, Error> {
         let mut ctx = Context::new(inputs().into(), 4);
         for operand in operands.iter().rev() {
-            ctx.stack.push(*operand).unwrap();
+            ctx.stack.push(Some(*operand)).unwrap();
         }
         body(&mut ctx)
     }
@@ -187,12 +191,12 @@ mod test {
         let mut ctx = Context::new(inputs().into(), 4);
 
         // A fourth atom below the three arguments must survive untouched
-        ctx.stack.push(Atom::Bang).unwrap();
+        ctx.stack.push(Some(Atom::Bang)).unwrap();
         ctx.stack
-            .push(Atom::Note(crate::Note::try_from(60).unwrap()))
+            .push(Some(Atom::Note(crate::Note::try_from(60).unwrap())))
             .unwrap(); // n
-        ctx.stack.push(Atom::Number(0x7F)).unwrap(); // v
-        ctx.stack.push(Atom::Number(0x0)).unwrap(); // c
+        ctx.stack.push(Some(Atom::Number(0x7F))).unwrap(); // v
+        ctx.stack.push(Some(Atom::Number(0x0))).unwrap(); // c
 
         let result = raw_play(&mut ctx).unwrap();
 
@@ -206,7 +210,7 @@ mod test {
         );
 
         // Exactly three arguments were consumed
-        assert_eq!(ctx.stack.pop_value(), Some(Atom::Bang));
+        assert_eq!(ctx.stack.pop_value(), Some(Some(Atom::Bang)));
         assert_eq!(ctx.stack.pop_value(), None);
     }
 
@@ -727,6 +731,55 @@ mod test {
                 })) if value == velocity
             ));
         }
+    }
+
+    /// Exercises Function dispatch with operand slots in signature order, a
+    /// `None` standing for a slot that holds no value.
+    fn evaluate_slots(
+        function: Function,
+        operands: &[Option<Atom>],
+    ) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(function, operands.to_vec(), inputs().into())
+    }
+
+    #[test]
+    fn a_plain_operand_refuses_an_absent_value_as_it_refuses_a_blank_slot() {
+        let channel = Some(Atom::Number(0x00));
+        let velocity = Some(Atom::Number(0x7F));
+        let refused = evaluate_slots(Function::RawPlay, &[channel, velocity, None]).unwrap_err();
+        assert_eq!(refused.to_string(), r#"expected a note, found "  ""#);
+        // The message a blank note slot written in the Source gives.
+        assert_eq!(
+            refused.to_string(),
+            interpret("!>007F  ").unwrap_err().to_string()
+        );
+        assert!(
+            matches!(
+                refused,
+                Error::Argument(ArgumentError::Absent { slot: 2, .. })
+            ),
+            "{refused:?}"
+        );
+
+        let refused = evaluate_slots(Function::Add, &[Some(Atom::Number(1)), None]).unwrap_err();
+        assert_eq!(refused.to_string(), r#"expected a number, found "  ""#);
+        assert_eq!(
+            refused.to_string(),
+            interpret(".+01  ").unwrap_err().to_string()
+        );
+    }
+
+    #[test]
+    fn an_absent_operand_is_refused_before_any_operand_outside_its_domain() {
+        // A channel of `10` is outside its domain, and the absent note after
+        // it is still what diagnoses: an absent value is refused with the
+        // type checks, which every domain check follows.
+        let refused = evaluate_slots(
+            Function::RawPlay,
+            &[Some(Atom::Number(0x10)), Some(Atom::Number(0x7F)), None],
+        )
+        .unwrap_err();
+        assert_eq!(refused.to_string(), r#"expected a note, found "  ""#);
     }
 
     #[test]

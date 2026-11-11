@@ -341,7 +341,7 @@ mod test {
     ) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
-            [left, right],
+            [left, right].map(Some),
             FunctionInputs::with_portal_source(
                 TickInputs::new(Tick::new(tick), Anchor::new(0, 0)),
                 PortalSource::from_cells(Some(previous)),
@@ -973,7 +973,7 @@ mod test {
     ) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             Function::Random,
-            [seed, minimum, maximum],
+            [seed, minimum, maximum].map(Some),
             TickInputs::new(Tick::new(tick), Anchor::new(column, row)).into(),
         )
     }

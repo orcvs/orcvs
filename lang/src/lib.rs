@@ -474,11 +474,11 @@ fn interpret_source(source: &str) -> Result<Interpretation, Error> {
     let Some((Atom::Function(function), literals)) = atoms.split_first() else {
         panic!("{source:?} does not start with a Function");
     };
-    let operands: Vec<Atom> = literals
+    let operands: Vec<Option<Atom>> = literals
         .iter()
         .map(|literal| match literal {
             Atom::Function(nested) => panic!("{source:?} nests {nested}; a Turn resolves it first"),
-            literal => *literal,
+            literal => Some(*literal),
         })
         .collect();
     Interpreter::execute_function(

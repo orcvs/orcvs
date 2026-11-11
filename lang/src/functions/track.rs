@@ -20,7 +20,7 @@ pub fn track(ctx: &mut Context) -> Result<Interpretation, Error> {
 ///
 /// A `count` of zero selects no pair and diagnoses as a wrap by zero does, and
 /// operands outside their domain diagnose as they would at evaluation.
-pub(crate) fn track_pair(operands: &[Atom]) -> Result<u8, Error> {
+pub(crate) fn track_pair(operands: &[Option<Atom>]) -> Result<u8, Error> {
     Track::checked_bind(operands)
         .and_then(|Track { index, count }| selected_pair(Function::Track, index, count))
 }
@@ -54,7 +54,7 @@ mod test {
     ) -> Result<Interpretation, crate::Error> {
         Interpreter::execute_function(
             function,
-            operands,
+            operands.map(Some),
             FunctionInputs::with_portal_source(
                 TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
                 PortalSource::from_cells(cells),
@@ -74,8 +74,9 @@ mod test {
 
     #[test]
     fn track_selects_index_modulo_count() {
-        let pair =
-            |index, count| super::track_pair(&[Atom::Number(index), Atom::Number(count)]).unwrap();
+        let pair = |index, count| {
+            super::track_pair(&[Some(Atom::Number(index)), Some(Atom::Number(count))]).unwrap()
+        };
         assert_eq!(pair(1, 3), 1);
         assert_eq!(pair(5, 3), 2);
         assert_eq!(pair(0xFF, 0xFF), 0);
@@ -90,7 +91,7 @@ mod test {
             })
             .to_string()
         };
-        let selected = super::track_pair(&[Atom::Number(1), Atom::Number(0)]);
+        let selected = super::track_pair(&[Some(Atom::Number(1)), Some(Atom::Number(0))]);
         assert_eq!(selected.unwrap_err().to_string(), zero());
         assert_eq!(track(1, 0, Some("D4")).unwrap_err().to_string(), zero());
     }

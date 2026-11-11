@@ -311,7 +311,7 @@ mod test {
     fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
-            operands.iter().copied(),
+            operands.iter().copied().map(Some),
             TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
         )
     }
@@ -461,7 +461,7 @@ mod test {
                     expected,
                 );
                 for operand in operands[..found].iter().rev() {
-                    ctx.stack.push(*operand).unwrap();
+                    ctx.stack.push(Some(*operand)).unwrap();
                 }
                 let error = body(&mut ctx).unwrap_err();
                 assert!(

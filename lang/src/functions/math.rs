@@ -111,7 +111,7 @@ mod test {
     fn evaluate(function: Function, left: Atom, right: Atom) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             function,
-            [left, right],
+            [left, right].map(Some),
             TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
         )
     }
