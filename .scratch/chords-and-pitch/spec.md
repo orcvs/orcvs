@@ -210,3 +210,11 @@ Uses the existing Playback Engine schedule and shipped-example tests.
   - It runs roots in Source order. The real scheduler orders them by dependency.
 - The real interpreter has run three nested Reads in one Timed Play, with a Clock stepping through rows. The whole nested tracker and sequencer have not been run.
 - Nothing yet shows Source or Tick diagnostics in the console, so a whole-chord diagnosis is silent to a performer.
+
+## Comments
+
+- ADR 0108 supersedes ADRs 0075 and 0104 and removes the Rest. User stories 34, 35, 36 and 40,
+  and story 39's appeal to ADR 0075, describe the Rest and no longer hold: a blank note on a Raw,
+  Timed or Monophonic Play plays nothing because the note is `Optional<Note>`, and a blank Chord
+  Play root is a plain Note's refusal until a decision makes it optional. Ticket 05 waits on that
+  decision.
