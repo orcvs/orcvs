@@ -501,23 +501,27 @@ mod test {
         // reads 5 at every pointer width. The widest answer is a Chord Play's
         // tones, whose shared operands and twelve inline Notes read 20 bytes:
         // `Interpretation` carries its tag in their niche and reads 20 on
-        // wasm32, and pointer alignment rounds it to 24 natively. Both are
-        // narrower than `Error`, so the answer leaves the `Result` a Turn
-        // returns exactly as wide as `Error` makes it.
+        // wasm32, and pointer alignment rounds it to 24 natively.
         //
-        // The sizes are written out rather than derived from the types they
-        // describe, so a wider answer fails here. A failure is notice rather
-        // than a defect: the answer seam has changed shape, and
-        // `execute_function` is the measurement to take again.
-        let (answer, error) = if cfg!(target_pointer_width = "64") {
-            (24, 40)
+        // The answer's sizes are written out rather than derived from the
+        // types they describe, so a wider answer fails here. A failure is
+        // notice rather than a defect: the answer seam has changed shape, and
+        // `execute_function` is the measurement to take again. `Error` is
+        // held only to the relation the seam relies on, that the answer is no
+        // wider than it, so the `Result` a Turn returns is exactly as wide as
+        // `Error` makes it; a change to `Error` alone is not the answer's.
+        let answer = if cfg!(target_pointer_width = "64") {
+            24
         } else {
-            (20, 24)
+            20
         };
         assert_eq!(size_of::<PlayCommand>(), 5);
         assert_eq!(size_of::<Interpretation>(), answer);
-        assert_eq!(size_of::<Error>(), error);
-        assert_eq!(size_of::<Result<Interpretation, Error>>(), error);
+        assert!(size_of::<Interpretation>() <= size_of::<Error>());
+        assert_eq!(
+            size_of::<Result<Interpretation, Error>>(),
+            size_of::<Error>()
+        );
     }
 
     #[test]

@@ -175,16 +175,20 @@ pub enum InterpretationError {
 
     /// A Chord Play's Interval Set holds fewer tones than its Voicing needs,
     /// so the Voicing cannot mean what it says and no tone is sent.
+    ///
+    /// The need and the count are read off the Voicing and the set, so the
+    /// message cannot disagree with the rule that refused the chord.
     #[error(
-        "Voicing {} needs {needed} tones and Interval Set {} has {}, so no tone is sent",
-        voicing.cells(),
+        "{function} cannot voice Interval Set {} as {}: the Voicing needs {} tones and the set has {}, so no tone is sent",
         set.cells(),
+        voicing.cells(),
+        voicing.tones_needed(),
         set.semitones().len()
     )]
     TooFewTones {
+        function: crate::Function,
         set: crate::IntervalSet,
         voicing: crate::Voicing,
-        needed: usize,
     },
 
     /// A Chord Play computed a tone outside the MIDI note range, so the whole

@@ -10,11 +10,21 @@ use crate::{
 /// either end of the range is refused and never folded back into it.
 #[inline(always)]
 fn answer(function: Function, value: i16) -> Result<Atom, Error> {
+    note_at(value)
+        .map(Atom::Note)
+        .ok_or_else(|| InterpretationError::NoteOutOfRange { function, value }.into())
+}
+
+/// The Note at `value` semitones, or `None` outside the Note range.
+///
+/// Every Function that reaches a pitch in a type wider than a byte reads it
+/// back through here, so each refuses exactly the values the others refuse
+/// and names the refusal in its own diagnostic.
+#[inline(always)]
+pub(crate) fn note_at(value: i16) -> Option<Note> {
     u8::try_from(value)
         .ok()
         .and_then(|value| Note::try_from(value).ok())
-        .map(Atom::Note)
-        .ok_or_else(|| InterpretationError::NoteOutOfRange { function, value }.into())
 }
 
 /// Up: `#+ note number`.

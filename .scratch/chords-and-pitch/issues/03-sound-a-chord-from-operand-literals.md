@@ -21,3 +21,12 @@ tone, lowest first, and the Evaluator's answer stays bounded and allocation-free
 - [x] The allocation tests still assert no allocation, with a twelve-tone chord in the fixture.
 - [x] Both Functions have Function reference rows with worked examples, including what the digit in a drop voicing means.
 - [x] `CONTEXT.md` defines Chord, Inversion, Raw Chord Play and Timed Chord Play, and amends Terminal Output Function.
+
+## Resolution
+
+The twelve-tone chords live in their own fixture, `CHORDS` in `lang/tests/allocation.rs`, and
+`a_chord_play_allocates_nothing_to_read_or_evaluate` asserts that reading and evaluating each of
+them allocates nothing. They are not rows of `SOURCE`, so
+`evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row` evaluates no chord. `SOURCE` is
+also the benchmarks' fixture, and a chord row there would move their published series for a reason
+unrelated to the chord.

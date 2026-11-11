@@ -314,7 +314,7 @@ fn evaluating_a_parsed_source_allocates_nothing_per_call_or_per_row() {
     // holds its Operand Stack inline, sized to the widest operand list the
     // Function table declares, and every answer here is one Atom or one Play
     // Command, so neither the stack nor the answer asks the allocator for a
-    // block. A chord's answer is pinned by its own fixture, [`CHORDS`]. Zero,
+    // block. A chord's answer is pinned by its own fixture, `CHORDS`. Zero,
     // for one pass and for four, rather than a ceiling per call: a ceiling of
     // one block per call would admit exactly the heap-backed stack this rules
     // out.
