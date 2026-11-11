@@ -87,7 +87,7 @@ Interval Sets.
 ### Pitch family
 
 41. As a performer, I want Pick `#p root set index` to answer one Note, so that one Function arpeggiates a chord and picks a scale degree.
-42. As a performer, I want an index past the end of the Interval Set to wrap up an octave, so that an arpeggio can climb.
+42. As a performer, I want an index past the end of the Interval Set to wrap up one octave per pass, so that an arpeggio climbs through any set whose entries are all below `12`; a set wider than an octave steps back down at the wrap.
 43. As a performer, I want Up `#+ note number` and Down `#- note number`, so that I can transpose a Note without converting through Number.
 44. As a performer, I want a Pick, Up or Down answer outside `00`–`7F` to diagnose, so that a Note never wraps silently.
 45. As a performer, I want Stack `#s set degree size` to answer the Interval Set name those tones form, so that I can build the chord on a scale degree.

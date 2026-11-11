@@ -163,7 +163,7 @@ One of the numeric-family Functions `.v` and `.^`, whose family prefix fixes the
 _Avoid_: Cast, implicit coercion, sticky Note
 
 **Pitch Function**:
-A stateless value Function in the `#` family, which derives a Note or an Interval Set and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function that derives a Note or an Interval Set belongs to `#`. A Note answer outside `00`–`7F` diagnoses under a message naming the Function and the semitone it would have reached, and writes nothing: a Note never wraps, as an Arithmetic Function does within a byte, and is never clamped to the end of the range.
+A stateless value Function in the `#` family, which derives a Note or an Interval Set from the Notes and Interval Sets it reads and runs every Tick, root or nested, writing its answer through its Output Portal as any value Function does. The `.` family stays numeric, so a Function deriving Notes or Interval Sets belongs to `#`. Up, Down and Pick answer a Note: an answer outside `00`–`7F` diagnoses under a message naming the Function and the semitone it would have reached, and writes nothing, so a Note never wraps, as an Arithmetic Function does within a byte, and is never clamped to the end of the range. Stack answers an Interval Set: when no name holds the semitones it reaches, it diagnoses under a message naming the Function and its operands, and writes nothing.
 _Avoid_: Transpose operator, numeric Function, wrapping pitch
 
 **Up**:
@@ -173,6 +173,14 @@ _Avoid_: Add, Transpose
 **Down**:
 The Pitch Function `#- note number`, which answers the Note `number` semitones below `note`. Its operands are Up's. An answer below `00` diagnoses and writes nothing.
 _Avoid_: Subtract, Transpose
+
+**Pick**:
+The Pitch Function `#p root set index`, which answers the Note at position `index` of the Interval Set `set` above `root`: `root + set[index % n] + 12 * floor(index / n)`, where `n` is the size of the Interval Set. An index past the end of the Interval Set therefore wraps up an octave, so one Function arpeggiates a chord and picks a scale degree. The wrap adds exactly one octave per pass, so the arpeggio rises only while every entry is below `12`: a set wider than an octave steps back down at the wrap, as `#pC4MD05` answers A5 and `#pC4MD06` answers C5. An answer above `7F` diagnoses and writes nothing.
+_Avoid_: Arpeggiator, Degree
+
+**Stack**:
+The Pitch Function `#s set degree size`, which answers the Interval Set a chord on a scale degree forms. It takes `size` tones of `set` at positions `degree`, `degree + 2` and so on, wrapping up octaves as Pick does, subtracts the first tone, and answers the Interval Set with exactly those semitones. When no name holds exactly those semitones, as for a major pentatonic stacked from `C`, it diagnoses and writes nothing. Not the Operand Stack.
+_Avoid_: Chord lookup, Build chord
 
 **Arithmetic Function**:
 One of the nine numeric-family Functions Add `.+`, Subtract `.-`, Absolute Difference `.|`, Multiply `.x`, Divide `./`, Modulo `.%`, Minimum `.<`, Maximum `.>`, and Equality `.=`, whose shared family prefix fixes the numeric domain and whose suffix names the operation. Every member declares two Number operands and returns a value. Add, Subtract, and Multiply wrap within the byte range; Absolute Difference answers the distance between its operands rather than a wrapped Subtraction, which is why it is a Function of its own; Minimum and Maximum return one operand unchanged; and Divide and Modulo answer the truncated quotient and the remainder. A Note, or any other Atom type, reaching a Number operand position diagnoses rather than being coerced, so the Numeric Conversion Functions are the only crossing between the two numeric types. Two members answer something other than plain arithmetic: Divide and Modulo each diagnose a zero divisor, under a diagnostic naming which of the two the Source wrote, and produce no value; and Equality returns a Bang for equal operands and a Clear for unequal ones, writing `**` through its Output Portal for the first and two spaces for the second, root or nested.

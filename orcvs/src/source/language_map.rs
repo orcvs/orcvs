@@ -1939,7 +1939,7 @@ mod property {
     use lang::{Atom, Function, Note, Token};
     use proptest::prelude::*;
     use proptest::sample::select;
-    use proptest::test_runner::{Config, TestRunner};
+    use proptest::test_runner::{Config, RngAlgorithm, TestRng, TestRunner};
     // Aliased because `Cell` is a domain noun throughout this file and in
     // CONTEXT.md. What `std::cell::Cell` holds here is a draw count.
     use std::cell::Cell as Counter;
@@ -1976,24 +1976,49 @@ mod property {
     /// by standalone Atoms.
     ///
     /// `lang` keeps a Function's signature crate-private, so the operand count
-    /// and types are not restated here: a Function is drawn with between one
-    /// and four literals after it and the draws that do not spell a whole
-    /// Expression are filtered out. Strict parsing is what selects them, and
-    /// the properties state what permissive analysis and the walk do with
-    /// them, so the generator is not deciding the question it feeds.
+    /// and types are not restated for most Functions: one is drawn with
+    /// between one and four Number or Note literals after it and the draws
+    /// that do not spell a whole Expression are filtered out. Strict parsing
+    /// is what selects them, and the properties state what permissive analysis
+    /// and the walk do with them, so the generator is not deciding the
+    /// question it feeds. A Function declaring more than four operands, Chord
+    /// Play among them, is never drawn whole.
+    ///
+    /// Pick and Stack read an Interval Set, which no Number or Note spells, so
+    /// a branch of their own draws each with a literal of the type each of
+    /// its operands declares. That branch spells a whole Expression on every
+    /// draw, so reaching Pick and Stack adds no draws for the filter to
+    /// discard, and the Number and Note branch keeps its share of survivors.
     fn complete_expression() -> BoxedStrategy<String> {
-        (
-            select(Function::ALL),
-            prop::collection::vec(
-                prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
-                1..=4,
-            ),
-        )
-            .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
-            .prop_filter("one whole Expression", |source| {
-                Parser::from(source.as_str()).try_parse().is_ok()
-            })
-            .boxed()
+        prop_oneof![
+            3 => (
+                select(Function::ALL),
+                prop::collection::vec(
+                    prop_oneof![literal_source(Token::Number), literal_source(Token::Note)],
+                    1..=4,
+                ),
+            )
+                .prop_map(|(function, operands)| format!("{function}{}", operands.concat())),
+            1 => interval_set_expression(),
+        ]
+        .prop_filter("one whole Expression", |source| {
+            Parser::from(source.as_str()).try_parse().is_ok()
+        })
+        .boxed()
+    }
+
+    /// Pick or Stack with a literal in each operand position, in the order
+    /// their Function reference entries state.
+    fn interval_set_expression() -> BoxedStrategy<String> {
+        let set = || literal_source(Token::IntervalSet);
+        let number = || literal_source(Token::Number);
+        prop_oneof![
+            (literal_source(Token::Note), set(), number())
+                .prop_map(|(root, set, index)| format!("{}{root}{set}{index}", Function::Pick)),
+            (set(), number(), number())
+                .prop_map(|(set, degree, size)| format!("{}{set}{degree}{size}", Function::Stack)),
+        ]
+        .boxed()
     }
 
     /// Source text for one Operand Literal of the type its position declares.
@@ -2590,6 +2615,42 @@ mod property {
         assert!(
             complete.get() > 0,
             "no generated revision held a Function the walk read as a whole Expression",
+        );
+    }
+
+    /// The whole Expressions the generator draws include the Functions whose
+    /// operands are Interval Sets, so Pick and Stack reach both properties as
+    /// whole Expressions rather than only as the fragments a row happens to
+    /// concatenate.
+    ///
+    /// The runner is deterministic and its case count pinned because the claim
+    /// is about what the generator can reach: the guard reads the same fixed
+    /// sample of 1024 draws on every run and every tier, so it passes or fails
+    /// with the generator alone.
+    #[test]
+    fn generated_complete_expressions_reach_pick_and_stack() {
+        let config = Config {
+            cases: 1024,
+            source_file: Some(file!()),
+            ..Config::default()
+        };
+        let reached = Counter::new([false; 2]);
+
+        TestRunner::new_with_rng(config, TestRng::deterministic_rng(RngAlgorithm::ChaCha))
+            .run(&complete_expression(), |source| {
+                let mut seen = reached.get();
+                for (index, function) in [Function::Pick, Function::Stack].iter().enumerate() {
+                    seen[index] |= source.starts_with(&function.to_string());
+                }
+                reached.set(seen);
+                Ok(())
+            })
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(
+            reached.get(),
+            [true; 2],
+            "Pick and Stack are each drawn as a whole Expression",
         );
     }
 }

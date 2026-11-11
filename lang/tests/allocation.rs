@@ -554,6 +554,28 @@ fn a_chord_play_allocates_nothing_to_read_or_evaluate() {
 }
 
 #[test]
+fn pick_and_stack_allocate_nothing_to_answer_or_refuse() {
+    // Pick answers a Note, Stack finds a name, and each refusal owns no text,
+    // so the Interval Set lookup and the two diagnostics ask for no block.
+    let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
+    for (row, answers) in [
+        ("#pC4chFF", false),
+        ("#pC4MA04", true),
+        ("#sMA0404", true),
+        ("#sch0006", true),
+        ("#sp50003", false),
+    ] {
+        let parsed = rows(&[row], 0);
+        let parsed = calls(&parsed);
+        black_box(evaluate(&parsed, inputs));
+        let (allocations, evaluated) = measure(|| evaluate(black_box(&parsed), inputs));
+
+        assert_eq!(evaluated == 1, answers, "{row:?}");
+        assert_eq!(allocations, Allocations::default(), "{row:?} allocated");
+    }
+}
+
+#[test]
 fn a_turn_over_atoms_allocates_nothing() {
     // The Operand Stack is inline and the answer is one Atom, so the Turn asks
     // the allocator for nothing. Asserted rather than published, for the

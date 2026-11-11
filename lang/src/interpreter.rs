@@ -195,9 +195,11 @@ impl Interpreter {
             Function::Minimum => Interpretation::Cell(math::minimum(&mut ctx)?),
             Function::Modulo => Interpretation::Cell(math::modulo(&mut ctx)?),
             Function::Multiply => Interpretation::Cell(math::multiply(&mut ctx)?),
+            Function::Stack => Interpretation::Cell(functions::pitch::stack(&mut ctx)?),
             Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
             Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
             Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
+            Function::Pick => Interpretation::Cell(functions::pitch::pick(&mut ctx)?),
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawChordPlay => {
                 Interpretation::Chord(functions::chord::raw_chord_play(&mut ctx)?)

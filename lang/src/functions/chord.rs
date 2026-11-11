@@ -4,7 +4,10 @@ use arrayvec::ArrayVec;
 
 use crate::{
     Error, Function, InterpretationError, IntervalSet, Length, MidiChannel, Note, PlayCommand,
-    Velocity, Voicing, atom::operands, functions::pitch::note_at, interpreter::Context,
+    Velocity, Voicing,
+    atom::operands,
+    functions::pitch::{OCTAVE, note_at},
+    interpreter::Context,
 };
 
 /// The most tones any Interval Set names, and so the most Play Commands one
@@ -22,9 +25,6 @@ pub(crate) const MAX_TONES: usize = {
     }
     widest
 };
-
-/// The semitones one tone moves when it moves an octave.
-const OCTAVE: i16 = 12;
 
 /// What one Chord Play's Turn performs: the operands its tones share, held
 /// once, and its tones, lowest first.
