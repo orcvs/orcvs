@@ -1,6 +1,6 @@
 # A blank note or root is a Rest, however it got blank
 
-Status: accepted. Reverses the clause of [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md) that a Bang reaching a Play whose note slot is unwritten finds an invalid Play, and its consequence that such an Expression is not a root, for the note operand of a Play and the root operand of a Chord Play; every other decision in ADR 0069 stands. Extends [ADR 0075](0075-a-play-with-a-cleared-note-rests.md). Settled in `.scratch/chords-and-pitch/`.
+Status: accepted. Reverses the clause of [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md) that a Bang reaching a Play whose note slot is unwritten finds an invalid Play, and its consequence that such an Expression is not a root, for the note operand of a Play and the root operand of a Chord Play; every other decision in ADR 0069 stands. Extends [ADR 0075](0075-a-play-with-a-cleared-note-rests.md). Settled in `.scratch/chords-and-pitch/`. The 2026-11-11 amendment below says where the Language Map, which reads Source as written, departs from the Turn for a Chord Play.
 
 ADR 0075 made a Clear in a Play's note operand a Rest, so the same pattern rests or errors depending on how its Cells arrive. A nested Read of two empty Cells rests. A Read standing above the note slot, writing those same empty Cells through its Output Portal, leaves an unwritten slot and is diagnosed on every empty step. The shipped Melody example is that second layout, and [ADR 0061](0061-a-nested-function-returns-to-the-slot-it-occupies.md) says the two layouts should mean the same thing.
 
@@ -27,3 +27,11 @@ ADR 0075 made a Clear in a Play's note operand a Rest, so the same pattern rests
 - **Keep ADR 0069's rule for unnested slots.** Leaves two layouts that deliver identical Cells behaving differently.
 - **Rest on a half-written pair.** A half-typed Note would go silent with no explanation during Live Editing.
 - **Require a Chord Play's other operands to decode on a Rest.** Diagnoses every empty row of a pattern in which voicing, inversion and length are read from the same row.
+
+## Amendment, 2026-11-11: a root written in Source refuses a blank beside it in the Language Map
+
+The Decision holds at the Turn, and the Language Map is narrower. The Map reads each Expression as Source holds it, so a Chord Play whose root is written in Source beside an operand left blank in Source is refused there under [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md)'s rule that an unwritten operand is invalid input: the root that would excuse the blank is written. The Map diagnoses that row. A root blank in Source, or a nested Function in the root, which may clear it, excuses the blank in the Map as at the Turn.
+
+A Map refusal holds a Turn only while every operand still holds what Source held when the Map was built. A Portal write that empties the written root during a Tick changes that operand, so the Turn runs, finds the root blank and rests: it sends nothing and raises nothing, as the Decision says. The Map rebuilt from what the Tick left admits the row, and later Ticks rest. A Portal write that leaves the root written runs the Turn too, which refuses the blank operand; once Source holds that root, the Map's refusal holds each later Turn without repeating its diagnostic.
+
+Letting the Map admit a Chord Play with a written root beside a blank, and leaving the refusal to the Turn, would match the Decision in the Map as well, but would drop the Map's diagnostic for a blank Interval Set beside a root written in Source.

@@ -22,7 +22,10 @@ rests, while the same Read standing above the note slot is diagnosed on every em
 A Chord is a root Note and an Interval Set, two ordinary pairs of Cells a Clock and a Read can
 drive. Raw Chord Play `!:` and Timed Chord Play `!#` sound one in a single Expression, with a
 Voicing and an inversion. A new Pitch family derives Notes and Interval Sets: Pick `#p`, Up `#+`,
-Down `#-` and Stack `#s`. A fully blank note or root is a Rest however it became blank.
+Down `#-` and Stack `#s`. A fully blank note or root is a Rest at its Turn however it became blank.
+The Language Map reads Source as written, so it refuses a root written in Source beside an
+operand left blank in Source, as ADR 0069 refuses an unwritten operand; a Portal that empties that
+root rests the Turn on that Tick, and the Map rebuilt after it admits the row (ADR 0104's amendment).
 
 A progression needs no new Function: a Clock drives Reads of a column of roots and a column of
 Interval Sets.
@@ -172,7 +175,7 @@ play order tests.
 - Nested Reads and Track in every Chord Play operand, including all six after channel, driven by a Clock across Ticks.
 - Portal-written Cells mean what a Return means in root, set, voicing and inversion.
 - The nested tracker and sequencer voice forms from ADR 0103 play what their current forms play, Tick by Tick.
-- Every Rest route: Source-blank, Portal-emptied and Clear, on all five Plays. A Rest sends nothing and diagnoses nothing.
+- Every Rest route: Source-blank, Portal-emptied and Clear, on all five Plays. A Rest sends nothing and diagnoses nothing. A Chord Play root written in Source beside a blank operand is diagnosed by the Language Map, and rests on the Tick a Portal empties it.
 - A half-written note, root or set is diagnosed in each route, and a blank set with a root present is diagnosed.
 - A blank root ignores other blank or cleared operands but not a half-written one.
 - A note Play with a blank note and a blank velocity is diagnosed.
