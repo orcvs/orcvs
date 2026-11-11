@@ -2303,9 +2303,19 @@ mod nesting_tests {
                 "{source:?}: {verdict:?}"
             );
         }
-        for source in ["!>017F  ", "!:      M7CL00", "!c  0740", "!>01.+0101  ", "!>    .+0102"] {
+        for source in [
+            "!>017F  ",
+            "!:      M7CL00",
+            "!c  0740",
+            "!>01.+0101  ",
+            "!>    .+0102",
+        ] {
             let analysis = Parser::from(source).analyze();
-            assert!(analysis.verdict().is_none(), "{source:?}: {:?}", analysis.verdict());
+            assert!(
+                analysis.verdict().is_none(),
+                "{source:?}: {:?}",
+                analysis.verdict()
+            );
         }
     }
 
@@ -2317,7 +2327,9 @@ mod nesting_tests {
             let analysis = Parser::from(source).analyze();
             let verdict = analysis.verdict().map(|refusal| refusal.to_string());
             assert!(
-                verdict.as_deref().is_some_and(|text| text.contains(spelling)),
+                verdict
+                    .as_deref()
+                    .is_some_and(|text| text.contains(spelling)),
                 "{source:?}: {verdict:?}"
             );
         }

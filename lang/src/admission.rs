@@ -189,7 +189,10 @@ mod tests {
         for &function in Function::ALL.iter().filter(|f| !sends_nothing(**f)) {
             for slot in 0..arity(function) {
                 let mut slots = with(function, slot, Slot::Unwritten);
-                slots.iter_mut().skip(slot + 1).for_each(|s| *s = Slot::Unwritten);
+                slots
+                    .iter_mut()
+                    .skip(slot + 1)
+                    .for_each(|s| *s = Slot::Unwritten);
                 assert_eq!(
                     function.admit(slots),
                     Admission::Unwritten { slot },

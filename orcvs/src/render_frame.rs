@@ -845,6 +845,29 @@ mod tests {
     }
 
     #[test]
+    fn an_operand_the_row_edge_cuts_short_paints_as_what_its_cell_holds() {
+        // The row ends one Cell into the second operand. A blank Cell there is
+        // an operand still to be written; a written one is a half pair.
+        let grid = Grid::with_shape(5, 1);
+        for (row, state) in [
+            (".+01 ", OperandState::Pending),
+            (".+010", OperandState::Invalid),
+        ] {
+            let source = SourceCommander::new(grid);
+            write_row(&source, grid, row);
+            let frame = derive_frame(&source, grid.origin());
+            assert_eq!(
+                frame.at(grid.position(4, 0).unwrap()).source_paint(),
+                SourcePaint::Operand {
+                    token: Token::Number,
+                    state,
+                },
+                "{row:?}"
+            );
+        }
+    }
+
+    #[test]
     fn every_cell_of_a_claim_reads_the_written_answer_its_claim_was_built_with() {
         // One 8-Cell row per shape a claim takes:
         //   `.+01  **` a bound Function, a Valid Number, a blank Pending
