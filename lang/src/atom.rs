@@ -677,7 +677,7 @@ macro_rules! operands {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
                 let mut slots = 0..;
-                $(crate::operand::check::<$operand>(*$role, crate::stack::next_slot(&mut slots))?;)+
+                $(crate::operand::check::<$operand>(*$role, slots.next().expect("a RangeFrom never ends"))?;)+
                 Ok(())
             }
 
@@ -692,7 +692,7 @@ macro_rules! operands {
                 Ok(Self {
                     $($role: crate::operand::bind_atom::<$operand>(
                         *$role,
-                        crate::stack::next_slot(&mut slots),
+                        slots.next().expect("a RangeFrom never ends"),
                     )?,)+
                 })
             }

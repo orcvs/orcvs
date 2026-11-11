@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
         {
             return Err(blank
                 .token
-                .decode(crate::operand::BLANK)
+                .decode(crate::operand::BLANK_CELLS)
                 .expect_err("two blank Cells decode to no value"));
         }
         Ok(self

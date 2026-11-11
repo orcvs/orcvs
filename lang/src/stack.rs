@@ -55,15 +55,6 @@ pub(crate) fn arity(function: Function, found: usize) -> Error {
     .into()
 }
 
-/// The signature position of the next role a generated check or bind reads,
-/// counting from the start of `slots`.
-#[inline(always)]
-pub(crate) fn next_slot(slots: &mut core::ops::RangeFrom<usize>) -> usize {
-    let slot = slots.start;
-    slots.start += 1;
-    slot
-}
-
 /// The widest operand list any Function declares, and the capacity of every
 /// per-operation buffer below.
 ///

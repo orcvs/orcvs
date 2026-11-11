@@ -4,7 +4,7 @@
 //! decides four things together: the [`Token`] the Parser reads a literal in
 //! that slot as, the payload extraction yields for it, the value the
 //! Function body receives, and whether the slot may hold no value
-//! ([`Operand::BLANK`]). [`Operand::bind`] takes exactly the payload its
+//! ([`Operand::ABSENT`]). [`Operand::bind`] takes exactly the payload its
 //! [`Operand::Token`] yields, so an operand whose token and bind disagree does
 //! not compile:
 //!
@@ -107,8 +107,10 @@ pub trait Operand {
     ///
     /// Whether an operand admits a blank slot is this answer, so the Parser,
     /// which reads a blank slot as absent only where it is admitted, and
-    /// binding cannot disagree. Only [`Optional`] admits one.
-    const BLANK: Option<Self::Bound> = None;
+    /// binding cannot disagree. Only [`Optional`] admits one. It is a function
+    /// rather than the value, so the Function table can ask whether it is
+    /// present at compile time without dropping a generic `Bound`.
+    const ABSENT: Option<fn() -> Self::Bound> = None;
 }
 
 /// A Number: `00`–`FF`.
@@ -294,19 +296,13 @@ impl<O: Operand> Operand for Optional<O> {
         O::bind(payload).map(Some)
     }
 
-    const BLANK: Option<Option<O::Bound>> = Some(None);
+    const ABSENT: Option<fn() -> Option<O::Bound>> = Some(|| None);
 }
 
 /// Whether `O` admits a slot that holds no value, for the Function table's
 /// signature constants.
 pub(crate) const fn admits_blank<O: Operand>() -> bool {
-    let blank = O::BLANK;
-    let admits = blank.is_some();
-    // A `const fn` cannot run the destructor of a generic `Bound`. The table
-    // evaluates this at compile time only, so forgetting the copy leaks
-    // nothing at run time.
-    core::mem::forget(blank);
-    admits
+    O::ABSENT.is_some()
 }
 
 /// A Play lifetime over a Number literal. Every byte is a length, so this
@@ -324,12 +320,12 @@ impl Operand for Length {
 }
 
 /// The two Cells a slot that holds no value shows.
-pub(crate) const BLANK: &str = "  ";
+pub(crate) const BLANK_CELLS: &str = "  ";
 
 /// `O`'s refusal of operand slot `slot`, which holds no value.
 #[inline(always)]
 fn absent<O: Operand>(slot: usize) -> Error {
-    let refusal = match O::Token::TOKEN.decode(BLANK) {
+    let refusal = match O::Token::TOKEN.decode(BLANK_CELLS) {
         Err(refusal) => refusal,
         Ok(atom) => unreachable!("every Atom spells a written Language Unit, not {atom}"),
     };
@@ -346,7 +342,8 @@ fn absent<O: Operand>(slot: usize) -> Error {
 pub(crate) fn check<O: Operand>(atom: Option<crate::Atom>, slot: usize) -> Result<(), Error> {
     match atom {
         Some(atom) => O::Token::from_atom(atom).map(drop),
-        None => O::BLANK.map(drop).ok_or_else(|| absent::<O>(slot)),
+        None if admits_blank::<O>() => Ok(()),
+        None => Err(absent::<O>(slot)),
     }
 }
 
@@ -358,6 +355,8 @@ pub(crate) fn bind_atom<O: Operand>(
 ) -> Result<O::Bound, Error> {
     match atom {
         Some(atom) => O::bind(O::Token::from_atom(atom)?),
-        None => O::BLANK.ok_or_else(|| absent::<O>(slot)),
+        None => O::ABSENT
+            .map(|blank| blank())
+            .ok_or_else(|| absent::<O>(slot)),
     }
 }
