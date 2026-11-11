@@ -16,6 +16,7 @@ pub use atom::{
 };
 pub use error::{ArgumentError, Error, InterpretationError, SyntaxError, TypeError};
 pub use expression::{CommentText, Expression, PayloadText, PositionedEntry, Token, Tokens};
+pub use functions::chord::ChordTones;
 pub use interpreter::{Interpretation, Interpreter};
 pub use parser::{BLANK_PAIR, Parser, SourceAnalysis};
 pub use portal::{FunctionInputs, PortalInput, PortalSource};
@@ -493,19 +494,34 @@ mod test {
 
     #[test]
     fn the_answer_seam_is_the_size_the_execute_function_benchmark_was_measured_against() {
-        use super::{Interpretation, PlayCommand};
+        use super::{Error, Interpretation, PlayCommand};
 
         // A layout claim, pinned because the `execute_function` benchmark
         // measures the answer seam. A Play Command holds no pointer, so it
-        // reads 5 at every pointer width. The widest answer is a Network
-        // Send's box, one pointer beside the tag, so `Interpretation` reads
-        // two words: 16 natively and 8 on wasm32.
+        // reads 5 at every pointer width. The widest answer is a Chord Play's
+        // tones, whose shared operands and twelve inline Notes read 20 bytes:
+        // `Interpretation` carries its tag in their niche and reads 20 on
+        // wasm32, and pointer alignment rounds it to 24 natively.
         //
-        // A failure here is notice rather than a defect: the answer seam has
+        // The answer's sizes are written out so a wider answer fails here.
+        // A failure is notice rather than a defect: the answer seam has
         // changed shape, and `execute_function` is the measurement to take
-        // again.
+        // again. `Error` is held only to the relation the seam relies on, that
+        // the answer is no wider than it, so the `Result` a Turn returns is
+        // exactly as wide as `Error` makes it; a change to `Error` alone is
+        // not the answer's.
+        let answer = if cfg!(target_pointer_width = "64") {
+            24
+        } else {
+            20
+        };
         assert_eq!(size_of::<PlayCommand>(), 5);
-        assert_eq!(size_of::<Interpretation>(), 2 * size_of::<usize>());
+        assert_eq!(size_of::<Interpretation>(), answer);
+        assert!(size_of::<Interpretation>() <= size_of::<Error>());
+        assert_eq!(
+            size_of::<Result<Interpretation, Error>>(),
+            size_of::<Error>()
+        );
     }
 
     #[test]

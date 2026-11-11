@@ -16,6 +16,8 @@ mod bang_function;
 #[cfg(test)]
 mod carried_names;
 #[cfg(test)]
+mod chord_play;
+#[cfg(test)]
 mod clear;
 #[cfg(test)]
 mod conflicts;

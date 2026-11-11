@@ -803,6 +803,31 @@ mod tests {
     }
 
     #[test]
+    fn a_chord_plays_set_and_voicing_paint_in_their_own_operand_colours() {
+        // Column 8 begins the set, column 10 the Voicing. Whichever state a
+        // slot is in, it paints as the operand its Function declares.
+        let grid = Grid::with_shape(14, 1);
+        for (row, state) in [
+            ("!:0064C4M7CL00", OperandState::Valid),
+            ("!:0064C4xxxx00", OperandState::Invalid),
+            ("!:0064C4    00", OperandState::Pending),
+        ] {
+            let source = SourceCommander::new(grid);
+            write_row(&source, grid, row);
+            let frame = derive_frame(&source, grid.origin());
+            for (columns, token) in [(8..10, Token::IntervalSet), (10..12, Token::Voicing)] {
+                for column in columns {
+                    assert_eq!(
+                        frame.at(grid.position(column, 0).unwrap()).source_paint(),
+                        SourcePaint::Operand { token, state },
+                        "{row:?} column {column}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_partly_written_operand_is_invalid_on_every_cell() {
         let grid = Grid::with_shape(4, 1);
         let source = SourceCommander::new(grid);

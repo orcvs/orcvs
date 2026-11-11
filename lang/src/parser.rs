@@ -2058,8 +2058,9 @@ mod nesting_tests {
     #[test]
     fn a_nested_function_that_answers_no_value_is_refused_from_source_alone() {
         // Every effect Function, nested where a value is required, is refused
-        // by its declared kind. The layout still claims its own operands, so
-        // the Expression keeps the extent its signatures give it.
+        // by its declared kind. The layout still claims its own operands, each
+        // well typed for its slot, so the refusal is the nesting alone and the
+        // Expression keeps the extent its signatures give it.
         // The Bang Function is the one effect Function no operand slot reads
         // as a Function: there `**` is the Bang value.
         for function in Function::ALL
@@ -2071,6 +2072,8 @@ mod nesting_tests {
                 .iter()
                 .map(|token| match token {
                     crate::Token::Note => "C4",
+                    crate::Token::IntervalSet => "M7",
+                    crate::Token::Voicing => "CL",
                     _ => "01",
                 })
                 .collect();

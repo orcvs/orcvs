@@ -173,6 +173,36 @@ pub enum InterpretationError {
     #[error("MIDI {role} {value:02X} is outside the range 00–7F")]
     MidiDataByte { role: &'static str, value: u8 },
 
+    /// A Chord Play's Interval Set holds fewer tones than its Voicing needs,
+    /// so the Voicing cannot mean what it says and no tone is sent.
+    ///
+    /// The need and the count are read off the Voicing and the set, so the
+    /// message cannot disagree with the rule that refused the chord.
+    #[error(
+        "{function} cannot voice Interval Set {} as {}: the Voicing needs {} tones and the set has {}, so no tone is sent",
+        set.cells(),
+        voicing.cells(),
+        voicing.tones_needed(),
+        set.semitones().len()
+    )]
+    TooFewTones {
+        function: crate::Function,
+        set: crate::IntervalSet,
+        voicing: crate::Voicing,
+    },
+
+    /// A Chord Play computed a tone outside the MIDI note range, so the whole
+    /// chord is refused rather than sounded in part.
+    ///
+    /// `tone` is rendered in decimal for the reason
+    /// [`InterpretationError::NoteOutOfRange`]'s value is: a drop can take it
+    /// below zero.
+    #[error("{function} cannot sound chord tone {tone}, outside the MIDI note range 0–127")]
+    ChordToneOutOfRange {
+        function: crate::Function,
+        tone: i16,
+    },
+
     /// An OSC Payload whose first word, the address, does not start with
     /// `/`. An empty Payload has an empty address.
     #[error("OSC address {0:?} does not start with \"/\"")]
