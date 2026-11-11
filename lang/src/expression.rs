@@ -260,6 +260,14 @@ impl Expression {
             .flatten()
     }
 
+    /// The Function at entry `index`, when one stands there.
+    pub(crate) fn function_at(&self, index: usize) -> Option<crate::Function> {
+        match self.records.get(index)?.atom {
+            Some(Atom::Function(function)) => Some(function),
+            _ => None,
+        }
+    }
+
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
         self.records.iter()
     }
@@ -417,6 +425,12 @@ impl RecordStore {
 
     fn iter(&self) -> impl DoubleEndedIterator<Item = &Record> {
         self.inline.iter().chain(self.overflow.iter())
+    }
+
+    fn get(&self, index: usize) -> Option<&Record> {
+        self.inline
+            .get(index)
+            .or_else(|| self.overflow.get(index.checked_sub(self.inline.len())?))
     }
 
     fn len(&self) -> usize {

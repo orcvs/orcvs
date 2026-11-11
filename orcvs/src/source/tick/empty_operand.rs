@@ -52,6 +52,22 @@ fn row_with(spelling: &str, operands: &[&str], index: usize, cells: &str) -> Str
     row(spelling, &with(operands, index, cells))
 }
 
+/// Row 1 for `spelling` with `operands`, activated every Tick by the Bang
+/// written beside it, which leaves the row above free over every operand.
+fn bang_row(spelling: &str, operands: &[&str]) -> String {
+    format!("**{spelling}{}", operands.concat())
+}
+
+/// The column of operand `index` on a row for `spelling`.
+fn column(spelling: &str, index: usize) -> usize {
+    2 + spelling.len() + 2 * index
+}
+
+/// Row 0: a Track at `column` that writes `pair` over the Cells beneath it.
+fn track_at(column: usize, pair: &str) -> String {
+    format!("{:column$}&t0001{pair}", "")
+}
+
 /// Each Tick in `ticks` of `rows`: its Play Commands, the Tick observed, and
 /// the Language Map's diagnostics on row 1 read after it.
 fn executed(rows: &[&str], ticks: Range<u64>) -> Vec<(Vec<PlayCommand>, Observed, Diagnostics)> {
@@ -154,22 +170,35 @@ fn an_operand_a_nested_function_returns_empty_sends_nothing_and_reports_nothing(
 fn an_operand_a_portal_write_emptied_sends_nothing_and_reports_nothing() {
     // A Track above the operand writes the pair it selects over it: the
     // operand's own spelling the first time, and two empty Cells the second.
-    // A Bang written beside the output activates it every Tick, which leaves
-    // the row above free for a Track over any operand.
     for (spelling, operands) in OUTPUTS {
-        let output = format!("**{spelling}{}", operands.concat());
+        let output = bang_row(spelling, operands);
         for (index, operand) in operands.iter().enumerate() {
-            let track = format!("{:1$}&t0001", "", 2 + spelling.len() + 2 * index);
-            let (commands, diagnostics) = run(&[&format!("{track}{operand}"), &output]);
+            let at = column(spelling, index);
+            let (commands, diagnostics) = run(&[&track_at(at, operand), &output]);
             assert!(!commands.is_empty(), "{output:?} {index}: {diagnostics:?}");
             assert_eq!(diagnostics, vec![], "{output:?} {index}");
 
-            let emptied = executed(&[&format!("{track}  "), &output], 0..2);
+            let emptied = executed(&[&track_at(at, "  "), &output], 0..2);
             for (commands, tick, mapped) in emptied {
                 assert_eq!(commands, vec![], "{output:?} {index}");
                 assert_eq!(tick.diagnostics, vec![], "{output:?} {index}");
                 assert_eq!(mapped, vec![], "{output:?} {index}");
             }
+        }
+    }
+}
+
+#[test]
+fn an_operand_empty_in_source_that_a_portal_fills_sends() {
+    // The Language Map admits the row for its empty operand, and the Turn
+    // reads the pair Track wrote there, so the output sounds.
+    for (spelling, operands) in OUTPUTS {
+        for (index, operand) in operands.iter().enumerate() {
+            let output = bang_row(spelling, &with(operands, index, "  "));
+            let track = track_at(column(spelling, index), operand);
+            let (commands, diagnostics) = run(&[&track, &output]);
+            assert!(!commands.is_empty(), "{output:?} {index}: {diagnostics:?}");
+            assert_eq!(diagnostics, vec![], "{output:?} {index}");
         }
     }
 }
@@ -216,21 +245,44 @@ fn a_later_operand_that_fails_at_the_turn_is_diagnosed_after_an_empty_one() {
         } else {
             "60"
         };
-        let column = 2 + spelling.len() + 2 * 2;
-        let output = format!("**{spelling}{}", with(operands, 0, "  ").concat());
-        let track = format!("{:column$}&t0001{wrong}", "");
-        let (commands, diagnostics) = run(&[&track, &output]);
+        let at = column(spelling, 2);
+        let output = bang_row(spelling, &with(operands, 0, "  "));
+        let (commands, diagnostics) = run(&[&track_at(at, wrong), &output]);
         assert_eq!(commands, vec![], "{output:?}");
         assert!(
             diagnostics.iter().any(|(x, y, _)| (*x, *y) == (2, 1)),
             "{output:?}: {diagnostics:?}"
         );
 
-        let nested = format!(
-            "**{spelling}{}",
-            with(&with(operands, 0, "  "), 2, "&v01").concat()
+        let nested = bang_row(spelling, &with(&with(operands, 0, "  "), 2, "&v01"));
+        let below = format!("{:1$}{wrong}", "", at + 2);
+        let (commands, diagnostics) = run(&["", &nested, &below]);
+        assert_eq!(commands, vec![], "{nested:?}");
+        assert!(
+            diagnostics.iter().any(|(x, y, _)| (*x, *y) == (2, 1)),
+            "{nested:?}: {diagnostics:?}"
         );
-        let below = format!("{:1$}{wrong}", "", column + 2);
+    }
+}
+
+#[test]
+fn a_half_pair_that_arrives_at_the_turn_is_diagnosed_beside_an_empty_one() {
+    // With the channel and the third operand empty in Source, a Track one
+    // column to the right writes `D4` across the third operand, leaving it
+    // ` D`; or a Read returns a half-typed pair into it. Either way the
+    // output is diagnosed, though its channel is empty.
+    for (spelling, operands) in OUTPUTS {
+        let at = column(spelling, 2);
+        let output = bang_row(spelling, &with(&with(operands, 0, "  "), 2, "  "));
+        let (commands, diagnostics) = run(&[&track_at(at + 1, "D4"), &output]);
+        assert_eq!(commands, vec![], "{output:?}");
+        assert!(
+            diagnostics.iter().any(|(x, y, _)| (*x, *y) == (2, 1)),
+            "{output:?}: {diagnostics:?}"
+        );
+
+        let nested = bang_row(spelling, &with(&with(operands, 0, "  "), 2, "&v01"));
+        let below = format!("{:1$}C ", "", at + 2);
         let (commands, diagnostics) = run(&["", &nested, &below]);
         assert_eq!(commands, vec![], "{nested:?}");
         assert!(

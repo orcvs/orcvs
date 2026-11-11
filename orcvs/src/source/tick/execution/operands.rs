@@ -65,47 +65,40 @@ impl Execution<'_> {
     /// The one exception is a MIDI output: an operand whose two Cells are
     /// empty, or whose child answered a Clear and so wrote two empty Cells,
     /// leaves it nothing to send. Any other operand that does not decode still
-    /// refuses the Turn, wherever it stands, so the order of the operands
-    /// does not matter and nothing is held back.
+    /// refuses the Turn, wherever it stands.
     pub(super) fn decode(
         &self,
         node: &Computation,
         function: Function,
         signature: lang::Tokens,
     ) -> Result<Decoded, String> {
-        let may_be_empty = function.sends_nothing_on_an_empty_operand();
         let mut empty = false;
         let mut operands = Vec::with_capacity(node.operands.len());
         for (operand, token) in node.operands.iter().zip(signature) {
             let rendered;
             let spelling = match self.returning_child(operand) {
                 None => self.working.text(operand.cells.clone()),
-                Some(child) => match self.turns.result(child) {
-                    // A Clear wrote two empty Cells at the child's Output
-                    // Portal, so the operand holds what a blank one holds.
-                    Some(Answer::Clear) if may_be_empty => lang::BLANK_PAIR,
-                    // A Clear returns no value. The parent names the child,
-                    // since nothing at the operand says which Function
-                    // cleared.
-                    Some(Answer::Clear) => {
-                        return Err(nested(
-                            self.schedule.lookup.nodes()[child].anchor,
-                            "cleared its operand",
-                        ));
+                Some(child) => {
+                    let anchor = self.schedule.lookup.nodes()[child].anchor;
+                    match self.turns.result(child) {
+                        // A Clear wrote two empty Cells at the child's Output
+                        // Portal, so the operand holds what a blank one holds.
+                        Some(Answer::Clear) if function.sends_nothing_on_an_empty_operand() => {
+                            lang::BLANK_PAIR
+                        }
+                        // A Clear returns no value. The parent names the
+                        // child, since nothing at the operand says which
+                        // Function cleared.
+                        Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
+                        Some(Answer::Unit(atom)) => {
+                            rendered = Encoding::render(atom).to_string();
+                            &rendered
+                        }
+                        None => return Err(nested(anchor, "returned nothing")),
                     }
-                    Some(Answer::Unit(atom)) => {
-                        rendered = Encoding::render(atom).to_string();
-                        &rendered
-                    }
-                    None => {
-                        return Err(nested(
-                            self.schedule.lookup.nodes()[child].anchor,
-                            "returned nothing",
-                        ));
-                    }
-                },
+                }
             };
-            if may_be_empty && spelling == lang::BLANK_PAIR {
+            if function.sends_nothing_on(spelling) {
                 empty = true;
                 continue;
             }

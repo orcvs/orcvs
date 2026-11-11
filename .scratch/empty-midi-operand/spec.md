@@ -1,6 +1,6 @@
 # A MIDI output with an empty operand sends nothing
 
-Status: ready-for-agent
+Status: resolved
 
 Settled in design on 2026-11-11. ADR 0106 records the decision, which supersedes ADR 0075 and
 ADR 0104 and amends ADR 0069 for the MIDI outputs. Where `.scratch/chords-and-pitch/spec.md`

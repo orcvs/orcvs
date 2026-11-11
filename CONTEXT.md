@@ -74,7 +74,7 @@ _Avoid_: Typed nested result, nested value, pass-through
 
 **Pending**:
 Not a state. A Function whose spelling is known but whose arguments are not yet valid, whether malformed or not yet written, is pending only in the ordinary sense of the word: per ADR 0069 it is invalid like any other, does not evaluate, writes nothing, returns nothing and is diagnosed, and a nested parent fails with it. The one exception is an operand of a MIDI output whose two Cells are empty, which per ADR 0106 is a Rest. Source Paint shows an unwritten operand in its declared type's colour rather than as a fault.
-_Avoid_: Pending Function, rest, Blank Answer, incomplete Expression
+_Avoid_: Pending Function, Blank Answer, incomplete Expression
 
 **Pending Operand Encoding**:
 The current characters of a spatially updated operand, awaiting interpretation when its receiving Function executes. They may be invalid for that operand's literal type and are not yet a decoded value.
@@ -323,7 +323,7 @@ The terminal `!> channel velocity note` Function, also called Raw Play, that int
 _Avoid_: Note output, MIDI Function
 
 **Rest**:
-The Turn of a MIDI output, Raw Play `!>`, Timed Play `!~`, Monophonic Play `!%`, Raw Chord Play `!:`, Timed Chord Play `!#`, Control Change `!c` or Pitch Bend `!b`, any of whose operands holds two empty Cells. Per ADR 0106 it sends nothing and raises no diagnostic, as Orca's `:` returns when a port it needs is empty. The output sees only the Cells, so Cells written empty in Source, emptied by a Portal write, or returned empty by a nested Function's Clear are one case, and the Language Map admits such an output as a root. One empty Cell beside a written one is partial input and diagnoses, and so does any operand that does not decode, whatever stands beside it. Every other Function still refuses an empty operand under ADR 0069. A Rest takes no evaluation, so a channel or velocity outside its MIDI domain is diagnosed only on a Turn with every operand written. A Monophonic Play that rests leaves its channel's voice sounding to its own Note Off.
+The Turn of a MIDI output, Raw Play `!>`, Timed Play `!~`, Monophonic Play `!%`, Raw Chord Play `!:`, Timed Chord Play `!#`, Control Change `!c` or Pitch Bend `!b`, any of whose operands holds two empty Cells. Per ADR 0106 it sends nothing and raises no diagnostic, as Orca's `:` returns when a port it needs is empty. The output sees only the Cells, so Cells written empty in Source, emptied by a Portal write, or returned empty by a nested Function's Clear are one case. One empty Cell beside a written one is partial input and diagnoses, and so does any operand that does not decode, whatever stands beside it. Every other Function still refuses an empty operand under ADR 0069. A Rest takes no evaluation, so a channel or velocity outside its MIDI domain is diagnosed only on a Turn with every operand written. A Monophonic Play that rests leaves its channel's voice sounding to its own Note Off.
 _Avoid_: Silent Play, empty note
 
 **Timed Play Function**:

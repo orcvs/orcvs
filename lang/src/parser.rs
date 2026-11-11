@@ -213,18 +213,19 @@ impl<'a> Parser<'a> {
         // this inline capacity is an optimization, not a language limit.
         let mut pending = arrayvec::ArrayVec::<_, 16>::new();
         let mut overflow = Vec::new();
-        pending.push((Token::Function, None, false));
+        pending.push((Token::Function, None));
         let mut error = None;
-        // Each pending operand carries whether its Function is a MIDI output,
-        // whose operand may be two empty Cells.
-        while let Some((token, parent, may_be_empty)) = overflow.pop().or_else(|| pending.pop()) {
+        while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
                 // An empty operand of a MIDI output is recorded without
                 // decoding it: the refusal decoding would build is reported
                 // only by strict parsing, so a row that sends nothing reads
                 // without allocating.
-                if may_be_empty && self.peek_next() == Some(BLANK_PAIR) {
+                let owner = parent.and_then(|index| self.expression.function_at(index));
+                if let Some(cells) = self.peek_next()
+                    && owner.is_some_and(|function| function.sends_nothing_on(cells))
+                {
                     self.next_token(BLANK_PAIR.len());
                     self.empty.get_or_insert(token);
                     self.expression.add_empty(
@@ -350,9 +351,8 @@ impl<'a> Parser<'a> {
                         );
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
-                        let may_be_empty = function.sends_nothing_on_an_empty_operand();
                         for token in function.signature().iter().rev() {
-                            let item = (*token, Some(index), may_be_empty);
+                            let item = (*token, Some(index));
                             // Overflow is always popped first, so any occupied
                             // overflow has a full inline stack beneath it.
                             if pending.is_full() {

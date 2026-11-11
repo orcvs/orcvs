@@ -1161,21 +1161,6 @@ whole chord and sends nothing.
 !:0064C4M7D501
 ```
 
-**Rest.** A Chord Play rests as every MIDI output does: any operand of two empty Cells, the root
-or any other, sends nothing. `!#` rests the same way.
-
-```orcvs
-**
-!:0064    CL00
-```
-
-After Tick `0`, nothing plays:
-
-```orcvs tick 0
-
-!:0064    CL00
-```
-
 ### `!#` Timed Chord Play
 
 `!# channel velocity root set voicing inversion length` builds its tones as Raw Chord Play does and

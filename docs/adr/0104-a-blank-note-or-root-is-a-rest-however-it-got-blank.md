@@ -27,3 +27,13 @@ ADR 0075 made a Clear in a Play's note operand a Rest, so the same pattern rests
 - **Keep ADR 0069's rule for unnested slots.** Leaves two layouts that deliver identical Cells behaving differently.
 - **Rest on a half-written pair.** A half-typed Note would go silent with no explanation during Live Editing.
 - **Require a Chord Play's other operands to decode on a Rest.** Diagnoses every empty row of a pattern in which voicing, inversion and length are read from the same row.
+
+## Amendment, 2026-11-11: a root written in Source refuses a blank beside it in the Language Map
+
+Superseded with the rest of this decision by [ADR 0106](0106-a-midi-output-with-an-empty-operand-sends-nothing.md), under which no operand excuses another and the Language Map and the Turn read empty Cells alike.
+
+The Decision holds at the Turn, and the Language Map is narrower. The Map reads each Expression as Source holds it, so a Chord Play whose root is written in Source beside an operand left blank in Source is refused there under [ADR 0069](0069-an-unwritten-operand-is-invalid-input.md)'s rule that an unwritten operand is invalid input: the root that would excuse the blank is written. The Map diagnoses that row. A root blank in Source, or a nested Function in the root, which may clear it, excuses the blank in the Map as at the Turn.
+
+A Map refusal holds a Turn only while every operand still holds what Source held when the Map was built. A Portal write that empties the written root during a Tick changes that operand, so the Turn runs, finds the root blank and rests: it sends nothing and raises nothing, as the Decision says. The Map rebuilt from what the Tick left admits the row, and later Ticks rest. A Portal write that changes the root to another written value runs the Turn too, which refuses the blank operand; once Source holds that root, the Map's refusal holds each later Turn without repeating its diagnostic. A Portal write that leaves the root's spelling as it was changes no operand, so the Map's refusal still holds the Turn and the Tick reports nothing.
+
+Letting the Map admit a Chord Play with a written root beside a blank, and leaving the refusal to the Turn, would match the Decision in the Map as well, but would drop the Map's diagnostic for a blank Interval Set beside a root written in Source.

@@ -911,6 +911,14 @@ macro_rules! define_functions {
                 matches!(self.output(), crate::Output::Terminal) && !self.takes_no_operand()
             }
 
+            /// Whether an operand spelled `cells` leaves this Function
+            /// nothing to send: its two Cells are empty and this Function is
+            /// a MIDI output. The Parser asks it of Source and the Tick of
+            /// the Cells at the Turn, so the two cannot disagree.
+            pub fn sends_nothing_on(self, cells: &str) -> bool {
+                self.sends_nothing_on_an_empty_operand() && cells == crate::BLANK_PAIR
+            }
+
             /// The Portal input resolved at Turn, after cell operand validation.
             pub const fn portal_input(self) -> Option<crate::PortalInput> {
                 match self {
@@ -1924,7 +1932,10 @@ mod test {
                 Function::RawPlay,
                 Function::TimedChordPlay,
                 Function::TimedPlay,
-            ]
+            ],
+            "the rule is read from Terminal Output with operands, so a Terminal \
+             Output that declares operands and is not a MIDI output joins this \
+             list and has its empty operands accepted by the Parser and the Tick"
         );
     }
 
