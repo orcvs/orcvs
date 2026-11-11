@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794370323752,
+  "lastUpdate": 1794384420888,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -124233,6 +124233,846 @@ window.BENCHMARK_DATA = {
             "name": "source_commander_execute_tick_dynamic_writers/128x128",
             "value": 10330934,
             "range": "± 38714",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62543fb104cb220a5d84be5ed2e6b778317b083e",
+          "message": "Merge pull request #370 from orcvs/claude/chords-and-pitch-07-pick-stack\n\nPick a tone and Stack a chord on a degree",
+          "timestamp": "2026-11-11T07:48:04Z",
+          "tree_id": "62c20a766536cba17d4fe9ec51c9ed34e241a667",
+          "url": "https://github.com/orcvs/orcvs/commit/62543fb104cb220a5d84be5ed2e6b778317b083e"
+        },
+        "date": 1794384417654,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "paint_minimap/picture/256x256",
+            "value": 1047042,
+            "range": "± 8642",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/single",
+            "value": 57,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/empty",
+            "value": 41,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/16x16",
+            "value": 3045,
+            "range": "± 143",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/16x16",
+            "value": 3064,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/32x32",
+            "value": 11908,
+            "range": "± 692",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/32x32",
+            "value": 3056,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/64x64",
+            "value": 48451,
+            "range": "± 804",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/64x64",
+            "value": 3060,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/128x128",
+            "value": 196573,
+            "range": "± 978",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/128x128",
+            "value": 3036,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/fitted/256x256",
+            "value": 787141,
+            "range": "± 3501",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/culled/256x256",
+            "value": 3039,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/region/32x32",
+            "value": 13287,
+            "range": "± 27",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/window/16x16",
+            "value": 32964,
+            "range": "± 217",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/window/12x18",
+            "value": 38026,
+            "range": "± 646",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_derive/window/8x8",
+            "value": 129225,
+            "range": "± 664",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/16x16",
+            "value": 491,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/16x16",
+            "value": 493,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/32x32",
+            "value": 1466,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/32x32",
+            "value": 486,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/64x64",
+            "value": 5176,
+            "range": "± 31",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/64x64",
+            "value": 465,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/128x128",
+            "value": 17828,
+            "range": "± 34",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/128x128",
+            "value": 451,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/fitted/256x256",
+            "value": 79131,
+            "range": "± 159",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_background_runs/culled/256x256",
+            "value": 446,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/single",
+            "value": 396,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/empty",
+            "value": 22,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted/16x16",
+            "value": 34556,
+            "range": "± 154",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/culled/16x16",
+            "value": 34578,
+            "range": "± 157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@1.5x/16x16",
+            "value": 34828,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@2x/16x16",
+            "value": 34739,
+            "range": "± 219",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted/32x32",
+            "value": 134582,
+            "range": "± 286",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/culled/32x32",
+            "value": 34714,
+            "range": "± 72",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@1.5x/32x32",
+            "value": 135351,
+            "range": "± 309",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@2x/32x32",
+            "value": 134983,
+            "range": "± 181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted/64x64",
+            "value": 538335,
+            "range": "± 2088",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/culled/64x64",
+            "value": 34608,
+            "range": "± 166",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@1.5x/64x64",
+            "value": 544012,
+            "range": "± 1529",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@2x/64x64",
+            "value": 542430,
+            "range": "± 1474",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted/128x128",
+            "value": 2123353,
+            "range": "± 136441",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/culled/128x128",
+            "value": 34775,
+            "range": "± 6400",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@1.5x/128x128",
+            "value": 2140173,
+            "range": "± 26898",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@2x/128x128",
+            "value": 2142233,
+            "range": "± 12003",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted/256x256",
+            "value": 20993128,
+            "range": "± 345402",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/culled/256x256",
+            "value": 34717,
+            "range": "± 79",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@1.5x/256x256",
+            "value": 8702446,
+            "range": "± 48467",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/fitted@2x/256x256",
+            "value": 8744048,
+            "range": "± 59479",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/window/16x16",
+            "value": 363839,
+            "range": "± 3311",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/window/12x18",
+            "value": 420889,
+            "range": "± 1965",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint_shapes/window/8x8",
+            "value": 1389477,
+            "range": "± 4579",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "stored_source/save/256x256",
+            "value": 513637,
+            "range": "± 781",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "stored_source/restore/256x256",
+            "value": 3212333,
+            "range": "± 69999",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse",
+            "value": 177,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_invalid",
+            "value": 83,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute_function",
+            "value": 16,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute_function_operands/Add",
+            "value": 27,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute_function_operands/ConvertToNote",
+            "value": 26,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "execute_function_operands/Subtract",
+            "value": 27,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_source",
+            "value": 837,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/3",
+            "value": 78,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/7",
+            "value": 131,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/15",
+            "value": 298,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/31",
+            "value": 576,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_records/63",
+            "value": 1026,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_whole_grid/language_map_derive",
+            "value": 3402374,
+            "range": "± 100395",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_whole_grid/snapshot",
+            "value": 2546,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_whole_grid/commit_no_write",
+            "value": 7,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_whole_grid/edit_rebuild_valid",
+            "value": 12893,
+            "range": "± 66",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_file/read/256x256",
+            "value": 4304150,
+            "range": "± 85520",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_file/write/256x256",
+            "value": 4218,
+            "range": "± 118",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/16x16",
+            "value": 19,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/32x32",
+            "value": 19,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/64x64",
+            "value": 19,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/128x128",
+            "value": 19,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_read_revision/256x256",
+            "value": 19,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/16x16",
+            "value": 9653,
+            "range": "± 69",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/32x32",
+            "value": 36323,
+            "range": "± 1651",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/64x64",
+            "value": 149121,
+            "range": "± 507",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/128x128",
+            "value": 595496,
+            "range": "± 4237",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame/256x256",
+            "value": 2811981,
+            "range": "± 136321",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_nested/32x16",
+            "value": 15554,
+            "range": "± 69",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_nested/64x16",
+            "value": 31628,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_nested/128x16",
+            "value": 61463,
+            "range": "± 92",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_nested/256x16",
+            "value": 121353,
+            "range": "± 144",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/none/16x16",
+            "value": 6633,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/current/16x16",
+            "value": 6617,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/retained/16x16",
+            "value": 6917,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/none/32x32",
+            "value": 26641,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/current/32x32",
+            "value": 26648,
+            "range": "± 172",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/retained/32x32",
+            "value": 27704,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/none/64x64",
+            "value": 103938,
+            "range": "± 111",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/current/64x64",
+            "value": 109227,
+            "range": "± 441",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/retained/64x64",
+            "value": 109470,
+            "range": "± 401",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/none/128x128",
+            "value": 435793,
+            "range": "± 729",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/current/128x128",
+            "value": 443968,
+            "range": "± 1732",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_render_frame_tick_portals/retained/128x128",
+            "value": 458892,
+            "range": "± 2129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/16x16",
+            "value": 724,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/32x32",
+            "value": 1717,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_valid/64x64",
+            "value": 3518,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/16x16",
+            "value": 755,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/32x32",
+            "value": 1716,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_edit_rebuild_invalid/64x64",
+            "value": 3314,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/16x16",
+            "value": 10797,
+            "range": "± 59",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/32x32",
+            "value": 40324,
+            "range": "± 855",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/64x64",
+            "value": 199717,
+            "range": "± 835",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick/128x128",
+            "value": 808910,
+            "range": "± 4499",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick/16x16",
+            "value": 11211,
+            "range": "± 62",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick/32x32",
+            "value": 41659,
+            "range": "± 3327",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick/64x64",
+            "value": 189114,
+            "range": "± 542",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick/128x128",
+            "value": 812284,
+            "range": "± 1364",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/16x16",
+            "value": 5348,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/32x32",
+            "value": 32734,
+            "range": "± 124",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/64x64",
+            "value": 149010,
+            "range": "± 439",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_edges/128x128",
+            "value": 651157,
+            "range": "± 5556",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_edges/16x16",
+            "value": 5503,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_edges/32x32",
+            "value": 33571,
+            "range": "± 102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_edges/64x64",
+            "value": 142017,
+            "range": "± 954",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_edges/128x128",
+            "value": 644780,
+            "range": "± 3475",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/16x16",
+            "value": 13714,
+            "range": "± 31",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/32x32",
+            "value": 56958,
+            "range": "± 267",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/64x64",
+            "value": 256616,
+            "range": "± 2803",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_portal_inputs/128x128",
+            "value": 1108671,
+            "range": "± 4296",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_portal_inputs/16x16",
+            "value": 13754,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_portal_inputs/32x32",
+            "value": 57017,
+            "range": "± 234",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_portal_inputs/64x64",
+            "value": 254216,
+            "range": "± 663",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_portal_inputs/128x128",
+            "value": 1125665,
+            "range": "± 4574",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_dynamic_writers/16x16",
+            "value": 12976,
+            "range": "± 58",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_dynamic_writers/32x32",
+            "value": 73560,
+            "range": "± 2023",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_dynamic_writers/64x64",
+            "value": 659842,
+            "range": "± 1984",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_execute_tick_dynamic_writers/128x128",
+            "value": 7594673,
+            "range": "± 90135",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_dynamic_writers/16x16",
+            "value": 13037,
+            "range": "± 514",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_dynamic_writers/32x32",
+            "value": 72246,
+            "range": "± 919",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_dynamic_writers/64x64",
+            "value": 640481,
+            "range": "± 7607",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "source_commander_execute_tick_dynamic_writers/128x128",
+            "value": 7716400,
+            "range": "± 161040",
             "unit": "ns/iter"
           }
         ]
