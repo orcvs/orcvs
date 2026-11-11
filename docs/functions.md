@@ -1064,8 +1064,10 @@ whole chord and sends nothing.
 
 **Rest.** A Chord Play whose root is two empty Cells rests, by any of the routes a Play's note
 can get empty. Its other operands may then be empty or cleared too, so a Chord Play with nothing
-written after it rests. A half-written or unreadable operand still diagnoses. A root that is
-written needs every other operand written as well. `!#` rests the same way.
+written after it rests. A half-written or unreadable operand still diagnoses. A root written in
+Source needs every other operand written as well: an operand left empty beside it diagnoses, and
+the Chord Play sends nothing, until the root is empty in Source, even on the Tick a Portal empties
+it. `!#` rests the same way.
 
 ```orcvs
 **

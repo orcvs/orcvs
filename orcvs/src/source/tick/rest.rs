@@ -392,6 +392,7 @@ fn both_chord_plays_rest_on_a_root_a_portal_emptied() {
 fn both_chord_plays_rest_on_a_root_a_nested_read_cleared() {
     for play in ["  !:017F&v01M7CL00", "  !#017F&v01M7CL0004"] {
         assert_eq!(chord(play), (vec![], vec![]), "{play:?}");
+        assert_eq!(chord_mapped(play), vec![], "{play:?}");
     }
 }
 
@@ -454,13 +455,27 @@ fn a_root_a_portal_emptied_ignores_an_operand_a_nested_read_cleared() {
 }
 
 #[test]
-fn a_root_a_portal_emptied_ignores_an_operand_left_blank_in_source() {
+fn a_root_written_in_source_refuses_an_operand_left_blank_until_a_portal_empties_it() {
+    // The Language Map reads the root as Source holds it before the Tick, so
+    // the blank operand beside it is refused there. That refusal holds the
+    // Turn, which sends nothing and repeats nothing. Track leaves the root
+    // blank in Source, so the Map rebuilt after the Tick, and every later
+    // Tick, rest.
     for play in ["  !:017FC4  CL00", "  !#017FC4  CL0004", "  !:  7FC4M7CL00"] {
-        assert_eq!(
-            chord_tick(&[".=0101  &t0001  ", play]),
-            (vec![], vec![]),
+        let rows = [".=0101  &t0001  ", play];
+        assert!(
+            mapped(Grid::with_shape(40, 4), &rows).contains(&(2, 1)),
             "{play:?}"
         );
+        for (tick, (commands, observed, mapped)) in executed(Grid::with_shape(40, 4), &rows, 0..2)
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(commands, vec![], "{play:?} Tick {tick}");
+            assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
+            assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
+            assert_eq!(&observed.rows[1][8..10], "  ", "{play:?} Tick {tick}");
+        }
     }
 }
 
@@ -533,7 +548,7 @@ fn a_half_written_root_is_diagnosed_by_every_route() {
 }
 
 #[test]
-fn a_blank_set_with_a_root_present_is_diagnosed() {
+fn a_blank_interval_set_with_a_root_present_is_diagnosed() {
     // Written blank in Source beside a written root.
     for play in ["  !:017FC4  CL00", "  !#017FC4  CL0004"] {
         assert_eq!(chord(play).0, vec![], "{play:?}");
@@ -564,6 +579,17 @@ fn a_blank_set_with_a_root_present_is_diagnosed() {
     assert_eq!(commands, vec![]);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert_eq!((diagnostics[0].0, diagnostics[0].1), (2, 1));
+
+    // Left blank beside a root a Portal writes over blank Source: the
+    // Language Map admits the row, since its root is blank there, so only the
+    // Turn can find no set for the root.
+    let rows = [".=0101  &t0001D4", "  !:017F    CL00"];
+    assert!(!mapped(Grid::with_shape(40, 4), &rows).contains(&(2, 1)));
+    let (commands, diagnostics) = chord_tick(&rows);
+    assert_eq!(commands, vec![]);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!((diagnostics[0].0, diagnostics[0].1), (2, 1));
+    assert!(diagnostics[0].2.contains("\"  \""), "{diagnostics:?}");
 }
 
 #[test]
