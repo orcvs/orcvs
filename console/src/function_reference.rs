@@ -21,7 +21,7 @@
 //! | Columns   | Group                                                                            |
 //! |-----------|----------------------------------------------------------------------------------|
 //! | `0..16`   | Arithmetic: `.+ .- .| .x ./ .% .< .> .=`                                         |
-//! | `16..32`  | Numeric Conversion: `.v .^`; from row 10, Pitch: `#+ #-`                         |
+//! | `16..32`  | Numeric Conversion: `.v .^`; from row 10, Pitch: `#+ #- #p #s`                   |
 //! | `32..48`  | Tick: `~. ~* ~% ~+ ~> ~?`                                                        |
 //! | `48..64`  | Copies and Halt: `=^ =v =< => =$`, `*!`; from row 23, Reads: `&t &^ &v &< &> &$` |
 //! | `64..80`  | Directional Bangs and Self-Banging: `*^ *v *< *>`, `^^ vv << >>`                 |
@@ -313,6 +313,8 @@ mod tests {
             // on row 10).
             result(16, 12, "D4"), // #+C402
             result(16, 14, "C4"), // #-D402
+            result(16, 16, "G4"), // #pC4MA04: MA's fifth entry is 7 above C4
+            result(16, 18, "M7"), // #sMA0004: MA's positions 0 2 4 6 are 0 4 7 11
             // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously

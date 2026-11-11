@@ -228,9 +228,11 @@ C4
 
 ## Pitch
 
-Each answers a Note or an Interval Set derived from the Note or Interval Set it reads, and runs
-every Tick. A `note` that does not spell a Note, such as `3C`, is refused. An answer outside `00` to
-`7F` diagnoses and writes nothing: a Note never wraps.
+Each derives a Note or an Interval Set from the Notes and Interval Sets it reads, and runs every
+Tick. A `note` or `root` that does not spell a Note, such as `3C`, is refused. Up, Down and Pick
+answer a Note: an answer outside `00` to `7F` diagnoses and writes nothing, so a Note never wraps.
+Stack answers an Interval Set: when no name holds the semitones it reaches, it diagnoses and writes
+nothing.
 
 ### `#+` Up
 
@@ -302,6 +304,103 @@ After Tick `0`:
 
 ```orcvs tick 0 diagnoses
 #-C/01
+```
+
+### `#p` Pick
+
+`#p root set index` answers the Note at position `index` of the Interval Set `set`, above `root`.
+Index `00` is the root. An index past the end of the set wraps up an octave, so a set of seven
+tones answers the root an octave up at index `07`.
+
+```orcvs
+#pC4MA04
+```
+
+After Tick `0`:
+
+```orcvs tick 0
+#pC4MA04
+G4
+```
+
+The wrap adds exactly one octave per pass, so Pick rises through a set only while every entry is
+less than an octave above the root. A set wider than an octave steps back down at the wrap: the
+last entry of `MD` is `21` semitones, so index `05` answers `A5` and index `06` answers `C5`.
+
+```orcvs
+#pC4MD05
+
+#pC4MD06
+```
+
+After Tick `0`:
+
+```orcvs tick 0
+#pC4MD05
+A5
+#pC4MD06
+C5
+```
+
+An answer above `G9` diagnoses and writes nothing.
+
+```orcvs
+#pG9M_01
+```
+
+After Tick `0`:
+
+```orcvs tick 0 diagnoses
+#pG9M_01
+```
+
+### `#s` Stack
+
+`#s set degree size` builds a chord on a scale degree. It takes `size` tones of `set`, starting at
+position `degree` and stepping two positions at a time, wrapping up octaves as Pick does. It
+subtracts the first tone and answers the Interval Set with exactly those semitones.
+
+```orcvs
+#sMA0004
+```
+
+After Tick `0`:
+
+```orcvs tick 0
+#sMA0004
+M7
+```
+
+When no name holds exactly those semitones, Stack diagnoses and writes nothing. A major pentatonic
+stacked from `C` reads the semitones `0 4 9`, which no name holds.
+
+```orcvs
+#sp50003
+```
+
+After Tick `0`:
+
+```orcvs tick 0 diagnoses
+#sp50003
+```
+
+Pick in a Chord Play's `root` and Stack in its `set` sound a chord on a scale degree. Here degree
+`04` of C major is `G4`, and the chord built on it answers `7_`, so the Chord Play sounds a G
+dominant seventh.
+
+```orcvs
+.=0101
+
+!:0064#pC4MA04#sMA0404CL00
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 4
+.=0101
+**
+!:0064#pC4MA04#sMA0404CL00
+      G4      7_
 ```
 
 ## Tick

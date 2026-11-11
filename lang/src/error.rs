@@ -40,6 +40,19 @@ pub enum InterpretationError {
         value: i16,
     },
 
+    /// Stack's tones form no Interval Set: their semitones above the first
+    /// are not exactly any name's.
+    #[error(
+        "{function} finds no Interval Set for {} from degree {degree:02X} with size {size:02X}",
+        set.cells()
+    )]
+    NoIntervalSet {
+        function: crate::Function,
+        set: crate::IntervalSet,
+        degree: u8,
+        size: u8,
+    },
+
     /// A Tick-reading Function handed a zero where its cycle needs a length.
     ///
     /// Clock's and Delay's cycle is `rate * modulus` and Euclidean's is

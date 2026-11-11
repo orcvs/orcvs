@@ -1141,6 +1141,7 @@ define_functions! {
     MonophonicPlay => ("!%", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
     Multiply => (".x", Value, Intrinsic, Never, [left: Number, right: Number]),
     Osc => ("!o", TerminalOutput, Bang, Never, []),
+    Pick => ("#p", Value, Intrinsic, Never, [root: Note, set: IntervalSet, index: Number]),
     PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
     Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
@@ -1154,6 +1155,7 @@ define_functions! {
     SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Never, []),
     SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
     SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
+    Stack => ("#s", Value, Intrinsic, Never, [set: IntervalSet, degree: Number, size: Number]),
     Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
     TimedChordPlay => ("!#", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
     TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
@@ -2562,6 +2564,8 @@ mod test {
     fn pitch_functions_display_with_the_hash_family_spellings() {
         assert_eq!(Function::Up.to_string(), "#+");
         assert_eq!(Function::Down.to_string(), "#-");
+        assert_eq!(Function::Pick.to_string(), "#p");
+        assert_eq!(Function::Stack.to_string(), "#s");
     }
 
     #[test]
@@ -2621,11 +2625,13 @@ mod test {
                 | Function::Minimum
                 | Function::Modulo
                 | Function::Multiply
+                | Function::Pick
                 | Function::Random
                 | Function::ReadEast
                 | Function::ReadNorth
                 | Function::ReadSouth
                 | Function::ReadWest
+                | Function::Stack
                 | Function::Subtract
                 | Function::Track
                 | Function::Up
