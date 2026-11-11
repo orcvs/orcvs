@@ -7,7 +7,7 @@
 //! blank or a nested Clear in any other operand of any Function, such as a
 //! Play's channel or any operand of Control Change or Pitch Bend, is invalid
 //! input. Either way the outcome belongs to the Play alone: every other
-//! Expression takes its Turn as before.
+//! Expression takes its Turn exactly as it would if the note were written.
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick, unless a test
 //! writes a Bang beside it instead.
@@ -56,7 +56,7 @@ fn banged(play: &str) -> (Vec<PlayCommand>, Diagnostics) {
 }
 
 /// Every Language Map diagnostic for `rows`, with its message.
-fn mapped_of(grid: Grid, rows: &[&str]) -> Diagnostics {
+fn mapped(grid: Grid, rows: &[&str]) -> Diagnostics {
     source_of(grid, rows)
         .language_map()
         .diagnostics()
@@ -64,12 +64,12 @@ fn mapped_of(grid: Grid, rows: &[&str]) -> Diagnostics {
         .collect()
 }
 
-/// The Language Map's diagnostics for `rows`.
-fn mapped(grid: Grid, rows: &[&str]) -> Vec<(usize, usize)> {
-    source_of(grid, rows)
-        .language_map()
-        .diagnostics()
-        .map(|d| (d.anchor().x(), d.anchor().y()))
+/// The anchors of [`mapped`]'s diagnostics, for a refusal whose message is
+/// not what the test is about.
+fn mapped_anchors(grid: Grid, rows: &[&str]) -> Vec<(usize, usize)> {
+    mapped(grid, rows)
+        .into_iter()
+        .map(|(column, row, _)| (column, row))
         .collect()
 }
 
@@ -127,7 +127,7 @@ fn a_raw_play_with_a_note_written_blank_in_source_plays_nothing_and_reports_noth
             assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
             assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
         }
-        assert_eq!(mapped_of(grid, &[".=0101", play]), vec![], "{play:?}");
+        assert_eq!(mapped(grid, &[".=0101", play]), vec![], "{play:?}");
     }
 }
 
@@ -147,7 +147,7 @@ fn a_timed_or_monophonic_play_with_a_note_written_blank_in_source_plays_nothing_
             assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
             assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
         }
-        assert_eq!(mapped_of(grid, &[".=0101", play]), vec![], "{play:?}");
+        assert_eq!(mapped(grid, &[".=0101", play]), vec![], "{play:?}");
     }
 }
 
@@ -232,7 +232,11 @@ fn a_raw_play_with_a_blank_note_still_diagnoses_its_channel_and_velocity() {
     // as beside any other.
     for play in ["  !>  7F  ", "  !>01    "] {
         assert_eq!(banged(play), (vec![], vec![]), "{play:?}");
-        assert_eq!(mapped(grid, &[".=0101", play]), vec![(2, 1)], "{play:?}");
+        assert_eq!(
+            mapped_anchors(grid, &[".=0101", play]),
+            vec![(2, 1)],
+            "{play:?}"
+        );
     }
     // A channel or velocity outside its domain is refused at the Turn, on a
     // blank step as on a sounding one.
@@ -245,7 +249,7 @@ fn a_raw_play_with_a_blank_note_still_diagnoses_its_channel_and_velocity() {
             (vec![], vec![diagnostic(2, 1, message)]),
             "{play:?}"
         );
-        assert_eq!(mapped(grid, &[".=0101", play]), vec![], "{play:?}");
+        assert_eq!(mapped_anchors(grid, &[".=0101", play]), vec![], "{play:?}");
     }
 }
 
@@ -260,7 +264,7 @@ fn a_timed_or_monophonic_play_with_a_blank_note_still_diagnoses_its_other_operan
             let play = format!("  {kind}{operands}");
             assert_eq!(banged(&play), (vec![], vec![]), "{play:?}");
             assert!(
-                mapped(grid, &[".=0101", &play]).contains(&(2, 1)),
+                mapped_anchors(grid, &[".=0101", &play]).contains(&(2, 1)),
                 "{play:?}"
             );
         }
@@ -390,7 +394,7 @@ fn a_half_written_note_is_diagnosed_by_every_route_on_every_play() {
         let grid = Grid::with_shape(16, 3);
         assert_eq!(banged(play).0, vec![], "{play:?}");
         assert!(
-            mapped(grid, &[".=0101", play]).contains(&(2, 1)),
+            mapped_anchors(grid, &[".=0101", play]).contains(&(2, 1)),
             "{play:?}"
         );
     }
@@ -410,16 +414,18 @@ fn a_half_written_note_is_diagnosed_by_every_route_on_every_play() {
 
 #[test]
 fn a_play_with_a_blank_note_costs_no_other_expression_its_turn() {
-    // An Addition beside the Play on its row, and a Play beside it banged by
-    // the same Equality, take their Turns whichever way the note is blank.
-    for play in [
-        "  !>017F  .+0102",
-        "  !>017F&>01  .+0102",
-        "  !~017F&>0204  .+0102",
-        "  !%017F&>0204  .+0102",
-        "  !>017FC .+0102",
+    // An Addition beside the Play on its row writes its sum below it, and a
+    // second Play, Banged by its own Equality two rows down, sounds `C4`,
+    // whichever way the first Play's note is blank or half written.
+    for (play, mapped_at_play) in [
+        ("  !>017F  .+0102", false),
+        ("  !>017F&>01  .+0102", false),
+        ("  !~017F&>0204  .+0102", false),
+        ("  !%017F&>0204  .+0102", false),
+        ("  !>017FC .+0102", true),
     ] {
-        let tick = first(Grid::with_shape(24, 3), &[".=0101", play]);
+        let rows = [".=0101", play, "", ".=0101", "  !>017FC4"];
+        let (commands, tick, mapped) = executed(Grid::with_shape(24, 5), &rows, 0..1).remove(0);
         let addition = play.find(".+").expect("the row holds an Addition");
         assert_eq!(
             &tick.rows[2][addition..addition + 2],
@@ -427,12 +433,27 @@ fn a_play_with_a_blank_note_costs_no_other_expression_its_turn() {
             "{play:?}: {:?}",
             tick.diagnostics
         );
+        let played: Vec<_> = commands
+            .iter()
+            .map(|command| match command {
+                PlayCommand::Raw { note, .. } => note.value(),
+                other => panic!("{play:?}: {other:?} is not a Raw Play"),
+            })
+            .collect();
+        assert_eq!(played, vec![60], "{play:?}: only the second Play sounds");
+        assert_eq!(tick.diagnostics, vec![], "{play:?}");
+        // A half-written note is the Language Map's to report, at the Play
+        // alone; a blank one reports nothing.
+        assert_eq!(
+            mapped.iter().any(|&(column, _, _)| column == 2),
+            mapped_at_play,
+            "{play:?}: {mapped:?}"
+        );
         assert!(
-            tick.diagnostics
+            mapped
                 .iter()
-                .all(|(column, row, _)| (*column, *row) == (2, 1) || (*column, *row) == (8, 1)),
-            "{play:?}: {:?}",
-            tick.diagnostics
+                .all(|&(column, _, _)| column == 2 || column == 8),
+            "{play:?}: {mapped:?}"
         );
     }
 }
