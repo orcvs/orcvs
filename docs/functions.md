@@ -279,8 +279,7 @@ After Tick `0`:
 
 ### `#-` Down
 
-`#- note number` answers the Note `number` semitones below `note`. `C/` is the lowest Note, so
-going below it diagnoses and writes nothing.
+`#- note number` answers the Note `number` semitones below `note`.
 
 ```orcvs
 #-D402
@@ -291,6 +290,18 @@ After Tick `0`:
 ```orcvs tick 0
 #-D402
 C4
+```
+
+`C/` is the lowest Note, so going below it diagnoses and writes nothing.
+
+```orcvs
+#-C/01
+```
+
+After Tick `0`:
+
+```orcvs tick 0 diagnoses
+#-C/01
 ```
 
 ## Tick
