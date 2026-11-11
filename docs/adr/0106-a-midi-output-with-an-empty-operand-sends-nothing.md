@@ -27,6 +27,14 @@ no difference, because none of that is visible to the output.
 **A half-written operand is still an error.** One empty Cell beside a written one is malformed
 input, as ADR 0069 says. Orca has no equivalent, because its operands are one Cell wide.
 
+**The Function decides, not the Parser.** The Parser reads characters: two blank Cells in any
+operand slot are an unwritten operand, recorded with no Atom and no refusal, whichever Function owns
+the slot. What an unwritten operand means is the owning Function's to decide. A MIDI output sends
+nothing on one; every other Function refuses one. The Language Map asks while the Source is typed,
+so `.+01  ` is diagnosed at once and `!>01  C4` is a root, and the Tick asks of the Cells it reads
+at the Turn, wherever they came from. Strict parsing yields values, so it refuses any unwritten
+operand.
+
 **Nothing else changes.** Every other Function still treats an empty operand as invalid input
 under ADR 0069. Empty is not a new value or type.
 

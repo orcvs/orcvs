@@ -346,6 +346,15 @@ fn a_value_function_still_refuses_an_empty_operand() {
             "{source:?}"
         );
     }
+    // The Turn agrees and opens nothing: the refusal is the one the Source
+    // already reports, not a second one at the Turn.
+    for source in [".+01  ", "#+C4  ", ".v  ", "!>01.v  C4"] {
+        assert_eq!(
+            first(Grid::with_shape(12, 2), &[source]).diagnostics,
+            [],
+            "{source:?}"
+        );
+    }
     let tick = first(Grid::with_shape(10, 2), &[".v&>01  "]);
     assert_eq!(
         tick.diagnostics,

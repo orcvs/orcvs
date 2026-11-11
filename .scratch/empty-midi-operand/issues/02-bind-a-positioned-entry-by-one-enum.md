@@ -6,9 +6,9 @@ Type: task
 
 Blocked by: None — can start immediately
 
-**What to build:** replace `PositionedEntry`'s `atom: Option<Atom>` and `empty: bool` with one enum
-for how the entry is bound: an Atom, an empty operand of a MIDI output, or unbound. Today only a
-doc comment says an empty entry has no Atom, and `push(.., empty: bool)` passes the flag by
+**What to build:** replace `PositionedEntry`'s `atom: Option<Atom>` and `unwritten: bool` with one
+enum for how the entry is bound: an Atom, unwritten (two blank Cells), or unbound. Today only a doc
+comment says an unwritten entry has no Atom, and `push(.., unwritten: bool)` passes the flag by
 position, so the compiler cannot hold the invariant.
 
 Raised in review of PR #373 and deferred there, because the change reaches every reader of
@@ -17,6 +17,6 @@ Parser's property tests.
 
 ## Acceptance criteria
 
-- [ ] `PositionedEntry` cannot represent an empty entry that holds an Atom.
+- [ ] `PositionedEntry` cannot represent an unwritten entry that holds an Atom.
 - [ ] Every reader of the entry's binding matches on the enum, with no behaviour change.
 - [ ] Parsing and Ticks still allocate nothing where the allocation fixtures say so.

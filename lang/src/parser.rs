@@ -25,11 +25,10 @@ use std::ops::Range;
 pub struct SourceAnalysis {
     expression: Expression,
     error: Option<Error>,
-    /// Whether nothing was refused and at least one operand of a MIDI output
-    /// holds two empty Cells. Such an Expression has no `error` and can
-    /// execute, sending nothing on a Turn whose operand is still empty, but
-    /// an empty operand is unbound, so it is not complete.
-    has_empty: bool,
+    /// Whether at least one operand slot holds two blank Cells. An unwritten
+    /// operand binds no Atom and refuses nothing here: what it means is its
+    /// Function's to decide, not the Parser's.
+    has_unwritten: bool,
     start: usize,
     consumed: usize,
 }
@@ -62,10 +61,9 @@ impl SourceAnalysis {
     }
 
     /// Whether every entry of this Expression bound what its signature
-    /// declares. An empty operand of a MIDI output does not: it holds no
-    /// value.
+    /// declares. An unwritten operand does not: it holds no value.
     pub fn is_complete(&self) -> bool {
-        self.error.is_none() && !self.has_empty
+        self.error.is_none() && !self.has_unwritten
     }
 }
 
@@ -78,10 +76,10 @@ pub struct Parser<'a> {
     /// The Cell the Source begins at, so what was read can be reported as an
     /// address rather than as an offset into a fragment.
     start: usize,
-    /// The Token of the first empty operand of a MIDI output. Its refusal is
-    /// built only when strict parsing reports it, last, since an empty
-    /// operand holds no value to yield.
-    empty: Option<Token>,
+    /// The Token of the first unwritten operand. Its refusal is built only
+    /// when strict parsing reports it, last, since an unwritten operand holds
+    /// no value to yield.
+    unwritten: Option<Token>,
 }
 
 impl<'a> Parser<'a> {
@@ -104,7 +102,7 @@ impl<'a> Parser<'a> {
             len: source.len(),
             source,
             start,
-            empty: None,
+            unwritten: None,
         }
     }
 
@@ -122,13 +120,6 @@ impl<'a> Parser<'a> {
         self.len - self.source.len()
     }
 
-    /// The refusal a blank pair is in an operand that reads `token`.
-    fn blank_refusal(token: Token) -> Error {
-        token
-            .decode(BLANK_PAIR)
-            .expect_err("a blank pair decodes to no value")
-    }
-
     /// Strictly parses one complete Expression.
     #[inline]
     pub fn try_parse(mut self) -> Result<Atoms, Error> {
@@ -138,11 +129,11 @@ impl<'a> Parser<'a> {
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
-        // An empty operand is refused here, after an operand that does not
-        // decode and after Cells past the Expression: it holds no value to
-        // yield.
-        if let Some(token) = self.empty {
-            return Err(Self::blank_refusal(token));
+        // An unwritten operand is refused here, whichever Function owns it,
+        // after an operand that does not decode and after Cells past the
+        // Expression: it holds no value to yield.
+        if let Some(token) = self.unwritten {
+            return Err(crate::expression::blank_refusal(token));
         }
         // Every record of an Expression that reported no error carries an Atom,
         // with one exception: a Comment is a complete Language Unit that is not
@@ -197,7 +188,7 @@ impl<'a> Parser<'a> {
 
         SourceAnalysis {
             expression: self.expression,
-            has_empty: error.is_none() && self.empty.is_some(),
+            has_unwritten: self.unwritten.is_some(),
             error,
             start: self.start,
             consumed,
@@ -218,17 +209,14 @@ impl<'a> Parser<'a> {
         while let Some((token, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
-                // An empty operand of a MIDI output is recorded without
-                // decoding it: the refusal decoding would build is reported
-                // only by strict parsing, so a row that sends nothing reads
-                // without allocating.
-                let owner = parent.and_then(|index| self.expression.function_at(index));
-                if let Some(cells) = self.peek_next()
-                    && owner.is_some_and(|function| function.sends_nothing_on(cells))
-                {
+                // Two blank Cells in an operand slot are unwritten, whatever
+                // Function owns the slot. They are recorded without decoding:
+                // there are no characters to read, and the Function decides
+                // what an unwritten operand means.
+                if self.peek_next() == Some(BLANK_PAIR) {
                     self.next_token(BLANK_PAIR.len());
-                    self.empty.get_or_insert(token);
-                    self.expression.add_empty(
+                    self.unwritten.get_or_insert(token);
+                    self.expression.add_unwritten(
                         token,
                         cell_start..self.start + self.consumed(),
                         parent,
@@ -338,17 +326,6 @@ impl<'a> Parser<'a> {
                                 index,
                             );
                         }
-                        // The empty-operand state is kept for the whole
-                        // Expression, which is this Function's own only while
-                        // a MIDI output stands outermost. A MIDI output answers
-                        // no value, so nested it has already refused the
-                        // Expression above.
-                        debug_assert!(
-                            !function.sends_nothing_on_an_empty_operand()
-                                || parent.is_none()
-                                || error.is_some(),
-                            "a MIDI output is refused anywhere but outermost"
-                        );
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
                         for token in function.signature().iter().rev() {
@@ -1840,14 +1817,14 @@ mod property {
                 }
             } else {
                 // Every way of not completing reports an error, except an
-                // empty operand of a MIDI output, which reports nothing and
-                // binds no Atom. Every other entry of such an Expression bound
-                // what it reads.
+                // unwritten operand, which reports nothing at parse and binds
+                // no Atom. Every other entry of such an Expression bound what
+                // it reads.
                 prop_assert!(
                     analysis.error().is_some()
-                        || (expression.positioned().any(|entry| entry.empty)
+                        || (expression.positioned().any(|entry| entry.unwritten)
                             && expression.positioned().all(|entry| entry.atom.is_some()
-                                || entry.empty
+                                || entry.unwritten
                                 || entry.token == Token::Payload)),
                     "{spelled:?}"
                 );
@@ -2133,8 +2110,13 @@ mod nesting_tests {
     }
 
     #[test]
-    fn an_empty_operand_of_a_midi_output_reports_nothing() {
+    fn an_unwritten_operand_refuses_nothing_at_parse() {
+        // The Parser reads characters. Two blank Cells in an operand slot are
+        // unwritten whichever Function owns the slot.
         for source in [
+            ".v  ",
+            ".+  01",
+            "#+C4  ",
             "!>017F  ",
             "!>  7FC4",
             "!~01  C404",
@@ -2152,24 +2134,23 @@ mod nesting_tests {
 
             assert!(analysis.error().is_none(), "{source:?}");
             assert!(
-                analysis.expression().positioned().any(|entry| entry.empty),
+                analysis
+                    .expression()
+                    .positioned()
+                    .any(|entry| entry.unwritten),
                 "{source:?}"
             );
-            // An empty operand holds no value, so it is not complete.
+            // An unwritten operand holds no value, so it is not complete.
             assert!(!analysis.is_complete(), "{source:?}");
             assert_eq!(analysis.cells().end, source.len(), "{source:?}");
         }
     }
 
     #[test]
-    fn every_token_a_midi_output_reads_refuses_a_blank_pair() {
-        // `Parser::blank_refusal` builds an empty operand's refusal by
-        // decoding a blank pair, so every Token a MIDI output reads must
-        // refuse one.
+    fn every_operand_token_refuses_a_blank_pair() {
+        // `blank_refusal` builds an unwritten operand's refusal by decoding a
+        // blank pair, so every Token an operand slot reads must refuse one.
         for function in Function::ALL {
-            if !function.sends_nothing_on_an_empty_operand() {
-                continue;
-            }
             for (slot, token) in function.signature().iter().enumerate() {
                 assert!(
                     token.decode(BLANK_PAIR).is_err(),
@@ -2180,7 +2161,7 @@ mod nesting_tests {
     }
 
     #[test]
-    fn strict_parsing_refuses_the_first_empty_operand() {
+    fn strict_parsing_refuses_the_first_unwritten_operand() {
         assert_eq!(
             Parser::from("!>017F  ")
                 .try_parse()
@@ -2193,6 +2174,10 @@ mod nesting_tests {
                 .try_parse()
                 .unwrap_err()
                 .to_string(),
+            "expected a number, found \"  \""
+        );
+        assert_eq!(
+            Parser::from(".+01  ").try_parse().unwrap_err().to_string(),
             "expected a number, found \"  \""
         );
     }
@@ -2265,13 +2250,24 @@ mod nesting_tests {
     }
 
     #[test]
-    fn a_value_function_refuses_an_empty_operand() {
-        for source in [".v  ", ".+  01", "#+C4  "] {
-            let analysis = Parser::from(source).analyze();
-
-            assert!(analysis.error().is_some(), "{source:?}");
+    fn a_value_function_refuses_an_unwritten_operand_and_a_midi_output_does_not() {
+        for source in [".v  ", ".+  01", "#+C4  ", ".+.v  01", "!>01.v  C4"] {
             assert!(
-                analysis.expression().positioned().all(|entry| !entry.empty),
+                Parser::from(source)
+                    .analyze()
+                    .expression()
+                    .unwritten_refusal()
+                    .is_some(),
+                "{source:?}"
+            );
+        }
+        for source in ["!>017F  ", "!:      M7CL00", "!c  0740", "!>01.v01  "] {
+            assert!(
+                Parser::from(source)
+                    .analyze()
+                    .expression()
+                    .unwritten_refusal()
+                    .is_none(),
                 "{source:?}"
             );
         }

@@ -913,8 +913,8 @@ macro_rules! define_functions {
 
             /// Whether an operand spelled `cells` leaves this Function
             /// nothing to send: its two Cells are empty and this Function is
-            /// a MIDI output. The Parser asks it of Source and the Tick of
-            /// the Cells at the Turn, so the two cannot disagree.
+            /// a MIDI output. The Tick asks it of the Cells it reads at the
+            /// Turn, wherever they came from.
             pub fn sends_nothing_on(self, cells: &str) -> bool {
                 self.sends_nothing_on_an_empty_operand() && cells == crate::BLANK_PAIR
             }

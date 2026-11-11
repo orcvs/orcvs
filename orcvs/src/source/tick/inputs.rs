@@ -210,10 +210,11 @@ pub(super) struct FunctionSite {
 pub(super) enum Parsed {
     /// Its Cells bound no Atom.
     Unparsed,
-    /// It is an operand of a MIDI output whose two Cells are empty. It binds
-    /// no Atom and blocks nothing: the Turn reads those Cells, and sends
-    /// nothing while they are still empty.
-    Empty,
+    /// Its two Cells were blank when the Source was read. It binds no Atom,
+    /// and its Function decides whether that blocks the Turn: see
+    /// [`Parsed::admitted_by`]. An unblocked Turn reads those Cells and
+    /// decides again from what they hold then.
+    Unwritten,
     /// It bound an Atom that is not a Function.
     Value,
     /// It bound this Function.
@@ -224,9 +225,21 @@ pub(super) enum Parsed {
 }
 
 impl Parsed {
+    /// Whether this entry, an operand of `function`, leaves its Turn
+    /// unblocked by syntax: it parsed, or it is unwritten and `function`
+    /// accepts an unwritten operand. Any other Function refuses one, and the
+    /// Language Map already reports that refusal.
+    pub(super) fn admitted_by(self, function: Function) -> bool {
+        match self {
+            Self::Unparsed => false,
+            Self::Unwritten => function.sends_nothing_on_an_empty_operand(),
+            Self::Value | Self::Function(_) | Self::Payload => true,
+        }
+    }
+
     fn of(entry: &lang::PositionedEntry) -> Self {
         match entry.atom {
-            None if entry.empty => Self::Empty,
+            None if entry.unwritten => Self::Unwritten,
             None => Self::Unparsed,
             Some(Atom::Function(function)) => Self::Function(function),
             Some(_) => Self::Value,

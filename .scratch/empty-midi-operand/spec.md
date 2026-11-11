@@ -60,9 +60,9 @@ treats an empty operand as invalid input. Empty is not a new value or type.
 26. As a reader of `CONTEXT.md`, I want Rest and Clear to describe this behaviour rather than a mechanism, so that the glossary matches the code.
 27. As a maintainer, I want the rule to read the existing Terminal Output declaration, so that the Function table gains no new clause.
 28. As a maintainer, I want the `rest:` clause and its `ignoring blanks` variant removed from the Function table, so that the table states only facts the language still has.
-29. As a maintainer, I want the Parser's rest-specific bookkeeping removed, so that it treats empty operands of MIDI outputs by one rule with nothing held back.
+29. As a maintainer, I want the Parser to read characters only, so that two blank Cells in any operand slot are unwritten whatever Function owns the slot, and the Function decides what that means.
 30. As a maintainer, I want the Tick's operand decoding to decide an empty MIDI operand without depending on order, so that nothing has to be deferred until the whole signature is read.
-31. As a maintainer, I want the Parser and the Tick to agree on every case by construction of one simple rule, so that the Language Map and a Tick never disagree about whether a row sends.
+31. As a maintainer, I want the Language Map and the Tick to ask the Function the same question, so that they never disagree about whether a row sends.
 32. As a maintainer, I want a resting row still to allocate nothing while it is parsed and executed, so that the allocation guarantees hold.
 33. As a maintainer, I want ADR 0075 and ADR 0104 marked superseded by ADR 0106, so that the decision record says which rule is current.
 
@@ -70,8 +70,8 @@ treats an empty operand as invalid input. Empty is not a new value or type.
 
 - **The rule reads the Terminal Output declaration.** Every Terminal Output Function that declares typed operands is a MIDI output; UDP and OSC take a Payload instead. The rule applies to an operand of any Function whose output is Terminal, so no new fact enters the Function table.
 - **The Function table loses the rest clause.** The `rest:` role, its `ignoring blanks` marker, `rest_operand()` and `rest_ignores_blanks()` are removed, along with the macro arms that support them and the test pinning which Functions declare one.
-- **The Parser has one rule for empty operands.** Two empty Cells in an operand of a Terminal Output Function are recorded with no Atom and raise no refusal. Any other operand that fails to decode refuses the Expression as it does today. The rest-specific bookkeeping goes: the blank-operand classification, the written-rest tracking, the held-back refusal and the withdrawal of excused entries. Strict parsing still refuses an empty operand, because it yields no value.
-- **An Expression with only empty MIDI operands unbound is executable.** It has no error, so the Language Map admits it as a root and schedules it. The per-entry marker that tells the Tick an unbound entry blocks nothing stays, but it records "empty Cells in a Terminal Output operand" rather than a rest role, and is set by that one rule.
+- **The Parser reads characters only.** Two blank Cells in any operand slot are an unwritten operand: recorded with no Atom and no refusal, whichever Function owns the slot. The Parser never asks what kind of Function that is. Any other operand that fails to decode refuses the Expression as it does today. The rest-specific bookkeeping goes: the blank-operand classification, the written-rest tracking, the held-back refusal and the withdrawal of excused entries. Strict parsing still refuses an unwritten operand, because it yields no value.
+- **The Function decides what an unwritten operand means.** A MIDI output accepts one and sends nothing; every other Function refuses one under ADR 0069. The Language Map asks while the Source is typed: an Expression whose only unbound entries are unwritten operands its Function accepts is a root, and any other unwritten operand is diagnosed. The Tick asks the same question when it builds a schedule, so a refused one blocks the Turn without a second report, and again of the Cells it reads at the Turn.
 - **The Tick decides at the Turn, in any order.** When a Terminal Output Function's Turn decodes its operands, an operand that fails to decode for any reason other than being two empty Cells is an error at once. An operand whose Cells are empty, whether read from Source or carried by a nested Function's Return, is noted. After every operand is read, a noted empty operand makes the Turn send nothing and report nothing. A nested Function that answered a Clear has written two empty Cells, so its Return is treated exactly as empty Cells.
 - **No evaluation happens on an empty Turn.** The Play body is not called, so no range is checked and no Play Command is built, exactly as a Rest behaves today.
 - **Chord Play needs nothing of its own.** It follows the same rule as every other MIDI output.
@@ -87,7 +87,7 @@ treats an empty operand as invalid input. Empty is not a new value or type.
 - **Value Functions are unchanged.** One case each for an Arithmetic and a Pitch Function with an empty operand, still diagnosed.
 - **Playback.** The existing Monophonic Play test that a silent Turn leaves the voice to its own Note Off stays.
 - **Allocation.** The existing resting-row allocation fixtures stay and gain an empty Chord Play row.
-- **Removed.** Tests that pin the rest clause, excused operands, held-back refusals, or a route-by-route difference are deleted, because the behaviour they describe no longer exists. Parser property tests keep the invariant that an Expression with no error has every entry bound except empty Terminal Output operands.
+- **Removed.** Tests that pin the rest clause, excused operands, held-back refusals, or a route-by-route difference are deleted, because the behaviour they describe no longer exists. Parser property tests keep the invariant that an Expression with no error has every entry bound except unwritten operands.
 
 ## Out of Scope
 

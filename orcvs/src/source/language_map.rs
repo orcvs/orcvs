@@ -642,10 +642,19 @@ impl DerivedRow {
             // and then recorded on the Expression, so nothing asks again.
             let units = units_range(&row.units, grid, span);
 
-            let executable = analysis.error().is_none();
-            let diagnostic = analysis
-                .error()
-                .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
+            // The Parser reads characters and refuses nothing for an
+            // unwritten operand. Each Function decides what one means: a MIDI
+            // output sends nothing, and any other Function is refused here
+            // while the Source is typed rather than at its first Turn.
+            let refusal = analysis.error().map(ToString::to_string).or_else(|| {
+                analysis
+                    .expression()
+                    .unwritten_refusal()
+                    .map(|error| error.to_string())
+            });
+            let executable = refusal.is_none();
+            let diagnostic =
+                refusal.map(|refusal| Diagnostic::for_range(grid, start, end, refusal));
             let expression = analysis.into_expression();
             let function_candidate = match expression.entries().next() {
                 Some((Token::Function, Atom::Function(function))) => {
@@ -2334,13 +2343,13 @@ mod property {
                 let payload = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Payload);
-                // A MIDI output with an empty operand reports nothing and has
-                // no value for that operand, so it is the other Expression
-                // that holds a root and no Atoms.
-                let empty = expression.positioned().any(|entry| entry.empty);
+                // An unwritten operand has no value, so an Expression holding
+                // one has no Atoms. Where its Function accepts it, a MIDI
+                // output, it reports nothing and holds a root.
+                let unwritten = expression.positioned().any(|entry| entry.unwritten);
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment && !empty,
+                    expression.diagnostic().is_none() && !comment && !unwritten,
                     "{:?}",
                     source,
                 );
@@ -2359,13 +2368,14 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    // A root without Atoms is a MIDI output with an empty
-                    // operand, and every other entry is empty or bound an Atom.
+                    // A root without Atoms is a MIDI output with an unwritten
+                    // operand, and every other entry is unwritten or bound an
+                    // Atom.
                     prop_assert!(
                         expression.atoms().is_some()
-                            || (empty
+                            || (unwritten
                                 && expression.positioned().all(|entry| entry.atom.is_some()
-                                    || entry.empty
+                                    || entry.unwritten
                                     || entry.token == Token::Payload)),
                         "{:?}",
                         source,

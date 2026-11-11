@@ -81,11 +81,12 @@ pub struct PositionedEntry {
     pub parent: Option<usize>,
     pub token: Token,
     pub atom: Option<Atom>,
-    /// Whether this entry is an operand of a MIDI output whose two Cells are
-    /// empty. Its Cells bound no Atom, and that is no failure of the
-    /// Expression: the output sends nothing on that Turn. It always has
-    /// `atom: None`.
-    pub empty: bool,
+    /// Whether this entry is an operand slot whose two Cells are blank. It
+    /// always has `atom: None`, and refuses nothing at parse: its Function
+    /// decides what an unwritten operand means, through
+    /// [`Expression::unwritten_refusal`] while the Source is read and at the
+    /// Turn from the Cells it reads then.
+    pub unwritten: bool,
 }
 
 type Record = PositionedEntry;
@@ -163,9 +164,9 @@ impl Expression {
         self.push(token, atom, cells, parent, false);
     }
 
-    /// Records an empty operand of a MIDI output, which binds no Atom and
-    /// refuses nothing.
-    pub(crate) fn add_empty(
+    /// Records an operand slot whose two Cells are blank, which binds no Atom
+    /// and refuses nothing.
+    pub(crate) fn add_unwritten(
         &mut self,
         token: Token,
         cells: std::ops::Range<usize>,
@@ -224,14 +225,14 @@ impl Expression {
         atom: Option<Atom>,
         cells: std::ops::Range<usize>,
         parent: Option<usize>,
-        empty: bool,
+        unwritten: bool,
     ) {
         self.records.push(PositionedEntry {
             cells,
             parent,
             token,
             atom,
-            empty,
+            unwritten,
         });
     }
 
@@ -260,12 +261,31 @@ impl Expression {
             .flatten()
     }
 
-    /// The Function at entry `index`, when one stands there.
-    pub(crate) fn function_at(&self, index: usize) -> Option<crate::Function> {
-        match self.records.get(index)?.atom {
-            Some(Atom::Function(function)) => Some(function),
-            _ => None,
-        }
+    ///
+    /// The refusal of the first unwritten operand whose Function does not
+    /// accept one, in Source order.
+    ///
+    /// The Parser records two blank Cells in any operand slot as unwritten
+    /// and refuses nothing for them; each Function decides. A MIDI output
+    /// sends nothing on an unwritten operand, and every other Function
+    /// refuses one as it refuses any operand that does not decode. An
+    /// unwritten operand of a refused Function is refused too, though that
+    /// Function's own refusal is already the Expression's.
+    ///
+    pub fn unwritten_refusal(&self) -> Option<crate::Error> {
+        let accepted = |record: &Record| {
+            record
+                .parent
+                .and_then(|parent| self.records.get(parent))
+                .is_some_and(|owner| {
+                    matches!(owner.atom, Some(Atom::Function(function))
+                        if function.sends_nothing_on_an_empty_operand())
+                })
+        };
+        self.records
+            .iter()
+            .find(|record| record.unwritten && !accepted(record))
+            .map(|record| blank_refusal(record.token))
     }
 
     pub fn positioned(&self) -> impl DoubleEndedIterator<Item = &PositionedEntry> {
@@ -452,6 +472,13 @@ impl IntoIterator for RecordStore {
     fn into_iter(self) -> Self::IntoIter {
         self.inline.into_iter().chain(self.overflow)
     }
+}
+
+/// The refusal two blank Cells are in an operand that reads `token`.
+pub(crate) fn blank_refusal(token: Token) -> crate::Error {
+    token
+        .decode(crate::BLANK_PAIR)
+        .expect_err("a blank pair decodes to no value")
 }
 
 #[cfg(test)]

@@ -885,7 +885,7 @@ fn computations(
             entry_nodes.push(child);
             if let Some(parent) = parent {
                 let parent = &mut nodes[parent];
-                parent.syntax_valid &= entry.parsed != Parsed::Unparsed;
+                parent.syntax_valid &= entry.parsed.admitted_by(parent.function);
                 parent.operands.push(Operand {
                     cells: entry.cells,
                     child,

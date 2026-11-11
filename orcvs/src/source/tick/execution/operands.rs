@@ -57,15 +57,13 @@ impl Execution<'_> {
     /// returned into a Number operand is read as the Number it spells,
     /// exactly as the same characters written there by a Portal would be.
     ///
-    /// The first operand that does not decode refuses the Turn. A slot with
-    /// no written Cell refuses it as a partly written slot does. A child that
-    /// answered a Clear, a pulse that did not Bang or a Copy, Read or Track
-    /// of empty Cells, returns no value, and the refusal names that child.
-    ///
-    /// The one exception is a MIDI output: an operand whose two Cells are
-    /// empty, or whose child answered a Clear and so wrote two empty Cells,
-    /// leaves it nothing to send. Any other operand that does not decode still
-    /// refuses the Turn, wherever it stands.
+    /// Two empty Cells are read the same way whichever way they arrived:
+    /// written in Source, left by a Portal write, or written by a child that
+    /// answered a Clear, as a pulse that did not Bang or a Copy, Read or
+    /// Track of empty Cells does. The Function decides what they mean. A MIDI
+    /// output sends nothing on them; every other Function refuses them as it
+    /// refuses any operand that does not decode, and the first such operand
+    /// refuses the Turn. A refusal of a Clear names the child that cleared.
     pub(super) fn decode(
         &self,
         node: &Computation,
@@ -76,23 +74,19 @@ impl Execution<'_> {
         let mut operands = Vec::with_capacity(node.operands.len());
         for (operand, token) in node.operands.iter().zip(signature) {
             let rendered;
-            let spelling = match self.returning_child(operand) {
-                None => self.working.text(operand.cells.clone()),
+            // A Clear wrote two empty Cells at the child's Output Portal, so
+            // the operand holds what a blank one holds and is read as one.
+            // Only a refusal differs: nothing at the operand says which
+            // Function cleared it, so the refusal names the child.
+            let (spelling, cleared_by) = match self.returning_child(operand) {
+                None => (self.working.text(operand.cells.clone()), None),
                 Some(child) => {
                     let anchor = self.schedule.lookup.nodes()[child].anchor;
                     match self.turns.result(child) {
-                        // A Clear wrote two empty Cells at the child's Output
-                        // Portal, so the operand holds what a blank one holds.
-                        Some(Answer::Clear) if function.sends_nothing_on_an_empty_operand() => {
-                            lang::BLANK_PAIR
-                        }
-                        // A Clear returns no value. The parent names the
-                        // child, since nothing at the operand says which
-                        // Function cleared.
-                        Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
+                        Some(Answer::Clear) => (lang::BLANK_PAIR, Some(anchor)),
                         Some(Answer::Unit(atom)) => {
                             rendered = Encoding::render(atom).to_string();
-                            &rendered
+                            (rendered.as_str(), None)
                         }
                         None => return Err(nested(anchor, "returned nothing")),
                     }
@@ -102,7 +96,10 @@ impl Execution<'_> {
                 empty = true;
                 continue;
             }
-            let atom = token.decode(spelling).map_err(|error| error.to_string())?;
+            let atom = token.decode(spelling).map_err(|error| match cleared_by {
+                Some(anchor) => nested(anchor, "cleared its operand"),
+                None => error.to_string(),
+            })?;
             if !empty {
                 operands.push(atom);
             }
