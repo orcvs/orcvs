@@ -25,11 +25,11 @@ struct Tracker<'a> {
     waiting: Vec<(usize, usize)>,
 }
 
-/// One voice of a tracker: its Timed Play's anchor as column and row, its
-/// MIDI channel, and the Note each step holds, `None` for an empty step.
+/// One voice of a tracker: its MIDI channel, where its Timed Play is
+/// anchored, and the Note each step holds, `None` for an empty step.
 struct Voice {
-    play: (usize, usize),
     channel: u8,
+    play: (usize, usize),
     steps: Vec<Option<u8>>,
 }
 
@@ -86,17 +86,6 @@ impl Sounding {
     }
 }
 
-/// A Tick's diagnostic anchors as column and row, in Grid order.
-fn diagnosed_at(plan: &TickPlan) -> Vec<(usize, usize)> {
-    let mut anchors: Vec<_> = plan
-        .diagnostics
-        .iter()
-        .map(|d| (d.anchor().x(), d.anchor().y()))
-        .collect();
-    anchors.sort_by_key(|&(column, row)| (row, column));
-    anchors
-}
-
 /// A Tick's diagnostics as anchor column, anchor row and message.
 fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
     plan.diagnostics
@@ -131,7 +120,7 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     for tick in 0..2 * tracker.loop_ticks() {
         let plan = run.run_tick(tick);
         let commands = sounding.expect(tracker, tick);
-        assert_eq!(diagnosed_at(&plan), vec![], "Tick {tick}'s diagnostics");
+        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
         assert_eq!(
             functions_mapped(&source),
             vec![],
@@ -209,8 +198,8 @@ fn the_melody_plays_two_loops_and_sends_nothing_on_its_empty_pairs() {
             // Track waits on the Clock's count for its `index`.
             waiting: vec![(8, 2)],
             voices: &[Voice {
-                play: (2, 3),
                 channel: 0,
+                play: (2, 3),
                 steps: vec![
                     Some(60),
                     Some(62),
@@ -330,8 +319,10 @@ const TRACKER_CHANNELS: [u8; 8] = [8, 8, 8, 9, 4, 5, 6, 7];
 
 ///
 /// The Tracker's voices in Source order: two staircases of four, voice
-/// `v` of group `g` is voice `4g + v`, on its [`TRACKER_CHANNELS`] channel.
-/// `notes` places a Note at a voice's step; every other step is empty.
+/// `v` of group `g` is voice `4g + v`, on its [`TRACKER_CHANNELS`] channel,
+/// with its Timed Play anchored at column `2 + 28g + 7v + 2` on row
+/// `13 - 3v`. `notes` places a Note at a voice's step; every other step is
+/// empty.
 ///
 fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     let mut voices = Vec::new();
@@ -339,11 +330,11 @@ fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
         for group in 0..2 {
             let voice = 4 * group + v;
             voices.push(Voice {
+                channel: TRACKER_CHANNELS[usize::from(voice)],
                 play: (
-                    4 + 7 * usize::from(v) + 28 * usize::from(group),
+                    4 + 28 * usize::from(group) + 7 * usize::from(v),
                     13 - 3 * usize::from(v),
                 ),
-                channel: TRACKER_CHANNELS[usize::from(voice)],
                 steps: steps(notes, voice, 16),
             });
         }
@@ -466,15 +457,15 @@ const SEQUENCER_CHANNELS: [u8; 10] = [8, 8, 8, 3, 4, 5, 6, 7, 8, 9];
 
 ///
 /// The Sequencer's ten voices in Source order: voice `v` on its
-/// [`SEQUENCER_CHANNELS`] channel, reading thirty-two steps along its own
-/// row. `notes` places a
+/// [`SEQUENCER_CHANNELS`] channel, its Timed Play anchored at column 4 on row
+/// `4 + 3v`, reading thirty-two steps along its own row. `notes` places a
 /// Note at a voice's step; every other step is empty.
 ///
 fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
     (0..10)
         .map(|voice| Voice {
-            play: (4, 4 + 3 * usize::from(voice)),
             channel: SEQUENCER_CHANNELS[usize::from(voice)],
+            play: (4, 4 + 3 * usize::from(voice)),
             steps: steps(notes, voice, 32),
         })
         .collect()
