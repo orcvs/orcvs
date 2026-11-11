@@ -32,8 +32,10 @@ operand slot are an unwritten operand, recorded with no Atom and no refusal, whi
 the slot. What an unwritten operand means is the owning Function's to decide. A MIDI output sends
 nothing on one; every other Function refuses one. The Language Map asks while the Source is typed,
 so `.+01  ` is diagnosed at once and `!>01  C4` is a root, and the Tick asks of the Cells it reads
-at the Turn, wherever they came from. Strict parsing yields values, so it refuses any unwritten
-operand.
+at the Turn, wherever they came from. Both ask one question of the Function, `Function::admit`, over
+which of its operand slots are written, unwritten, nested or malformed. A malformed operand is
+refused ahead of an unwritten one, so a half-written pair is always diagnosed. Strict parsing yields
+values, so it refuses any unwritten operand.
 
 **Nothing else changes.** Every other Function still treats an empty operand as invalid input
 under ADR 0069. Empty is not a new value or type.
@@ -48,9 +50,9 @@ under ADR 0069. Empty is not a new value or type.
 ## Consequences
 
 - The `rest:` clause, its `ignoring blanks` variant, and the parser, Language Map and Tick code
-  that implements them are removed. Every Terminal Output Function that declares operands is a
-  MIDI output (UDP and OSC take a Payload instead), so the rule reads the existing Terminal Output
-  declaration and needs no new fact in the Function table.
+  that implements them are removed. Each Function's answer is one arm of an exhaustive match beside
+  `Function::admit`, with no wildcard, so a new Function does not compile until it says what an
+  unwritten operand means. It is not derived from the Terminal Output kind, which UDP and OSC share.
 - A MIDI output with empty operands is a root of the Language Map, and is scheduled like any other.
 - A Monophonic Play that sends nothing leaves its channel's voice to its own Note Off.
 - The Rest entry in `CONTEXT.md` becomes a description of this behaviour, not a mechanism.
