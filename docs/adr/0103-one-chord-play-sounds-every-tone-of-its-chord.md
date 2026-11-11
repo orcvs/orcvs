@@ -16,7 +16,9 @@ A chord is several Play roots that one Bang activates ([ADR 0063](0063-a-list-is
 
 **A chord that cannot be built whole is not sent.** A tone outside `00`–`7F` diagnoses the whole Chord Play, as does an Interval Set with too few tones for its voicing (`OP` and `D2` need 2, `D3` and `D5` need 3, `D6` and `SH` need 4, `RL` needs 2). No partial chord is ever sent.
 
-**An operand that reads its value from Source holds a nested Read.** `&v.+02~.0110` costs 12 Cells where an Operand Literal costs 2. A Chord Play is 16 Cells with only Operand Literals, 36 with nested Reads in root and set, and 76 with nested Reads in all six operands after channel. Width is accepted.
+**A Chord Play is diagnosed as one Expression.** Its Turn answers one chord, which the Tick expands into one Play Command per tone. A fault anywhere in building it, in an operand's domain or type, a voicing or a tone, raises one diagnostic for the Expression and emits no Play Command. The one-output rule's diagnostic side is unchanged: a Chord Play either sends its whole chord or diagnoses once.
+
+**An operand that reads its value from Source holds a nested Read.** `&v.+02~.0110` costs 12 Cells where an Operand Literal costs 2, so each nested Read adds 10. A Timed Chord Play is 16 Cells with only Operand Literals, 36 with nested Reads in root and set, and 76 with nested Reads in all six operands after channel. A Raw Chord Play has no length, so it is 14, 34, and 64 with nested Reads in its five operands after channel. Width is accepted.
 
 ## Consequences
 

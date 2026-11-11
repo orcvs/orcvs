@@ -31,8 +31,10 @@ pub enum InterpretationError {
     /// `value` is the semitone the arithmetic reached, which may be negative
     /// or past a byte, so the message states it unfolded. It is rendered in
     /// decimal because a hexadecimal rendering of a negative value would
-    /// read as a legal Number.
-    #[error("{function} cannot answer {value} as a Note")]
+    /// read as a legal Number, and the message says so beside the range,
+    /// which it spells in hexadecimal as the MIDI channel and data byte
+    /// diagnostics spell theirs.
+    #[error("{function} cannot answer semitone {value} (decimal), outside the Note range 00–7F")]
     NoteOutOfRange {
         function: crate::Function,
         value: i16,
