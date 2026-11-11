@@ -157,32 +157,24 @@ fn an_operand_a_nested_function_returns_empty_sends_nothing_and_reports_nothing(
 
 #[test]
 fn an_operand_a_portal_write_emptied_sends_nothing_and_reports_nothing() {
-    // Track writes the pair it selects over the operand below it: a written
-    // pair the first time, and two empty Cells the second. The note of a Play
-    // and the root of a Chord Play sit beneath a Track at column 8, and an
-    // output's second operand beneath a Track at column 6.
-    for (spelling, operands, track, written) in [
-        ("!>", &["01", "7F", "C4"][..], ".=0101  &t0001", "D4"),
-        ("!~", &["01", "7F", "C4", "04"], ".=0101  &t0001", "D4"),
-        (
-            "!:",
-            &["01", "7F", "C4", "M7", "CL", "00"],
-            ".=0101  &t0001",
-            "D4",
-        ),
-        ("!>", &["01", "7F", "C4"], ".=0101&t0001", "60"),
-        ("!c", &["01", "07", "40"], ".=0101&t0001", "10"),
-    ] {
+    // A Track above the operand writes the pair it selects over it: the
+    // operand's own spelling the first time, and two empty Cells the second.
+    // The channel sits beneath the Equality, so every later operand is
+    // covered.
+    for (spelling, operands) in OUTPUTS {
         let output = row(spelling, operands);
-        let (commands, diagnostics) = run(&[&format!("{track}{written}"), &output]);
-        assert!(!commands.is_empty(), "{output:?}: {diagnostics:?}");
-        assert_eq!(diagnostics, vec![], "{output:?}");
+        for (index, operand) in operands.iter().enumerate().skip(1) {
+            let track = format!("{:<1$}&t0001", ".=0101", 2 + spelling.len() + 2 * index);
+            let (commands, diagnostics) = run(&[&format!("{track}{operand}"), &output]);
+            assert!(!commands.is_empty(), "{output:?} {index}: {diagnostics:?}");
+            assert_eq!(diagnostics, vec![], "{output:?} {index}");
 
-        let emptied = executed(&[&format!("{track}  "), &output], 0..2);
-        for (commands, tick, mapped) in emptied {
-            assert_eq!(commands, vec![], "{output:?}");
-            assert_eq!(tick.diagnostics, vec![], "{output:?}");
-            assert_eq!(mapped, vec![], "{output:?}");
+            let emptied = executed(&[&format!("{track}  "), &output], 0..2);
+            for (commands, tick, mapped) in emptied {
+                assert_eq!(commands, vec![], "{output:?} {index}");
+                assert_eq!(tick.diagnostics, vec![], "{output:?} {index}");
+                assert_eq!(mapped, vec![], "{output:?} {index}");
+            }
         }
     }
 }

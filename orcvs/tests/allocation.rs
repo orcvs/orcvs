@@ -748,11 +748,14 @@ fn source_of_rows(rows: &[&str]) -> Source {
 }
 
 #[test]
-fn a_chord_play_turn_allocates_nothing_more_for_more_empty_operands() {
-    // Both Chord Plays send nothing on an empty operand each Tick an Equality
-    // Bangs them. The Turn builds no refusal for an empty operand, so a wholly
-    // empty row costs a Tick no more than a row empty only at its root.
+fn a_midi_output_turn_allocates_nothing_more_for_more_empty_operands() {
+    // Each MIDI output sends nothing on an empty operand each Tick an Equality
+    // Bangs it. The Turn builds no refusal for an empty operand, so a wholly
+    // empty row costs a Tick no more than a row with one empty operand.
     for (root_only, empty) in [
+        ("  !>017F  ", "  !>      "),
+        ("  !c01  40", "  !c      "),
+        ("  !b0100  ", "  !b      "),
         ("  !:017F  M7CL00", "  !:            "),
         ("  !#017F  M7CL0004", "  !#              "),
     ] {
