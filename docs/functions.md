@@ -226,6 +226,84 @@ After Tick `0`:
 C4
 ```
 
+## Pitch
+
+Each answers a Note or an Interval Set derived from the Note or Interval Set it reads, and runs
+every Tick. A `note` that does not spell a Note, such as `3C`, is refused. An answer outside `00` to
+`7F` diagnoses and writes nothing: a Note never wraps.
+
+### `#+` Up
+
+`#+ note number` answers the Note `number` semitones above `note`.
+
+```orcvs
+#+C402
+```
+
+After Tick `0`:
+
+```orcvs tick 0
+#+C402
+D4
+```
+
+`G9` is the highest Note, so going above it diagnoses and writes nothing.
+
+```orcvs
+#+G901
+```
+
+After Tick `0`:
+
+```orcvs tick 0 diagnoses
+#+G901
+```
+
+Nested in a Play's `note` operand, the Play sounds the raised Note. The nested Up writes its
+own answer south of itself as well.
+
+```orcvs
+.=0101
+
+!>007F#+C402
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 1
+.=0101
+**
+!>007F#+C402
+      D4
+```
+
+### `#-` Down
+
+`#- note number` answers the Note `number` semitones below `note`.
+
+```orcvs
+#-D402
+```
+
+After Tick `0`:
+
+```orcvs tick 0
+#-D402
+C4
+```
+
+`C/` is the lowest Note, so going below it diagnoses and writes nothing.
+
+```orcvs
+#-C/01
+```
+
+After Tick `0`:
+
+```orcvs tick 0 diagnoses
+#-C/01
+```
+
 ## Tick
 
 These read the Tick number or their own last answer, so they change over time. Each runs every

@@ -46,6 +46,8 @@ mod outputs;
 #[cfg(test)]
 mod payload;
 #[cfg(test)]
+mod pitch;
+#[cfg(test)]
 mod play_order;
 pub(super) mod portals;
 #[cfg(test)]
