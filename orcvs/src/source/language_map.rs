@@ -2052,6 +2052,29 @@ mod property {
         .boxed()
     }
 
+    /// A Raw, Timed or Monophonic Play with its note left blank: a whole
+    /// Expression that holds no value in one slot, which strict parsing does
+    /// not yield and so [`complete_expression`] never draws.
+    fn blank_note_play() -> BoxedStrategy<String> {
+        let number = || literal_source(Token::Number);
+        prop_oneof![
+            (number(), number()).prop_map(|(channel, velocity)| format!(
+                "{}{channel}{velocity}  ",
+                Function::RawPlay
+            )),
+            (
+                select(&[Function::TimedPlay, Function::MonophonicPlay][..]),
+                number(),
+                number(),
+                number(),
+            )
+                .prop_map(|(play, channel, velocity, length)| format!(
+                    "{play}{channel}{velocity}  {length}"
+                )),
+        ]
+        .boxed()
+    }
+
     /// Pick or Stack with a literal in each operand position, in the order
     /// their Function reference entries state.
     fn interval_set_expression() -> BoxedStrategy<String> {
@@ -2096,7 +2119,8 @@ mod property {
     /// noise: the space that ends a run, the `||` that opens and closes a
     /// Comment, the `|` that is incomplete Source rather than a Comment,
     /// a Function spelling, a standalone Atom, an Operand Literal, and — as
-    /// the minority branch — a whole Function with its operands. They are
+    /// the minority branches — a whole Function with its operands, and a Play
+    /// whose note is left blank. They are
     /// concatenated in whatever order they are drawn and then cut to the Grid,
     /// so what reaches the walk is raw text rather than a grammar.
     ///
@@ -2122,6 +2146,7 @@ mod property {
                 literal_source(Token::Voicing),
             ],
             3 => complete_expression(),
+            1 => blank_note_play(),
         ]
         .boxed()
     }
@@ -2352,8 +2377,9 @@ mod property {
 
                 // A value never stands in for Source that was not read: an
                 // Expression answers with Atoms exactly when it has nothing to
-                // report and is not a Comment, and a root is only ever the
-                // anchor of one that does.
+                // report, is not a Comment and holds no blank slot, and a root
+                // is the anchor of one that has nothing to report and is not
+                // a Comment.
                 //
                 // A Comment is a complete Language Unit that is not a value.
                 // That is this property's premise rather than a case skipped
@@ -2371,9 +2397,30 @@ mod property {
                 let payload = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Payload);
+                // A blank slot its operand type admits, such as a Play's
+                // note, holds no value and reports nothing, so its complete
+                // Expression is a root that answers with no Atoms. Every such
+                // slot is Cells written blank, never Source that did not read.
+                let mut blank = false;
+                let valueless = expression.positioned().filter(|entry| {
+                    entry.atom.is_none() && !matches!(entry.token, Token::Comment | Token::Payload)
+                });
+                if expression.diagnostic().is_none() {
+                    for entry in valueless {
+                        blank = true;
+                        prop_assert!(
+                            source.as_bytes()[entry.cells.clone()]
+                                .iter()
+                                .all(|&cell| cell == SPACE_BYTE),
+                            "{:?} completed with an unread {:?} slot",
+                            source,
+                            entry.token,
+                        );
+                    }
+                }
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment,
+                    expression.diagnostic().is_none() && !comment && !blank,
                     "{:?}",
                     source,
                 );
@@ -2392,7 +2439,7 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    prop_assert!(expression.atoms().is_some(), "{:?}", source);
+                    prop_assert!(expression.atoms().is_some() || blank, "{:?}", source);
                     prop_assert!(span.positions().any(|position| position == root));
                 }
                 if let Some(diagnostic) = expression.diagnostic() {
