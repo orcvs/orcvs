@@ -56,6 +56,9 @@ impl SourceAnalysis {
         self.start..self.start + self.consumed
     }
 
+    /// Whether the Parser refused nothing in this Expression: exactly
+    /// `self.error().is_none()`. A blank slot its operand type admits is
+    /// refused nothing, so a complete Expression may hold no value there.
     pub fn is_complete(&self) -> bool {
         self.error.is_none()
     }
