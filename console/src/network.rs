@@ -96,7 +96,7 @@ impl NetworkSetting {
         committed.is_ok()
     }
 
-    /// What the Panel shows: the value it refused.
+    /// What its Toast shows: the value it refused.
     pub(crate) fn status(&self) -> Option<&str> {
         self.refused.as_deref()
     }

@@ -313,6 +313,12 @@ impl Console {
                 .flat_map(source_input)
                 .collect()
         });
+        // Escape backs out of the innermost thing first: a focused control
+        // took it above, and a Region collapses. Only an Escape with nothing
+        // else to undo dismisses the Toasts.
+        if self.orcvs.region().is_one_cell() && events.contains(&InputEvent::Collapse) {
+            self.toasts.dismiss_all();
+        }
         let handled = self.orcvs.event_handler(events);
         // A Copy or Cut answers the text the platform clipboard is to
         // hold; `copy_text` is how egui hands it to the native and the
