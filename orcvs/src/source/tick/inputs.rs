@@ -217,10 +217,9 @@ pub(super) struct FunctionSite {
 pub(super) enum Parsed {
     /// Its Cells bound no Atom, in an Expression the Parser refused.
     Unparsed,
-    /// Its Cells hold no value, in an Expression the Parser refused nothing
-    /// in: a blank slot its operand type admits, which binding decides.
-    Absent,
-    /// It bound an Atom that is not a Function.
+    /// An operand that is not a Function: an Atom it bound, or, in an
+    /// Expression the Parser refused nothing in, a blank slot its operand
+    /// type admits, which binding decides.
     Value,
     /// It bound this Function.
     Function(Function),
@@ -233,9 +232,8 @@ impl Parsed {
     fn of(atom: Option<&Atom>, refused: bool) -> Self {
         match atom {
             None if refused => Self::Unparsed,
-            None => Self::Absent,
             Some(Atom::Function(function)) => Self::Function(*function),
-            Some(_) => Self::Value,
+            _ => Self::Value,
         }
     }
 }
