@@ -202,7 +202,7 @@ impl orcvs::midi::MidiBackend for RefusingMidi {
 /// Writes a clock that bangs a UDP send and a MIDI note, and starts the run.
 ///
 fn play_a_udp_send_and_a_note(harness: &mut Harness<'_, Console>) {
-    crate::cursor_line::write_rows(
+    crate::info::write_rows(
         &harness.state().orcvs,
         &[".=0101", "  !uhi!", "", ".=0101", "  !>007FC4"],
     );

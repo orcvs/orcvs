@@ -95,7 +95,7 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 #[cfg(feature = "release-capture")]
 mod capture;
 
-mod cursor_line;
+mod info;
 mod live_editing;
 mod menu_bar_layout;
 mod panel_readouts;
@@ -122,7 +122,7 @@ fn running_console(size: Vec2) -> Harness<'static, Console> {
 ///
 fn write_an_add_and_select(harness: &mut Harness<'_, Console>, x: usize) {
     let orcvs = &mut harness.state_mut().orcvs;
-    crate::cursor_line::write_rows(orcvs, &[".+0304"]);
+    crate::info::write_rows(orcvs, &[".+0304"]);
     let grid = orcvs.grid();
     orcvs.select(grid.position(x, 0).expect("inside the Grid"));
 }
@@ -1270,7 +1270,7 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 }
 
 ///
-/// The top bar is the bottom Panel's row height. Its menu buttons fill
+/// The top bar is [`super::menu_bar::TOP_PANEL_HEIGHT`] tall. Its menu buttons fill
 /// that height with their labels centred, so a menu opens from the bar's
 /// bottom edge; the share icon and mode toggle, which open no menu, sit
 /// centred in it.
@@ -1286,8 +1286,8 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
     .outer_rect;
     assert_eq!(
         top.height(),
-        super::panel::PANEL_ROW_HEIGHT,
-        "the top bar is not the bottom Panel's row height"
+        super::menu_bar::TOP_PANEL_HEIGHT,
+        "the top bar is not its own height"
     );
     let separator = default_theme(Appearance::Dark)
         .panel_separator_width
@@ -5548,29 +5548,27 @@ async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can
 }
 
 ///
-/// The Cursor Line's text, drawn in the style's Monospace font, fits the room
-/// the Panel reserves for it beneath its row, so it neither grows the Panel's
-/// content past the Panel's own height nor runs into its bottom margin.
+/// Info's labels, drawn in the style's Monospace font, fit their Cell row, so
+/// they neither grow the Panel's content past the Panel's own height nor run
+/// into the Cell of room before the window's edge.
 ///
 #[tokio::test]
-async fn the_cursor_line_fits_the_room_the_panel_reserves_for_it() {
+async fn the_info_labels_fit_their_cell_row() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     write_an_add_and_select(&mut harness, 0);
     harness.run_steps(2);
 
-    let line = harness.get_by_label_contains("answers left + right").rect();
-    let style = harness.ctx.global_style();
-    let room = super::panel::CURSOR_LINE_HEIGHT - style.spacing.item_spacing.y;
+    let label = harness.get_by_label("left + right").rect();
+    let room = crate::grid_viewport::CELL_SIZE.y;
     assert!(
-        line.height() <= room,
-        "the line is {} tall in a room of {room}",
-        line.height()
+        label.height() <= room,
+        "the label is {} tall in a Cell row of {room}",
+        label.height()
     );
-    let inner_bottom = DEFAULT_VIEW_SIZE[1]
-        - f32::from(super::panel::bottom_panel_frame(&style).inner_margin.bottom);
+    let margin = DEFAULT_VIEW_SIZE[1] - room;
     assert!(
-        line.bottom() <= inner_bottom,
-        "the line ends at {} below the Panel's content, which ends at {inner_bottom}",
-        line.bottom()
+        label.bottom() <= margin,
+        "the label ends at {}, inside the Cell of room that starts at {margin}",
+        label.bottom()
     );
 }

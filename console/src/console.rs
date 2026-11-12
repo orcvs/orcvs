@@ -109,6 +109,9 @@ pub struct Console {
     source_view: SourceView,
     /// Whether the View menu shows Diagnostics. Off at start and not saved.
     diagnostics_open: bool,
+    /// Whether the View menu shows Info on the Panel. On at start and not
+    /// saved.
+    info_open: bool,
     diagnostics_timing: TimingReadouts,
     /// Whether the View menu shows the Minimap. On at start and not saved.
     minimap_open: bool,
@@ -323,6 +326,7 @@ impl Console {
             font_family: egui::FontFamily::Monospace,
             source_view: SourceView::new(config.cell),
             diagnostics_open: config.diagnostics_open,
+            info_open: config.info_open,
             diagnostics_timing: TimingReadouts::default(),
             minimap_open: config.minimap_open,
             minimap: Minimap::default(),

@@ -205,6 +205,13 @@ pub(super) const DIAGNOSTICS_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::D);
 
 ///
+/// The chord that shows or hides the Panel's Info, on native, where `View →
+/// Info` shows it. The web binds none: the browser reserves ⌘I.
+///
+pub(super) const INFO_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::I);
+
+///
 /// Whether a toolkit event is a fresh press of `shortcut`: its key with exactly
 /// its Shift and Alt and the command modifier, and no key repeat.
 ///
@@ -232,6 +239,14 @@ fn is_fresh_press_of(shortcut: egui::KeyboardShortcut, event: &Event) -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 fn toggles_diagnostics(event: &Event) -> bool {
     is_fresh_press_of(DIAGNOSTICS_SHORTCUT, event)
+}
+
+///
+/// Whether a toolkit event is [`INFO_SHORTCUT`], by [`is_fresh_press_of`].
+///
+#[cfg(not(target_arch = "wasm32"))]
+fn toggles_info(event: &Event) -> bool {
+    is_fresh_press_of(INFO_SHORTCUT, event)
 }
 
 ///
@@ -342,6 +357,9 @@ impl Console {
             if ctx.input(|i| i.events.iter().any(toggles_diagnostics)) {
                 self.diagnostics_open = !self.diagnostics_open;
             }
+            if ctx.input(|i| i.events.iter().any(toggles_info)) {
+                self.info_open = !self.info_open;
+            }
             ctx.input(|i| i.events.iter().find_map(file_command))
         }
         #[cfg(target_arch = "wasm32")]
@@ -403,7 +421,7 @@ mod tests {
     use egui::{Event, Key, Modifiers};
     use orcvs::app::{InputEvent, InputKey};
 
-    use super::{toggles_diagnostics, translate_event};
+    use super::{toggles_diagnostics, toggles_info, translate_event};
 
     fn key(key: Key, modifiers: Modifiers, repeat: bool) -> Event {
         Event::Key {
@@ -443,6 +461,33 @@ mod tests {
         ];
         for (chord, event, toggles) in cases {
             assert_eq!(toggles_diagnostics(&event), toggles, "{chord}");
+        }
+    }
+
+    #[test]
+    fn only_a_fresh_command_i_toggles_info() {
+        let cases = [
+            ("⌘I", key(Key::I, Modifiers::COMMAND, false), true),
+            (
+                "⌘I on macOS",
+                key(Key::I, Modifiers::MAC_CMD | Modifiers::COMMAND, false),
+                true,
+            ),
+            (
+                "⌘⇧I",
+                key(Key::I, Modifiers::COMMAND | Modifiers::SHIFT, false),
+                false,
+            ),
+            (
+                "a repeated ⌘I",
+                key(Key::I, Modifiers::COMMAND, true),
+                false,
+            ),
+            ("a bare I", key(Key::I, Modifiers::NONE, false), false),
+            ("⌘D", key(Key::D, Modifiers::COMMAND, false), false),
+        ];
+        for (chord, event, toggles) in cases {
+            assert_eq!(toggles_info(&event), toggles, "{chord}");
         }
     }
 

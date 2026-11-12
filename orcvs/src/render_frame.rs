@@ -1077,6 +1077,7 @@ mod tests {
         let nested = derive_frame(&source, at(6));
         let function = nested.cursor_function().expect("the nested `.x` owns `03`");
         assert_eq!(function.function, lang::Function::Multiply);
+        assert_eq!(function.anchor.range(), 2..4, "the Cells `.x` fills");
         let ranges = |spans: &[Span]| spans.iter().map(|span| span.range()).collect::<Vec<_>>();
         assert_eq!(ranges(&function.operands), [4..6, 6..8]);
         assert_eq!(
@@ -1088,6 +1089,7 @@ mod tests {
         let root = derive_frame(&source, at(1));
         let function = root.cursor_function().expect("the Cursor is on `.+`");
         assert_eq!(function.function, lang::Function::Add);
+        assert_eq!(function.anchor.range(), 0..2, "the Cells `.+` fills");
         assert_eq!(
             ranges(&function.operands),
             [2..4, 8..10],

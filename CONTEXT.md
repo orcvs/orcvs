@@ -101,7 +101,7 @@ A named Orcvs language operation evaluated within an Expression. A Function may 
 _Avoid_: Operator, command
 
 **Role**:
-What one or more consecutive operands of a Function are to a reader, named on the Function's row in the Function table and read by the Cursor Line: `.+` has the Roles `left` and `right`. A Position's two Numbers are one Role, so `=$` has the Roles `from` and `to` over its four operands. A signature in the Function reference spells its Function's Roles in order. A Role says what an operand is for and leaves its type to the signature. It is neither the console's colour role for a Cell nor the part a Cell plays in a Portal.
+What one or more consecutive operands of a Function are to a reader, named on the Function's row in the Function table and read by Info: `.+` has the Roles `left` and `right`. A Position's two Numbers are one Role, so `=$` has the Roles `from` and `to` over its four operands. A signature in the Function reference spells its Function's Roles in order. A Role says what an operand is for and leaves its type to the signature. It is neither the console's colour role for a Cell nor the part a Cell plays in a Portal.
 _Avoid_: Argument name, parameter, operand name
 
 **Source Function**:
@@ -426,9 +426,9 @@ _Avoid_: Scale, pinch, fit
 The console's performer-facing telemetry surface for one running Orcvs. It is static: it does not move.
 _Avoid_: HUD, toolbar, dock, egui Panel
 
-**Cursor Line**:
-The Panel's one permanent line beneath its row, describing what the Cursor's Cell belongs to: the Function's spelling and name, its operands, what it answers or does, and, pinned to the right edge, its answer with the Output Portal it is written to; or the diagnostic that covers the Cell. It keeps its height whether or not it has anything to say.
-_Avoid_: status line, tooltip, hint, inspector
+**Info**:
+The Panel's two lines beneath its Readouts describing what the Cursor's Cell belongs to: on the first, the Cells of each of its parts as the Source paints them, the Cursor's outline included; on the second, beneath each, the Function's name, a Role, or what its answer is; or the diagnostic that covers the Cell. It is shown or hidden from View, shown by default, and while shown it keeps its rows whether or not it has anything to say.
+_Avoid_: Cursor Line, status line, tooltip, hint, inspector
 
 **Toast**:
 One standing failure, from MIDI, UDP/OSC or the playback engine, floating in the window's top-right corner beneath the menu bar until it fades after the configured seconds or is dismissed.

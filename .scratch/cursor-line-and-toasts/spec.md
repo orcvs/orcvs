@@ -11,39 +11,62 @@ picked this (layout G) on 2026-10-31, from layouts captured from the console on 
 [ADR 0100](../../docs/adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md)
 records it and supersedes ADR 0095's growing status line.
 
+Toby named the line **Info**, set it in two lines on the Grid's Cells and made it a View toggle,
+shown by default, on 2026-11-12, from the layouts on the
+[Panel layout canvas](https://claude.ai/artifact/68XUFWmYGPveWQ46sDWcUf). ADR 0100's amendment
+records it.
+
 ## Rules
 
 ### The Panel
 
-- **One height.** The Panel is its row plus the Cursor Line, whatever the Cursor Line or the Toasts
-  show. Nothing grows or shrinks it except the Diagnostics readouts the viewer opens.
+- **Cell rows.** The Panel is laid on the Cell the Source presents and scales with it: a Cell row of
+  room beneath its top edge, the Readouts, and a Cell row of room before the window's edge. While
+  Info is shown, a Cell row of room, Info's Cells and Info's labels sit between the Readouts and the
+  last row. A widget taller than a Cell, the BPM field or the Output list, overhangs its row,
+  centred, so the rows stay on the Cells.
+- **Gaps in Cells.** A Readout's label is half a Cell from its value, and Readout groups are two
+  Cells apart; the top bar's menus share that gap.
+- **One height.** Whatever Info or the Toasts show. Nothing grows or shrinks the Panel except the
+  Diagnostics readouts the viewer opens and Info being shown or hidden.
 - **No status line.** `show_statuses` and the status height go.
 
-### The Cursor Line
+### Info
 
 - **What it follows.** The Cursor's Cell, never the pointer.
+- **Shown or hidden.** View › Info, and ⌘I on native, shows or hides it; it is shown by default.
+  `[info] open` in `config.toml` sets how the console starts, and a menu change is not saved, as for
+  Diagnostics and the Minimap. Hidden, its three Cell rows go back to the Source.
+- **Two lines.** The first paints each entry's Cells as the Source paints them, the Cursor's outline
+  on its Cell; the second names each entry beneath its Cells. Each entry is as wide as the wider of
+  its two lines, and the next starts on the Cell column two Cells past it.
 - **A Function.** When the Cell is any Cell of a Function's Span (its anchor or an operand), the
-  line reads the Function's spelling and name, each Role's name and Cells (a Position's two Numbers
-  are one Role), then one line on what it answers or does:
-  `.+ Add   left 03  right 04   answers left + right`. A Function whose answer has a fixed place
-  pins the two Cells of its Output Portal and that Portal's Position to the line's right edge, as
-  `→ 07 at 00 01`. A Function that performs an effect has no answer, so the line ends on its summary.
-- **A diagnostic.** When a Language Map diagnostic covers the Cell, the line shows that diagnostic
+  entries are its spelling over its name, each Role's Cells over the Role's name (a Position's two
+  Numbers are one Role), then its Output Portal's Cells over what it answers: its summary less the
+  leading `answers `, or the summary as written when it says something else. A Function that
+  performs an effect has no answer, so its summary is the last entry, with no Cells above it. The
+  answer's own Position is not shown.
+
+  ```text
+  .+   03    04     07
+  Add  left  right  left + right
+  ```
+- **A diagnostic.** When a Language Map diagnostic covers the Cell, Info shows that diagnostic
   instead, as `.scratch/source-diagnostics/issues/02` decided. That ticket builds it, after ticket 04
   here; this effort does not.
-- **Anything else.** A Comment reads as its spelling and name, `|| Comment`. A Bang is a Bang Function, so the line describes
-  it by its Function row like any Function. An empty Cell or a standalone pair leaves the line
-  blank, and its space stays: the pair is diagnosed, and its diagnostic belongs to
+- **Anything else.** A Comment's opening pair reads over `Comment`. A Bang is a Bang Function, so
+  Info describes it by its Function row like any Function. An empty Cell or a standalone pair leaves
+  Info blank, and its rows stay: the pair is diagnosed, and its diagnostic belongs to
   `.scratch/source-diagnostics/issues/02`.
 - **Where the words come from.** Each Function's name and one-line summary sit beside its row in the
   Function table in `lang/src/atom.rs`. The name is the reference heading's words
   (`.|` is `Absolute Difference`, not `AbsoluteDifference`), and a test ties the table to the
   headings in `docs/functions.md` so the two cannot drift. The console reads the Render Frame and
   the table; it parses no Markdown and re-parses no Source.
-- **One line.** Never wrapped: text past the Panel's width is cut with an ellipsis, and hovering the
-  line shows it whole.
-- **Look.** The Panel's monospace readout font: the name and values in the strong text colour, the
-  summary, roles and Position in the weak text colour.
+- **Past the edge.** A label past the Panel's edge is cut with an ellipsis, and hovering it shows
+  it whole.
+- **Look.** Labels in the Panel's monospace readout font: a name in the strong text colour, Roles
+  and answers in the weak text colour.
 
 ### Toasts
 
@@ -80,9 +103,11 @@ records it and supersedes ADR 0095's growing status line.
 
 ## Tests
 
-The Cursor Line's text is a pure function of the Render Frame, the Cursor and the Function table,
-tested on its own for a Function's anchor and operand, an effect Function, a Comment, a Bang, a
-standalone pair and an empty Cell. The diagnostic case and its test belong to
+Info's entries are a pure function of the Render Frame, the Cursor and the Function table, tested
+on their own for a Function's anchor and operand, an effect Function, a Position, a Comment, a Bang,
+a standalone pair and an empty Cell. Kittests check the Panel's Cell rows at the default Cell and a
+configured one, that entries start on Cell columns two Cells apart, and that hiding Info gives its
+rows back. The diagnostic case and its test belong to
 `source-diagnostics/02`. The table-to-reference test reads every
 heading in `docs/functions.md`. The console's kittests find a Toast's label and message beneath the
 menu bar, press `×` and find it gone, advance past the configured seconds and find it gone, and

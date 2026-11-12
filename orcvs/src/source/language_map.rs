@@ -162,8 +162,9 @@ pub struct Span {
 
 ///
 /// The Function whose Span holds a Cell, as [`LanguageMap::function_at`]
-/// answers it: the Function, the Cells of each operand it declares that the
-/// row holds, in signature order (a nested Function's are its spelling), and
+/// answers it: the Function, the Cells its spelling fills, the Cells of each
+/// operand it declares that the row holds, in signature order (a nested
+/// Function's are its spelling), and
 /// the Cells of its Output Portal Reservation, the pair a static value answer
 /// is written to. Only trailing operands can fall past the row's edge, so the
 /// operands a shorter list holds are still the signature's first.
@@ -171,6 +172,7 @@ pub struct Span {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FunctionAt {
     pub function: Function,
+    pub anchor: Span,
     pub operands: Vec<Span>,
     pub answer: Option<Span>,
 }
@@ -543,6 +545,11 @@ impl LanguageMap {
             .collect();
         Some(FunctionAt {
             function,
+            anchor: Span::new(
+                self.grid,
+                cell(entries[owner].cells.start),
+                cell(entries[owner].cells.end - 1),
+            ),
             operands,
             answer: super::portal::PortalAccess::output_portal_reservation(
                 self.grid, anchor, function,

@@ -46,3 +46,19 @@ Captured from the console on the design canvas the decision was made on:
 - `show_statuses` and the Panel's status height go; the Panel is its row plus the Cursor Line.
 - The message sources and their order are unchanged; only where they are drawn moves.
 - `.scratch/source-diagnostics/issues/02` draws the diagnostic at the Cursor on the Cursor Line.
+
+## Amendment, 2026-11-12: Info, in two lines on the Grid's Cells
+
+The line for the Cursor is named Info, and it is drawn in two lines: the Cells of what the Cursor's
+Cell belongs to, painted as the Source paints them with the Cursor's outline on its Cell, and
+beneath each the Function's name, a Role, or what its answer is. One line of names and values read
+as noise, with nothing tying it to the Cursor; painting the Cells as the Source does makes Info
+visibly the thing under the Cursor. Each entry is as wide as the wider of its two lines and the next
+starts two Cells past it on a Cell column. The answer's own Position is not shown.
+
+The Panel is laid on the Cell the Source presents, so it scales with the configured Cell: a Cell
+row of room beneath its top edge, the Readouts, and one before the window's edge, and while Info is
+shown a Cell row of room, Info's Cells and its labels between them. Info is a View toggle, shown by
+default, started from `[info] open` in `config.toml` and bound to ⌘I on native, as Diagnostics is
+to ⌘D; a menu change is not saved, as for Diagnostics and the Minimap. Hidden, Info gives its three
+Cell rows back to the Source; shown, it keeps them whether or not it has anything to say.

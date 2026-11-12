@@ -10,4 +10,4 @@ The family prefix supplies the semantic namespace, so the directional suffixes d
 
 ## Amendment, 2026-11-10: the operands are named for their types
 
-The reference and the Cursor Line write `.v note` and `.^ number`. `value` elsewhere names an operand that carries a Language Unit of any kind, and the Cursor Line shows no type beside a role name, so `value` read as if `.v` took anything. The signatures do not change: `.v` reads its operand as a Note and `.^` as a Number.
+The reference and Info write `.v note` and `.^ number`. `value` elsewhere names an operand that carries a Language Unit of any kind, and Info shows no type beside a role name, so `value` read as if `.v` took anything. The signatures do not change: `.v` reads its operand as a Note and `.^` as a Number.

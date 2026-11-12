@@ -18,16 +18,16 @@ const SITE_LINKS: [(&str, &str); 2] = [
 ];
 
 /// The height the top panel takes from the window, leaving the rest to the
-/// console: the bottom Panel's row height, so the two bars' rows match.
-pub(super) const TOP_PANEL_HEIGHT: f32 = super::panel::PANEL_ROW_HEIGHT;
+/// console.
+pub(super) const TOP_PANEL_HEIGHT: f32 = 52.0;
 
 ///
 /// The top bar's item spacing: what leaves the bottom Panel's Readout group
 /// gap between two menu labels once each button has padded its own. No item
 /// adds space of its own.
 ///
-pub(super) fn menu_bar_gap(ui: &egui::Ui) -> f32 {
-    (super::panel::readout_group_gap(ui) - 2.0 * ui.spacing().button_padding.x).max(0.0)
+pub(super) fn menu_bar_gap(ui: &egui::Ui, cell: egui::Vec2) -> f32 {
+    (super::panel::readout_group_gap(cell) - 2.0 * ui.spacing().button_padding.x).max(0.0)
 }
 
 ///
@@ -304,13 +304,17 @@ impl Console {
             .exact_size(TOP_PANEL_HEIGHT);
         let separator = crate::style::bar_separator(self.themes.presented(appearance));
 
+        let cell = crate::grid_viewport::snapped_cell(
+            self.source_view.cell,
+            root.ctx().pixels_per_point(),
+        );
         show_bar(root, top_panel, frame, BarEdge::Bottom, separator, |ui| {
             // A menu opens from its button's bottom edge, so each menu button
             // is the bar's full height, its label centred within it, and its
             // menu opens below the bar.
             ui.spacing_mut().interact_size.y = ui.available_height();
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.spacing_mut().item_spacing.x = menu_bar_gap(ui);
+                ui.spacing_mut().item_spacing.x = menu_bar_gap(ui, cell);
                 // New, Open…, Save, Save As… and Quit on native; New alone on
                 // the web.
                 ui.menu_button("File", |ui| {
@@ -346,6 +350,12 @@ impl Console {
                         &mut self.diagnostics_open,
                         "Diagnostics",
                         Some(super::input::DIAGNOSTICS_SHORTCUT),
+                    );
+                    trailing_checkbox(
+                        ui,
+                        &mut self.info_open,
+                        "Info",
+                        Some(super::input::INFO_SHORTCUT),
                     );
                     trailing_checkbox(ui, &mut self.minimap_open, "Minimap", None);
                 });
