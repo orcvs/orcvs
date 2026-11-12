@@ -206,7 +206,7 @@ impl<'a> Parser<'a> {
                 // A blank slot whose operand type admits one holds no value
                 // and refuses nothing. It is recorded without decoding, so
                 // the refusal a decode would build is never built.
-                if blank_admitted && self.is_blank_next(token.len()) {
+                if blank_admitted && self.is_blank_next(token) {
                     self.next_token(token.len());
                     self.expression.add_positioned(
                         token,
@@ -383,13 +383,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Whether the next `count` Cells are all blank. A slot cut short by the
-    /// end of the Source is not.
+    /// Whether the next Cells are a blank `token` slot. A slot cut short by
+    /// the end of the Source is not.
     #[inline(always)]
-    fn is_blank_next(&self, count: usize) -> bool {
+    fn is_blank_next(&self, token: Token) -> bool {
         self.source
-            .get(..count)
-            .is_some_and(|cells| cells.bytes().all(|cell| cell == b' '))
+            .get(..token.len())
+            .is_some_and(|cells| token.is_blank(cells))
     }
 
     #[inline(always)]
@@ -1816,7 +1816,7 @@ mod property {
                             .filter(|entry| entry.atom.is_none() && entry.token != Token::Payload);
                         for entry in atomless {
                             prop_assert!(
-                                spelled[entry.cells.clone()].bytes().all(|cell| cell == b' '),
+                                entry.token.is_blank(&spelled[entry.cells.clone()]),
                                 "{:?} completed with an unread {:?} slot",
                                 spelled,
                                 entry.token,
