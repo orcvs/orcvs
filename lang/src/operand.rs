@@ -339,11 +339,17 @@ pub(crate) fn check<O: Operand>(atom: Option<crate::Atom>) -> Result<(), Error> 
     }
 }
 
-/// Binds one operand slot to `O`.
+/// Binds one operand slot to `O`, once [`check`] has passed it.
+///
+/// [`check`] refuses a slot that holds no value wherever `O` requires one, so
+/// a slot that reaches here empty is one `O` admits.
 #[inline(always)]
 pub(crate) fn bind_atom<O: Operand>(atom: Option<crate::Atom>) -> Result<O::Bound, Error> {
     match atom {
         Some(atom) => O::bind(O::Token::from_atom(atom)?),
-        None => O::ABSENT.map(|blank| blank()).ok_or_else(absent::<O>),
+        None => {
+            let blank = O::ABSENT.expect("check refused a blank slot this operand requires");
+            Ok(blank())
+        }
     }
 }

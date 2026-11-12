@@ -22,7 +22,9 @@ pub(crate) trait Operands: Sized {
     /// one, so it diagnoses before any operand's domain.
     fn check(operands: &[Option<Atom>]) -> Result<(), Error>;
 
-    /// Binds each declared role to its operand, in signature order.
+    /// Binds each declared role to its operand, in signature order. Only
+    /// [`Operands::checked_bind`] calls it, after [`Operands::check`] has
+    /// refused every slot that holds no value where its role requires one.
     ///
     /// Fallible because a declared operand type may be narrower than the
     /// `Token` the signature checks: a MIDI channel is read as a Number and is
