@@ -2053,27 +2053,33 @@ mod property {
         .boxed()
     }
 
-    /// A Raw, Timed or Monophonic Play with its note left blank: a whole
-    /// Expression that holds no value in one slot, which strict parsing does
-    /// not yield and so [`complete_expression`] never draws.
-    fn blank_note_play() -> BoxedStrategy<String> {
-        let number = || literal_source(Token::Number);
-        prop_oneof![
-            (number(), number()).prop_map(|(channel, velocity)| format!(
-                "{}{channel}{velocity}  ",
-                Function::RawPlay
-            )),
-            (
-                select(&[Function::TimedPlay, Function::MonophonicPlay][..]),
-                number(),
-                number(),
-                number(),
-            )
-                .prop_map(|(play, channel, velocity, length)| format!(
-                    "{play}{channel}{velocity}  {length}"
-                )),
-        ]
-        .boxed()
+    /// A Function whose operand type admits a blank slot, such as a Play's
+    /// note, with every such slot left blank and a literal in the rest: a
+    /// whole Expression that holds no value in a slot, which strict parsing
+    /// does not yield and so [`complete_expression`] never draws.
+    fn blank_slot_expression() -> BoxedStrategy<String> {
+        let admitting: Vec<Function> = Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| function.blank_admitted().contains(&true))
+            .collect();
+        select(admitting)
+            .prop_flat_map(|function| {
+                let operands: Vec<BoxedStrategy<String>> = lang::Tokens::from(&function)
+                    .into_iter()
+                    .zip(function.blank_admitted())
+                    .map(|(token, &blank_admitted)| {
+                        if blank_admitted {
+                            Just(" ".repeat(token.len())).boxed()
+                        } else {
+                            literal_source(token)
+                        }
+                    })
+                    .collect();
+                (Just(function), operands)
+            })
+            .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
+            .boxed()
     }
 
     /// Pick or Stack with a literal in each operand position, in the order
@@ -2120,8 +2126,8 @@ mod property {
     /// noise: the space that ends a run, the `||` that opens and closes a
     /// Comment, the `|` that is incomplete Source rather than a Comment,
     /// a Function spelling, a standalone Atom, an Operand Literal, and — as
-    /// the minority branches — a whole Function with its operands, and a Play
-    /// whose note is left blank. They are
+    /// the minority branches — a whole Function with its operands, and one
+    /// with each slot that admits a blank left blank. They are
     /// concatenated in whatever order they are drawn and then cut to the Grid,
     /// so what reaches the walk is raw text rather than a grammar.
     ///
@@ -2147,7 +2153,7 @@ mod property {
                 literal_source(Token::Voicing),
             ],
             3 => complete_expression(),
-            1 => blank_note_play(),
+            1 => blank_slot_expression(),
         ]
         .boxed()
     }

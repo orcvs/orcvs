@@ -48,6 +48,17 @@ fn executed(
         .collect()
 }
 
+/// Asserts that every Tick of `ticks`, as [`executed`] returns them, sent no
+/// Play Command and reported nothing, in the Tick or the Language Map.
+#[track_caller]
+fn assert_silent(ticks: Vec<(Vec<PlayCommand>, Observed, Diagnostics)>, label: &str) {
+    for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
+        assert_eq!(commands, vec![], "{label} Tick {tick}");
+        assert_eq!(observed.diagnostics, vec![], "{label} Tick {tick}");
+        assert_eq!(mapped, vec![], "{label} Tick {tick}");
+    }
+}
+
 /// The Play Commands and diagnostics of the first Tick of `play` on row 1,
 /// beneath the Equality that Bangs it.
 fn banged(play: &str) -> (Vec<PlayCommand>, Diagnostics) {
@@ -108,11 +119,7 @@ fn a_play_whose_note_a_nested_read_of_blank_cells_cleared_plays_nothing_and_repo
 
         for play in cleared_notes {
             let ticks = executed(grid, &[".=0101", play], 0..3);
-            for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
-                assert_eq!(commands, vec![], "{play:?} Tick {tick}");
-                assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
-                assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
-            }
+            assert_silent(ticks, &format!("{play:?}"));
         }
     }
 }
@@ -122,11 +129,7 @@ fn a_raw_play_with_a_note_written_blank_in_source_plays_nothing_and_reports_noth
     let grid = Grid::with_shape(16, 3);
     for play in ["  !>017F  ", "  !>017F  .+0102"] {
         let ticks = executed(grid, &[".=0101", play], 0..3);
-        for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
-            assert_eq!(commands, vec![], "{play:?} Tick {tick}");
-            assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
-            assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
-        }
+        assert_silent(ticks, &format!("{play:?}"));
         assert_eq!(mapped(grid, &[".=0101", play]), vec![], "{play:?}");
     }
 }
@@ -142,11 +145,7 @@ fn a_timed_or_monophonic_play_with_a_note_written_blank_in_source_plays_nothing_
         "  !%017F  04.+0102",
     ] {
         let ticks = executed(grid, &[".=0101", play], 0..3);
-        for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
-            assert_eq!(commands, vec![], "{play:?} Tick {tick}");
-            assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
-            assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
-        }
+        assert_silent(ticks, &format!("{play:?}"));
         assert_eq!(mapped(grid, &[".=0101", play]), vec![], "{play:?}");
     }
 }
@@ -165,11 +164,7 @@ fn a_raw_play_whose_note_a_portal_write_emptied_plays_nothing_and_reports_nothin
     let ticks = executed(grid, &rows, 0..2);
     let (_, observed, _) = &ticks[0];
     assert_eq!(&observed.rows[1][8..10], "  ", "Track emptied the slot");
-    for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
-        assert_eq!(commands, vec![], "Tick {tick}");
-        assert_eq!(observed.diagnostics, vec![], "Tick {tick}");
-        assert_eq!(mapped, vec![], "Tick {tick}");
-    }
+    assert_silent(ticks, "");
 }
 
 #[test]
@@ -190,11 +185,7 @@ fn a_timed_or_monophonic_play_whose_note_a_portal_write_emptied_plays_nothing_an
             "  ",
             "{play:?}: Track emptied the slot"
         );
-        for (tick, (commands, observed, mapped)) in ticks.into_iter().enumerate() {
-            assert_eq!(commands, vec![], "{play:?} Tick {tick}");
-            assert_eq!(observed.diagnostics, vec![], "{play:?} Tick {tick}");
-            assert_eq!(mapped, vec![], "{play:?} Tick {tick}");
-        }
+        assert_silent(ticks, &format!("{play:?}"));
     }
 }
 

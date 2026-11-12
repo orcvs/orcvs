@@ -498,25 +498,8 @@ fn reading_and_taking_the_turn_of_a_play_with_a_blank_note_allocates_nothing() {
             "reading {row:?} allocated"
         );
 
-        let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-        black_box(Interpreter::execute_function(
-            function,
-            operands.iter().copied(),
-            inputs.into(),
-        ))
-        .expect("the warm-up Turn answers");
-        let (allocations, answer) = measure(|| {
-            Interpreter::execute_function(
-                black_box(function),
-                black_box(operands).iter().copied(),
-                inputs.into(),
-            )
-        });
-        assert_eq!(
-            answer.expect("the measured Turn answers"),
-            Interpretation::Inert,
-            "{row:?}"
-        );
+        let (allocations, answer) = turn(function, operands);
+        assert_eq!(answer, Interpretation::Inert, "{row:?}");
         assert_eq!(
             allocations,
             Allocations::default(),
@@ -525,25 +508,28 @@ fn reading_and_taking_the_turn_of_a_play_with_a_blank_note_allocates_nothing() {
     }
 }
 
-/// One Turn through [`Interpreter::execute_function`], and what it allocated.
+/// One Turn through [`Interpreter::execute_function`], what it allocated, and
+/// its answer.
 ///
-/// The answer is dropped outside the span, so only what the Turn asked for is
-/// counted; the operands are built by the caller, outside it too.
-fn turn<const N: usize>(function: Function, operands: [Atom; N]) -> Allocations {
-    let operands = operands.map(Some);
+/// The answer is returned from outside the span, so only what the Turn asked
+/// for is counted; the operands are built by the caller, outside it too.
+fn turn(function: Function, operands: &[Option<Atom>]) -> (Allocations, Interpretation) {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     // Warm up, for the reason the call test gives.
     black_box(Interpreter::execute_function(
         function,
-        operands,
+        operands.iter().copied(),
         inputs.into(),
     ))
     .expect("the warm-up Turn answers");
     let (allocations, answer) = measure(|| {
-        Interpreter::execute_function(black_box(function), black_box(operands), inputs.into())
+        Interpreter::execute_function(
+            black_box(function),
+            black_box(operands).iter().copied(),
+            inputs.into(),
+        )
     });
-    answer.expect("the measured Turn answers");
-    allocations
+    (allocations, answer.expect("the measured Turn answers"))
 }
 
 /// Chord Plays and how many tones each answers: twelve, the widest answer a
@@ -629,7 +615,10 @@ fn a_turn_over_atoms_allocates_nothing() {
     // The Operand Stack is inline and the answer is one Atom, so the Turn asks
     // the allocator for nothing. Asserted rather than published, for the
     // reason the call test gives.
-    let add = turn(Function::Add, [Atom::Number(1), Atom::Number(2)]);
+    let (add, _) = turn(
+        Function::Add,
+        &[Some(Atom::Number(1)), Some(Atom::Number(2))],
+    );
 
     assert_eq!(add, Allocations::default(), "`.+0102` allocated");
 }

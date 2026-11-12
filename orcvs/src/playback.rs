@@ -1705,6 +1705,16 @@ mod tests {
     }
 
     ///
+    /// A Tick's diagnostics as anchor column, anchor row and message.
+    ///
+    fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
+        plan.diagnostics
+            .iter()
+            .map(|d| (d.anchor().x(), d.anchor().y(), d.message.clone()))
+            .collect()
+    }
+
+    ///
     /// The Note Off an adapter is handed for `channel` and `note`.
     ///
     fn stop(channel: u8, note: u8) -> OutputCommand {

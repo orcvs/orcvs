@@ -6,16 +6,16 @@
 //! handed. The expected notes are written out per voice beside the file they
 //! describe, so a change to either shows up here.
 
-use super::{HandDrivenRun, functions_mapped, note_on, stop};
+use super::{HandDrivenRun, functions_mapped, note_on, stop, tick_diagnostics};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
-use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, TickPlan, file};
+use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, file};
 
 ///
 /// A shipped tracker as its file is laid out: how many Ticks a step lasts,
 /// how many Ticks each Timed Play holds its note, the velocity every Play
 /// writes, its voices, listed in Source order, and the anchors of the
-/// Functions the Language Map diagnoses before the first Tick, each waiting
-/// on an operand a Portal writes at that Tick.
+/// Functions the Language Map diagnoses before the first Tick, in Source
+/// order too, each waiting on an operand a Portal writes at that Tick.
 ///
 struct Tracker<'a> {
     step_ticks: u64,
@@ -86,14 +86,6 @@ impl Sounding {
     }
 }
 
-/// A Tick's diagnostics as anchor column, anchor row and message.
-fn tick_diagnostics(plan: &TickPlan) -> Vec<(usize, usize, String)> {
-    plan.diagnostics
-        .iter()
-        .map(|d| (d.anchor().x(), d.anchor().y(), d.message.clone()))
-        .collect()
-}
-
 ///
 /// Runs the shipped Source File `text` for two complete loops and asserts
 /// every Tick's delivery against `tracker`. A voice banged on an empty step
@@ -109,11 +101,9 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
     let mut sounding = Sounding::default();
-    let mut waiting = tracker.waiting.clone();
-    waiting.sort_by_key(|&(column, row)| (row, column));
     assert_eq!(
         functions_mapped(&source),
-        waiting,
+        tracker.waiting,
         "the Language Map before Tick 0"
     );
 

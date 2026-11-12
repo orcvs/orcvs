@@ -6,7 +6,7 @@ use crate::source::Cells;
 use crate::source::language_map::LanguageMap;
 
 use super::Tick;
-use super::fixture::{carried_source, cell, planned, rows_of, seeded_source, snapshot};
+use super::fixture::{carried_source, cell, messages, planned, rows_of, seeded_source, snapshot};
 use super::observed::raw;
 
 #[test]
@@ -176,14 +176,7 @@ fn a_banged_play_whose_nested_track_copies_an_empty_pair_plays_nothing() {
         let plan = plan.into_plan();
 
         assert_eq!(plan.play_commands, commands, "{play:?}");
-        assert_eq!(
-            plan.diagnostics
-                .iter()
-                .map(|d| d.message.as_str())
-                .collect::<Vec<_>>(),
-            diagnosed,
-            "{play:?}"
-        );
+        assert_eq!(messages(&plan), diagnosed, "{play:?}");
     }
 }
 
