@@ -191,10 +191,10 @@ impl Stack {
 
     /// Performs one Terminal Output Function over its declared operands.
     ///
-    /// The effect twin of [`Stack::apply`]: `command` states one Play Command
-    /// exactly as an arithmetic body states one Atom, or none where its
-    /// Function's optional note is blank, and runs only once every operand
-    /// has bound, so a Function that diagnoses performs nothing.
+    /// The effect twin of [`Stack::apply`]: `command` states the effect its
+    /// Function sends, as an arithmetic body states one Atom, and runs only
+    /// once every operand has bound, so a Function that diagnoses performs
+    /// nothing.
     #[inline(always)]
     pub(crate) fn perform<O, F, C>(&mut self, command: F) -> Result<C, Error>
     where
