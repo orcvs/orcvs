@@ -17,6 +17,9 @@
 //! [diagnostics]
 //! open = false            # whether the Diagnostics are open at startup
 //!
+//! [info]
+//! open = true             # whether the Panel's Info is shown at startup
+//!
 //! [toasts]
 //! seconds = 5             # how long a Toast shows before it fades, 1–60
 //! ```
@@ -55,6 +58,8 @@ pub(crate) struct Config {
     pub(crate) minimap_open: bool,
     /// Whether the Diagnostics are open when the console starts.
     pub(crate) diagnostics_open: bool,
+    /// Whether the Panel shows Info when the console starts.
+    pub(crate) info_open: bool,
     /// How many seconds a Toast shows before it fades.
     pub(crate) toast_seconds: u8,
     /// One message per problem, in the order found, for the Theme notice
@@ -69,6 +74,7 @@ impl Default for Config {
             cell: CELL_SIZE,
             minimap_open: true,
             diagnostics_open: false,
+            info_open: true,
             toast_seconds: 5,
             notices: Vec::new(),
         }
@@ -136,12 +142,13 @@ fn parse(text: &str, origin: &str) -> Config {
     let mut height = None;
     let mut minimap_open = None;
     let mut diagnostics_open = None;
+    let mut info_open = None;
     let mut toast_seconds = None;
     for (section, value) in &table {
         let Some(keys) = value.as_table() else {
             if matches!(
                 section.as_str(),
-                "theme" | "cell" | "minimap" | "diagnostics" | "toasts"
+                "theme" | "cell" | "minimap" | "diagnostics" | "info" | "toasts"
             ) {
                 notice(format!(
                     "`{section}` must be a table; its keys use their defaults"
@@ -162,6 +169,7 @@ fn parse(text: &str, origin: &str) -> Config {
                 ("diagnostics", "open") => {
                     diagnostics_open = open(&name, value, &mut notice);
                 }
+                ("info", "open") => info_open = open(&name, value, &mut notice),
                 ("toasts", "seconds") => toast_seconds = seconds(&name, value, &mut notice),
                 _ => notice(format!("unknown key `{name}` is ignored")),
             }
@@ -182,6 +190,9 @@ fn parse(text: &str, origin: &str) -> Config {
     }
     if let Some(open) = diagnostics_open {
         config.diagnostics_open = open;
+    }
+    if let Some(open) = info_open {
+        config.info_open = open;
     }
     if let Some(seconds) = toast_seconds {
         config.toast_seconds = seconds;
@@ -367,6 +378,7 @@ mod native {
             assert_eq!(config.cell, CELL_SIZE);
             assert!(config.minimap_open);
             assert!(!config.diagnostics_open);
+            assert!(config.info_open);
         }
 
         fn mentions(config: &Config, needle: &str) -> bool {
@@ -399,6 +411,13 @@ mod native {
                 ThemeSelection::new(id("my-dark"), id("my-light"))
             );
             assert_eq!(config.cell, Vec2::new(10.0, 15.5));
+        }
+
+        #[test]
+        fn the_info_is_hidden_as_the_file_says() {
+            let config = read("[info]\nopen = false\n");
+            assert!(config.notices.is_empty(), "{:?}", config.notices);
+            assert!(!config.info_open);
         }
 
         #[test]

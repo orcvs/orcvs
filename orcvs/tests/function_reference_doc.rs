@@ -21,25 +21,37 @@ struct Block {
     line: usize,
 }
 
+/// The marker a line's fence is drawn with and its info string, when the line
+/// is a fence: three or more backticks or tildes, indented or not.
+fn fence(line: &str) -> Option<(char, &str)> {
+    let line = line.trim_start();
+    let marker = line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let info = line.trim_start_matches(marker);
+    (line.len() - info.len() >= 3).then_some((marker, info.trim()))
+}
+
 fn blocks() -> Vec<Block> {
     let mut blocks = Vec::new();
-    let mut open: Option<Block> = None;
+    let mut open: Option<(char, Block)> = None;
     for (index, line) in REFERENCE.lines().enumerate() {
-        match (&mut open, line.strip_prefix("```")) {
-            (None, Some(info)) => {
-                open = Some(Block {
-                    info: info.trim().to_owned(),
-                    text: String::new(),
-                    line: index + 1,
-                })
+        match (&mut open, fence(line)) {
+            (None, Some((marker, info))) => {
+                open = Some((
+                    marker,
+                    Block {
+                        info: info.to_owned(),
+                        text: String::new(),
+                        line: index + 1,
+                    },
+                ))
             }
-            (Some(_), Some("")) => {
-                let block = open.take().expect("an open block");
+            (Some((opened, _)), Some((marker, ""))) if *opened == marker => {
+                let (_, block) = open.take().expect("an open block");
                 if block.info.split_whitespace().next() == Some("orcvs") {
                     blocks.push(block);
                 }
             }
-            (Some(block), _) => {
+            (Some((_, block)), _) => {
                 block.text.push_str(line.trim_end());
                 block.text.push('\n');
             }
@@ -82,6 +94,133 @@ fn every_function_has_an_entry() {
         assert!(
             REFERENCE.lines().any(|line| line.starts_with(&heading)),
             "docs/functions.md has no entry headed {heading}"
+        );
+    }
+}
+
+/// Every `### ` heading in `text` outside a fenced block, with the line it
+/// is on, counting from 1.
+fn headings(text: &str) -> Vec<(usize, &str)> {
+    let mut fenced = None;
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            match (fenced, fence(line)) {
+                (None, Some((marker, _))) => fenced = Some(marker),
+                (Some(opened), Some((marker, ""))) if opened == marker => fenced = None,
+                _ => {}
+            }
+            fenced.is_none()
+        })
+        .filter_map(|(index, line)| line.strip_prefix("### ").map(|rest| (index + 1, rest)))
+        .collect()
+}
+
+/// A fence may be indented, as it is inside a list item, or spelled with
+/// tildes; a `### ` line inside either is the block's text, not a heading,
+/// and the fence's close ends the block.
+#[test]
+fn a_heading_scan_skips_indented_and_tilde_fences() {
+    let text = "\
+- an item
+
+  ```orcvs
+### inside an indented fence
+  ```
+
+~~~
+### inside a tilde fence
+~~~
+
+### `.+` Add
+";
+    assert_eq!(headings(text), vec![(11, "`.+` Add")]);
+}
+
+/// The spelling, the name and the Function of the heading on `line`, which
+/// must be ``### `<spelling>` <name>`` and spell a row of the Function table.
+fn entry(line: usize, heading: &str) -> (&str, &str, Function) {
+    let (spelling, name) = heading
+        .strip_prefix('`')
+        .and_then(|rest| rest.split_once("` "))
+        .unwrap_or_else(|| panic!("line {line}: `### {heading}` is not ### `<spelling>` <name>"));
+    let function = Function::ALL
+        .iter()
+        .copied()
+        .find(|function| function.cells().to_string() == spelling)
+        .unwrap_or_else(|| panic!("line {line}: `{spelling}` is no Function in the table"));
+    (spelling, name, function)
+}
+
+/// Every `### ` heading outside a fenced block is ``### `<spelling>` <name>``,
+/// the name is the one its Function's row in the Function table carries, and
+/// each Function has exactly one, so the two cannot drift.
+#[test]
+fn every_heading_names_its_function_as_the_table_does() {
+    let mut headed = Vec::new();
+    for (line, heading) in headings(REFERENCE) {
+        let (spelling, name, function) = entry(line, heading);
+        assert!(
+            !headed.contains(&function),
+            "line {line}: `{spelling}` is headed twice"
+        );
+        headed.push(function);
+        assert_eq!(
+            function.name(),
+            name,
+            "line {line}: the table names `{spelling}`"
+        );
+    }
+    for function in Function::ALL {
+        assert!(
+            headed.contains(function),
+            "docs/functions.md has no heading for `{}`",
+            function.cells()
+        );
+    }
+}
+
+/// An entry that spells a signature names the operands its Function's Roles
+/// name, in order.
+#[test]
+fn every_signature_names_its_functions_roles() {
+    let lines: Vec<&str> = REFERENCE.lines().collect();
+    let entries = headings(REFERENCE);
+    let mut signatures = 0;
+    for (index, (line, heading)) in entries.iter().enumerate() {
+        let (spelling, _, function) = entry(*line, heading);
+        let end = entries
+            .get(index + 1)
+            .map_or(lines.len(), |(next, _)| next - 1);
+        let signature = lines[*line..end]
+            .iter()
+            .flat_map(|text| text.split('`').skip(1).step_by(2))
+            .find_map(|span| span.strip_prefix(spelling)?.strip_prefix(' '));
+        if let Some(signature) = signature {
+            signatures += 1;
+            let roles: Vec<&str> = function.roles().iter().map(|role| role.name).collect();
+            assert_eq!(
+                signature.split(' ').collect::<Vec<_>>(),
+                roles,
+                "line {line}: the table's Roles for `{spelling}`"
+            );
+        }
+    }
+    assert!(signatures > 0, "no entry spells a signature");
+}
+
+/// Each Function's summary in the table is one short line.
+#[test]
+fn every_summary_is_one_short_line() {
+    for function in Function::ALL {
+        let summary = function.summary();
+        assert!(
+            !summary.is_empty()
+                && summary.len() <= 60
+                && !summary.contains('\n')
+                && summary.trim() == summary,
+            "the summary for `{}` is not one short line: {summary:?}",
+            function.cells()
         );
     }
 }

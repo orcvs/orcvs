@@ -95,6 +95,7 @@ use crate::theme_registry::tests_support::{id, my_dark, my_light, with_my_themes
 #[cfg(feature = "release-capture")]
 mod capture;
 
+mod info;
 mod live_editing;
 mod menu_bar_layout;
 mod panel_readouts;
@@ -113,6 +114,17 @@ mod toasts;
 ///
 fn running_console(size: Vec2) -> Harness<'static, Console> {
     running_console_with(size, ThemeRegistry::built_in())
+}
+
+///
+/// Writes `.+0304` along the top row and puts the Cursor on its Cell in
+/// column `x`.
+///
+fn write_an_add_and_select(harness: &mut Harness<'_, Console>, x: usize) {
+    let orcvs = &mut harness.state_mut().orcvs;
+    crate::info::write_rows(orcvs, &[".+0304"]);
+    let grid = orcvs.grid();
+    orcvs.select(grid.position(x, 0).expect("inside the Grid"));
 }
 
 ///
@@ -1258,7 +1270,7 @@ fn radio_selected(harness: &Harness<'_, Console>, label: &str) -> bool {
 }
 
 ///
-/// The top bar is the compact bottom Panel's height. Its menu buttons fill
+/// The top bar is [`super::menu_bar::TOP_PANEL_HEIGHT`] tall. Its menu buttons fill
 /// that height with their labels centred, so a menu opens from the bar's
 /// bottom edge; the share icon and mode toggle, which open no menu, sit
 /// centred in it.
@@ -1274,8 +1286,8 @@ async fn the_top_bar_centres_its_menus_and_opens_them_below_itself() {
     .outer_rect;
     assert_eq!(
         top.height(),
-        super::panel::BOTTOM_PANEL_HEIGHT,
-        "the top bar is not the compact bottom Panel's height"
+        super::menu_bar::TOP_PANEL_HEIGHT,
+        "the top bar is not its own height"
     );
     let separator = default_theme(Appearance::Dark)
         .panel_separator_width
@@ -4066,8 +4078,8 @@ async fn an_empty_cell_a_tick_read_shows_the_input_portal_background() {
 
 ///
 /// One voice of the Tracker, stepping down its column: `.+02~.0104`
-/// writes `n` as 2 plus the Tick modulo 4 into the operand of the `&v` below
-/// it, which reads the pair `n` rows south of that operand. Each Tick the
+/// writes `distance` as 2 plus the Tick modulo 4 into the operand of the `&v` below
+/// it, which reads the pair `distance` rows south of that operand. Each Tick the
 /// pair it read is lit as Input Portal and the pair the Tick before read is
 /// not, as Orca lights its ports.
 ///
@@ -5533,4 +5545,30 @@ async fn midi_pending_display_keeps_the_installed_output_and_a_failed_choice_can
     harness.run_steps(2);
     assert!(harness.query_by_value("Second · 127.0.0.1").is_some());
     assert!(harness.query_by_label("Opening Second…").is_none());
+}
+
+///
+/// Info's labels, drawn in the style's Monospace font, fit their Cell row, so
+/// they neither grow the Panel's content past the Panel's own height nor run
+/// into the Cell of room before the window's edge.
+///
+#[tokio::test]
+async fn the_info_labels_fit_their_cell_row() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    write_an_add_and_select(&mut harness, 0);
+    harness.run_steps(2);
+
+    let label = harness.get_by_label("left + right").rect();
+    let room = crate::grid_viewport::CELL_SIZE.y;
+    assert!(
+        label.height() <= room,
+        "the label is {} tall in a Cell row of {room}",
+        label.height()
+    );
+    let margin = DEFAULT_VIEW_SIZE[1] - room;
+    assert!(
+        label.bottom() <= margin,
+        "the label ends at {}, inside the Cell of room that starts at {margin}",
+        label.bottom()
+    );
 }

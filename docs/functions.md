@@ -22,37 +22,40 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 | Note | Pitch letter then octave | Uppercase for a natural, lowercase for a sharp, then `/` for the octave below `0` or `0` to `9`: `C4`, `c4`, `C/`. A Note is MIDI note `00` to `7F`. |
 | Interval Set | A chord or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `M_ M7 M9 MD M6 69 +M m_ m7 mM m6 m9 mB mD o_ o7 h7 b9 7_ 9_ 13 s2 s4 +_ a9`. Scales: `MA mi do ph ly mx lo hm mm p5 p3 bl wt ch`. A one-character chord name takes the filler `_`, and `B` and `D` stand for 11 and 13. `M ` is half-written, not a name. |
 | Voicing | A Voicing name | One of 8 names: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. |
-| Untyped | Any two Cells | Carried unchanged; whatever reads them at the destination decides what they mean. |
-| MIDI domains | `00` to `0F` or `00` to `7F` | Numbers that a MIDI Function also checks against a range, named in its entry. |
+| Untyped | A Number, a Note, `**`, or a nested Function's answer | Carried unchanged; whatever reads them at the destination decides what they mean. Empty Cells, or Cells that form no unit, diagnose. |
+| MIDI domains | `00` to `0F` or `00` to `7F` | Numbers that a MIDI output Function also checks against a range, named in its entry. |
 
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
 where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
 is expected and Numbers where a Number is, and `D2` is a Voicing, a Note or a Number by position.
+An empty operand diagnoses, except a Play's `note`, which rests (see **Rest**).
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
 Function that answers a value writes it into its Output Portal, the two Cells one row south of its
 anchor unless the entry names another place. A value Function can also stand in another Function's
-operand, nested: `.+.^3C01` uses the Note `.^3C` answers as Add's first operand. A Function that
+operand, nested: `.+.^3C01` adds `01` to the `C4` that `.^3C` answers, read as the Number `C4`, and
+answers `C5`. A Function that
 performs an effect, such as playing a note, writes no answer and cannot be nested.
 
-**Runs.** Most Functions take a Turn every Tick. Some are inert until a Bang reaches them. A Bang
-activates each root whose anchor is aligned with the `**` in one of four places: in the same two
-columns one row north or one row south, or in the two Cells immediately before or after it on its
-row. A `**` that touches another Function's operand activates nothing: `!>0064C4**` does not
+**Runs.** Most Functions take a Turn every Tick. Some are inert until a Bang reaches them. A root is
+the Function that begins an Expression, as opposed to one nested in an operand. A Bang activates each root whose anchor is aligned with the `**` in one of four places: directly north or
+south of it, with its anchor in the same column as the `**`'s first Cell, or in the two Cells
+immediately before or after it on its row. A `**` that touches another Function's operand activates nothing: `!>0064C4**` does not
 play, because the Cells before the `**` are the operand `C4`, not the anchor `!>`. Each entry says
 which kind of Function it is.
 
 **Clear.** Some value Functions answer a Clear rather than a value: they write two empty Cells. An
-invalid Function writes nothing at all, so its last answer stays where it was.
+invalid Function writes nothing at all, so its last answer stays where it was. Nested, a Clear
+leaves its parent invalid, except in a Play's `note`, where it is a rest.
 
 **Examples.** An example shows the Source before any Tick, then the Source after the Ticks named
-above each later block, counted from Tick `0`. An example that plays MIDI also says how many
-Play Commands its Tick sends.
+above each later block, counted from Tick `0`.
 
 ## Arithmetic
 
-Each takes two Numbers, `left` and `right`, answers a Number, and runs every Tick. A Note in either
-operand is refused; convert it with [`.v`](#v-convert-to-number) first.
+Each takes two Numbers, `left` and `right`, answers a Number, and runs every Tick. Cells that do not
+spell a Number, such as `G4`, diagnose. `C4` is read as the Number `C4`, not MIDI note 60; use
+[`.v`](#v-convert-to-number) for a Note's MIDI number.
 
 ### `.+` Add
 
@@ -193,7 +196,7 @@ After Tick `0`:
 
 ## Numeric conversion
 
-The only way between a Number and a Note. Each runs every Tick.
+Each converts between a Note and its MIDI number, and runs every Tick.
 
 ### `.v` Convert to Number
 
@@ -212,7 +215,7 @@ After Tick `0`:
 
 ### `.^` Convert to Note
 
-`.^ value` answers the Note for a Number from `00` to `7F`. `80` to `FF` diagnoses and writes
+`.^ number` answers the Note for a Number from `00` to `7F`. `80` to `FF` diagnoses and writes
 nothing.
 
 ```orcvs
@@ -410,9 +413,9 @@ Tick.
 
 ### `~.` Clock
 
-`~. rate modulus` answers which step a cycle is on: each step lasts `rate` Ticks, and the cycle
-holds `modulus` steps, counted from `00`. It reads the Tick number, so a stopped and resumed
-Clock carries on from the same step. A `rate` or `modulus` of `00` diagnoses.
+`~. length steps` answers which step a cycle is on: each step lasts `length` Ticks, and the cycle
+holds `steps` steps, counted from `00`. It reads the Tick number, so a stopped and resumed
+Clock carries on from the same step. A `length` or `steps` of `00` diagnoses.
 
 ```orcvs
 ~.0204
@@ -432,8 +435,8 @@ After Tick `0`, then after Tick `2`:
 
 ### `~*` Delay
 
-`~* rate modulus` answers a Bang once every `rate * modulus` Ticks, starting at Tick `0`, and a
-Clear on every other Tick. A `rate` or `modulus` of `00` diagnoses.
+`~* length steps` answers a Bang once every `length * steps` Ticks, starting at Tick `0`, and a
+Clear on every other Tick. A `length` or `steps` of `00` diagnoses.
 
 ```orcvs
 ~*0102
@@ -460,7 +463,7 @@ or more `hits` than `steps`, diagnoses.
 ~%0308
 ```
 
-After Tick `0`, then after Tick `1`:
+After Tick `0`, after Tick `1`, then after Tick `3`:
 
 ```orcvs tick 0
 ~%0308
@@ -471,33 +474,38 @@ After Tick `0`, then after Tick `1`:
 ~%0308
 ```
 
+```orcvs tick 3
+~%0308
+**
+```
+
 ### `~+` Increment
 
-`~+ step modulus` reads the Number in its own Output Portal, adds `step`, and answers the result
-modulo `modulus`. Empty Cells there count as `00`, so it counts up from wherever its last answer
-left off. A `modulus` of `00`, or anything other than a Number in its Output Portal, diagnoses.
+`~+ amount modulus` reads the Number in its own Output Portal, adds `amount`, and answers the result
+modulo `modulus`. It reads back its last answer, so it counts up; empty Cells count as `00`, so it
+starts from `00`. A `modulus` of `00`, or anything other than a Number in its Output Portal, diagnoses.
 
 ```orcvs
 ~+0104
 ```
 
-After Tick `0`, then after Tick `4`:
+After Tick `0`, then after Tick `3`, where it wraps:
 
 ```orcvs tick 0
 ~+0104
 01
 ```
 
-```orcvs tick 4
+```orcvs tick 3
 ~+0104
-01
+00
 ```
 
 ### `~>` Interpolation
 
-`~> rate target` reads the Number in its own Output Portal and moves it toward `target` by at most
-`rate` each Tick, never past it. Empty Cells there count as `00`. A `rate` of `00` holds the
-value.
+`~> amount target` reads the Number in its own Output Portal and moves it toward `target` by at most
+`amount` each Tick, never past it. Empty Cells there count as `00`. An `amount` of `00` holds the
+value. Anything other than a Number in its Output Portal diagnoses.
 
 ```orcvs
 ~>0205
@@ -518,7 +526,7 @@ After Tick `0`, then after Tick `2`:
 ### `~?` Random
 
 `~? seed minimum maximum` answers a Number from `minimum` to `maximum`, inclusive. The result
-depends only on `seed`, the Tick number, and the Function's own position, so the same Source
+depends only on `seed`, the Tick number, and the Function's own Position, so the same Source
 replays the same values, and moving the Function changes its values. Reversed bounds give the same
 range.
 
@@ -535,10 +543,12 @@ After Tick `0`:
 
 ## Copy
 
-A Copy moves one two-Cell pair from its Input Portal to its Output Portal every Tick. It takes
-whatever the pair holds, a value, a Bang or two empty Cells, and writes it over the whole
-destination. Part of a Function, or Cells that do not form one unit, diagnoses. A copied `**`
-activates the roots aligned with its destination.
+A Copy copies one two-Cell pair from its Input Portal to its Output Portal every Tick. It takes
+whatever the pair holds, a value, a Bang answered that Tick or two empty Cells, and writes it over
+the whole Output Portal. Part of a Function, or Cells that do not form one unit, diagnoses. A copied
+`**` activates the roots aligned with its Output Portal. A `**` standing in the Source is a Bang
+Function: it has taken its Turn by the time the Copy reads it, so the Copy reads its cleared Cells,
+or `**` while a Halt locks it.
 
 ### `=v` Copy South
 
@@ -606,9 +616,9 @@ C4=<C4
 
 ### `=$` Absolute Copy
 
-`=$ source-column source-row destination-column destination-row` copies the pair at one position
-to another, counting columns and rows from `00 00` at the Grid's top-left. It writes nothing south
-of itself.
+`=$ from to` copies the pair at the Position `from` to the Position `to`. Each Position is two
+Numbers, column then row, counted from `00 00` at the Grid's top-left. It writes only the pair at
+`to`, so the row below it changes only when `to` names that pair.
 
 ```orcvs
 =$00020004
@@ -629,12 +639,13 @@ C4
 ## Read
 
 A Read reads one pair of Source and answers it, writing it one row south, every Tick. The Cells it
-reads are ordinary Source rather than part of its Expression. A pair outside the Grid, or cut short
-by the row's edge, diagnoses.
+reads are ordinary Source rather than part of its Expression. A pair outside the Grid, cut short
+by the row's edge, or holding Cells that form no unit, diagnoses. Empty Cells answer a Clear, and a
+Function spelling is carried as it stands.
 
 ### `&>` Read East
 
-`&> n` reads the pair `n` pairs east of its `n` operand. `00` is the operand itself.
+`&> distance` reads the pair `distance` pairs east of its `distance` operand. `00` is the operand itself.
 
 ```orcvs
 &>01C4
@@ -649,7 +660,7 @@ C4
 
 ### `&<` Read West
 
-`&< n` reads the pair `n` pairs west of its `n` operand.
+`&< distance` reads the pair `distance` pairs west of its `distance` operand.
 
 ```orcvs
 A4  &<03
@@ -664,7 +675,7 @@ A4  &<03
 
 ### `&^` Read North
 
-`&^ n` reads the pair `n` rows north of its `n` operand, in the operand's columns.
+`&^ distance` reads the pair `distance` rows north of its `distance` operand, in the operand's columns.
 
 ```orcvs
   E4
@@ -681,7 +692,7 @@ E4
 
 ### `&v` Read South
 
-`&v n` reads the pair `n` rows south of its `n` operand, in the operand's columns.
+`&v distance` reads the pair `distance` rows south of its `distance` operand, in the operand's columns.
 
 ```orcvs
 &v02
@@ -699,7 +710,7 @@ G4
 
 ### `&$` Absolute Read
 
-`&$ column row` reads the pair at a position.
+`&$ at` reads the pair at a Position, two Numbers, column then row.
 
 ```orcvs
 &$0002
@@ -738,7 +749,7 @@ Untyped: the Write carries its two Cells unchanged, and whatever reads them deci
 
 ### `@>` Write East
 
-`@> n value` writes `value` into the pair `n` pairs east of its `n` operand.
+`@> distance value` writes `value` into the pair `distance` pairs east of its `distance` operand.
 
 ```orcvs
 @>02C4
@@ -752,7 +763,7 @@ After Tick `0`:
 
 ### `@<` Write West
 
-`@< n value` writes `value` into the pair `n` pairs west of its `n` operand.
+`@< distance value` writes `value` into the pair `distance` pairs west of its `distance` operand.
 
 ```orcvs
     @<03B4
@@ -766,7 +777,7 @@ B4  @<03B4
 
 ### `@^` Write North
 
-`@^ n value` writes `value` `n` rows north of its `n` operand, in the operand's columns.
+`@^ distance value` writes `value` `distance` rows north of its `distance` operand, in the operand's columns.
 
 ```orcvs
 
@@ -782,7 +793,7 @@ After Tick `0`:
 
 ### `@v` Write South
 
-`@v n value` writes `value` `n` rows south of its `n` operand, in the operand's columns.
+`@v distance value` writes `value` `distance` rows south of its `distance` operand, in the operand's columns.
 
 ```orcvs
 @v01A4
@@ -797,8 +808,8 @@ After Tick `0`:
 
 ### `@$` Absolute Write
 
-`@$ column row value` writes `value` at a position. A Read in its `value`, such as
-`@$0003&$0005`, copies one pair to another.
+`@$ at value` writes `value` at a Position, two Numbers, column then row. A Read in its `value`, such as
+`@$0003&$0005`, copies one pair to another; an empty source pair is a Clear, which diagnoses.
 
 ```orcvs
 @$0002C4
@@ -814,8 +825,8 @@ C4
 
 ### `@t` Push
 
-`@t index count value` writes `value` into a lane of `count` pairs on the row below, starting
-directly under its anchor, at the pair `index % count`.
+`@t index count value` writes `value` into one of `count` pairs on the row below, numbered from
+directly under its anchor: pair `index % count`. A `count` of `00` diagnoses.
 
 ```orcvs
 @t0103G4
@@ -828,11 +839,13 @@ After Tick `0`:
   G4
 ```
 
-## Bang and movement
+## Bang
+
+`*>` and its kin are Directional Bang Functions, and `>>` and its kin are Self-Banging Functions.
 
 ### `**` Bang
 
-A standalone `**` where an Expression starts. On its Turn it activates the roots aligned with it
+`**` where an Expression starts is the Bang Function. On its Turn it activates the roots aligned with it
 and empties its own two Cells, so it fires once. Functions that answer a Bang write `**`, which
 then fires on the next Tick unless something writes over it first.
 
@@ -856,13 +869,15 @@ A Bang activates a root on the row above it too, so this plays one note:
 **
 ```
 
+After Tick `0`:
+
 ```orcvs tick 0 plays 1
 !>0064C4
 ```
 
 ### `*>` Bang East
 
-Inert until a Bang reaches it. Each Bang it receives emits a `>>` into the two Cells after it.
+Inert until a Bang reaches it. A Bang reaching it emits a `>>` into the two Cells after it.
 
 ```orcvs
 **
@@ -1003,7 +1018,7 @@ Turn that Tick.
 .+0102
 ```
 
-After Tick `0`, the Addition did not run:
+After Tick `0`, the Add did not run:
 
 ```orcvs tick 0
 
@@ -1022,7 +1037,7 @@ MIDI destination under the Panel's **O** to hear them.
 | Operand | Range |
 |---|---|
 | `channel` | `00` to `0F` |
-| `velocity` | `00` to `7F`; `00` stops the note |
+| `velocity` | `00` to `7F`; `00` stops the note, and on `!%` stops the channel's Monophonic note |
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
@@ -1049,9 +1064,10 @@ After Tick `0`, nothing plays:
 !>0064
 ```
 
-### `!>` Play
+### `!>` Raw Play
 
-`!> channel velocity note` sends a Note On, with no Note Off of its own.
+`!> channel velocity note` sends a Note On, with no Note Off of its own. At velocity `00` it sends a
+Note Off for `note` instead.
 
 ```orcvs
 **
@@ -1071,6 +1087,8 @@ plays:
 ```orcvs
 !>0064C4**
 ```
+
+After Tick `0`:
 
 ```orcvs tick 0
 !>0064C4
@@ -1096,7 +1114,8 @@ After Tick `0`:
 ### `!%` Monophonic Play
 
 `!% channel velocity note length` works like Timed Play, but first stops whichever note an earlier
-Monophonic Play left sounding on the same channel, so a channel plays one of these at a time.
+Monophonic Play left sounding on the same channel, so a channel plays one of these at a time. At
+velocity `00` it stops that note and plays nothing.
 
 ```orcvs
 **
@@ -1221,7 +1240,7 @@ can hold any character but `!`, and a Write into it changes what the next send c
 
 Sends go to the host and ports set in the UDP/OSC section of the list under the Panel's **O**,
 which default to `127.0.0.1`, UDP port `49161` and OSC port `49162`. A failed send is reported once,
-until the failure changes or a send leaves, and playback goes on. The web build cannot send UDP or
+until a different failure occurs or a send succeeds, and playback goes on. The web build cannot send UDP or
 OSC, so there each activation is reported instead.
 
 ### `!u` UDP
@@ -1268,7 +1287,7 @@ After Tick `0`:
 ```
 
 A word after the address that starts with `,` is a type string, one letter per argument: `i` for an
-int32, `f` for a float32 and `s` for a string. `!o/synth/freq ,fs 64.0 hi!` sends the float32 64.0
+int32 read as hexadecimal, `f` for a float32 and `s` for a string. `!o/synth/freq ,fs 64.0 hi!` sends the float32 64.0
 and the string `hi`.
 
 ```orcvs
@@ -1291,6 +1310,8 @@ sends nothing:
 **
 !osynth 40!
 ```
+
+After Tick `0`:
 
 ```orcvs tick 0 diagnoses
 

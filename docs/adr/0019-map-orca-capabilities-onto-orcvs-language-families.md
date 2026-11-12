@@ -32,10 +32,10 @@ Orcvs preserves Orca's performative capabilities without preserving its one-lett
 | Concatenate | — | Add as a first-class Sequence Function | `:&` | ADR 0007 |
 | Track | `T` | Retain as a Read of the pair an index selects along a row | `&t index count` | ADRs 0067 and 0070 |
 | Push | `P` | Retain as a Write into the pair an index selects in the lane below it | `@t index count value` | ADRs 0067 and 0070 |
-| Read and Query | `O Q` | Replace with a directional Read `n` Portals from its operand, or an absolute Read at a Position; one Atom per Read, so a multi-Atom Query is several Reads | `&^ &v &< &> n`, `&$ column row` | ADRs 0049, 0063, 0067 and 0070 |
-| Write | `X` | Replace with a directional Write `n` Portals from its operand, or an absolute Write at a Position | `@^ @v @< @> n value`, `@$ column row value` | ADRs 0049 and 0070 |
-| Generator | `G` | Compose a Read nested in a Write; `=$` copies one pair between two Positions | Read in a Write's `value`; `=$ src-column src-row dst-column dst-row` | ADRs 0017 and 0070 |
-| Konkat | `K` | Replace hidden-variable lookup with a Read of visible Source, one Atom per Read | `&^ &v &< &> n`, `&$ column row` | ADRs 0003, 0063 and 0070 |
+| Read and Query | `O Q` | Replace with a directional Read `distance` Portals from its operand, or an absolute Read at a Position; one Atom per Read, so a multi-Atom Query is several Reads | `&^ &v &< &> distance`, `&$ at` | ADRs 0049, 0063, 0067 and 0070 |
+| Write | `X` | Replace with a directional Write `distance` Portals from its operand, or an absolute Write at a Position | `@^ @v @< @> distance value`, `@$ at value` | ADRs 0049 and 0070 |
+| Generator | `G` | Compose a Read nested in a Write; `=$` copies one pair between two Positions | Read in a Write's `value`; `=$ from to` | ADRs 0017 and 0070 |
+| Konkat | `K` | Replace hidden-variable lookup with a Read of visible Source, one Atom per Read | `&^ &v &< &> distance`, `&$ at` | ADRs 0003, 0063 and 0070 |
 | Variable | `V` | Omit the hidden named table; persistent language state remains in Source | — | ADRs 0003 and 0017 |
 | Comment | `#` | Retain | `\|\|` | Existing language contract and ADR 0035 |
 | Raw MIDI note | `:` | Retain without an implicit lifetime | `!>` | ADR 0016 |

@@ -1,24 +1,49 @@
 //! The bottom Panel: the Play and Rewind Cells, the typed BPM field, the beat
 //! marker, the Tick and Run Clock Readouts, the Output destinations — MIDI, and
-//! in its list UDP and OSC — and optional Diagnostics beneath them. What the
-//! outputs report floats as Toasts (`toasts`).
+//! in its list UDP and OSC — Info beneath them while it is shown, and optional
+//! Diagnostics beneath that. What the outputs report floats as Toasts
+//! (`toasts`).
 
 use std::time::Duration;
 
 use egui::{Color32, FontId, Key, Vec2};
+use orcvs::grid::Position;
 use orcvs::opts::Bpm;
 use orcvs::playback::{PlaybackObservation, PlaybackState};
+use orcvs::render_frame::RenderFrame;
 
 use super::Console;
 use super::diagnostics_panel::summary_height;
 use crate::console_midi;
-use crate::grid_viewport::{glyph_size, snapped_cell};
+use crate::grid_viewport::{CELL_SIZE, glyph_size, snapped_cell};
+use crate::info::info;
 use crate::midi::{output_readout, selected_destination_name};
+use crate::style::{CellColours, CursorPlacement};
 use crate::theme::{Appearance, Theme};
 
-/// The height the bottom Panel takes from the window, leaving the rest to the
-/// Source Grid. It is the Panel's own minimum, which the Readouts do not exceed.
-pub(super) const BOTTOM_PANEL_HEIGHT: f32 = 52.0;
+/// The Cell rows the bottom Panel spans with Info hidden: one of room beneath
+/// its top edge, the readouts, and one of room before the window's edge.
+const READOUT_ROWS: f32 = 3.0;
+
+/// The Cell rows Info adds while it is shown: one of room beneath the
+/// readouts, its Cells and its labels. They are there whether or not Info has
+/// anything to say.
+const INFO_ROWS: f32 = 3.0;
+
+/// The Cells between one Info entry and the next.
+const INFO_GAP: f32 = 2.0;
+
+/// The height the bottom Panel takes from the window with `cell`, the snapped
+/// Cell the Source presents, before any Diagnostics: its readouts' rows, and
+/// Info's while `info_open`, whatever Info or the Toasts show.
+pub(super) fn bottom_panel_height(cell: Vec2, info_open: bool) -> f32 {
+    let info = if info_open { INFO_ROWS } else { 0.0 };
+    (READOUT_ROWS + info) * cell.y
+}
+
+/// The bottom Panel's height at the default Cell with Info shown, as it is by
+/// default, which sizes the default window.
+pub(super) const BOTTOM_PANEL_HEIGHT: f32 = (READOUT_ROWS + INFO_ROWS) * CELL_SIZE.y;
 
 ///
 /// The height Diagnostics leave the Source: one Row of `cell`s, at the
@@ -50,10 +75,10 @@ const TICK_DIGITS: usize = 5;
 pub(super) const BEAT_MARKER: &str = "**";
 /// Marker next to BPM while Playback is stopped.
 const REST_MARKER: &str = "//";
-/// How many points to pull each label toward its value, relative to one monospace cell.
-const LABEL_VALUE_TIGHTEN: f32 = 2.0;
-/// Monospace cells between Readout groups, so C is not as close to T's value as to its own.
-const GROUP_GAP_CELLS: f32 = 3.0;
+/// Cells between a Readout's label and its value.
+const LABEL_VALUE_CELLS: f32 = 0.5;
+/// Cells between Readout groups, so C is not as close to T's value as to its own.
+const GROUP_GAP_CELLS: f32 = 2.0;
 /// Slot the Output readout occupies so a shorter device name is not truncated early.
 const OUTPUT_READOUT_WIDTH: f32 = 196.0;
 /// Menu action that asks the engine to discover output destinations again.
@@ -93,20 +118,18 @@ pub(super) fn format_beat_marker(state: PlaybackState, on_beat: bool) -> &'stati
     }
 }
 
-fn panel_readout_gaps(ui: &egui::Ui) -> (f32, f32) {
-    let cell = monospace_width(ui, "0");
-    (
-        (cell - LABEL_VALUE_TIGHTEN).max(0.0),
-        cell * GROUP_GAP_CELLS,
-    )
+/// The gaps within and between the Panel's Readouts with `cell`, the snapped
+/// Cell the Source presents.
+fn panel_readout_gaps(cell: Vec2) -> (f32, f32) {
+    (cell.x * LABEL_VALUE_CELLS, cell.x * GROUP_GAP_CELLS)
 }
 
 ///
-/// The gap between the Panel's Readout groups, `GROUP_GAP_CELLS` monospace
-/// cells, which the top bar's menus share.
+/// The gap between the Panel's Readout groups with `cell`, `GROUP_GAP_CELLS`
+/// Cells, which the top bar's menus share.
 ///
-pub(super) fn readout_group_gap(ui: &egui::Ui) -> f32 {
-    panel_readout_gaps(ui).1
+pub(super) fn readout_group_gap(cell: Vec2) -> f32 {
+    panel_readout_gaps(cell).1
 }
 
 pub(super) fn panel_monospace_id(ui: &egui::Ui) -> FontId {
@@ -200,10 +223,16 @@ fn cell_button(
 }
 
 fn panel_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    ui.add(
-        egui::Label::new(egui::RichText::new(text).text_style(egui::TextStyle::Monospace))
-            .selectable(false),
-    )
+    tinted_panel_label(ui, text, None)
+}
+
+/// A [`panel_label`] in `colour`, or in the style's own label colour for none.
+fn tinted_panel_label(ui: &mut egui::Ui, text: &str, colour: Option<Color32>) -> egui::Response {
+    let mut text = egui::RichText::new(text).text_style(egui::TextStyle::Monospace);
+    if let Some(colour) = colour {
+        text = text.color(colour);
+    }
+    ui.add(egui::Label::new(text).selectable(false))
 }
 
 /// Inner padding of the typed BPM field. Wider than TextEdit's default
@@ -320,6 +349,9 @@ fn add_bpm_field(ui: &mut egui::Ui, bpm: &mut usize) -> (egui::Response, bool) {
 pub(super) fn bottom_panel_frame(style: &egui::Style) -> egui::Frame {
     let mut frame = egui::Frame::side_top_panel(style);
     frame.inner_margin.left += BOTTOM_PANEL_LEFT_PAD;
+    // The Panel's Cell rows place its contents from its edges.
+    frame.inner_margin.top = 0;
+    frame.inner_margin.bottom = 0;
     frame
 }
 
@@ -398,97 +430,104 @@ impl Console {
         run_clock: Duration,
         appearance: Appearance,
         now: f64,
+        render_frame: &RenderFrame,
     ) -> Option<egui::Ui> {
         let frame = bottom_panel_frame(root.style().as_ref());
-        let separation = 2.0 * root.spacing().item_spacing.y;
+        let cell = snapped_cell(self.source_view.cell, root.ctx().pixels_per_point());
+        let panel_height = bottom_panel_height(cell, self.info_open);
+        let item_spacing = root.spacing().item_spacing.y;
+        let separation = 2.0 * item_spacing;
         let diagnostics_room = root.available_height()
-            - BOTTOM_PANEL_HEIGHT
+            - panel_height
             - separation
             - source_reserve(root, self.source_view.cell);
         let diagnostics_height = self
             .diagnostics_open
             .then(|| summary_height(root).min(diagnostics_room.max(0.0)));
         let extra_height = diagnostics_height.map_or(0.0, |height| height + separation);
-        let height = BOTTOM_PANEL_HEIGHT + extra_height;
+        let height = panel_height + extra_height;
         let separator = crate::style::bar_separator(self.themes.presented(appearance));
+        // `show_bar` gives the separator line room above the contents, inside
+        // the Panel's height, so the first Cell row is that much shorter.
+        let first_row = (cell.y - separator.width.ceil()).max(0.0);
         let bottom_panel = egui::Panel::bottom("bottom_panel")
             .resizable(false)
             .exact_size(height);
         show_bar(root, bottom_panel, frame, BarEdge::Top, separator, |ui| {
-            ui.allocate_ui_with_layout(
-                egui::vec2(
-                    ui.available_width(),
-                    (ui.available_height() - extra_height).max(0.0),
-                ),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    let (label_value_gap, entry_gap) = panel_readout_gaps(ui);
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    let cell = snapped_cell(self.source_view.cell, ui.ctx().pixels_per_point());
-                    let theme = self.themes.presented(appearance);
-                    let playing = observation.state == PlaybackState::Playing;
-                    let font = &self.font_family;
-                    let play = cell_button(ui, cell, font, theme, "P", "Play", playing).clicked();
-                    ui.add_space(cell.x);
-                    let rewind = cell_button(ui, cell, font, theme, "R", "Rewind", false).clicked();
-                    // Answered once both Cells are drawn, which ends their
-                    // borrow of the Theme.
-                    if play {
-                        self.request_playback(ui.ctx(), now);
-                    }
-                    if rewind {
-                        self.orcvs.rewind();
-                    }
-                    ui.add_space(entry_gap);
-                    panel_label(ui, "B");
-                    ui.add_space(label_value_gap);
-                    let mut bpm = self.orcvs.bpm().beats_per_minute();
-                    // The field is shown under `BPM_FIELD_ID`, the id
-                    // `Console::new` already gave `bpm_widget_id`.
-                    let (_, committed) = add_bpm_field(ui, &mut bpm);
-                    if committed
-                        && let Some(next) = Bpm::new(bpm)
-                        && next != self.orcvs.bpm()
-                    {
-                        self.orcvs.set_bpm(next);
-                    }
-                    ui.add_space(label_value_gap);
-                    let beat_text = format_beat_marker(observation.state, observation.on_beat);
-                    let beat_width = monospace_width(ui, BEAT_MARKER);
-                    reserved_monospace(ui, beat_text, beat_width);
-                    ui.add_space(entry_gap);
-                    panel_label(ui, "T");
-                    ui.add_space(label_value_gap);
-                    let tick_text = format_tick(observation.tick.get());
-                    let tick_width = monospace_width(ui, "00000");
-                    reserved_monospace(ui, &tick_text, tick_width);
-                    ui.add_space(entry_gap);
-                    panel_label(ui, "C");
-                    ui.add_space(label_value_gap);
-                    let clock_text = format_run_clock(run_clock);
-                    let clock_width =
-                        monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
-                    reserved_monospace(ui, &clock_text, clock_width);
-                    ui.add_space(entry_gap);
-                    // While any output reports a message, faded or dismissed
-                    // Toast or not, O stays in the error colour.
-                    let failing =
-                        super::toasts::statuses(&self.midi, &self.network, &self.playback_status)
-                            .iter()
-                            .any(|(_, message)| message.is_some());
-                    let output = egui::RichText::new("O").text_style(egui::TextStyle::Monospace);
-                    let output = if failing {
-                        output.color(ui.visuals().error_fg_color)
-                    } else {
-                        output
-                    };
-                    ui.add(egui::Label::new(output).selectable(false));
-                    ui.add_space(label_value_gap);
-                    self.show_destination(ui);
-                },
-            );
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.add_space(first_row);
+            let width = ui.available_width();
+            cell_row(ui, width, cell.y, "readouts", |ui| {
+                let (label_value_gap, entry_gap) = panel_readout_gaps(cell);
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let theme = self.themes.presented(appearance);
+                let playing = observation.state == PlaybackState::Playing;
+                let font = &self.font_family;
+                let play = cell_button(ui, cell, font, theme, "P", "Play", playing).clicked();
+                ui.add_space(cell.x);
+                let rewind = cell_button(ui, cell, font, theme, "R", "Rewind", false).clicked();
+                // Answered once both Cells are drawn, which ends their
+                // borrow of the Theme.
+                if play {
+                    self.request_playback(ui.ctx(), now);
+                }
+                if rewind {
+                    self.orcvs.rewind();
+                }
+                ui.add_space(entry_gap);
+                panel_label(ui, "B");
+                ui.add_space(label_value_gap);
+                let mut bpm = self.orcvs.bpm().beats_per_minute();
+                // The field is shown under `BPM_FIELD_ID`, the id
+                // `Console::new` already gave `bpm_widget_id`.
+                let (_, committed) = add_bpm_field(ui, &mut bpm);
+                if committed
+                    && let Some(next) = Bpm::new(bpm)
+                    && next != self.orcvs.bpm()
+                {
+                    self.orcvs.set_bpm(next);
+                }
+                ui.add_space(label_value_gap);
+                let beat_text = format_beat_marker(observation.state, observation.on_beat);
+                let beat_width = monospace_width(ui, BEAT_MARKER);
+                reserved_monospace(ui, beat_text, beat_width);
+                ui.add_space(entry_gap);
+                panel_label(ui, "T");
+                ui.add_space(label_value_gap);
+                let tick_text = format_tick(observation.tick.get());
+                let tick_width = monospace_width(ui, "00000");
+                reserved_monospace(ui, &tick_text, tick_width);
+                ui.add_space(entry_gap);
+                panel_label(ui, "C");
+                ui.add_space(label_value_gap);
+                let clock_text = format_run_clock(run_clock);
+                let clock_width =
+                    monospace_width(ui, "00:00").max(monospace_width(ui, &clock_text));
+                reserved_monospace(ui, &clock_text, clock_width);
+                ui.add_space(entry_gap);
+                // While any output reports a message, faded or dismissed
+                // Toast or not, O stays in the error colour.
+                let failing = super::toasts::standing_messages(
+                    &self.midi,
+                    &self.network,
+                    &self.playback_status,
+                )
+                .iter()
+                .any(|(_, message)| message.is_some());
+                let colour = failing.then(|| ui.visuals().error_fg_color);
+                tinted_panel_label(ui, "O", colour);
+                ui.add_space(label_value_gap);
+                self.show_destination(ui);
+            });
+            if self.info_open {
+                ui.add_space(cell.y);
+                let theme = self.themes.presented(appearance);
+                show_info(ui, render_frame, cell, theme, &self.font_family);
+            }
             diagnostics_height.map(|height| {
+                ui.add_space(item_spacing);
                 ui.add(egui::Separator::default().horizontal().spacing(0.0));
+                ui.add_space(item_spacing);
                 // Reserve the readouts before the Source takes its space;
                 // fill them once that Source's current geometry is known.
                 let (_, rect) = ui.allocate_space(egui::vec2(ui.available_width(), height));
@@ -611,6 +650,224 @@ impl Console {
             ui.ctx().request_repaint();
         }
     }
+}
+
+///
+/// Info in two Cell rows beneath the Panel's readouts, starting on the Grid's
+/// next Cell column as the Play Cell does. Line one paints each entry's Cells
+/// as the Source paints them, the Cursor's outline included; line two names
+/// each entry beneath its Cells in the monospace readout font, a name strong
+/// and the rest weak. Each entry is as wide as the wider of its two lines, and
+/// the next starts on the Cell column [`INFO_GAP`] Cells past it. A label past
+/// the Panel's edge is cut with an ellipsis and shown whole on hover.
+///
+fn show_info(
+    ui: &mut egui::Ui,
+    frame: &RenderFrame,
+    cell: Vec2,
+    theme: &Theme,
+    font_family: &egui::FontFamily,
+) {
+    let entries = info(frame);
+    // The Panel's row can be wider than the window; Info stays in view.
+    let visible = ui.clip_rect().right() - ui.next_widget_position().x;
+    let width = ui.available_width().min(visible);
+    let (cells_row, cells) =
+        ui.allocate_exact_size(egui::vec2(width, cell.y), egui::Sense::hover());
+    let (labels_row, _) = ui.allocate_exact_size(egui::vec2(width, cell.y), egui::Sense::hover());
+    if entries.is_empty() {
+        return;
+    }
+    let spelled: Vec<String> = entries
+        .iter()
+        .filter(|entry| !entry.cells.is_empty())
+        .map(|entry| {
+            entry
+                .cells
+                .iter()
+                .map(|&position| frame.at(position).content().unwrap_or(' '))
+                .collect()
+        })
+        .collect();
+    cells.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, spelled.join(" ")));
+
+    let font = panel_monospace_id(ui);
+    let advance = monospace_width(ui, " ");
+    let glyph = FontId::new(glyph_size(cell), font_family.clone());
+    let (strong, weak) = (
+        ui.visuals().strong_text_color(),
+        ui.visuals().weak_text_color(),
+    );
+    let mut colours = CellColours::new(theme);
+    let column = |x: f32| (x / cell.x).ceil() * cell.x;
+    let mut left = column(cells_row.left());
+    for (index, entry) in entries.iter().enumerate() {
+        paint_info_cells(
+            ui.painter(),
+            frame,
+            &entry.cells,
+            egui::pos2(left, cells_row.top()),
+            cell,
+            &glyph,
+            theme,
+            &mut colours,
+        );
+        let label_width = advance * entry.label.chars().count() as f32;
+        let rect = egui::Rect::from_min_max(
+            egui::pos2(left, labels_row.top()),
+            egui::pos2(
+                (left + label_width).min(labels_row.right()),
+                labels_row.bottom(),
+            ),
+        );
+        if rect.width() > 0.0 {
+            let mut label = ui.new_child(
+                egui::UiBuilder::new()
+                    .id_salt(("info", index))
+                    .max_rect(rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            let colour = if entry.strong { strong } else { weak };
+            label.add(
+                egui::Label::new(
+                    egui::RichText::new(&entry.label)
+                        .font(font.clone())
+                        .color(colour),
+                )
+                .truncate()
+                .selectable(false),
+            );
+        }
+        let entry_width = (cell.x * entry.cells.len() as f32).max(label_width);
+        left = column(left + entry_width + INFO_GAP * cell.x);
+    }
+}
+
+///
+/// Paints `positions`' Cells from `frame` side by side from `origin`, each one
+/// `cell` in size, with the fill, glyph and border the Source gives it and the
+/// Cursor's outline on the Cursor's Cell. Cells that share one border, as an
+/// Output Portal's pair does, are outlined once around the run, as the Source
+/// outlines them.
+///
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is a separate fact of one Cell run's paint"
+)]
+fn paint_info_cells(
+    painter: &egui::Painter,
+    frame: &RenderFrame,
+    positions: &[Position],
+    origin: egui::Pos2,
+    cell: Vec2,
+    glyph: &FontId,
+    theme: &Theme,
+    colours: &mut CellColours<'_>,
+) {
+    let rect_at = |index: usize| {
+        egui::Rect::from_min_size(origin + egui::vec2(cell.x * index as f32, 0.0), cell)
+    };
+    let mut borders = Vec::with_capacity(positions.len());
+    for (index, &position) in positions.iter().enumerate() {
+        let render = frame.at(position);
+        let placement = placement(frame, position);
+        let (paint, roles, occupied) = (
+            render.source_paint(),
+            render.portal_roles(),
+            render.content().is_some(),
+        );
+        let border = colours.colours(paint, roles, occupied, placement).border;
+        let shown = colours.displayed(paint, roles, occupied, placement);
+        let rect = rect_at(index);
+        painter.rect_filled(rect, 0.0, shown.background);
+        if let Some(character) = render.content() {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                character,
+                glyph.clone(),
+                shown.foreground,
+            );
+        }
+        borders.push(border.map(|line| line.stroke));
+    }
+    let shared = borders
+        .first()
+        .copied()
+        .flatten()
+        .filter(|stroke| borders.iter().all(|border| *border == Some(*stroke)));
+    match shared {
+        Some(stroke) if !positions.is_empty() => {
+            let run = rect_at(0).union(rect_at(positions.len() - 1));
+            painter.rect_stroke(run, 0.0, stroke, egui::StrokeKind::Inside);
+        }
+        _ => {
+            for (index, border) in borders.into_iter().enumerate() {
+                if let Some(stroke) = border {
+                    painter.rect_stroke(rect_at(index), 0.0, stroke, egui::StrokeKind::Inside);
+                }
+            }
+        }
+    }
+    if let Some(index) = positions
+        .iter()
+        .position(|&position| placement(frame, position) == CursorPlacement::Cursor)
+    {
+        painter.rect_stroke(
+            rect_at(index),
+            0.0,
+            egui::Stroke::new(theme.cursor_border_width.points(), theme.cursor_border),
+            egui::StrokeKind::Inside,
+        );
+    }
+}
+
+///
+/// Where `position` sits against `frame`'s Cursor and Region, by the rule the
+/// Source's Paint applies: a Region of one Cell is the Cursor's own Cell.
+///
+fn placement(frame: &RenderFrame, position: Position) -> CursorPlacement {
+    let region = frame.region();
+    let spans = !region.is_one_cell();
+    if position == frame.cursor() {
+        if spans {
+            CursorPlacement::RegionCursor
+        } else {
+            CursorPlacement::Cursor
+        }
+    } else if spans
+        && region.columns().contains(&position.x())
+        && region.rows().contains(&position.y())
+    {
+        CursorPlacement::Region
+    } else {
+        CursorPlacement::Plain
+    }
+}
+
+///
+/// A row `width` wide and exactly `height` tall, its contents laid out left to
+/// right and centred on it. It advances `ui` by `height` whatever its contents
+/// take, so a widget taller than the row overhangs it, centred, into the
+/// empty Cell rows around it, and the Panel's rows stay on the Grid's Cells.
+/// The contents are laid out in a region a row taller on each side, so each
+/// widget is centred on the row itself, not on a taller one before it.
+///
+fn cell_row<R>(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    id_salt: &str,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let mut row = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(id_salt)
+            .max_rect(rect.expand2(egui::vec2(0.0, height)))
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    add_contents(&mut row)
 }
 
 ///

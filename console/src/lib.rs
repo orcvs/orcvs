@@ -16,6 +16,7 @@ mod contrast;
 mod examples;
 mod function_reference;
 mod grid_viewport;
+mod info;
 pub mod playback_status;
 // Whether a console opens a Source its URL names, and which.
 mod linked_source;

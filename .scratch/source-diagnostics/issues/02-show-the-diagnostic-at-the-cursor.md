@@ -5,12 +5,12 @@ Blocked by: 04; cursor-line-and-toasts/04 — Show the Cursor's Function on the 
 
 **What to build:**
 
-When the Cursor's Cell is covered by a Language Map diagnostic, the Panel's Cursor Line (ADR 0100) shows that diagnostic's message in place of the Function's description. Tick diagnostics are not shown here (ticket 03).
+When the Cursor's Cell is covered by a Language Map diagnostic, the Panel's Info (ADR 0100) shows that diagnostic's message in place of the Function's description. Tick diagnostics are not shown here (ticket 03).
 
 ## Acceptance criteria
 
-- [ ] Moving the Cursor onto a diagnosed Cell shows its message on the Cursor Line; moving off returns the line to what `cursor-line-and-toasts/04` shows there.
-- [ ] The Cursor Line's space is already reserved by `cursor-line-and-toasts/04`; this ticket adds no line of its own.
+- [ ] Moving the Cursor onto a diagnosed Cell shows its message in Info; moving off returns Info to what `cursor-line-and-toasts/04` shows there.
+- [ ] Info's rows are already reserved by `cursor-line-and-toasts/04`; this ticket adds no line of its own.
 - [ ] The message comes from the Render Frame's existing accessors (`expression_at` and its `diagnostic`, `lexical_diagnostics`); nothing is re-parsed in the console.
 - [ ] When a Cell is covered by both its Expression's diagnostic and a lexical diagnostic (the Cursor on `Z` of `Z `), the Expression's diagnostic is shown, because it names the spelling rather than one character.
 - [ ] Pairs east of a Track show no message, per ticket 04.

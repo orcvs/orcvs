@@ -584,7 +584,7 @@ fn a_producer_that_takes_no_turn_leaves_its_last_bang_to_fire_once() {
             ("nested in a locked root", &nested, vec![(0, 0, "***!")]),
         ];
         if producer != ".=0101" {
-            // A zero modulus or a zero step count fails evaluation. Equality
+            // A zero `steps` fails evaluation. Equality
             // answers every pair of values, so it has no such case.
             cases.push(("failing evaluation", &direct, vec![(6, 1, "00")]));
         }

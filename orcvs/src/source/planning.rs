@@ -392,8 +392,8 @@ mod tests {
 
     #[test]
     fn a_refused_plan_publishes_no_tick_portals_and_the_locked_attempt_does() {
-        // Each optimistic attempt plans the Read at the distance its `n`
-        // held, and an edit to that `n` refuses it. Only the locked attempt
+        // Each optimistic attempt plans the Read at the distance its `distance`
+        // held, and an edit to that `distance` refuses it. Only the locked attempt
         // commits, so the one record published is the one that read where
         // the last edit pointed.
         let grid = Grid::with_shape(4, 4);

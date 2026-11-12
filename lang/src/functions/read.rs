@@ -1,10 +1,10 @@
 use super::copy::copy;
 use crate::{Error, Interpretation, interpreter::Context, stack::Operands};
 
-/// A Read: `&^ n`, `&v n`, `&< n`, `&> n` or `&$ column row`.
+/// A Read: `&^ distance`, `&v distance`, `&< distance`, `&> distance` or `&$ at`.
 ///
-/// The Language Unit at the pair its operands select, `n` Portals from the
-/// `n` operand in a directional Read's direction or at the absolute Read's
+/// The Language Unit at the pair its operands select, `distance` Portals from the
+/// `distance` operand in a directional Read's direction or at the absolute Read's
 /// Position, read as a Copy reads its Input Portal. The Turn supplies
 /// the Cells of that pair, so evaluation binds the operands and answers what a
 /// Copy would.
@@ -54,15 +54,15 @@ mod test {
     }
 
     #[test]
-    fn a_read_counts_the_distance_its_n_operand_states() {
+    fn a_read_counts_the_distance_its_operand_states() {
         let note = Atom::Note(Note::try_from(60).unwrap());
         for (function, direction) in READS {
             let rule = distance_rule(function);
             assert_eq!(rule.direction(), direction, "{function:?}");
-            for n in [0, 1, 0xFF] {
+            for distance in [0, 1, 0xFF] {
                 assert_eq!(
-                    rule.distance(&[Atom::Number(n)]).unwrap(),
-                    n,
+                    rule.distance(&[Atom::Number(distance)]).unwrap(),
+                    distance,
                     "{direction:?}"
                 );
             }

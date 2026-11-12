@@ -1,8 +1,8 @@
 use super::track::selected_pair;
 use crate::{Atom, Error, Function, atom::operands::Push, interpreter::Context, stack::Operands};
 
-/// A Write: `@^ n value`, `@v n value`, `@< n value`, `@> n value`,
-/// `@$ column row value` or Push, `@t index count value`.
+/// A Write: `@^ distance value`, `@v distance value`, `@< distance value`, `@> distance value`,
+/// `@$ at value` or Push, `@t index count value`.
 ///
 /// It answers `value`, the encoding it carries, unchanged. The Turn resolves
 /// the pair its address operands select and writes the answer there, so

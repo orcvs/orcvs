@@ -203,7 +203,7 @@ fn a_selected_pair_straddling_the_row_edge_diagnoses() {
 }
 
 #[test]
-fn a_clock_driven_track_holds_each_pair_for_the_rate_and_wraps_at_the_count() {
+fn a_clock_driven_track_holds_each_pair_for_the_length_and_wraps_at_the_count() {
     // `~.0203` steps every second Tick through `00`, `01`, `02`.
     let grid = Grid::with_shape(16, 2);
     let rows = ["&t~.020303C4D4E4"];

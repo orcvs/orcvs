@@ -52,7 +52,7 @@ impl PairSelection {
     /// operands against the signature of the Read or Write they name: a
     /// Write's `value` after them counts toward that number, and its value is
     /// never read. Track's pair counts from `operand_columns`, Push's lane
-    /// from the pair under its anchor, a directional rule's from its `n`
+    /// from the pair under its anchor, a directional rule's from its `distance`
     /// operand's slot, the pair after its spelling, whatever that operand's
     /// width, and the absolute rules' are the Positions their operands name,
     /// which `orcvs` finds in its Grid. The absolute Copy's two rules each read
@@ -62,7 +62,7 @@ impl PairSelection {
     ///
     /// The address operands diagnose as evaluation does: a count other than
     /// the signature's is its arity, an operand that is not a Number, such as
-    /// a Note given as Track's `count` or as a Read's `n`, is an
+    /// a Note given as Track's `count` or as a Read's `distance`, is an
     /// [`Error::Type`], and Track's or Push's `count` of `00` is a wrap by
     /// zero. Track's pair can lie too far east to represent, which is
     /// a Portal outside any Grid and diagnoses as Track's partial or invalid
@@ -109,11 +109,11 @@ impl PairSelection {
             Self::Distance(rule) => {
                 // The slot is the pair after the spelling, and at most 255
                 // steps from it every offset fits.
-                let n = i16::from(rule.distance(operands)?);
+                let distance = i16::from(rule.distance(operands)?);
                 let step = rule.direction().step();
                 Ok(PortalAddress::Offset(PortalCoords {
-                    columns: DEFAULT_TOKEN_LEN as i16 + n * step.columns,
-                    rows: n * step.rows,
+                    columns: DEFAULT_TOKEN_LEN as i16 + distance * step.columns,
+                    rows: distance * step.rows,
                 }))
             }
         }
@@ -490,11 +490,11 @@ mod test {
     }
 
     #[test]
-    fn a_read_resolves_to_the_pair_n_portals_from_its_operand_slot() {
-        // The `n` operand's slot is the pair at column 2, after the spelling,
+    fn a_read_resolves_to_the_pair_distance_portals_from_its_operand_slot() {
+        // The `distance` operand's slot is the pair at column 2, after the spelling,
         // whatever the Function and its operands occupy east of it.
-        let read = |function, n, operand_columns| {
-            resolve(function, &[Atom::Number(n)], operand_columns).unwrap()
+        let read = |function, distance, operand_columns| {
+            resolve(function, &[Atom::Number(distance)], operand_columns).unwrap()
         };
         let at = |columns, rows| PortalCoords { columns, rows };
         for operand_columns in [4, 8, 256] {
@@ -541,11 +541,11 @@ mod test {
             (Function::ReadSouth, Function::WriteSouth),
             (Function::ReadWest, Function::WriteWest),
         ] {
-            for n in [0, 1, 2, 0xFF] {
+            for distance in [0, 1, 2, 0xFF] {
                 assert_eq!(
-                    selected(write, &[Atom::Number(n), value], 6),
-                    address(read, &[Atom::Number(n)], 4).unwrap(),
-                    "{write:?} {n}"
+                    selected(write, &[Atom::Number(distance), value], 6),
+                    address(read, &[Atom::Number(distance)], 4).unwrap(),
+                    "{write:?} {distance}"
                 );
             }
         }

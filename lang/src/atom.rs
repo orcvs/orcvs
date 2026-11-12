@@ -767,6 +767,143 @@ const fn same_name(left: &str, right: &str) -> bool {
     true
 }
 
+// A row's Roles: one per declared operand, except that a `grouped:` Role stands
+// for the consecutive operands it names. A group `grouped_roles` refuses fails
+// to compile at the row that declares it.
+macro_rules! function_roles {
+    ([$($role:ident: $operand:ident),*], [$($group:ident: $($member:ident)+),*], [$($position:ident)*]) => {{
+        const NAMES: &[&str] = &[$(stringify!($role)),*];
+        const OPERANDS: &[&str] = &[$(stringify!($operand)),*];
+        const GROUPS: &[RoleGroup] = &[$(RoleGroup {
+            name: stringify!($group),
+            members: &[$(stringify!($member)),+],
+        }),*];
+        const _: () = assert_position_grouped(&[$(stringify!($position)),*], GROUPS);
+        const ROLES: [Role; role_count(NAMES.len(), GROUPS)] =
+            grouped_roles(NAMES, OPERANDS, GROUPS);
+        &ROLES
+    }};
+}
+
+/// One `grouped:` Role of a row: its name and the operands it covers, as the
+/// row names them.
+#[derive(Clone, Copy)]
+struct RoleGroup {
+    name: &'static str,
+    members: &'static [&'static str],
+}
+
+/// How many Roles a row with `operands` declared operands has once `groups`
+/// stand for their members.
+const fn role_count(operands: usize, groups: &[RoleGroup]) -> usize {
+    let (mut count, mut index) = (operands, 0);
+    while index < groups.len() {
+        assert!(
+            groups[index].members.len() >= 2,
+            "a grouped Role covers at least two operands"
+        );
+        count -= groups[index].members.len() - 1;
+        index += 1;
+    }
+    count
+}
+
+/// A row's Roles in signature order, evaluated where the row is declared.
+/// `names` and `operands` are its declared roles and their operand types.
+///
+/// A group covers consecutive declared operands in signature order, each one a
+/// Number, as a Position's column and row are.
+const fn grouped_roles<const N: usize>(
+    names: &[&'static str],
+    operands: &[&str],
+    groups: &[RoleGroup],
+) -> [Role; N] {
+    let mut roles = [Role {
+        name: "",
+        operands: 0,
+    }; N];
+    let (mut filled, mut operand) = (0, 0);
+    while operand < names.len() {
+        let role = match group_starting_at(groups, names[operand]) {
+            Some(group) => {
+                assert_group_covers(group, names, operands, operand);
+                Role {
+                    name: group.name,
+                    operands: group.members.len(),
+                }
+            }
+            None => Role {
+                name: names[operand],
+                operands: 1,
+            },
+        };
+        // `N` counts every group as standing for its members, so a group no
+        // declared operand starts leaves one Role too many.
+        assert!(
+            filled < N,
+            "a grouped Role must start at a declared operand outside any other group"
+        );
+        roles[filled] = role;
+        filled += 1;
+        operand += role.operands;
+    }
+    roles
+}
+
+/// Refuses a row whose `position:` operands are not one `grouped:` Role, since
+/// a reader sees a Position as one operand. `position` is empty on a row that
+/// declares no `position:` clause.
+const fn assert_position_grouped(position: &[&str], groups: &[RoleGroup]) {
+    if position.is_empty() {
+        return;
+    }
+    let mut index = 0;
+    while index < groups.len() {
+        let members = groups[index].members;
+        if members.len() == position.len() {
+            let mut member = 0;
+            while member < members.len() && same_name(members[member], position[member]) {
+                member += 1;
+            }
+            if member == members.len() {
+                return;
+            }
+        }
+        index += 1;
+    }
+    panic!("a `position:` clause's operands must be one grouped Role");
+}
+
+/// The group whose first member is the declared operand `name`.
+const fn group_starting_at(groups: &[RoleGroup], name: &str) -> Option<RoleGroup> {
+    let mut index = 0;
+    while index < groups.len() {
+        if same_name(groups[index].members[0], name) {
+            return Some(groups[index]);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Refuses `group` unless its members are the declared operands from `start`
+/// on, in order, and every one is a Number.
+const fn assert_group_covers(group: RoleGroup, names: &[&str], operands: &[&str], start: usize) {
+    let mut member = 0;
+    while member < group.members.len() {
+        let index = start + member;
+        assert!(
+            index < names.len() && same_name(names[index], group.members[member]),
+            "a grouped Role covers consecutive declared operands in signature order"
+        );
+        assert!(
+            same_name(operands[index], "Number"),
+            "a grouped Role covers only Number operands"
+        );
+        member += 1;
+    }
+}
+
 // Whether a row declares the optional fact its tokens stand for.
 macro_rules! declares {
     () => {
@@ -808,7 +945,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_n:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, rest: $rest:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])? $(, rest: $rest:ident)?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -846,6 +983,34 @@ macro_rules! define_functions {
             pub(crate) const fn spelling(self) -> &'static str {
                 match self {
                     $(Self::$variant => $spelling,)+
+                }
+            }
+
+            /// This Function's name, as its heading in `docs/functions.md`
+            /// gives it: `.|` is `Absolute Difference`.
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+
+            /// One short line on what this Function answers or does, in the
+            /// Function reference's voice: `.+` `answers left + right`.
+            pub const fn summary(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $summary,)+
+                }
+            }
+
+            /// This Function's Roles, in signature order. Together they cover
+            /// every operand its signature declares.
+            pub const fn roles(self) -> &'static [Role] {
+                match self {
+                    $(Self::$variant => function_roles!(
+                        [$($role: $operand),*],
+                        [$($($g_role: $($g_operand)+),+)?],
+                        [$($p_column $p_row)?]
+                    ),)+
                 }
             }
 
@@ -1024,8 +1189,8 @@ macro_rules! define_functions {
             $($(
                 #[doc = concat!(
                     "`", $spelling, "` selects its ", stringify!($d_portal), " Portal's pair `",
-                    stringify!($d_n), "` Portals ", stringify!($d_direction), " from its `",
-                    stringify!($d_n), "` operand's slot."
+                    stringify!($d_distance), "` Portals ", stringify!($d_direction), " from its `",
+                    stringify!($d_distance), "` operand's slot."
                 )]
                 $variant,
             )?)+
@@ -1042,13 +1207,13 @@ macro_rules! define_functions {
             /// The distance this rule counts, from the operands its Function's
             /// Turn resolved, checked against that Function's own signature so
             /// they diagnose as its evaluation would: a Write's `value` follows
-            /// its `n` and is never read.
+            /// its `distance` and is never read.
             pub(crate) fn distance(self, values: &[Atom]) -> Result<u8, Error> {
                 match self {
                     $($(Self::$variant => {
                         use crate::stack::Operands as _;
                         operands::$variant::checked_bind(values)
-                            .map(|operands::$variant { $d_n, .. }| $d_n)
+                            .map(|operands::$variant { $d_distance, .. }| $d_distance)
                     })?)+
                 }
             }
@@ -1108,67 +1273,80 @@ macro_rules! define_functions {
     };
 }
 
+/// What one or more consecutive operands of a Function are to a reader: `.+`
+/// has the Roles `left` and `right`, and `=$` the two Position Roles `from`
+/// and `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Role {
+    /// The Role's name in the Function reference.
+    pub name: &'static str,
+    /// How many of the Function's operands, in signature order, this Role
+    /// covers. A Position is spelled as two Numbers, column then row, and is
+    /// one Role.
+    pub operands: usize,
+}
+
 define_functions! {
     spelled: {
-    AbsoluteCopy => ("=$", Value, Intrinsic, May, [source_column: Number, source_row: Number, destination_column: Number, destination_row: Number]),
-    AbsoluteDifference => (".|", Value, Intrinsic, Never, [left: Number, right: Number]),
-    AbsoluteRead => ("&$", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row),
-    AbsoluteWrite => ("@$", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row),
-    Add => (".+", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Clock => ("~.", Value, Intrinsic, Never, [rate: Number, modulus: Number]),
-    ControlChange => ("!c", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
-    ConvertToNote => (".^", Value, Intrinsic, Never, [value: Number]),
-    ConvertToNumber => (".v", Value, Intrinsic, Never, [value: Note]),
-    CopyEast => ("=>", Value, Intrinsic, May, []),
-    CopyNorth => ("=^", Value, Intrinsic, May, []),
-    CopySouth => ("=v", Value, Intrinsic, May, []),
-    CopyWest => ("=<", Value, Intrinsic, May, []),
-    Delay => ("~*", Value, Intrinsic, May, [rate: Number, modulus: Number]),
-    DirectionalBangEast => ("*>", BangEast, Bang, Never, []),
-    DirectionalBangNorth => ("*^", BangNorth, Bang, Never, []),
-    DirectionalBangSouth => ("*v", BangSouth, Bang, Never, []),
-    DirectionalBangWest => ("*<", BangWest, Bang, Never, []),
-    Divide => ("./", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Down => ("#-", Value, Intrinsic, Never, [note: Note, number: Number]),
-    Equality => (".=", Value, Intrinsic, May, [left: Number, right: Number]),
-    Euclidean => ("~%", Value, Intrinsic, May, [hits: Number, steps: Number]),
-    Halt => ("*!", Halt, Bang, Never, []),
-    Increment => ("~+", Value, Intrinsic, Never, [step: Number, modulus: Number], portal: "previous value": Number),
-    Interpolation => ("~>", Value, Intrinsic, Never, [rate: Number, target: Number], portal: "previous value": Number),
-    Maximum => (".>", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Minimum => (".<", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Modulo => (".%", Value, Intrinsic, Never, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
-    Multiply => (".x", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Osc => ("!o", TerminalOutput, Bang, Never, []),
-    Pick => ("#p", Value, Intrinsic, Never, [root: Note, set: IntervalSet, index: Number]),
-    PitchBend => ("!b", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
-    Push => ("@t", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
-    Random => ("~?", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
-    RawChordPlay => ("!:", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
-    RawPlay => ("!>", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
-    ReadEast => ("&>", Value, Intrinsic, May, [n: Number], distance: Input East n),
-    ReadNorth => ("&^", Value, Intrinsic, May, [n: Number], distance: Input North n),
-    ReadSouth => ("&v", Value, Intrinsic, May, [n: Number], distance: Input South n),
-    ReadWest => ("&<", Value, Intrinsic, May, [n: Number], distance: Input West n),
-    SelfBangingEast => (">>", SelfBangEast, Intrinsic, Never, []),
-    SelfBangingNorth => ("^^", SelfBangNorth, Intrinsic, Never, []),
-    SelfBangingSouth => ("vv", SelfBangSouth, Intrinsic, Never, []),
-    SelfBangingWest => ("<<", SelfBangWest, Intrinsic, Never, []),
-    Stack => ("#s", Value, Intrinsic, Never, [set: IntervalSet, degree: Number, size: Number]),
-    Subtract => (".-", Value, Intrinsic, Never, [left: Number, right: Number]),
-    TimedChordPlay => ("!#", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
-    TimedPlay => ("!~", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
-    Track => ("&t", Value, Intrinsic, May, [index: Number, count: Number]),
-    Udp => ("!u", TerminalOutput, Bang, Never, []),
-    Up => ("#+", Value, Intrinsic, Never, [note: Note, number: Number]),
-    WriteEast => ("@>", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output East n),
-    WriteNorth => ("@^", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output North n),
-    WriteSouth => ("@v", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output South n),
-    WriteWest => ("@<", Value, Intrinsic, May, [n: Number, value: Untyped], distance: Output West n),
+    AbsoluteCopy => ("=$", "Absolute Copy", "copies the pair at from onto the pair at to", Value, Intrinsic, May, [from_column: Number, from_row: Number, to_column: Number, to_row: Number], grouped: [from: from_column from_row, to: to_column to_row]),
+    AbsoluteDifference => (".|", "Absolute Difference", "answers the distance between left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    AbsoluteRead => ("&$", "Absolute Read", "reads the pair at a Position", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row, grouped: [at: column row]),
+    AbsoluteWrite => ("@$", "Absolute Write", "writes value at a Position", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row, grouped: [at: column row]),
+    Add => (".+", "Add", "answers left + right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Clock => ("~.", "Clock", "answers which of its steps the Tick is on", Value, Intrinsic, Never, [length: Number, steps: Number]),
+    ControlChange => ("!c", "Control Change", "sends value to controller on channel", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
+    ConvertToNote => (".^", "Convert to Note", "answers the Note for a Number", Value, Intrinsic, Never, [number: Number]),
+    ConvertToNumber => (".v", "Convert to Number", "answers the MIDI note number of a Note", Value, Intrinsic, Never, [note: Note]),
+    CopyEast => ("=>", "Copy East", "copies the pair before it to the pair after it", Value, Intrinsic, May, []),
+    CopyNorth => ("=^", "Copy North", "copies the pair south of it to the pair north of it", Value, Intrinsic, May, []),
+    CopySouth => ("=v", "Copy South", "copies the pair north of it to the pair south of it", Value, Intrinsic, May, []),
+    CopyWest => ("=<", "Copy West", "copies the pair after it to the pair before it", Value, Intrinsic, May, []),
+    Delay => ("~*", "Delay", "answers a Bang every length * steps Ticks, else a Clear", Value, Intrinsic, May, [length: Number, steps: Number]),
+    DirectionalBangEast => ("*>", "Bang East", "emits >> after it when a Bang reaches it", BangEast, Bang, Never, []),
+    DirectionalBangNorth => ("*^", "Bang North", "emits ^^ one row north when a Bang reaches it", BangNorth, Bang, Never, []),
+    DirectionalBangSouth => ("*v", "Bang South", "emits vv one row south when a Bang reaches it", BangSouth, Bang, Never, []),
+    DirectionalBangWest => ("*<", "Bang West", "emits << before it when a Bang reaches it", BangWest, Bang, Never, []),
+    Divide => ("./", "Divide", "answers left / right, rounded down", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Down => ("#-", "Down", "answers the Note number semitones below note", Value, Intrinsic, Never, [note: Note, number: Number]),
+    Equality => (".=", "Equality", "answers a Bang when left equals right, else a Clear", Value, Intrinsic, May, [left: Number, right: Number]),
+    Euclidean => ("~%", "Euclidean", "answers a Bang on hits of every steps Ticks, else a Clear", Value, Intrinsic, May, [hits: Number, steps: Number]),
+    Halt => ("*!", "Halt", "locks the root south of it when a Bang reaches it", Halt, Bang, Never, []),
+    Increment => ("~+", "Increment", "answers previous value + amount, wrapped at modulus", Value, Intrinsic, Never, [amount: Number, modulus: Number], portal: "previous value": Number),
+    Interpolation => ("~>", "Interpolation", "answers previous value moved toward target by at most amount", Value, Intrinsic, Never, [amount: Number, target: Number], portal: "previous value": Number),
+    Maximum => (".>", "Maximum", "answers the larger of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Minimum => (".<", "Minimum", "answers the smaller of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Modulo => (".%", "Modulo", "answers the remainder of left / right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    MonophonicPlay => ("!%", "Monophonic Play", "replaces its channel's Monophonic note for length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    Multiply => (".x", "Multiply", "answers left * right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    Osc => ("!o", "OSC", "sends its Payload as one OSC message", TerminalOutput, Bang, Never, []),
+    Pick => ("#p", "Pick", "answers the Note at position index of set above root", Value, Intrinsic, Never, [root: Note, set: IntervalSet, index: Number]),
+    PitchBend => ("!b", "Pitch Bend", "sends lsb and msb as a Pitch Bend on channel", TerminalOutput, Bang, Never, [channel: MidiChannel, lsb: BendLsb, msb: BendMsb]),
+    Push => ("@t", "Push", "writes value at pair index % count of the row below", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
+    Random => ("~?", "Random", "answers a Number from minimum to maximum", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
+    RawChordPlay => ("!:", "Raw Chord Play", "sends a Note On for each tone of a chord", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
+    RawPlay => ("!>", "Raw Play", "sends a Note On, or a Note Off at velocity 00", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
+    ReadEast => ("&>", "Read East", "reads the pair distance pairs east of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input East distance),
+    ReadNorth => ("&^", "Read North", "reads the pair distance rows north of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input North distance),
+    ReadSouth => ("&v", "Read South", "reads the pair distance rows south of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input South distance),
+    ReadWest => ("&<", "Read West", "reads the pair distance pairs west of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input West distance),
+    SelfBangingEast => (">>", "Move East", "moves itself one Cell east each Tick", SelfBangEast, Intrinsic, Never, []),
+    SelfBangingNorth => ("^^", "Move North", "moves itself one row north each Tick", SelfBangNorth, Intrinsic, Never, []),
+    SelfBangingSouth => ("vv", "Move South", "moves itself one row south each Tick", SelfBangSouth, Intrinsic, Never, []),
+    SelfBangingWest => ("<<", "Move West", "moves itself one Cell west each Tick", SelfBangWest, Intrinsic, Never, []),
+    Stack => ("#s", "Stack", "answers the chord of size tones built on degree of set", Value, Intrinsic, Never, [set: IntervalSet, degree: Number, size: Number]),
+    Subtract => (".-", "Subtract", "answers left - right", Value, Intrinsic, Never, [left: Number, right: Number]),
+    TimedChordPlay => ("!#", "Timed Chord Play", "sends a chord, each tone stopped after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
+    TimedPlay => ("!~", "Timed Play", "sends a Note On and its Note Off after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    Track => ("&t", "Track", "reads pair index % count after its operands", Value, Intrinsic, May, [index: Number, count: Number]),
+    Udp => ("!u", "UDP", "sends its Payload as one UDP datagram", TerminalOutput, Bang, Never, []),
+    Up => ("#+", "Up", "answers the Note number semitones above note", Value, Intrinsic, Never, [note: Note, number: Number]),
+    WriteEast => ("@>", "Write East", "writes value distance pairs east of its distance operand", Value, Intrinsic, May, [distance: Number, value: Untyped], distance: Output East distance),
+    WriteNorth => ("@^", "Write North", "writes value distance rows north of its distance operand", Value, Intrinsic, May, [distance: Number, value: Untyped], distance: Output North distance),
+    WriteSouth => ("@v", "Write South", "writes value distance rows south of its distance operand", Value, Intrinsic, May, [distance: Number, value: Untyped], distance: Output South distance),
+    WriteWest => ("@<", "Write West", "writes value distance pairs west of its distance operand", Value, Intrinsic, May, [distance: Number, value: Untyped], distance: Output West distance),
     }
     named: {
-    Bang => ("**", Fire, Intrinsic, May, []),
+    Bang => ("**", "Bang", "activates the roots aligned with it", Fire, Intrinsic, May, []),
     }
 }
 
@@ -1619,7 +1797,8 @@ mod spelling {
 mod test {
     use super::{
         Atom, BendLsb, BendMsb, ControlValue, Controller, Function, Length, MidiChannel, Note,
-        ReplacementChange, Velocity, to_atom_num,
+        ReplacementChange, Role, RoleGroup, Velocity, assert_position_grouped, grouped_roles,
+        role_count, to_atom_num,
     };
     use crate::{Error, IntervalSet, Token, TypeError, Voicing};
 
@@ -2539,6 +2718,141 @@ mod test {
 
         let note = Atom::Note(Note::try_from(0x7F).unwrap());
         assert_eq!(String::from(note), "G9");
+    }
+
+    #[test]
+    fn each_function_names_its_operand_roles_in_signature_order() {
+        let names = |function: Function| -> Vec<&str> {
+            function.roles().iter().map(|role| role.name).collect()
+        };
+        assert_eq!(names(Function::Add), ["left", "right"]);
+        assert_eq!(
+            names(Function::TimedPlay),
+            ["channel", "velocity", "note", "length"]
+        );
+        let covers = |function: Function| -> Vec<usize> {
+            function.roles().iter().map(|role| role.operands).collect()
+        };
+        assert_eq!(names(Function::AbsoluteCopy), ["from", "to"]);
+        assert_eq!(covers(Function::AbsoluteCopy), [2, 2]);
+        assert_eq!(names(Function::AbsoluteRead), ["at"]);
+        assert_eq!(covers(Function::AbsoluteRead), [2]);
+        assert_eq!(names(Function::AbsoluteWrite), ["at", "value"]);
+        assert_eq!(covers(Function::AbsoluteWrite), [2, 1]);
+        assert!(Function::CopyEast.roles().is_empty());
+        for function in Function::ALL {
+            let roles = names(*function);
+            let mut signature = function.signature().iter();
+            for role in function.roles() {
+                assert!(
+                    role.operands >= 1,
+                    "`{function}`'s `{}` covers no operand",
+                    role.name
+                );
+                let covered: Vec<_> = signature.by_ref().take(role.operands).collect();
+                assert_eq!(
+                    covered.len(),
+                    role.operands,
+                    "`{function}`'s `{}` runs past its signature",
+                    role.name
+                );
+                assert!(
+                    role.operands == 1
+                        || covered
+                            .iter()
+                            .all(|token| matches!(token, crate::Token::Number)),
+                    "`{function}`'s grouped `{}` covers only Numbers",
+                    role.name
+                );
+            }
+            assert!(
+                signature.next().is_none(),
+                "`{function}`'s Roles cover each operand it declares"
+            );
+            for (index, role) in roles.iter().enumerate() {
+                assert!(
+                    !role.is_empty() && role.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                    "`{function}` names an operand `{role}`"
+                );
+                assert!(
+                    !roles[..index].contains(role),
+                    "`{function}` names `{role}` twice"
+                );
+            }
+        }
+    }
+
+    const COLUMN_ROW: RoleGroup = RoleGroup {
+        name: "at",
+        members: &["column", "row"],
+    };
+
+    #[test]
+    fn a_grouped_role_stands_for_the_operands_it_covers() {
+        let roles: [Role; 2] = grouped_roles(
+            &["column", "row", "value"],
+            &["Number", "Number", "Untyped"],
+            &[COLUMN_ROW],
+        );
+        assert_eq!(
+            roles,
+            [
+                Role {
+                    name: "at",
+                    operands: 2
+                },
+                Role {
+                    name: "value",
+                    operands: 1
+                },
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role covers only Number operands")]
+    fn a_grouped_role_refuses_an_operand_that_is_not_a_number() {
+        let _: [Role; 1] = grouped_roles(&["column", "row"], &["Number", "Note"], &[COLUMN_ROW]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role covers consecutive declared operands")]
+    fn a_grouped_role_refuses_operands_out_of_signature_order() {
+        let _: [Role; 1] = grouped_roles(
+            &["column", "value", "row"],
+            &["Number", "Number", "Number"],
+            &[COLUMN_ROW],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a `position:` clause's operands must be one grouped Role")]
+    fn a_position_that_is_not_one_grouped_role_is_refused() {
+        assert_position_grouped(&["column", "row"], &[]);
+    }
+
+    #[test]
+    fn a_position_grouped_as_one_role_is_accepted() {
+        assert_position_grouped(&["column", "row"], &[COLUMN_ROW]);
+        assert_position_grouped(&[], &[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role must start at a declared operand")]
+    fn a_grouped_role_refuses_a_group_the_row_does_not_declare() {
+        let _: [Role; 1] = grouped_roles(&["left", "right"], &["Number", "Number"], &[COLUMN_ROW]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a grouped Role covers at least two operands")]
+    fn a_grouped_role_refuses_a_single_operand() {
+        role_count(
+            1,
+            &[RoleGroup {
+                name: "at",
+                members: &["column"],
+            }],
+        );
     }
 
     #[test]

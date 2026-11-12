@@ -103,3 +103,7 @@ A Function spelling typed into `value` is a nested Function, as it is in every o
 
 - **The pairs east of Push's last operand, `value`, on its own row.** It mirrors where Track's list lies, but it is not Orca's `P`, and it needs a counting rule of its own where the south default already gives one.
 - **The pairs Track at the same anchor would read, counted from `count`.** Push's own `value` would be pair `00` of the lane it writes, and the lane would move whenever `value` held a nested Function.
+
+## Amendment, 2026-11-10: Positions are named as one operand
+
+The reference and Info name each Position as one operand: `=$ from to`, `&$ at`, `@$ at value`. The Source is spelled as this decision and [ADR 0049](0049-a-position-is-two-numbers.md) say: each Position is two Number operands, column then row, so `=$00020004` is unchanged. The names replace `src-column src-row dst-column dst-row` in the reference, the glossary and Info, because a pair of Numbers is one thing to a reader and `from` and `to` already distinguish the two Positions of `=$`. A directional Read's and Write's `n` is named `distance`, which is what it counts.

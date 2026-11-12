@@ -1,4 +1,4 @@
-//! The Writes, `@^ @v @< @> n value` and `@$ column row value`, written as a
+//! The Writes, `@^ @v @< @> distance value` and `@$ at value`, written as a
 //! performer sees them Tick after Tick.
 //!
 //! A directional Write writes `value` to the pair the Read with the same
@@ -285,7 +285,7 @@ fn a_write_addresses_the_pair_the_read_with_the_same_arrow_reads() {
     // pair it addresses; the Read in the same place reads that pair back.
     let grid = Grid::with_shape(12, 7);
     let cell = |rows: &[String], (x, y): (usize, usize)| rows[y][x..x + 2].to_string();
-    for (arrow, n) in [
+    for (arrow, distance) in [
         ("^", "00"),
         ("^", "02"),
         ("v", "01"),
@@ -295,7 +295,7 @@ fn a_write_addresses_the_pair_the_read_with_the_same_arrow_reads() {
         (">", "00"),
         (">", "02"),
     ] {
-        let write = format!("    @{arrow}{n}G4");
+        let write = format!("    @{arrow}{distance}G4");
         let mut rows = vec![""; 7];
         rows[3] = &write;
         let tick = first(grid, &rows);
@@ -304,7 +304,7 @@ fn a_write_addresses_the_pair_the_read_with_the_same_arrow_reads() {
             .flat_map(|y| (0..11).map(move |x| (x, y)))
             .filter(|&(x, y)| (x, y) != (8, 3) && cell(&tick.rows, (x, y)) == "G4")
             .collect();
-        assert_eq!(landed.len(), 1, "@{arrow}{n}: {:?}", tick.rows);
+        assert_eq!(landed.len(), 1, "@{arrow}{distance}: {:?}", tick.rows);
         let (x, y) = landed[0];
         if y == 3 && (4..8).contains(&x) {
             // The pair is the Function's own spelling or operand, which the
@@ -313,7 +313,7 @@ fn a_write_addresses_the_pair_the_read_with_the_same_arrow_reads() {
         }
         // The Read in the Write's place, with `G4` standing at that pair.
         let mut source = vec![vec![b' '; 12]; 7];
-        source[3][4..8].copy_from_slice(format!("&{arrow}{n}").as_bytes());
+        source[3][4..8].copy_from_slice(format!("&{arrow}{distance}").as_bytes());
         source[y][x..x + 2].copy_from_slice(b"G4");
         let source: Vec<String> = source
             .into_iter()
@@ -324,7 +324,7 @@ fn a_write_addresses_the_pair_the_read_with_the_same_arrow_reads() {
         assert_eq!(
             cell(&read.rows, (4, 4)),
             "G4",
-            "&{arrow}{n}: {:?}",
+            "&{arrow}{distance}: {:?}",
             read.rows
         );
     }
@@ -337,7 +337,7 @@ fn a_write_addresses_the_pair_the_read_with_the_same_arrow_reads() {
 
 #[test]
 fn a_write_at_distance_zero_steps_itself() {
-    // `@>0002` writes `02` onto its own `n`, so the next Tick it writes two
+    // `@>0002` writes `02` onto its own `distance`, so the next Tick it writes two
     // pairs east of the operand, and from then on it holds.
     let ticks = observe_at(Grid::with_shape(8, 1), &["@>0002"], 0..3);
     let rows: Vec<&str> = ticks.iter().map(|tick| tick.rows[0].as_str()).collect();

@@ -89,14 +89,9 @@ async fn the_minimap_item_trails_its_check_box_as_diagnostics_does() {
 fn label_gap(harness: &Harness<'_, Console>) -> (f32, f32) {
     let mut style = (*harness.ctx.global_style()).clone();
     egui::containers::menu::menu_style(&mut style);
-    let font = style.text_styles[&egui::TextStyle::Monospace].clone();
-    let cell = harness.ctx.fonts_mut(|fonts| {
-        fonts
-            .layout("0".to_owned(), font, egui::Color32::WHITE, f32::INFINITY)
-            .size()
-            .x
-    });
-    (3.0 * cell, 2.0 * style.spacing.button_padding.x)
+    // The Readout group gap is two of the Grid's default Cells.
+    let cell = crate::grid_viewport::CELL_SIZE.x;
+    (2.0 * cell, 2.0 * style.spacing.button_padding.x)
 }
 
 ///
