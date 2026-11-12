@@ -801,7 +801,7 @@ mod test {
         let velocity = Some(Atom::Number(0x7F));
         assert_eq!(
             evaluate_slots(Function::RawPlay, &[channel, velocity, None]).unwrap(),
-            Interpretation::BlankNote
+            Interpretation::Inert
         );
     }
 
@@ -888,7 +888,7 @@ mod test {
         for function in [Function::TimedPlay, Function::MonophonicPlay] {
             assert_eq!(
                 evaluate_slots(function, &[channel, velocity, None, length]).unwrap(),
-                Interpretation::BlankNote,
+                Interpretation::Inert,
                 "{function}"
             );
         }

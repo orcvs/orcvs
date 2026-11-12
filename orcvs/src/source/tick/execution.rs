@@ -365,7 +365,7 @@ impl<'a> Execution<'a> {
                 self.effects.extend(chord.commands().map(Effect::Play));
             }
             Ok(Interpretation::Send(send)) => self.effects.push(Effect::Send(*send)),
-            Ok(Interpretation::EmptyPayload | Interpretation::BlankNote) => {}
+            Ok(Interpretation::Inert) => {}
             Ok(Interpretation::Cell(atom)) => {
                 self.deliver_value(index, Answer::Unit(atom), destination, delivery);
             }

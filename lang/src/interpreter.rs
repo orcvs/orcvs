@@ -29,12 +29,10 @@ pub enum Interpretation {
     /// boxed because a Send is wider than every other answer and every Turn's
     /// answer would otherwise be that wide.
     Send(Box<NetworkSend>),
-    /// What an active UDP Function answers for an empty Payload, `!u!`: it
-    /// sends nothing and reports nothing.
-    EmptyPayload,
-    /// What an active Play root answers for a blank note: it sends nothing
-    /// and reports nothing.
-    BlankNote,
+    /// What an active Terminal Output root with nothing to send answers: a
+    /// UDP Function's empty Payload, `!u!`, or a Play's blank note. It sends
+    /// nothing and reports nothing.
+    Inert,
     /// The lock one active locking Function root places on the Expression
     /// root at its Output Portal.
     ///
@@ -205,19 +203,21 @@ impl Interpreter {
             Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
             Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
             Function::MonophonicPlay => functions::monophonic_play(&mut ctx)?
-                .map_or(Interpretation::BlankNote, Interpretation::Play),
+                .map_or(Interpretation::Inert, Interpretation::Play),
             Function::Pick => Interpretation::Cell(functions::pitch::pick(&mut ctx)?),
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawChordPlay => {
                 Interpretation::Chord(functions::chord::raw_chord_play(&mut ctx)?)
             }
-            Function::RawPlay => functions::raw_play(&mut ctx)?
-                .map_or(Interpretation::BlankNote, Interpretation::Play),
+            Function::RawPlay => {
+                functions::raw_play(&mut ctx)?.map_or(Interpretation::Inert, Interpretation::Play)
+            }
             Function::TimedChordPlay => {
                 Interpretation::Chord(functions::chord::timed_chord_play(&mut ctx)?)
             }
-            Function::TimedPlay => functions::timed_play(&mut ctx)?
-                .map_or(Interpretation::BlankNote, Interpretation::Play),
+            Function::TimedPlay => {
+                functions::timed_play(&mut ctx)?.map_or(Interpretation::Inert, Interpretation::Play)
+            }
             Function::Udp => functions::network::udp(&mut ctx),
             Function::Osc => functions::network::osc(&mut ctx)?,
             Function::Halt

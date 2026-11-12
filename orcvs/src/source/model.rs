@@ -986,7 +986,7 @@ mod test {
                 return resolve(chord.commands().map(Effect::Play).collect());
             }
             Interpretation::Send(send) => return resolve(vec![Effect::Send(*send)]),
-            Interpretation::EmptyPayload | Interpretation::BlankNote => return resolve(vec![]),
+            Interpretation::Inert => return resolve(vec![]),
             // The rule for what an answer becomes in Cells is production's,
             // called here rather than restated: these tests state an answer,
             // and what they exercise is the commit, not a second encoding.

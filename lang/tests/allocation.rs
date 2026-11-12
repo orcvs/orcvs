@@ -514,7 +514,7 @@ fn reading_and_taking_the_turn_of_a_play_with_a_blank_note_allocates_nothing() {
         });
         assert_eq!(
             answer.expect("the measured Turn answers"),
-            Interpretation::BlankNote,
+            Interpretation::Inert,
             "{row:?}"
         );
         assert_eq!(
