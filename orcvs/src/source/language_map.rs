@@ -1537,6 +1537,24 @@ mod tests {
         }
     }
 
+    /// A Raw, Timed or Monophonic Play whose only blank operand is its
+    /// optional note is a root and reports nothing, nested operands included,
+    /// so its Turn runs and sends nothing while the note stays blank.
+    #[test]
+    fn a_play_whose_only_blank_operand_is_its_note_is_a_root() {
+        for row in ["!>007F    ", "!~007F  04", "!%007F  04", "!>&v017F  "] {
+            let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
+
+            let diagnostics: Vec<_> = map.diagnostics().map(|d| d.message.clone()).collect();
+            assert_eq!(diagnostics, Vec::<String>::new(), "{row:?}");
+            assert!(
+                map.expressions()
+                    .any(|expression| expression.root().is_some()),
+                "{row:?} is not a root"
+            );
+        }
+    }
+
     /// A slot with one Cell written is malformed, and a slot the row edge cuts
     /// short is one the Grid cannot hold, so both diagnose, even beside an
     /// unwritten slot.
