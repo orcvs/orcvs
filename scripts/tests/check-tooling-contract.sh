@@ -922,6 +922,14 @@ test_toolchain_action_off_the_channel_is_rejected() {
   assert_rejected "a rust-toolchain action at a second commit"
 }
 
+test_workspace_msrv_off_the_channel_is_rejected() {
+  # The workspace `rust-version` is the pinned channel's minor, so a toolchain
+  # bump that leaves `Cargo.toml` behind fails rather than drifting.
+  make_fixture
+  perl -pi -e 's/^rust-version = "[0-9.]+"$/rust-version = "1.0"/' "$fixture_dir/Cargo.toml"
+  assert_rejected_with "a workspace rust-version off the pinned channel" "expected the workspace rust-version to be"
+}
+
 test_caret_egui_requirement_is_rejected() {
   make_fixture
   # A caret requirement reads "0.37.0 or any later 0.37", so the lockfile is the
@@ -1299,6 +1307,7 @@ case "${1:-all}" in
   windows-lint) test_pull_request_tier_without_the_windows_lint_is_rejected ;;
   windows-target) test_toolchain_without_the_windows_target_is_rejected ;;
   toolchain-action-channel) test_toolchain_action_off_the_channel_is_rejected ;;
+  workspace-msrv-channel) test_workspace_msrv_off_the_channel_is_rejected ;;
   caret-egui-requirement) test_caret_egui_requirement_is_rejected ;;
   split-egui-stack) test_split_egui_stack_is_rejected ;;
   eframe-clipboard) test_eframe_without_the_system_clipboard_is_rejected ;;
@@ -1420,6 +1429,8 @@ case "${1:-all}" in
     test_pull_request_tier_without_the_inspection_feature_is_rejected
     test_pull_request_tier_without_the_windows_lint_is_rejected
     test_toolchain_without_the_windows_target_is_rejected
+    test_toolchain_action_off_the_channel_is_rejected
+    test_workspace_msrv_off_the_channel_is_rejected
     test_caret_egui_requirement_is_rejected
     test_split_egui_stack_is_rejected
     test_eframe_without_the_system_clipboard_is_rejected
