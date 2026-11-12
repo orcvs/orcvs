@@ -93,6 +93,19 @@ test("the site's console sounds the first note of a run while the page's audio s
   await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x90);
 });
 
+// Where the Panel puts `P`, from `console/src/console/panel.rs`, at a device scale where a Cell is
+// a whole number of pixels, as `Desktop Chrome`'s 1 is: at a fractional scale the console floors
+// each row to whole pixels and the rows come out shorter.
+// A Cell's height in points, `CELL_SIZE.y`.
+const CELL_HEIGHT = 18;
+// With Info shown and Diagnostics closed, as a first visit opens, the Panel spans six Cell rows: a
+// row of room, the readouts, a row of room, Info's Cells, its labels, and a row of room. P is in
+// the second from the Panel's top, so its centre is four and a half rows above the bottom edge.
+const P_ROWS_ABOVE_BOTTOM = 4.5;
+// P spans 24 to 36: the Panel's 8-point inset and its 10-point left pad, snapped up to the next
+// 12-point Cell column.
+const P_CENTRE_X = 30;
+
 // The reader's first gesture starts Playback, so Tick 0 waits for the page's audio to start. Space
 // and the Panel's `P` make the same request of the console.
 const firstPlays: { gesture: string; play: (page: Page, frame: Locator) => Promise<void> }[] = [
@@ -105,15 +118,13 @@ const firstPlays: { gesture: string; play: (page: Page, frame: Locator) => Promi
   },
   {
     gesture: "a click on P",
-    // `P` is the first Cell of the Panel's readout row. The Panel spans six 18-point Cell rows
-    // with Info shown, as a first visit shows it: a row of room, the readouts, a row of room,
-    // Info's Cells and its labels, and a row of room. The readouts' row is the second from the
-    // Panel's top, so P's centre is four and a half rows above the console's bottom edge.
-    // The canvas has no DOM to find it by, so the point is fixed; a click that misses it wakes
-    // the audio but starts no Playback, and the poll below says so.
+    // `P` is the first Cell of the Panel's readout row. The canvas has no DOM to find it by, so the
+    // point is fixed; a click that misses it wakes the audio but starts no Playback, and the poll
+    // below says so. `console::kittest_tests::info::the_site_suites_click_on_p_lands_on_the_play_cell`
+    // fails a Panel change that moves P off this point.
     play: async (_page, frame) => {
       const box = await frame.boundingBox();
-      await frame.click({ position: { x: 30, y: box!.height - 4.5 * 18 } });
+      await frame.click({ position: { x: P_CENTRE_X, y: box!.height - P_ROWS_ABOVE_BOTTOM * CELL_HEIGHT } });
     },
   },
 ];
