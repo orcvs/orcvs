@@ -158,3 +158,26 @@ async fn hiding_info_gives_its_rows_back_to_the_source() {
     assert_eq!(play.top(), hidden.top() + cell.y, "the readouts' row");
     assert!(harness.query_by_label("left + right").is_none());
 }
+
+///
+/// The point `site/tests/synth.spec.ts` clicks to press P, 30 points from the
+/// console's left edge and four and a half Cell rows above its bottom edge, is
+/// on the Play Cell with Info shown, as a first visit shows it. The site's
+/// suite runs only when the site changes, so a change to the Panel that moves
+/// P fails here first; move the spec's point with it.
+///
+#[tokio::test]
+async fn the_site_suites_click_on_p_lands_on_the_play_cell() {
+    for size in [DEFAULT_VIEW_SIZE, super::super::DEFAULT_VIEW_SIZE_MIN] {
+        let size = Vec2::from(size);
+        let mut harness = running_console(size);
+        harness.run_steps(2);
+
+        let point = egui::pos2(30.0, size.y - 4.5 * crate::grid_viewport::CELL_SIZE.y);
+        let play = harness.get_by_label("Play").rect();
+        assert!(
+            play.contains(point),
+            "the site's click at {point:?} misses the Play Cell at {play:?} in a {size:?} console"
+        );
+    }
+}
