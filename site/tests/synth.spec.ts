@@ -105,12 +105,15 @@ const firstPlays: { gesture: string; play: (page: Page, frame: Locator) => Promi
   },
   {
     gesture: "a click on P",
-    // `P` is the Panel's first Cell: half the Panel's 52 points above the console's bottom edge.
+    // `P` is the first Cell of the Panel's readout row. The Panel spans six 18-point Cell rows
+    // with Info shown, as a first visit shows it: a row of room, the readouts, a row of room,
+    // Info's Cells and its labels, and a row of room. The readouts' row is the second from the
+    // Panel's top, so P's centre is four and a half rows above the console's bottom edge.
     // The canvas has no DOM to find it by, so the point is fixed; a click that misses it wakes
     // the audio but starts no Playback, and the poll below says so.
     play: async (_page, frame) => {
       const box = await frame.boundingBox();
-      await frame.click({ position: { x: 30, y: box!.height - 26 } });
+      await frame.click({ position: { x: 30, y: box!.height - 4.5 * 18 } });
     },
   },
 ];
