@@ -676,8 +676,7 @@ macro_rules! operands {
                 let [$($role),+] = operands else {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
-                let mut slots = 0..;
-                $(crate::operand::check::<$operand>(*$role, slots.next().expect("a RangeFrom never ends"))?;)+
+                $(crate::operand::check::<$operand>(*$role)?;)+
                 Ok(())
             }
 
@@ -688,12 +687,8 @@ macro_rules! operands {
                 let [$($role),+] = operands else {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
-                let mut slots = 0..;
                 Ok(Self {
-                    $($role: crate::operand::bind_atom::<$operand>(
-                        *$role,
-                        slots.next().expect("a RangeFrom never ends"),
-                    )?,)+
+                    $($role: crate::operand::bind_atom::<$operand>(*$role)?,)+
                 })
             }
         }
@@ -1136,7 +1131,12 @@ macro_rules! define_functions {
 
             /// Whether each declared operand admits a slot that holds no
             /// value, in signature order: what its operand type answers.
-            pub(crate) const fn blank_admitted(self) -> &'static [bool] {
+            ///
+            /// ```
+            /// use lang::Function;
+            /// assert_eq!(Function::Add.blank_admitted(), &[false, false]);
+            /// ```
+            pub const fn blank_admitted(self) -> &'static [bool] {
                 match self {
                     $(Self::$variant => const {
                         &[$(crate::operand::admits_blank::<crate::operand::$operand $(<crate::operand::$param>)?>(),)*]
@@ -1240,11 +1240,11 @@ macro_rules! define_functions {
             /// [`ArgumentError::Absent`](crate::ArgumentError::Absent).
             ///
             /// ```
-            /// use lang::{ArgumentError, Atom, Error, Function};
+            /// use lang::{ArgumentError, Atom, Error, Function, Token};
             /// assert!(Function::Add.check_operands(&[Some(Atom::Number(1)); 2]).is_ok());
             /// assert!(matches!(
             ///     Function::Add.check_operands(&[Some(Atom::Number(1)), None]),
-            ///     Err(Error::Argument(ArgumentError::Absent { slot: 1, .. }))
+            ///     Err(Error::Argument(ArgumentError::Absent { token: Token::Number }))
             /// ));
             /// ```
             pub fn check_operands(self, operands: &[Option<Atom>]) -> Result<(), Error> {

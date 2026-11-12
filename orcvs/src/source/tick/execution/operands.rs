@@ -50,12 +50,15 @@ impl Execution<'_> {
     ///
     /// A slot holds no value, `None`, where its Cells are blank or its child
     /// answered a Clear: a pulse that did not Bang, or a Copy, Read or Track
-    /// of empty Cells. It is passed on as it is, and `function`'s operand
-    /// checks decide what it means before any Portal is resolved or read, so
-    /// a Turn whose operands do not bind reads nothing.
+    /// of empty Cells. It stands only where `function` admits a blank slot
+    /// there. Anywhere else a blank slot is refused as its Token refuses
+    /// blank Cells, and a cleared one names the child that cleared it,
+    /// because nothing at the operand says which Function did.
     ///
-    /// The refusal is for the first slot in signature order that does not
-    /// decode, that a child returned nothing to, or that the checks refuse.
+    /// Slots are decided in signature order, so the refusal is for the first
+    /// slot that does not decode, that a child returned nothing to, or that
+    /// holds no value it may not. All of it happens before any Portal is
+    /// resolved or read, so a Turn whose operands do not bind reads nothing.
     pub(super) fn decode(
         &self,
         node: &Computation,
@@ -63,100 +66,48 @@ impl Execution<'_> {
         signature: lang::Tokens,
     ) -> Result<Vec<Option<Atom>>, String> {
         let mut operands = Vec::with_capacity(node.operands.len());
-        for (operand, token) in node.operands.iter().zip(signature) {
-            let Some(child) = self.returning_child(operand) else {
-                let spelling = self.working.text(operand.cells.clone());
-                if is_blank(spelling, token) {
-                    operands.push(None);
-                    continue;
-                }
-                match token.decode(spelling) {
-                    Ok(atom) => operands.push(Some(atom)),
-                    Err(error) => {
-                        return Err(self.undecoded(node, function, operands, error.to_string()));
+        let slots = node
+            .operands
+            .iter()
+            .zip(signature)
+            .zip(function.blank_admitted());
+        for ((operand, token), &blank_admitted) in slots {
+            let decoded = match self.returning_child(operand) {
+                None => {
+                    let spelling = self.working.text(operand.cells.clone());
+                    if token.is_blank(spelling) {
+                        if !blank_admitted {
+                            return Err(token.blank_refusal().to_string());
+                        }
+                        None
+                    } else {
+                        Some(token.decode(spelling))
                     }
                 }
-                continue;
+                Some(child) => {
+                    let anchor = self.schedule.lookup.nodes()[child].anchor;
+                    match self.turns.result(child) {
+                        // A Clear wrote two spaces at the child's Output
+                        // Portal and returns no value.
+                        Some(Answer::Clear) => {
+                            if !blank_admitted {
+                                return Err(nested(anchor, "cleared its operand"));
+                            }
+                            None
+                        }
+                        Some(Answer::Unit(atom)) => {
+                            Some(token.decode(&Encoding::render(atom).to_string()))
+                        }
+                        None => return Err(nested(anchor, "returned nothing")),
+                    }
+                }
             };
-            let anchor = self.schedule.lookup.nodes()[child].anchor;
-            let returned = match self.turns.result(child) {
-                // A Clear wrote two spaces at the child's Output Portal and
-                // returns no value.
-                Some(Answer::Clear) => {
-                    operands.push(None);
-                    continue;
-                }
-                Some(Answer::Unit(atom)) => Encoding::render(atom),
-                None => {
-                    let message = nested(anchor, "returned nothing");
-                    return Err(self.undecoded(node, function, operands, message));
-                }
-            };
-            match token.decode(&returned.to_string()) {
-                Ok(atom) => operands.push(Some(atom)),
-                Err(error) => {
-                    return Err(self.undecoded(node, function, operands, error.to_string()));
-                }
-            }
+            operands.push(decoded.transpose().map_err(|error| error.to_string())?);
         }
         function
             .check_operands(&operands)
-            .map_err(|error| self.refusal(node, &error))?;
+            .map_err(|error| error.to_string())?;
         Ok(operands)
-    }
-
-    ///
-    /// The refusal of `node`'s Turn as `function` when the slot after
-    /// `decoded` supplies no value it can decode, which `message` states.
-    ///
-    /// The checks refuse slots in signature order, so a slot before it that
-    /// they refuse is the one named, as it would be if every slot had
-    /// decoded.
-    ///
-    fn undecoded(
-        &self,
-        node: &Computation,
-        function: Function,
-        mut decoded: Vec<Option<Atom>>,
-        message: String,
-    ) -> String {
-        let slot = decoded.len();
-        decoded.resize(node.operands.len(), None);
-        match function.check_operands(&decoded) {
-            Err(error)
-                if matches!(
-                    error,
-                    lang::Error::Argument(lang::ArgumentError::Absent { slot: earlier, .. })
-                        if earlier < slot
-                ) =>
-            {
-                self.refusal(node, &error)
-            }
-            _ => message,
-        }
-    }
-
-    ///
-    /// The diagnostic for `error`, which refused `node`'s Turn.
-    ///
-    /// A slot whose child answered a Clear holds no value, and nothing at the
-    /// operand says which Function cleared it, so a refusal of that slot
-    /// names the child. Every other refusal is `lang`'s own.
-    ///
-    pub(super) fn refusal(&self, node: &Computation, error: &lang::Error) -> String {
-        if let lang::Error::Argument(lang::ArgumentError::Absent { slot, .. }) = error
-            && let Some(child) = node
-                .operands
-                .get(*slot)
-                .and_then(|operand| self.returning_child(operand))
-            && matches!(self.turns.result(child), Some(Answer::Clear))
-        {
-            return nested(
-                self.schedule.lookup.nodes()[child].anchor,
-                "cleared its operand",
-            );
-        }
-        error.to_string()
     }
 
     /// The Cell after the last one `index`'s operands occupy. A returning last
@@ -172,13 +123,6 @@ impl Execution<'_> {
             None => self.grid.index(node.anchor).get() + SCALAR_WIDTH,
         }
     }
-}
-
-/// Whether `spelling` is the blank Cells of a whole `token` slot: one that
-/// holds no value. A slot cut short at the row edge is not blank; its token
-/// refuses it.
-fn is_blank(spelling: &str, token: lang::Token) -> bool {
-    spelling.len() == token.len() && spelling.bytes().all(|cell| cell == b' ')
 }
 
 /// The refusal a parent gives when the nested computation at `anchor` supplies

@@ -364,7 +364,44 @@ impl Token {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Whether `cells` are the blank Cells of a whole slot this Token fills:
+    /// one that holds no value. A slot cut short of [`Token::len`] Cells is
+    /// not blank, and its Token refuses it when decoding.
+    ///
+    /// ```
+    /// use lang::Token;
+    /// assert!(Token::Note.is_blank("  "));
+    /// assert!(!Token::Note.is_blank(" "));
+    /// assert!(!Token::Note.is_blank("C4"));
+    /// ```
+    #[inline(always)]
+    pub fn is_blank(self, cells: &str) -> bool {
+        cells.len() == self.len() && cells.bytes().all(|cell| cell == b' ')
+    }
+
+    /// What this Token answers for a slot that holds no value: its refusal
+    /// of the slot's blank Cells, which is the diagnostic a blank slot
+    /// written in the Source gives.
+    ///
+    /// ```
+    /// use lang::Token;
+    /// assert_eq!(
+    ///     Token::Number.blank_refusal().to_string(),
+    ///     r#"expected a number, found "  ""#
+    /// );
+    /// ```
+    pub fn blank_refusal(self) -> crate::Error {
+        self.decode(&BLANK_CELLS[..self.len()])
+            .expect_err("every Atom spells a written Language Unit, never blank Cells")
+    }
 }
+
+/// Blank Cells as wide as the widest slot, which [`Token::blank_refusal`]
+/// cuts to its Token's width.
+const BLANK_CELLS: &str = "  ";
+const _: () =
+    assert!(BLANK_CELLS.len() == DEFAULT_TOKEN_LEN && DEFAULT_TOKEN_LEN >= DEFAULT_CHAR_TOKEN_LEN);
 
 impl From<&Function> for Tokens {
     #[inline(always)]

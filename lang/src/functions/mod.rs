@@ -145,7 +145,7 @@ mod test {
     use crate::{
         Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
         Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, PlayCommand,
-        Tick, TickInputs, Velocity, interpreter::Context,
+        Tick, TickInputs, Token, Velocity, interpreter::Context,
     };
 
     ///
@@ -767,7 +767,9 @@ mod test {
         assert!(
             matches!(
                 refused,
-                Error::Argument(ArgumentError::Absent { slot: 2, .. })
+                Error::Argument(ArgumentError::Absent {
+                    token: Token::Number
+                })
             ),
             "{refused:?}"
         );

@@ -144,16 +144,13 @@ impl<'a> Parser<'a> {
         }
         // A blank slot its operand type admits refused nothing and holds no
         // value, so there is none to yield for it. It is refused as its token
-        // refuses two blank Cells.
+        // refuses blank Cells.
         if let Some(blank) = self
             .expression
             .positioned()
             .find(|entry| entry.atom.is_none())
         {
-            return Err(blank
-                .token
-                .decode(crate::operand::BLANK_CELLS)
-                .expect_err("two blank Cells decode to no value"));
+            return Err(blank.token.blank_refusal());
         }
         Ok(self
             .expression

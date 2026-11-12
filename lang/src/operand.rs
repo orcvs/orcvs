@@ -319,44 +319,31 @@ impl Operand for Length {
     }
 }
 
-/// The two Cells a slot that holds no value shows.
-pub(crate) const BLANK_CELLS: &str = "  ";
-
-/// `O`'s refusal of operand slot `slot`, which holds no value.
+/// `O`'s refusal of an operand slot that holds no value.
 #[inline(always)]
-fn absent<O: Operand>(slot: usize) -> Error {
-    let refusal = match O::Token::TOKEN.decode(BLANK_CELLS) {
-        Err(refusal) => refusal,
-        Ok(atom) => unreachable!("every Atom spells a written Language Unit, not {atom}"),
-    };
+fn absent<O: Operand>() -> Error {
     crate::ArgumentError::Absent {
-        slot,
-        refusal: Box::new(refusal),
+        token: O::Token::TOKEN,
     }
     .into()
 }
 
-/// Checks operand slot `slot` against `O`'s token. A slot that holds no value
+/// Checks one operand slot against `O`'s token. A slot that holds no value
 /// passes only where `O` admits one.
 #[inline(always)]
-pub(crate) fn check<O: Operand>(atom: Option<crate::Atom>, slot: usize) -> Result<(), Error> {
+pub(crate) fn check<O: Operand>(atom: Option<crate::Atom>) -> Result<(), Error> {
     match atom {
         Some(atom) => O::Token::from_atom(atom).map(drop),
         None if admits_blank::<O>() => Ok(()),
-        None => Err(absent::<O>(slot)),
+        None => Err(absent::<O>()),
     }
 }
 
-/// Binds operand slot `slot` to `O`.
+/// Binds one operand slot to `O`.
 #[inline(always)]
-pub(crate) fn bind_atom<O: Operand>(
-    atom: Option<crate::Atom>,
-    slot: usize,
-) -> Result<O::Bound, Error> {
+pub(crate) fn bind_atom<O: Operand>(atom: Option<crate::Atom>) -> Result<O::Bound, Error> {
     match atom {
         Some(atom) => O::bind(O::Token::from_atom(atom)?),
-        None => O::ABSENT
-            .map(|blank| blank())
-            .ok_or_else(|| absent::<O>(slot)),
+        None => O::ABSENT.map(|blank| blank()).ok_or_else(absent::<O>),
     }
 }
