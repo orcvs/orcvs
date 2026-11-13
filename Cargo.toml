@@ -30,7 +30,8 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(flux)'] }
 
 # Cargo's lints ignore `-D warnings`, which reaches only rustc and clippy, so a lint that
 # should fail a build is denied here. `unused_dependencies` reports a `[dependencies]` entry
-# only on a build of every target that could use it, which the `--all-targets` clippy runs are.
+# only on a build of every target that could use it: library and binaries together, as the
+# `--all-targets` and `--lib --bins` runs and `trunk build` are. See docs/tooling.md.
 [workspace.lints.cargo]
 unused_dependencies = "deny"
 
