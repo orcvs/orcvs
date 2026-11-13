@@ -14,15 +14,15 @@ col  0         1         2         3         4         5
   0
   1    || bass ||
   2    ~*0101    .+04~.0110
-  3      !~0964&>  01  ||  A1  A1  A1  A1A1    A2  A1G2  ||
+  3      !~0964&>0401  ||  A1  A1  A1  A1A1    A2  A1G2  ||
   4
   5    || accent ||
   6    ~*0101    .+04~.0110
-  7      !~097F&>  01  ||A1      C2        E2    C3    E2||
+  7      !~097F&>0401  ||A1      C2        E2    C3    E2||
   8
   9    || slide ||
  10    ~*0101    .+04~.0110
- 11      !~0964&>  02  ||    A2      G2      A1          ||
+ 11      !~0964&>0402  ||    A2      G2      A1          ||
  12
  13
  14    || knobs ||
@@ -49,9 +49,9 @@ nothing and reports nothing.
 
 | Row | Timed Play | How its Notes play |
 | --- | --- | --- |
-| `bass` | `!~0964&>  01` | Velocity `64` (100), one Tick. |
-| `accent` | `!~097F&>  01` | Velocity `7F` (127). From `78` up a Note is accented: louder, its filter opened further, and its sweep at its shortest. |
-| `slide` | `!~0964&>  02` | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice glides to it without striking it afresh. |
+| `bass` | `!~0964&>0401` | Velocity `64` (100), one Tick. |
+| `accent` | `!~097F&>0401` | Velocity `7F` (127). From `78` up a Note is accented: louder, its filter opened further, and its sweep at its shortest. |
+| `slide` | `!~0964&>0402` | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice glides to it without striking it afresh. |
 
 Move a Note from one row to another, keeping its step, to change how it plays.
 A slide to the same Note strikes it again, because Playback stops a Note before
@@ -60,8 +60,8 @@ it plays it again.
 | Cells | Function | Role |
 | --- | --- | --- |
 | (2, 2) `~*0101` | Delay | Writes `**` at (2, 3) every Tick, which activates the Timed Play at (4, 3). |
-| (12, 2) `.+04~.0110` | Add, with a nested Clock | The Clock counts `00` to `0F`, one a Tick. The Add adds `04` and writes the sum into the Read's `n` slot at (12, 3). |
-| (4, 3) `!~0964&>  01` | Timed Play with a nested Read east | Channel `09`, velocity `64`, length `01` Tick. Its note slot holds `&>`, which reads the step `n` pairs east of (12, 3). |
+| (12, 2) `.+04~.0110` | Add, with a nested Clock | The Clock counts `00` to `0F`, one a Tick. The Add adds `04` and writes the sum into the Read's `n` slot at (12, 3). The file ships that slot holding `04`, the sum Tick 0 writes, so the Source opens with nothing diagnosed. |
+| (4, 3) `!~0964&>0401` | Timed Play with a nested Read east | Channel `09`, velocity `64`, length `01` Tick. Its note slot holds `&>`, which reads the step `n` pairs east of (12, 3). |
 | (20, 3) to (51, 3) | Comment text | The sixteen steps, one Note to a pair. Type over any pair while it plays. |
 
 At the default 120 BPM a Tick is 125 ms, so each step is a sixteenth note and

@@ -141,20 +141,10 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
         file::read(include_bytes!("../../../../examples/knobs.orcvs"))
             .expect("the shipped file is a Source File"),
     );
-    // The steps and the labels are Comments, so the Language Map diagnoses
-    // none of them. Until the first Tick each row's Read east waits on its
-    // Add, so the Map diagnoses its Timed Play.
-    source.read_source(|source| {
-        assert_eq!(source.language_map().lexical_diagnostics().count(), 0);
-        assert_eq!(
-            source
-                .language_map()
-                .diagnostics()
-                .map(|d| (d.anchor().x(), d.anchor().y()))
-                .collect::<Vec<_>>(),
-            [(4, 3), (4, 7), (4, 11)]
-        );
-    });
+    // The steps and the labels are Comments, and each row's Read east ships
+    // with the offset its Add writes on Tick 0, so the Source loads with
+    // nothing diagnosed: the web console opens it on a first visit.
+    source.read_source(|source| assert_eq!(source.language_map().diagnostics().count(), 0));
     let adapter = InMemoryOutputAdapter::default();
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
