@@ -159,7 +159,7 @@ fn the_nested_tracker_voice_plays_what_its_current_voice_plays() {
     assert_eq!(voices, 8, "every voice of the tracker moved");
     // The first voice of the staircase, exactly as the nested form is written.
     assert!(
-        nested[13].starts_with("    !~0877&v.+02~.011001"),
+        nested[13].starts_with("    !~0977&v.+02~.011001"),
         "{}",
         nested[13]
     );
@@ -173,7 +173,7 @@ fn the_nested_sequencer_voice_plays_what_its_current_voice_plays() {
     let (nested, voices) = nested_sequencer(shipped);
     assert_eq!(voices, 10, "every voice of the sequencer moved");
     assert!(
-        nested[4].starts_with("    !~0877&>.+08~.012001  ||C2"),
+        nested[4].starts_with("    !~0977&>.+08~.012001  ||C2"),
         "{}",
         nested[4]
     );
@@ -199,12 +199,12 @@ fn every_sequencer_voice_sharing_a_row_moves_to_the_nested_form() {
     assert_eq!(voices, 2, "both voices on the row moved");
     let east = width + 8;
     assert!(
-        nested[1].starts_with("    !~0877&>.+08~.012001  ||C2"),
+        nested[1].starts_with("    !~0977&>.+08~.012001  ||C2"),
         "{}",
         nested[1]
     );
     assert!(
-        nested[1][east..].starts_with("    !~0877&>.+08~.012001  ||        D2"),
+        nested[1][east..].starts_with("    !~0977&>.+08~.012001  ||        D2"),
         "{}",
         nested[1]
     );

@@ -65,7 +65,7 @@ const BASS: [(u8, Touch); 16] = {
 };
 
 /// The acid channel.
-const ACID: u8 = 0x09;
+const ACID: u8 = 0x08;
 
 /// The channel the effects' knobs send on. Each effect is global, so any
 /// channel would do.

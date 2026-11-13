@@ -1,9 +1,9 @@
-//! The acid channel, `9` (ADR 0099): one 303-style voice.
+//! The acid channel, `8` (MIDI channel 9; ADR 0099): one 303-style voice.
 
 use std::f32::consts::TAU;
 
 /// The channel the acid voice plays on.
-pub(crate) const CHANNEL: u8 = 9;
+pub(crate) const CHANNEL: u8 = 8;
 
 /// The time constant of the gate's rise and fall, in seconds: short enough to
 /// sound percussive, long enough not to click.

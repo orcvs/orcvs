@@ -17,16 +17,16 @@ col  0         1         2         3         4         5         6         7
   1    || TRACKER ||
   2
   3                         ~*0101    .+0B~.0110        ~*0101    .+0B~.0110
-  4                           !~0977&v  01                !~0777&v  01
+  4                           !~0877&v  01                !~0777&v  01
   5
   6                  ~*0101    .+08~.0110        ~*0101    .+08~.0110
-  7                    !~0877&v  01                !~0677&v  01
+  7                    !~0977&v  01                !~0677&v  01
   8
   9           ~*0101    .+05~.0110        ~*0101    .+05~.0110
- 10             !~0877&v  01                !~0577&v  01
+ 10             !~0977&v  01                !~0577&v  01
  11
  12    ~*0101    .+02~.0110        ~*0101    .+02~.0110
- 13      !~0877&v  01                !~0477&v  01
+ 13      !~0977&v  01                !~0477&v  01
  14
  15            ||C2|   |  |   |f2|   |A1|   |  |   |  |   |  |   |  ||
  16            ||  |   |  |   |  |   |A1|   |  |   |  |   |  |   |  ||
@@ -40,9 +40,9 @@ col  0         1         2         3         4         5         6         7
 The pattern holds the basic 4/4 808 beat, the beat the Beat example plays: the
 kick `C2` on every beat, steps 0, 4, 8 and 12; the snare `D2` on beats 2 and 4,
 steps 4 and 12; and the closed hat `f2` on every eighth, every even step. The
-three voices that play it, in columns 12, 19 and 26, play on channel `08`, where
+three voices that play it, in columns 12, 19 and 26, play on channel `09`, where
 the Built-in Synth's kit picks each instrument from the Note's pitch class.
-The fourth voice, in column 33, plays a sixteen-step bassline on channel `09`,
+The fourth voice, in column 33, plays a sixteen-step bassline on channel `08`,
 the Built-in Synth's 303-style voice, which sweeps its filter on every Note
 (ADR 0099). Every other voice ships empty, on its Learn Orca channel, `04` to
 `07`.
@@ -82,7 +82,7 @@ For voice 0, the kick, with its machine at rows 12 and 13:
 | --- | --- | --- |
 | (2, 12) `~*0101` | Delay | Writes `**` at (2, 13) every Tick, which activates the Timed Play at (4, 13). |
 | (12, 12) `.+02~.0110` | Add, with a nested Clock | Adds `02` to the step and writes the sum into the Read's `n` slot at (12, 13). The nested Clock also writes its count at (16, 13). |
-| (4, 13) `!~0877&v  01` | Timed Play with a nested Read south | Channel `08` (MIDI channel 9 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&v`, whose `n` operand at (12, 13) is the Add's sum. |
+| (4, 13) `!~0977&v  01` | Timed Play with a nested Read south | Channel `09` (MIDI channel 10 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&v`, whose `n` operand at (12, 13) is the Add's sum. |
 | (12, 15) to (13, 30) | Comment text | The voice's sixteen steps, one Note per row. An empty row sends nothing and reports nothing. |
 
 `&v n` reads the pair `n` rows south of its own `n` operand, so with the offset
@@ -113,8 +113,8 @@ Each voice has its own Clock, as in Orca. Change a voice's modulus, for example
 ## Where it differs from Orca
 
 - Learn Orca's tracker ships one Note, `3C` on channel `1`, and its voices play
-  channels `0` to `7`. This one ships the 808 beat on channel `08` in place of
-  channels `00` to `02`, and an acid bassline on channel `09` in place of `03`.
+  channels `0` to `7`. This one ships the 808 beat on channel `09` in place of
+  channels `00` to `02`, and an acid bassline on channel `08` in place of `03`.
 - Orca's `H` halts the `*` below it, so the `*` stays and keeps banging. Orcvs's
   Halt `*!` locks only while a Bang activates it, and a locked `**` does not
   fire, so a Delay that bangs every Tick takes their place.
