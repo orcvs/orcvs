@@ -785,6 +785,14 @@ if [ -z "$toolchain_channel" ] || [ "$(printf '%s\n' "$toolchain_pins" | wc -l)"
   printf '%s\n' "$toolchain_pins" >&2
   exit 1
 fi
+# The workspace MSRV is the pinned channel's minor: the toolchain is the only
+# compiler any gate builds with, so a lower `rust-version` claims support no
+# gate checks. A toolchain bump that leaves `Cargo.toml` behind fails here.
+workspace_msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' "$root_dir/Cargo.toml")"
+if [ -z "$workspace_msrv" ] || [ "$workspace_msrv" != "${toolchain_channel%.*}" ]; then
+  echo "expected the workspace rust-version to be ${toolchain_channel%.*}, the minor of the pinned channel $toolchain_channel; found: $workspace_msrv" >&2
+  exit 1
+fi
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: Swatinem/rust-cache@[0-9a-f]{40}[[:space:]]+# v2$'
 assert_contains "$root_dir/.github/workflows/test.yml" 'uses: jdx/mise-action@[0-9a-f]{40}[[:space:]]+# v5([.][0-9]+)*$'
 
