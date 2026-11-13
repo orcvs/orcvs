@@ -36,7 +36,13 @@ tickets are written from this list once the remaining questions close.
 - The drum map is realigned to General MIDI drum keys. What an unmapped key plays is open.
 - Euclidean `~%` is aligned with the published Bjorklund rotations.
 
+## Monophonic Play
+
+- `!%` gains an optional last operand, `legato`, a Number: blank or `00` retriggers (Note Off
+  before Note On, as today), anything else sends the new Note On before the old Note Off, so the
+  acid voice slides. It needs an operand type whose blank means a fixed value, beside ADR 0108's
+  `Optional<O>`; that is a prerequisite ticket with its own ADR.
+
 ## Open
 
-- Monophonic Play: retrigger (today) or legato.
 - Note spelling: sharps are already lowercase letters; Toby's intent is being clarified.
