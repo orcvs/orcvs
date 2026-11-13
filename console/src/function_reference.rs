@@ -313,8 +313,8 @@ mod tests {
             // on row 10).
             result(16, 12, "D4"), // #+C402
             result(16, 14, "C4"), // #-D402
-            result(16, 16, "G4"), // #pC4MA04: MA's fifth entry is 7 above C4
-            result(16, 18, "M7"), // #sMA0004: MA's positions 0 2 4 6 are 0 4 7 11
+            result(16, 16, "G4"), // #pC4io04: io's fifth entry is 7 above C4
+            result(16, 18, "M7"), // #sio0004: io's positions 0 2 4 6 are 0 4 7 11
             // Tick (column 32). Clock, Delay, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously
@@ -949,7 +949,7 @@ mod tests {
             raw_tone(0x40),
             raw_tone(0x43),
             raw_tone(0x47),
-            // !#0064C4M_CL0004 — Timed Chord Play: C4, E4 and G4, each for
+            // !#0064C4MACL0004 — Timed Chord Play: C4, E4 and G4, each for
             // 04 Ticks.
             timed_tone(0x3C),
             timed_tone(0x40),

@@ -45,7 +45,7 @@ One parsed value or operation an Expression is made of: a Number, a Note, an Int
 _Avoid_: Token, glyph, symbol, cell value
 
 **Interval Set**:
-A two-Cell name for a list of semitones above a root, one of 25 chords or 14 scales. Every name fills both Cells, so a half-blank pair is partial input and a chord with a one-character name takes the filler `_`. A scale name is valid wherever a chord name is. `mM` (minor-major seventh) and `mm` (melodic minor) differ only by case, and a slip between them is accepted as the other name rather than diagnosed. `69` and `13` are also Numbers: an Operand Literal has no type outside the operand position that receives it.
+A two-Cell name for a chord quality or a scale, standing for its semitones above a root: one of 25 chords or 14 scales. Every name fills both Cells, so a half-blank pair is partial input. Triads are `MA` major, `mi` minor, `di` diminished and `+5` augmented; dominants are their bare number, `07`, `09` and `13`; the diminished seventh is `d7`; the major and natural minor scales take their mode names, `io` (Ionian) and `ae` (Aeolian), beside the other modes; the pentatonics are `pM` and `pm`. A scale name is valid wherever a chord name is. Some pairs differ by only a case or a letter, `mM`/`mm`, `pM`/`pm`, `io`/`lo` and `di`/`do`, and a slip between the two of a pair is accepted as the other name rather than diagnosed. `69`, `13`, `07` and `09` are also Numbers and `d7` is also a Note: an Operand Literal has no type outside the operand position that receives it.
 _Avoid_: Chord type, scale type, chord symbol
 
 **Voicing**:

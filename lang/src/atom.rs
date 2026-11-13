@@ -251,39 +251,38 @@ macro_rules! define_interval_sets {
 }
 
 define_interval_sets! {
-    /// A list of semitones above a root, named by a chord or a scale.
+    /// A list of semitones above a root, named by a chord quality or a scale.
     ///
     /// One type serves both, so an operand taking an Interval Set accepts a
-    /// chord or a scale. Every name fills both Cells, a one-character chord
-    /// name taking the filler `_`, so a half-typed pair stays recognisably
-    /// partial.
-    Major => ("M_", [0, 4, 7]),
+    /// chord or a scale. Every name fills both Cells, so a half-typed pair
+    /// stays recognisably partial.
+    Major => ("MA", [0, 4, 7]),
     MajorSeventh => ("M7", [0, 4, 7, 11]),
     MajorNinth => ("M9", [0, 4, 7, 11, 14]),
     MajorThirteenth => ("MD", [0, 4, 7, 11, 14, 21]),
     MajorSixth => ("M6", [0, 4, 7, 9]),
     SixNine => ("69", [0, 4, 7, 9, 14]),
     AugmentedMajorSeventh => ("+M", [0, 4, 8, 11]),
-    Minor => ("m_", [0, 3, 7]),
+    Minor => ("mi", [0, 3, 7]),
     MinorSeventh => ("m7", [0, 3, 7, 10]),
     MinorMajorSeventh => ("mM", [0, 3, 7, 11]),
     MinorSixth => ("m6", [0, 3, 7, 9]),
     MinorNinth => ("m9", [0, 3, 7, 10, 14]),
     MinorEleventh => ("mB", [0, 3, 7, 10, 14, 17]),
     MinorThirteenth => ("mD", [0, 3, 7, 10, 14, 21]),
-    Diminished => ("o_", [0, 3, 6]),
-    DiminishedSeventh => ("o7", [0, 3, 6, 9]),
+    Diminished => ("di", [0, 3, 6]),
+    DiminishedSeventh => ("d7", [0, 3, 6, 9]),
     HalfDiminished => ("h7", [0, 3, 6, 10]),
     DominantFlatNinth => ("b9", [0, 4, 7, 10, 13]),
-    DominantSeventh => ("7_", [0, 4, 7, 10]),
-    DominantNinth => ("9_", [0, 4, 7, 10, 14]),
+    DominantSeventh => ("07", [0, 4, 7, 10]),
+    DominantNinth => ("09", [0, 4, 7, 10, 14]),
     DominantThirteenth => ("13", [0, 4, 7, 10, 14, 21]),
     SuspendedSecond => ("s2", [0, 2, 7]),
     SuspendedFourth => ("s4", [0, 5, 7]),
-    Augmented => ("+_", [0, 4, 8]),
+    Augmented => ("+5", [0, 4, 8]),
     AddNine => ("a9", [0, 4, 7, 14]),
-    MajorScale => ("MA", [0, 2, 4, 5, 7, 9, 11]),
-    NaturalMinorScale => ("mi", [0, 2, 3, 5, 7, 8, 10]),
+    IonianScale => ("io", [0, 2, 4, 5, 7, 9, 11]),
+    AeolianScale => ("ae", [0, 2, 3, 5, 7, 8, 10]),
     DorianScale => ("do", [0, 2, 3, 5, 7, 9, 10]),
     PhrygianScale => ("ph", [0, 1, 3, 5, 7, 8, 10]),
     LydianScale => ("ly", [0, 2, 4, 6, 7, 9, 11]),
@@ -291,8 +290,8 @@ define_interval_sets! {
     LocrianScale => ("lo", [0, 1, 3, 5, 6, 8, 10]),
     HarmonicMinorScale => ("hm", [0, 2, 3, 5, 7, 8, 11]),
     MelodicMinorScale => ("mm", [0, 2, 3, 5, 7, 9, 11]),
-    MajorPentatonicScale => ("p5", [0, 2, 4, 7, 9]),
-    MinorPentatonicScale => ("p3", [0, 3, 5, 7, 10]),
+    MajorPentatonicScale => ("pM", [0, 2, 4, 7, 9]),
+    MinorPentatonicScale => ("pm", [0, 3, 5, 7, 10]),
     BluesScale => ("bl", [0, 3, 5, 6, 7, 10]),
     WholeToneScale => ("wt", [0, 2, 4, 6, 8, 10]),
     ChromaticScale => ("ch", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
@@ -404,7 +403,8 @@ macro_rules! spellings_of {
 // `from_spelling`; this covers the pairs across types, because a reading that
 // tries one type before another would otherwise shadow the later name without
 // a diagnostic. Numbers and Notes are not checked here: they are decoded by
-// operand position, and `69`, `13` and `D2` deliberately spell one as well.
+// operand position, and `69`, `13`, `07`, `09`, `d7` and `D2` deliberately
+// spell one as well.
 const _: () = {
     let functions = &spellings_of!(Function);
     let interval_sets = &spellings_of!(IntervalSet);
@@ -1810,33 +1810,33 @@ mod test {
     /// The normative names and semitones, stated from the specification rather
     /// than read from the table under test.
     const INTERVAL_SETS: [(&str, &[u8]); 39] = [
-        ("M_", &[0, 4, 7]),
+        ("MA", &[0, 4, 7]),
         ("M7", &[0, 4, 7, 11]),
         ("M9", &[0, 4, 7, 11, 14]),
         ("MD", &[0, 4, 7, 11, 14, 21]),
         ("M6", &[0, 4, 7, 9]),
         ("69", &[0, 4, 7, 9, 14]),
         ("+M", &[0, 4, 8, 11]),
-        ("m_", &[0, 3, 7]),
+        ("mi", &[0, 3, 7]),
         ("m7", &[0, 3, 7, 10]),
         ("mM", &[0, 3, 7, 11]),
         ("m6", &[0, 3, 7, 9]),
         ("m9", &[0, 3, 7, 10, 14]),
         ("mB", &[0, 3, 7, 10, 14, 17]),
         ("mD", &[0, 3, 7, 10, 14, 21]),
-        ("o_", &[0, 3, 6]),
-        ("o7", &[0, 3, 6, 9]),
+        ("di", &[0, 3, 6]),
+        ("d7", &[0, 3, 6, 9]),
         ("h7", &[0, 3, 6, 10]),
         ("b9", &[0, 4, 7, 10, 13]),
-        ("7_", &[0, 4, 7, 10]),
-        ("9_", &[0, 4, 7, 10, 14]),
+        ("07", &[0, 4, 7, 10]),
+        ("09", &[0, 4, 7, 10, 14]),
         ("13", &[0, 4, 7, 10, 14, 21]),
         ("s2", &[0, 2, 7]),
         ("s4", &[0, 5, 7]),
-        ("+_", &[0, 4, 8]),
+        ("+5", &[0, 4, 8]),
         ("a9", &[0, 4, 7, 14]),
-        ("MA", &[0, 2, 4, 5, 7, 9, 11]),
-        ("mi", &[0, 2, 3, 5, 7, 8, 10]),
+        ("io", &[0, 2, 4, 5, 7, 9, 11]),
+        ("ae", &[0, 2, 3, 5, 7, 8, 10]),
         ("do", &[0, 2, 3, 5, 7, 9, 10]),
         ("ph", &[0, 1, 3, 5, 7, 8, 10]),
         ("ly", &[0, 2, 4, 6, 7, 9, 11]),
@@ -1844,8 +1844,8 @@ mod test {
         ("lo", &[0, 1, 3, 5, 6, 8, 10]),
         ("hm", &[0, 2, 3, 5, 7, 8, 11]),
         ("mm", &[0, 2, 3, 5, 7, 9, 11]),
-        ("p5", &[0, 2, 4, 7, 9]),
-        ("p3", &[0, 3, 5, 7, 10]),
+        ("pM", &[0, 2, 4, 7, 9]),
+        ("pm", &[0, 3, 5, 7, 10]),
         ("bl", &[0, 3, 5, 6, 7, 10]),
         ("wt", &[0, 2, 4, 6, 8, 10]),
         ("ch", &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
@@ -1898,7 +1898,7 @@ mod test {
     fn an_unknown_or_half_blank_name_is_refused_by_both_literal_types() {
         for token in [Token::IntervalSet, Token::Voicing] {
             for refused in [
-                "  ", "M ", " M", "C ", " L", "zz", "CM", "", "M", "M_ ", "**",
+                "  ", "M ", " M", "C ", " L", "zz", "CM", "", "M", "MA ", "**",
             ] {
                 assert!(
                     refused_as_its_type(token, refused),
@@ -1910,6 +1910,14 @@ mod test {
             assert!(
                 refused_as_its_type(Token::IntervalSet, near_miss),
                 "{near_miss:?}"
+            );
+        }
+        // No name takes a filler, and `o7`, `p5` and `p3` are no names, so
+        // none of these is an Interval Set.
+        for unnamed in ["M_", "m_", "o_", "+_", "7_", "9_", "o7", "p5", "p3"] {
+            assert!(
+                refused_as_its_type(Token::IntervalSet, unnamed),
+                "{unnamed:?}"
             );
         }
         for near_miss in ["cl", "D4", "D1", "CLL"] {

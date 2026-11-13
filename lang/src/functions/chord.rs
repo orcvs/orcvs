@@ -377,7 +377,7 @@ mod test {
     #[test]
     fn a_timed_chord_play_answers_one_timed_play_command_per_tone_carrying_its_length() {
         assert_eq!(
-            commands(interpret("!#0102C4M_CL0004").unwrap()),
+            commands(interpret("!#0102C4MACL0004").unwrap()),
             timed(&[0x3C, 0x40, 0x43], 0x04)
         );
     }
@@ -424,13 +424,13 @@ mod test {
             commands(evaluate(Function::RawChordPlay, &operands).unwrap()),
             expected_raw
         );
-        assert_eq!(commands(interpret("!:0102C4M_CL03").unwrap()), expected_raw);
+        assert_eq!(commands(interpret("!:0102C4MACL03").unwrap()), expected_raw);
         assert_eq!(
             commands(evaluate(Function::TimedChordPlay, &timed_operands).unwrap()),
             expected_timed
         );
         assert_eq!(
-            commands(interpret("!#0102C4M_CL0305").unwrap()),
+            commands(interpret("!#0102C4MACL0305").unwrap()),
             expected_timed
         );
     }
@@ -481,7 +481,7 @@ mod test {
         for channel in 0x10..=u8::MAX {
             assert!(
                 matches!(
-                    interpret(&format!("!:{channel:02X}7FC4M_CL00")),
+                    interpret(&format!("!:{channel:02X}7FC4MACL00")),
                     Err(Error::Interpretation(InterpretationError::MidiChannel(value)))
                         if value == channel
                 ),
@@ -489,14 +489,14 @@ mod test {
             );
             assert!(
                 matches!(
-                    interpret(&format!("!#{channel:02X}7FC4M_CL0004")),
+                    interpret(&format!("!#{channel:02X}7FC4MACL0004")),
                     Err(Error::Interpretation(InterpretationError::MidiChannel(value)))
                         if value == channel
                 ),
                 "channel {channel:02X}"
             );
         }
-        for source in ["!:0080C4M_CL00", "!#0080C4M_CL0004"] {
+        for source in ["!:0080C4MACL00", "!#0080C4MACL0004"] {
             assert!(
                 matches!(
                     interpret(source),
@@ -510,7 +510,7 @@ mod test {
         }
         // Every byte is a length, and it travels unread.
         for length in 0..=u8::MAX {
-            let answer = interpret(&format!("!#007FC4M_CL00{length:02X}")).unwrap();
+            let answer = interpret(&format!("!#007FC4MACL00{length:02X}")).unwrap();
             assert!(commands(answer).iter().all(|command| matches!(
                 command,
                 PlayCommand::Timed { length: l, .. } if l.value() == length
@@ -705,7 +705,7 @@ mod test {
     fn too_few_tones_for_a_voicing_diagnoses_the_whole_chord() {
         // A triad is the shortest Interval Set the table holds, so `D6` and
         // `SH`, each needing four tones, are the Voicings a real name can fail.
-        for (chord, voicing) in [("C4M_D600", Voicing::DropSix), ("C4M_SH00", Voicing::Shell)] {
+        for (chord, voicing) in [("C4MAD600", Voicing::DropSix), ("C4MASH00", Voicing::Shell)] {
             assert!(
                 matches!(
                     interpret(&format!("!:0102{chord}")),
@@ -721,7 +721,7 @@ mod test {
         // The other Voicings need at most three tones, so a triad satisfies
         // each of them.
         for chord in [
-            "C4M_CL00", "C4M_OP00", "C4M_D200", "C4M_D300", "C4M_D500", "C4M_RL00",
+            "C4MACL00", "C4MAOP00", "C4MAD200", "C4MAD300", "C4MAD500", "C4MARL00",
         ] {
             assert!(tones(chord).is_ok(), "{chord}");
         }
@@ -730,8 +730,8 @@ mod test {
     #[test]
     fn too_few_tones_names_the_function_the_set_the_voicing_and_its_need() {
         assert_eq!(
-            interpret("!:0102C4M_SH00").unwrap_err().to_string(),
-            "!: cannot voice Interval Set M_ as SH: the Voicing needs 4 tones and the set has 3, \
+            interpret("!:0102C4MASH00").unwrap_err().to_string(),
+            "!: cannot voice Interval Set MA as SH: the Voicing needs 4 tones and the set has 3, \
              so no tone is sent"
         );
         assert_eq!(
@@ -788,15 +788,15 @@ mod test {
 
     #[test]
     fn a_tone_outside_the_note_range_diagnoses_the_whole_chord() {
-        // G9 is the Note 7F, so M_ reaches past it; C/ is 00, so a drop falls
+        // G9 is the Note 7F, so MA reaches past it; C/ is 00, so a drop falls
         // below it. Neither sends the tones that do fit. Every tone is moved
         // before any is checked, so `D6` reports its lowest tone, the root
         // dropped an octave, rather than the first one to leave the range.
         for (source, function, tone) in [
-            ("!:0064G9M_CL00", Function::RawChordPlay, 131),
+            ("!:0064G9MACL00", Function::RawChordPlay, 131),
             ("!:0064C/M7D200", Function::RawChordPlay, -5),
             ("!:0064C/M7D600", Function::RawChordPlay, -12),
-            ("!#0064G9M_CL0004", Function::TimedChordPlay, 131),
+            ("!#0064G9MACL0004", Function::TimedChordPlay, 131),
         ] {
             assert!(
                 matches!(
@@ -811,7 +811,7 @@ mod test {
         // Inversion reaches past the range the same way however many times it
         // moves the lowest tone.
         assert!(matches!(
-            interpret("!:0064C4M_CLFF"),
+            interpret("!:0064C4MACLFF"),
             Err(Error::Interpretation(
                 InterpretationError::ChordToneOutOfRange { .. }
             ))
@@ -821,7 +821,7 @@ mod test {
     #[test]
     fn a_tone_outside_the_note_range_is_named_with_its_function_in_decimal() {
         assert_eq!(
-            interpret("!:0064G9M_CL00").unwrap_err().to_string(),
+            interpret("!:0064G9MACL00").unwrap_err().to_string(),
             "!: cannot sound chord tone 131, outside the MIDI note range 0–127"
         );
         assert_eq!(
@@ -832,8 +832,8 @@ mod test {
 
     #[test]
     fn a_tone_at_the_top_of_the_note_range_is_sent() {
-        // C9 M_ is C9, E9 and G9, and G9 is the highest Note, 7F.
-        assert_eq!(tones("C9M_CL00").unwrap(), [0x78, 0x7C, 0x7F]);
+        // C9 MA is C9, E9 and G9, and G9 is the highest Note, 7F.
+        assert_eq!(tones("C9MACL00").unwrap(), [0x78, 0x7C, 0x7F]);
     }
 
     #[test]
@@ -852,7 +852,7 @@ mod test {
         // What these mean is the Playback Engine's: a Chord Play carries them
         // on as a Timed Play does, so a body that dropped a tone here would
         // be interpreting them itself.
-        for source in ["!#0000C4M_CL0004", "!#007FC4M_CL0000"] {
+        for source in ["!#0000C4MACL0004", "!#007FC4MACL0000"] {
             assert_eq!(commands(interpret(source).unwrap()).len(), 3, "{source}");
         }
     }
