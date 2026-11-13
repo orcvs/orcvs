@@ -1,6 +1,6 @@
 # Optional Play note: a Play's note operand is typed as optional, and a blank note plays nothing
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
