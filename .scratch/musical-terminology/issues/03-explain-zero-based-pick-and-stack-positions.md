@@ -4,7 +4,7 @@
 Function takes and the one-based scale degree they think in, and the glossary describes both
 Functions consistently.
 
-**Blocked by:** None — can start immediately.
+**Blocked by:** 01 (both edit the chord material in the glossary). Owns the Pick and Stack entries.
 
 **Status:** ready-for-agent
 
@@ -12,14 +12,12 @@ Functions consistently.
       the index (index `04` of C major is G, the 5th degree, V).
 - [ ] The glossary no longer both avoids "Degree" and describes Pick as picking a scale degree;
       one consistent rule covers Pick's `index` and Stack's `degree` Roles.
-- [ ] The reference documents that Pick wraps up one octave per pass through the set rather than
-      continuing to rise, including for sets wider than an octave.
-- [ ] The reference documents that Stack takes every other entry of the set, which is stacking in
-      thirds on seven-note scales but not on pentatonics or chords.
-- [ ] Up and Down are described as transposition by semitones.
 - [ ] Role names are unchanged; renaming them is out of scope.
-- [ ] `mise run site_build` and `mise run site_test` pass, and the reference's example test passes.
+- [ ] `cargo nextest run --package orcvs --locked` passes (it checks every example, summary and
+      heading in the Function reference), and `mise run site_build` and `mise run site_test` pass.
 
 ## Comments
 
-Source: `audit.md`, Part 1 section 5 and top finding 6.
+Source: `audit.md`, Part 1 section 5 and top finding 6. Pick's octave wrap, Stack's two-position
+step and Up/Down's semitones are already documented in the reference; this ticket does not
+restate them.

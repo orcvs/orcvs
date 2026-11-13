@@ -1,10 +1,10 @@
 # Orcvs musical terminology audit
 
-13 November 2026, against `main` at `97fb810`. Read-only: no repository changes. Each section below maps Orcvs Function, Role, type and spelling names to standard music-theory, MIDI and synth terms, with file:line citations. The headline mismatches were re-checked against the code.
+13 November 2026. Every file:line citation is as of `main` at `97fb810`; re-locate a citation in the current tree rather than trusting its line number. Each section below maps Orcvs Function, Role, type and spelling names to standard music-theory, MIDI and synth terms. The headline mismatches were re-checked against the code.
 
 ## Is "chord type" the right term?
 
-It is understood but informal. The standard term for what `M7`, `m7`, `7_`, `h7` and the rest name is **chord quality**; jazz pedagogy uses "quality" for the whole family, not only major, minor, diminished and augmented. The written suffix (`maj7`) is the **chord symbol** or **suffix**, and the semitone list is the chord's **formula**. The repo already avoids "chord type" (`CONTEXT.md:49`) and names the operand an **Interval Set**, because it also accepts scales. That umbrella is an Orcvs coinage but sound; it is not a pitch-class set, since it is ordered and runs past 12 semitones (14, 17, 21). Recommended doc wording: "an Interval Set: a chord quality or a scale, stored as its semitone formula above the root". Consider moving "chord quality" out of the avoid list and into the definition, since it is the word a musician searches for.
+It is understood but informal. The standard term for what `M7`, `m7`, `7_`, `h7` and the rest name is **chord quality**; jazz pedagogy uses "quality" for the whole family, not only major, minor, diminished and augmented. The written suffix (`maj7`) is the **chord symbol** or **suffix**, and the semitone list is the chord's **formula**. The glossary already avoids "chord type" and "chord symbol" (`CONTEXT.md:49`) and names the operand an **Interval Set**, because it also accepts scales. That umbrella is an Orcvs coinage but sound; it is not a pitch-class set, since it is ordered and runs past 12 semitones (14, 17, 21). Recommended doc wording: "an Interval Set: a chord quality or a scale, stored as its semitone formula above the root". Consider putting "chord quality" into the definition, since it is the word a musician searches for.
 
 ## Top findings
 
@@ -14,7 +14,7 @@ It is understood but informal. The standard term for what `M7`, `m7`, `7_`, `h7`
 4. **The global effect CCs 1–8 collide with General MIDI** (`synth/src/lib.rs:224-231`): CC5 is Portamento Time, CC6 Data Entry, CC7 Channel Volume and CC8 Balance. The only `!c` example, `!c000740`, is half volume on external gear and a reverb level in the Built-in Synth.
 5. **The drum map is not GM order, despite its comment** (`synth/src/drum.rs:13`). E plays Cowbell, G# Cymbal, A High Tom and B Conga, where GM has Electric Snare, Pedal Hi-Hat, Low Tom and Low-Mid Tom.
 6. **Stack's `degree` counts from zero.** `docs/functions.md:390` says "degree `04` of C major is `G4`", which musicians call the 5th degree. `CONTEXT.md` also lists "Degree" as a term to avoid for Pick while describing Pick as picking a scale degree. Rename the Role to `index`, or give the 1-based degree alongside.
-7. **Interpolation `~>` is a slew limiter.** It moves toward `target` by at most `amount` per Tick (`tick.rs:187-229`); "interpolation" means a value at a fraction between endpoints. "Slew" is missing from the glossary's avoid list. Rename to Slew, or say "slew limiter" in the docs.
+7. **Interpolation `~>` is a slew limiter.** It moves toward `target` by at most `amount` per Tick (`tick.rs:187-229`); "interpolation" means a value at a fraction between endpoints. Rename to Slew, or say "slew limiter" in the docs.
 8. **A Tick is a 16th note, but the reference never says so.** It is 4 per beat (`orcvs/src/opts.rs:12-17`); only `docs/first-result.md:80` states it, so a `length` of `04` cannot be read in beats from `docs/functions.md`.
 9. **Monophonic Play `!%` always retriggers and so never slides** (`orcvs/src/playback/schedule.rs`); slide on the acid voice comes from overlapping Timed Plays. Musicians will expect the Monophonic Function to be the legato one. Separately, "slide", "glide" and portamento are mixed: `synth/src/glide.rs` is parameter smoothing, not portamento.
 10. **"Length" means three things:** a Play's duration in Ticks (standard gate length), a period factor on Clock and Delay, and the Sound Module's `LN` decay scaler.
@@ -57,7 +57,7 @@ Scales: `MA` major, `mi` natural minor, `do` dorian, `ph` phrygian, `ly` lydian,
 
 # Part 1: Orcvs terminology audit: harmony and pitch
 
-Read-only audit of `/home/user/orcvs`. Every claim cites file:line. "Standard" means common
+Audit of the repository at `97fb810`. Every claim cites file:line. "Standard" means common
 lead-sheet / jazz-pedagogy / scientific-pitch usage.
 
 ## 1. Notes
@@ -205,7 +205,7 @@ an SH chord puts the 3rd in the bass: consistent.
 
 # Part 2: Timing, rhythm and sequencing
 
-Read-only audit of /home/user/orcvs. All paths relative to the repo root.
+Audit of the repository at `97fb810`. All paths relative to the repo root.
 
 ## Ground truth: what a Tick is
 
@@ -280,7 +280,7 @@ Read-only audit of /home/user/orcvs. All paths relative to the repo root.
 
 # Part 3: MIDI, Built-in Synth, effects, OSC and UDP
 
-Read-only audit of /home/user/orcvs. Standard references: MIDI 1.0 Detailed Spec, GM1 / GM2 CC and drum map, RP-015 (Reset All Controllers), OSC 1.0, Roland TB-303 / TR-808 panel names. Where a claim relies on a standard from memory, it says so.
+Audit of the repository at `97fb810`. Standard references: MIDI 1.0 Detailed Spec, GM1 / GM2 CC and drum map, RP-015 (Reset All Controllers), OSC 1.0, Roland TB-303 / TR-808 panel names. Where a claim relies on a standard from memory, it says so.
 
 ## Top findings (ranked)
 

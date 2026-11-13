@@ -4,7 +4,8 @@
 is a sixteenth note, four to a beat at the configured BPM, so a Play's `length` of `04` is one
 beat.
 
-**Blocked by:** None — can start immediately.
+**Blocked by:** None — can start immediately. Owns every gloss of the word `length`, including
+Clock's and Delay's.
 
 **Status:** ready-for-agent
 
@@ -14,7 +15,8 @@ beat.
 - [ ] Each Play's `length` is glossed as the note's gate length in Ticks.
 - [ ] The reference distinguishes a Play's `length` from the period `length` of Clock and Delay
       and from the Sound Module's `LN` effect.
-- [ ] `mise run site_build` and `mise run site_test` pass.
+- [ ] `cargo nextest run --package orcvs --locked` passes (it checks every example, summary and
+      heading in the Function reference), and `mise run site_build` and `mise run site_test` pass.
 
 ## Comments
 
