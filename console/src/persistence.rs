@@ -53,12 +53,12 @@ pub(crate) fn default_source() -> Source {
 
 ///
 /// The Source a console starts from when nothing is stored. The web console
-/// opens the Beat example, so a first visit has a beat for Space to play; the
-/// native console opens the empty Grid.
+/// opens [`crate::examples::FIRST_VISIT`], so a first visit has something for
+/// Space to play; the native console opens the empty Grid.
 ///
 fn first_source() -> Source {
     #[cfg(target_arch = "wasm32")]
-    return crate::examples::BEAT.source();
+    return crate::examples::FIRST_VISIT.source();
     #[cfg(not(target_arch = "wasm32"))]
     default_source()
 }

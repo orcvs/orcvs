@@ -36,6 +36,10 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+// An empty Source, so only the expression `play` types sends anything, and `play`'s click lands
+// on an empty Cell whatever example a first visit opens.
+const EMPTY = "/#source=";
+
 // Types `expression` under a Bang at the console's Cursor and starts Playback.
 async function play(page: Page, expression: string) {
   const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
@@ -91,7 +95,7 @@ test("each effect's Cells name the effect and its Control Change on hover", asyn
 });
 
 test("a Note On from the console shows its channel as sounding, then idle", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(EMPTY);
   await page.evaluate(() => {
     const channel = document.querySelectorAll(".orcvs-sound-module .channel")[0];
     const observer = new MutationObserver(() => window.soundSpy.sounding.push(channel.classList.contains("sounding")));
@@ -105,7 +109,7 @@ test("a Note On from the console shows its channel as sounding, then idle", asyn
 });
 
 test("a Control Change from the console shows as its effect's value", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(EMPTY);
 
   // Channel `05`, CC 1, `7F`: any channel sets the effect.
   await play(page, "!c05017F");

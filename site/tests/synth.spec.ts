@@ -75,7 +75,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the site's console sounds the first note of a run while the page's audio starts", async ({ page }) => {
-  await page.goto("/");
+  // An empty Source, so the click below places the Cursor on an empty Cell whatever example a first
+  // visit opens.
+  await page.goto("/#source=");
   const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
   await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
   await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
@@ -88,8 +90,7 @@ test("the site's console sounds the first note of a run while the page's audio s
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.type("!~0064C404");
   await page.keyboard.press("Space");
-  // The Note On on channel `00`, not only the Note Off that follows once the audio runs. The
-  // Source the console opens may play on Tick 0 too, so its messages are held with this one.
+  // The Note On on channel `00`, not only the Note Off that follows once the audio runs.
   await expect.poll(() => page.evaluate(() => window.synthSpy.statuses)).toContain(0x90);
 });
 
@@ -130,13 +131,14 @@ const firstPlays: { gesture: string; play: (page: Page, frame: Locator) => Promi
 ];
 
 for (const { gesture, play } of firstPlays) {
-  test(`a first visit opens the Beat, and its first Tick sounds on time after ${gesture}`, async ({ page }) => {
+  test(`a first visit opens Knobs, and its first Tick sounds on time after ${gesture}`, async ({ page }) => {
     await page.goto("/");
     const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
     await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
     await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
 
-    // Nothing is stored, so the console opens `examples/beat.orcvs`: the kick and hat on Tick 0.
+    // Nothing is stored, so the console opens `examples/knobs.orcvs`, whose bassline plays on the
+    // acid channel `09` from Tick 0.
     await play(page, frame);
     await expect
       .poll(() => page.evaluate(() => window.synthSpy.sounds.length), {
@@ -147,7 +149,7 @@ for (const { gesture, play } of firstPlays) {
     // Tick 0 waited for the audio, so its messages found it running and sound when they were
     // planned to, rather than wait behind its start-up.
     expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
-    expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
+    expect(await page.evaluate(() => window.synthSpy.statuses)).toContain(0x99);
   });
 }
 

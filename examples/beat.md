@@ -1,8 +1,7 @@
 # Beat
 
-`beat.orcvs` plays one bar of a beat on the Built-in Synth's 808-style kit, on channel `08`. The
-web console opens it on a first visit, when it has no Source stored. It also opens with
-**Help > Examples > Beat**, or as `?example=beat`. Press Space to start Playback.
+`beat.orcvs` plays one bar of a beat on the Built-in Synth's 808-style kit, on channel `08`. Open
+it with **Help > Examples > Beat**, or as `?example=beat`. Press Space to start Playback.
 
 ```text
 col  0         1

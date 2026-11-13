@@ -13,17 +13,24 @@ pub(crate) struct Example {
 }
 
 ///
-/// The Beat: the 808 beat, a kick, a snare and a closed hat on the Built-in Synth's
-/// kit. The web console opens it when nothing is stored.
+/// Knobs: an acid bassline on the Built-in Synth's 303-style voice, with knobs
+/// sweeping the voice and the synth's effects.
 ///
-pub(crate) const BEAT: Example = Example {
-    name: "Beat",
-    text: include_bytes!("../../examples/beat.orcvs"),
+pub(crate) const KNOBS: Example = Example {
+    name: "Knobs",
+    text: include_bytes!("../../examples/knobs.orcvs"),
 };
+
+/// The example the web console opens when nothing is stored.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) const FIRST_VISIT: &Example = &KNOBS;
 
 /// Every shipped example, in the order `Help → Examples` lists them.
 pub(crate) const EXAMPLES: [Example; 5] = [
-    BEAT,
+    Example {
+        name: "Beat",
+        text: include_bytes!("../../examples/beat.orcvs"),
+    },
     Example {
         name: "Melody",
         text: include_bytes!("../../examples/melody.orcvs"),
@@ -36,10 +43,7 @@ pub(crate) const EXAMPLES: [Example; 5] = [
         name: "Sequencer",
         text: include_bytes!("../../examples/sequencer.orcvs"),
     },
-    Example {
-        name: "Knobs",
-        text: include_bytes!("../../examples/knobs.orcvs"),
-    },
+    KNOBS,
 ];
 
 impl Example {
@@ -67,7 +71,14 @@ impl Example {
 
 #[cfg(test)]
 mod tests {
-    use super::EXAMPLES;
+    use super::{EXAMPLES, FIRST_VISIT};
+
+    #[test]
+    fn a_first_visit_opens_knobs_with_nothing_diagnosed() {
+        assert_eq!(FIRST_VISIT.link_name(), "knobs");
+        let source = FIRST_VISIT.source();
+        assert_eq!(source.language_map().diagnostics().count(), 0);
+    }
 
     #[test]
     fn every_example_is_a_source_file() {
