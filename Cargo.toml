@@ -28,6 +28,12 @@ unsafe_op_in_unsafe_fn = "deny"
 # written under it so every other build strips them. See docs/tooling.md.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(flux)'] }
 
+# Cargo's lints ignore `-D warnings`, which reaches only rustc and clippy, so a lint that
+# should fail a build is denied here. `unused_dependencies` reports a `[dependencies]` entry
+# only on a build of every target that could use it, which the `--all-targets` clippy runs are.
+[workspace.lints.cargo]
+unused_dependencies = "deny"
+
 [workspace.lints.clippy]
 dbg_macro = "deny"
 todo = "deny"
