@@ -10,8 +10,7 @@ const SILENT: f32 = 0.001;
 /// and cymbal sound metallic.
 const METAL: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
 
-/// The kit, in General MIDI's order from C: the Note's pitch class picks the
-/// instrument and its octave is ignored.
+/// The kit's instruments, each answering its General MIDI drum keys.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Instrument {
     Kick,
@@ -29,21 +28,28 @@ pub(crate) enum Instrument {
 }
 
 impl Instrument {
-    pub(crate) fn of(note: u8) -> Self {
-        match note % 12 {
-            0 => Self::Kick,
-            1 => Self::Rim,
-            2 => Self::Snare,
-            3 => Self::Clap,
-            4 => Self::Cowbell,
-            5 => Self::LowTom,
-            6 => Self::ClosedHat,
-            7 => Self::MidTom,
-            8 => Self::Cymbal,
-            9 => Self::HighTom,
-            10 => Self::OpenHat,
-            _ => Self::Conga,
-        }
+    /// The instrument General MIDI drum key `note` plays, or `None` for a key
+    /// the kit leaves silent. Each instrument takes the GM keys nearest its
+    /// sound: both bass drums, both snares, the pedal hat with the closed
+    /// hat, the floor toms low, the low and low-mid toms mid, the high-mid
+    /// and high toms high, crash 1, ride 1 and crash 2 on the cymbal, and the
+    /// three congas.
+    pub(crate) fn of(note: u8) -> Option<Self> {
+        Some(match note {
+            35 | 36 => Self::Kick,
+            37 => Self::Rim,
+            38 | 40 => Self::Snare,
+            39 => Self::Clap,
+            42 | 44 => Self::ClosedHat,
+            46 => Self::OpenHat,
+            41 | 43 => Self::LowTom,
+            45 | 47 => Self::MidTom,
+            48 | 50 => Self::HighTom,
+            49 | 51 | 57 => Self::Cymbal,
+            56 => Self::Cowbell,
+            62..=64 => Self::Conga,
+            _ => return None,
+        })
     }
 }
 

@@ -36,8 +36,10 @@ Each instrument stands under its own label, so a phone shows all three.
 | (0, 11) `~*0102` | Delay, rate `01`, modulus `02` | Bangs every second Tick, on each eighth. |
 | (2, 12) `!~0940f201` | Timed Play | The closed hat: Note `f2` (F#2) at velocity `40`. |
 
-At the default 120 BPM a Tick is a sixteenth note, so a bar is sixteen Ticks. The kit picks its
-instrument from a Note's pitch class and ignores its octave.
+At the default 120 BPM a Tick is a sixteenth note, so a bar is sixteen Ticks. The kit plays General
+MIDI drum keys: `C2` is key 36, the kick, `D2` key 38, the snare, and `f2` key 42, the closed hat.
+The kit answers a few more keys, such as the pedal hat `g2` and the crash `c3`, which the reference's
+Built-in Synth section lists; every other key is silent.
 
 The Clock stands on its own row rather than nested in Equality's `left`: a nested Function still
 writes its answer one row south of its anchor, which would land on the snare's Timed Play.

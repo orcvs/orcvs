@@ -58,7 +58,8 @@ const FADE: f32 = 0.005;
 /// The synth: sixteen voices, a frame clock, and the messages still to come.
 ///
 /// Channels `0`–`7` play tones, `8` the acid voice (ADR 0099), and `9`–`15`
-/// the 808-style kit, so MIDI channel 10 plays drums as in General MIDI.
+/// the 808-style kit on General MIDI drum keys, so MIDI channel 10 plays
+/// drums as in General MIDI.
 /// Velocity is the only level. Control Change 1 to 8 on any channel set the
 /// effects (ADR 0088): `MD`, vibrato on the whole mix,
 /// `OF`, how far into its course each new sound starts, `LN`, how long it
@@ -274,7 +275,11 @@ impl Synth {
             }
             Sound::Acid(Acid::new(note, velocity, length))
         } else {
-            let instrument = Instrument::of(note);
+            let Some(instrument) = Instrument::of(note) else {
+                return;
+            };
+            // The closed and pedal hats choke the open hat, as General MIDI's
+            // exclusive class does.
             if instrument == Instrument::ClosedHat {
                 self.choke_open_hats(channel);
             }
@@ -831,7 +836,7 @@ mod tests {
 
     #[test]
     fn every_drum_sounds_ignores_note_off_and_falls_silent() {
-        for note in 36..48 {
+        for note in KIT_KEYS.iter().flat_map(|family| family.iter().copied()) {
             let mut synth = Synth::new(RATE);
             synth.schedule(0, note_on(10, note, 127));
             synth.schedule(1, note_off(10, note));
@@ -843,16 +848,65 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_drum_is_picked_by_pitch_class_whatever_the_octave() {
-        let hit = |note| {
-            let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(KIT, note, 100));
-            render(&mut synth, seconds(0.5))
-        };
+    /// The kit's General MIDI keys, one family to a row: kick, side stick,
+    /// snare, hand clap, closed and pedal hats, open hat, low, mid and high
+    /// toms, crash and ride cymbals, cowbell, and congas.
+    const KIT_KEYS: [&[u8]; 12] = [
+        &[35, 36],
+        &[37],
+        &[38, 40],
+        &[39],
+        &[42, 44],
+        &[46],
+        &[41, 43],
+        &[45, 47],
+        &[48, 50],
+        &[49, 51, 57],
+        &[56],
+        &[62, 63, 64],
+    ];
 
-        assert_eq!(hit(36), hit(60));
-        assert_ne!(hit(36), hit(38));
+    fn drum_hit(note: u8) -> Vec<f32> {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(KIT, note, 100));
+        render(&mut synth, seconds(0.5))
+    }
+
+    #[test]
+    fn each_general_midi_drum_key_plays_its_familys_instrument() {
+        for family in KIT_KEYS {
+            let first = drum_hit(family[0]);
+            assert!(rms(&first) > 0.0, "key {}", family[0]);
+            for &key in &family[1..] {
+                assert_eq!(drum_hit(key), first, "key {key} against {}", family[0]);
+            }
+        }
+    }
+
+    #[test]
+    fn each_family_plays_its_own_instrument() {
+        let hits: Vec<Vec<f32>> = KIT_KEYS.iter().map(|family| drum_hit(family[0])).collect();
+        for (index, hit) in hits.iter().enumerate() {
+            for (other, against) in hits.iter().enumerate().skip(index + 1) {
+                assert_ne!(
+                    hit, against,
+                    "keys {} and {}",
+                    KIT_KEYS[index][0], KIT_KEYS[other][0]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_key_outside_the_kit_is_silent() {
+        for key in [0, 34, 52, 60, 65, 127] {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, note_on(KIT, key, 100));
+            let out = render(&mut synth, seconds(0.1));
+
+            assert!(out.iter().all(|&s| s == 0.0), "key {key}");
+            assert!(synth.sounding().is_empty(), "key {key}");
+        }
     }
 
     #[test]
@@ -878,6 +932,16 @@ mod tests {
         render(&mut synth, seconds(0.1));
 
         assert_eq!(synth.sounding(), vec![(10, 46), (KIT, 42)]);
+    }
+
+    #[test]
+    fn a_pedal_hat_chokes_an_open_hat_on_its_channel() {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(KIT, 46, 100));
+        synth.schedule(seconds(0.05) as u64, note_on(KIT, 44, 100));
+        render(&mut synth, seconds(0.1));
+
+        assert_eq!(synth.sounding(), vec![(KIT, 44)]);
     }
 
     #[test]

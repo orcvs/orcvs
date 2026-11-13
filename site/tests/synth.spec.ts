@@ -5,7 +5,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // compared through what the page passes the synth's AudioWorklet, which a spy records.
 
 // A closed hat on the kit's channel `09` every Tick: sixteenths at the default 120 BPM.
-const STEADY = "~*0101\n  !~0950f401\n";
+const STEADY = "~*0101\n  !~0950f201\n";
 // `synth-host.js`'s delay, the 50 ms target.
 const DELAY_MS = 50;
 

@@ -5,7 +5,8 @@ The research is `docs/research/tone-generation.md`. [ADR 0088](0088-the-sound-mo
 amends it: Control Change 1 to 8 set the synth's eight effects, which the sound module shows. [ADR 0099](0099-one-built-in-synth-channel-plays-a-303-style-voice.md)
 amends it: channel `08` plays a 303-style voice in place of the kit, with its own Control Changes,
 and the kit plays on `09`–`0F`, so MIDI channel 10 is a drum channel as in General MIDI.
-Ticket 16 amended when the audio context starts (2026-10-28).
+Ticket 16 amended when the audio context starts (2026-10-28). The 2026-11-13 amendment below maps
+the kit to General MIDI drum keys in place of the pitch-class mapping.
 
 The site shows Orcvs running, and an example nobody hears teaches half of what it shows. Most
 readers have no MIDI device, and the console only sends MIDI. Learn Orca makes sound by patching
@@ -100,3 +101,20 @@ effects panel, which belongs to the sound module rather than the console.
   `console-web`, so the site's build still compiles no Rust.
 - The effects panel, when it comes, sits in the sound module and changes the core's mix; whether
   Control Change also reaches it is that panel's decision.
+
+## Amendment, 2026-11-13: the kit answers General MIDI drum keys
+
+The kit picks its instrument from the Note's General MIDI drum key, not its pitch class, and every
+key it does not list is silent. Kick takes 35 and 36, rim 37 (Side Stick), snare 38 and 40, clap
+39, closed hat 42 and the pedal hat 44, open hat 46, low tom the floor toms 41 and 43, mid tom 45
+and 47, high tom 48 and 50, cymbal crash 49, ride 51 and crash 57, cowbell 56, and conga 62 to 64.
+`docs/functions.md`'s Built-in Synth section lists them with their General MIDI names and Orcvs
+Notes. A closed or pedal hat chokes an open hat on its channel, as General MIDI's hi-hat exclusive
+class does. Read the kit bullet in the Decision with this mapping in place of the pitch-class order.
+
+The pitch-class mapping claimed General MIDI's order from C, but only eight of its twelve classes
+matched, and because it ignored the octave a General MIDI part landed on unrelated voices: a crash
+on 49 played the rim and a cowbell on 56 the cymbal. Each family takes its General MIDI neighbours
+so a part written for either key of a pair still sounds. The shipped Beat, Tracker and Sequencer
+already played `C2`, `D2` and `f2`, keys 36, 38 and 42, so they keep their Notes and their
+instruments.

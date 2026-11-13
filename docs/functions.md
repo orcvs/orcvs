@@ -1260,6 +1260,38 @@ MIDI module, so a drum part a DAW sends on channel 10 plays drums.
 | `09` | 10 | The kit, on General MIDI's drum channel |
 | `0A` to `0F` | 11 to 16 | The kit |
 
+**Drum keys.** The kit answers General MIDI's drum keys, so a drum part written for a General MIDI
+module plays the instruments it names. A key is the Note's MIDI number, and an Orcvs Note counts
+octaves so that `C4` is middle C, MIDI note 60 (`3C`): the kick, key 36 (`24`), is `C2`. Each
+instrument also answers its General MIDI neighbours, so both bass drums play the kick and the pedal
+hat plays the closed hat. A closed or pedal hat chokes an open hat on its channel, as General MIDI's
+hi-hats cut each other off. Every other key is silent.
+
+| Key | General MIDI name | Orcvs Note | Built-in Synth |
+|---|---|---|---|
+| 35 (`23`) | Acoustic Bass Drum | `B1` | Kick |
+| 36 (`24`) | Bass Drum 1 | `C2` | Kick |
+| 37 (`25`) | Side Stick | `c2` | Rim |
+| 38 (`26`) | Acoustic Snare | `D2` | Snare |
+| 39 (`27`) | Hand Clap | `d2` | Clap |
+| 40 (`28`) | Electric Snare | `E2` | Snare |
+| 41 (`29`) | Low Floor Tom | `F2` | Low tom |
+| 42 (`2A`) | Closed Hi-Hat | `f2` | Closed hat |
+| 43 (`2B`) | High Floor Tom | `G2` | Low tom |
+| 44 (`2C`) | Pedal Hi-Hat | `g2` | Closed hat |
+| 45 (`2D`) | Low Tom | `A2` | Mid tom |
+| 46 (`2E`) | Open Hi-Hat | `a2` | Open hat |
+| 47 (`2F`) | Low-Mid Tom | `B2` | Mid tom |
+| 48 (`30`) | Hi-Mid Tom | `C3` | High tom |
+| 49 (`31`) | Crash Cymbal 1 | `c3` | Cymbal |
+| 50 (`32`) | High Tom | `D3` | High tom |
+| 51 (`33`) | Ride Cymbal 1 | `d3` | Cymbal |
+| 56 (`38`) | Cowbell | `g3` | Cowbell |
+| 57 (`39`) | Crash Cymbal 2 | `A3` | Cymbal |
+| 62 (`3E`) | Mute Hi Conga | `D4` | Conga |
+| 63 (`3F`) | Open Hi Conga | `d4` | Conga |
+| 64 (`40`) | Low Conga | `E4` | Conga |
+
 ## Network output
 
 These perform an effect: each sends one message over the network when a Bang reaches it, and
