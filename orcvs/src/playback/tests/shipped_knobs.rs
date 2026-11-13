@@ -141,7 +141,7 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
         file::read(include_bytes!("../../../../examples/knobs.orcvs"))
             .expect("the shipped file is a Source File"),
     );
-    // The steps and the labels are Comments, and each row's Read east ships
+    // The steps and the labels are Comments, and each row's Read south ships
     // with the offset its Add writes on Tick 0, so the Source loads with
     // nothing diagnosed: the web console opens it on a first visit.
     source.read_source(|source| assert_eq!(source.language_map().diagnostics().count(), 0));
@@ -187,4 +187,19 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
             "Tick {tick}'s delivery"
         );
     }
+}
+
+#[test]
+fn the_knobs_stack_their_steps_down_the_rows_twenty_four_columns_wide() {
+    // Each of the sixteen steps is a row of its own, its Note in the column of
+    // the row that plays it, so no line outgrows a phone's view: 300 points at
+    // 12 points a Cell.
+    let text = include_str!("../../../../examples/knobs.orcvs");
+    let steps: Vec<usize> = text
+        .lines()
+        .enumerate()
+        .filter_map(|(row, line)| (line.matches('|').count() == 6).then_some(row))
+        .collect();
+    assert_eq!(steps, (16..16 + BASS.len()).collect::<Vec<_>>(), "{text}");
+    assert!(text.lines().all(|line| line.len() <= 24), "{text}");
 }
