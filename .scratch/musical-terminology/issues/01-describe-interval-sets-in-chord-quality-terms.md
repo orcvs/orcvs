@@ -4,8 +4,7 @@
 Interval Set as a chord quality or a scale, stored as its semitone formula above the root, and
 can read every two-Cell name as the chord they already know.
 
-**Blocked by:** None — can start immediately. Owns the Interval Set entries in the glossary and
-the Function reference's operand-type table.
+**Blocked by:** 09 (docs describe the names and behaviour those tickets settle).
 
 **Status:** ready-for-agent
 

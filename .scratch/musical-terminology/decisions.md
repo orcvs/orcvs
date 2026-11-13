@@ -1,7 +1,7 @@
 # Musical terminology: decisions so far
 
-Settled with Toby on 13 November 2026, while grilling the audit's renames. Rename and behaviour
-tickets are written from this list once the remaining questions close.
+Settled with Toby on 13 November 2026, while grilling the audit's renames. Tickets 09–18 implement
+this list.
 
 ## Interval Set names
 
@@ -11,6 +11,7 @@ tickets are written from this list once the remaining questions close.
 - The major and natural minor scales take their mode names to free `MA` and `mi`: major scale
   `MA` → `io` (Ionian), natural minor `mi` → `ae` (Aeolian).
 - Dominants: `7_` → `07`, `9_` → `09`, beside `13`. `b9` is unchanged.
+- Pentatonics: `p5` → `pM`, `p3` → `pm`.
 - ADR 0105 is amended to match.
 
 ## Voicings
@@ -25,15 +26,20 @@ tickets are written from this list once the remaining questions close.
 - Clock, Increment, Random, Track, Push, Halt and Raw Play keep their names and gain musician
   glosses (ticket 06).
 - Stack's `degree` Role → `index`, zero-based like Pick's.
+- Clock's and Every's `length` Role → `rate`, so `length` only means a note's gate length.
 - Up's and Down's `number` Role → `semitones`.
 
 ## Built-in Synth
 
 - The acid voice moves from channel `09` to `08`; the 808-style kit takes `09`–`0F`, so MIDI
   channel 10 is a drum channel as in General MIDI.
-- The effect controllers move from the Learn Orca (Enfer) layout to General MIDI controllers.
-  Which controller each effect takes is open.
-- The drum map is realigned to General MIDI drum keys. What an unmapped key plays is open.
+- The effect controllers move from the Learn Orca (Enfer) layout to General MIDI controllers:
+  `MD` CC1, `OF` CC73 (Attack Time), `LN` CC72 (Release Time), `EQ` CC74 (Brightness), `R1` CC91,
+  `R2` CC92, `CH` CC93, `DL` CC94. Reverb, chorus and echo become per-channel sends; the others stay
+  global.
+- The drum map is realigned to General MIDI drum keys, each family with its GM neighbours; every
+  other key is silent and the octave-free mapping goes.
+- The synth's internal parameter smoother is renamed `Smoothing`.
 - Euclidean `~%` is aligned with the published Bjorklund rotations.
 
 ## Monophonic Play

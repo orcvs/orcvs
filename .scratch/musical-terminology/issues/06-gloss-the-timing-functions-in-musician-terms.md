@@ -4,7 +4,7 @@
 sequencing Function by the sequencer or modular word they already know, and the research notes
 stop making claims the code contradicts.
 
-**Blocked by:** 05 (it owns the `length` glosses this ticket's entries sit beside).
+**Blocked by:** 05, 11 (docs describe the names and behaviour those tickets settle).
 
 **Status:** ready-for-agent
 
@@ -25,7 +25,7 @@ stop making claims the code contradicts.
 - [ ] The Euclidean entry says its pattern matches Bjorklund's up to rotation, and the timing
       research notes no longer call it Bjorklund's distribution.
 - [ ] The timing research notes use the operand names the Function table uses.
-- [ ] Function names are unchanged here; renames are tracked separately.
+- [ ] 
 - [ ] `cargo nextest run --package orcvs --locked` passes (it checks every example, summary and
       heading in the Function reference), and `mise run site_build` and `mise run site_test` pass.
 

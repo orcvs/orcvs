@@ -4,7 +4,7 @@
 does on external gear and on the Built-in Synth, and the comments and ADR wording about the
 Built-in Synth describe what it does.
 
-**Blocked by:** 07 (it owns the Built-in Synth table this ticket's warnings sit beside).
+**Blocked by:** 07, 14, 15, 18 (docs describe the names and behaviour those tickets settle).
 
 **Status:** ready-for-agent
 

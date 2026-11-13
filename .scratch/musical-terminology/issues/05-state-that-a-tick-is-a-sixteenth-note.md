@@ -4,8 +4,7 @@
 is a sixteenth note, four to a beat at the configured BPM, so a Play's `length` of `04` is one
 beat.
 
-**Blocked by:** None — can start immediately. Owns every gloss of the word `length`, including
-Clock's and Delay's.
+**Blocked by:** 11 (docs describe the names and behaviour those tickets settle).
 
 **Status:** ready-for-agent
 

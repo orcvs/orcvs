@@ -4,7 +4,7 @@
 Function takes and the one-based scale degree they think in, and the glossary describes both
 Functions consistently.
 
-**Blocked by:** 01 (both edit the chord material in the glossary). Owns the Pick and Stack entries.
+**Blocked by:** 01, 12 (docs describe the names and behaviour those tickets settle).
 
 **Status:** ready-for-agent
 
@@ -12,7 +12,7 @@ Functions consistently.
       the index (index `04` of C major is G, the 5th degree, V).
 - [ ] The glossary no longer both avoids "Degree" and describes Pick as picking a scale degree;
       one consistent rule covers Pick's `index` and Stack's `degree` Roles.
-- [ ] Role names are unchanged; renaming them is out of scope.
+- [ ] Use the Role names ticket 12 settles.
 - [ ] `cargo nextest run --package orcvs --locked` passes (it checks every example, summary and
       heading in the Function reference), and `mise run site_build` and `mise run site_test` pass.
 

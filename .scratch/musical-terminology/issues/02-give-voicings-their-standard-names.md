@@ -4,8 +4,7 @@
 texts use, so `D5` and `D6` read as drop 2&3 and drop 2&4, and the edge cases a musician would
 not expect are stated.
 
-**Blocked by:** 01 (both edit the chord material in the glossary and the Function reference).
-Owns the Voicing and Inversion entries.
+**Blocked by:** 01, 10 (docs describe the names and behaviour those tickets settle).
 
 **Status:** ready-for-agent
 
@@ -21,7 +20,7 @@ Owns the Voicing and Inversion entries.
       all tones, extensions included, and that `D3` on a triad is not a standard voicing.
 - [ ] The Inversion entry states that an inversion at or above the tone count moves the whole
       chord up octaves.
-- [ ] Spellings and behaviour are unchanged; renaming `D5`/`D6` is out of scope.
+- [ ] Use the Voicing names ticket 10 settles.
 - [ ] `cargo nextest run --package orcvs --locked` passes (it checks every example, summary and
       heading in the Function reference), and `mise run site_build` and `mise run site_test` pass.
 

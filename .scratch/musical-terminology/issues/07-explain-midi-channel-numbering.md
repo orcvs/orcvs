@@ -4,7 +4,7 @@
 they will see: `00`–`0F` are MIDI channels 1–16, and the reference shows which channels the
 Built-in Synth assigns to which voice.
 
-**Blocked by:** None — can start immediately. Owns the Built-in Synth channel table.
+**Blocked by:** 13 (docs describe the names and behaviour those tickets settle).
 
 **Status:** ready-for-agent
 
