@@ -614,6 +614,11 @@ Every version this repository pins is bumped by something that watches the file 
 `cargo` never reads the toolchain file — and its absence is why the channel sat at 1.98.0 while
 1.98.1 was current.
 
+All three entries hold back any release younger than seven days with Dependabot's `cooldown`, the
+floor zizmor's `dependabot-cooldown` audit accepts. A compromised or broken release is usually
+yanked inside that window, and on a weekly schedule the delay costs at most one run. When an advisory
+fix needs a release younger than the window, bump it by hand; `cargo deny` still checks it.
+
 `mise.toml`'s `[tools]` table is the remaining exception, and it is an exception because Dependabot
 has no mise ecosystem and no near prospect of one. The seven pins there move only when a human edits
 the line. `.scratch/verification-gaps/issues/13-bump-the-mise-tool-pins-automatically.md` records
