@@ -4,35 +4,19 @@
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick.
 
-use lang::{Length, MidiChannel, Note, PlayCommand, Tick, Velocity};
+use lang::PlayCommand;
 
-use super::observed::{raw, source_of};
+use super::observed::{first_tick, raw, source_of, timed};
 use crate::grid::Grid;
 
-fn timed(channel: u8, velocity: u8, note: u8, length: u8) -> PlayCommand {
-    PlayCommand::Timed {
-        channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
-        velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
-        note: Note::try_from(note).expect("a MIDI note"),
-        length: Length::from(length),
-    }
-}
-
-/// The Play Commands and diagnostic anchors the first Tick of `rows` plans.
-fn tick(rows: &[&str]) -> (Vec<PlayCommand>, Vec<(usize, usize)>) {
-    let mut source = source_of(Grid::with_shape(20, 3), rows);
-    let plan = source.execute(Tick::ZERO);
-    let anchors = plan
-        .diagnostics
-        .iter()
-        .map(|diagnostic| (diagnostic.anchor().x(), diagnostic.anchor().y()))
-        .collect();
-    (plan.play_commands, anchors)
+/// The first Tick of `rows` on the Grid every test here shares.
+fn tick(rows: &[&str]) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>) {
+    first_tick(Grid::with_shape(20, 3), rows)
 }
 
 /// The first Tick of `play` standing on row 1, beneath the Equality that
 /// Bangs it.
-fn banged(play: &str) -> (Vec<PlayCommand>, Vec<(usize, usize)>) {
+fn banged(play: &str) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>) {
     tick(&[".=0101", play])
 }
 
@@ -76,19 +60,36 @@ fn an_unactivated_chord_play_sends_nothing_and_reports_nothing() {
 
 #[test]
 fn a_chord_that_cannot_be_built_whole_diagnoses_and_sends_nothing() {
-    for play in [
+    for (play, refusal) in [
         // G9 is 7F, so every tone above the root leaves the Note domain.
-        "  !:017FG9M_CL00",
-        "  !#017FG9M_CL0003",
+        (
+            "  !:017FG9M_CL00",
+            "!: cannot sound chord tone 131, outside the MIDI note range 0–127",
+        ),
+        (
+            "  !#017FG9M_CL0003",
+            "!# cannot sound chord tone 131, outside the MIDI note range 0–127",
+        ),
         // Too few tones for the Voicing.
-        "  !:017FC4M_SH00",
-        "  !#017FC4M_D60003",
+        (
+            "  !:017FC4M_SH00",
+            "!: cannot voice Interval Set M_ as SH: the Voicing needs 4 tones and the set has 3, \
+             so no tone is sent",
+        ),
+        (
+            "  !#017FC4M_D60003",
+            "!# cannot voice Interval Set M_ as D6: the Voicing needs 4 tones and the set has 3, \
+             so no tone is sent",
+        ),
         // A channel outside its domain.
-        "  !:107FC4M_CL00",
+        (
+            "  !:107FC4M_CL00",
+            "MIDI channel 10 is outside the range 00–0F",
+        ),
     ] {
         let (commands, diagnostics) = banged(play);
         assert_eq!(commands, vec![], "{play}");
-        assert_eq!(diagnostics, vec![(2, 1)], "{play}");
+        assert_eq!(diagnostics, vec![(2, 1, refusal.to_owned())], "{play}");
     }
 }
 
