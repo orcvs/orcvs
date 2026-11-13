@@ -438,7 +438,7 @@ pub(crate) fn decode(file_name: &str, bytes: &[u8]) -> Result<ThemeDocument, Doc
             valid_up_to: utf8.valid_up_to(),
         })
     })?;
-    let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
+    let text = text.trim_prefix('\u{FEFF}');
 
     let invalid = |message: String| {
         error(DocumentErrorReason::Invalid {

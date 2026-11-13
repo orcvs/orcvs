@@ -55,7 +55,7 @@ pub(crate) type Inbox = std::rc::Rc<std::cell::RefCell<Option<String>>>;
 ///
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn opening(search: &str, fragment: &str) -> Opening {
-    let search = search.strip_prefix('?').unwrap_or(search);
+    let search = search.trim_prefix('?');
     if search
         .split('&')
         .any(|pair| pair == "small" || pair.starts_with("small="))
@@ -63,7 +63,7 @@ pub(crate) fn opening(search: &str, fragment: &str) -> Opening {
         return Opening::Small;
     }
     let example = parameter(search, "example");
-    let text = parameter(fragment.strip_prefix('#').unwrap_or(fragment), "source");
+    let text = parameter(fragment.trim_prefix('#'), "source");
     match (example, text) {
         (None, None) => Opening::Stored,
         (Some(_), Some(_)) => Opening::Linked(Err(

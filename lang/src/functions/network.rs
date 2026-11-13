@@ -116,7 +116,7 @@ fn int(word: &str) -> Option<OscArgument> {
 
 /// A decimal matching `-?[0-9]+\.[0-9]+`, read as a float32.
 fn float(word: &str) -> Option<OscArgument> {
-    let unsigned = word.strip_prefix('-').unwrap_or(word);
+    let unsigned = word.trim_prefix('-');
     let (whole, fraction) = unsigned.split_once('.')?;
     let digits = |part: &str| !part.is_empty() && part.bytes().all(|digit| digit.is_ascii_digit());
     (digits(whole) && digits(fraction))
