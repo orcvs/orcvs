@@ -263,6 +263,16 @@ deduplicate across incompatible ones, so the next `cargo update` undoes the pin 
 on a duplicate that is already known. When an upstream release lifts a constraint, cargo-deny
 reports the entry as an unmatched skip, which is the signal to remove it.
 
+A `[dependencies]` entry nothing uses fails the build. `[workspace.lints.cargo]` in the root
+`Cargo.toml` denies `cargo::unused_dependencies`; `-D warnings` cannot, because it reaches rustc and
+clippy but not Cargo's own lints. Cargo reports an entry only on a build that compiles every target
+of the package that could use it — the library and its binaries together, as the `--all-targets`
+and `--lib --bins` clippy runs and `trunk build` do — and never reports a dev-dependency. An entry
+used on one platform or feature set fails on the others, which is how the console's `serde` came to
+sit in the non-wasm32 table: `theme_document` compiles only on native targets and in tests. When a
+change fails with `unused dependency`, either remove the entry or move it under the
+`[target.'cfg(...)'.dependencies]` table, or behind the feature, that its use is gated by.
+
 A third trigger runs the same audit on a schedule. `cargo deny` sees the dependency graph whenever a
 commit changes the graph, and an advisory is published against code nobody changed, so between two
 quiet weeks a new RUSTSEC entry can land against a locked dependency with nothing in the repository
