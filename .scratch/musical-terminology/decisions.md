@@ -1,0 +1,42 @@
+# Musical terminology: decisions so far
+
+Settled with Toby on 13 November 2026, while grilling the audit's renames. Rename and behaviour
+tickets are written from this list once the remaining questions close.
+
+## Interval Set names
+
+- The filler `_` is removed from every name.
+- Triads: `M_` → `MA` (major), `m_` → `mi` (minor), `o_` → `di` (diminished), `+_` → `au`
+  (augmented).
+- The major and natural minor scales take their mode names to free `MA` and `mi`: major scale
+  `MA` → `io` (Ionian), natural minor `mi` → `ae` (Aeolian).
+- Dominants: `7_` → `07`, `9_` → `09`, beside `13`. `b9` is unchanged.
+- ADR 0105 is amended to match.
+
+## Voicings
+
+- `D5` → `23` (drop 2&3), `D6` → `24` (drop 2&4). `D2` and `D3` are unchanged.
+
+## Functions and Roles
+
+- Delay `~*` is renamed **Every**; its spelling is unchanged. The research notes' separate `~/`
+  Every proposal is dropped. The Sound Module's echo effect keeps the name Delay.
+- Interpolation `~>` is renamed **Slew**; its spelling is unchanged.
+- Clock, Increment, Random, Track, Push, Halt and Raw Play keep their names and gain musician
+  glosses (ticket 06).
+- Stack's `degree` Role → `index`, zero-based like Pick's.
+- Up's and Down's `number` Role → `semitones`.
+
+## Built-in Synth
+
+- The acid voice moves from channel `09` to `08`; the 808-style kit takes `09`–`0F`, so MIDI
+  channel 10 is a drum channel as in General MIDI.
+- The effect controllers move from the Learn Orca (Enfer) layout to General MIDI controllers.
+  Which controller each effect takes is open.
+- The drum map is realigned to General MIDI drum keys. What an unmapped key plays is open.
+- Euclidean `~%` is aligned with the published Bjorklund rotations.
+
+## Open
+
+- Monophonic Play: retrigger (today) or legato.
+- Note spelling: sharps are already lowercase letters; Toby's intent is being clarified.
