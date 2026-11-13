@@ -89,6 +89,29 @@ pub struct Synth {
     acid: Controls,
 }
 
+/// What a channel plays. The channel layout (ADR 0099) lives here alone, so
+/// every route from a channel to a sound asks [`Part::of`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Part {
+    /// Channels `0`–`7`: a tone, its waveform picked by its channel.
+    Tone,
+    /// Channel `8`: the one 303-style acid voice.
+    Acid,
+    /// Channels `9`–`15`: the 808-style kit, so MIDI channel 10 plays drums as
+    /// in General MIDI.
+    Kit,
+}
+
+impl Part {
+    fn of(channel: u8) -> Self {
+        match channel {
+            0..=7 => Self::Tone,
+            8 => Self::Acid,
+            _ => Self::Kit,
+        }
+    }
+}
+
 struct Voice {
     channel: u8,
     note: u8,
@@ -232,7 +255,7 @@ impl Synth {
             0xB0 if data1 == 8 => self.large.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
-            0xB0 if channel == acid::CHANNEL => self.acid.set(data1, data2),
+            0xB0 if Part::of(channel) == Part::Acid => self.acid.set(data1, data2),
             _ => {}
         }
     }
@@ -266,19 +289,21 @@ impl Synth {
         self.started += 1;
         // `SHORTEST` at `00`, rising exponentially to exactly `1` at `7F`.
         let length = SHORTEST.powf(1.0 - f32::from(self.length) / 127.0);
-        let mut sound = if channel < 8 {
-            Sound::Tone(Tone::new(channel, note, length))
-        } else if channel == acid::CHANNEL {
-            if self.play_acid(note, velocity, length) {
-                return;
+        let mut sound = match Part::of(channel) {
+            Part::Tone => Sound::Tone(Tone::new(channel, note, length)),
+            Part::Acid => {
+                if self.play_acid(note, velocity, length) {
+                    return;
+                }
+                Sound::Acid(Acid::new(note, velocity, length))
             }
-            Sound::Acid(Acid::new(note, velocity, length))
-        } else {
-            let instrument = Instrument::of(note);
-            if instrument == Instrument::ClosedHat {
-                self.choke_open_hats(channel);
+            Part::Kit => {
+                let instrument = Instrument::of(note);
+                if instrument == Instrument::ClosedHat {
+                    self.choke_open_hats(channel);
+                }
+                Sound::Drum(Drum::new(instrument, self.sample_rate, length))
             }
-            Sound::Drum(Drum::new(instrument, self.sample_rate, length))
         };
         // `OF` jumps the sound into its course. A sound that ends there never
         // sounds.
@@ -391,6 +416,17 @@ mod tests {
             .windows(2)
             .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
             .count()
+    }
+
+    #[test]
+    fn channels_zero_to_seven_play_tones_eight_the_acid_voice_and_nine_to_fifteen_the_kit() {
+        for channel in 0..ACID {
+            assert_eq!(Part::of(channel), Part::Tone, "channel {channel}");
+        }
+        assert_eq!(Part::of(ACID), Part::Acid);
+        for channel in KIT..16 {
+            assert_eq!(Part::of(channel), Part::Kit, "channel {channel}");
+        }
     }
 
     #[test]
@@ -833,8 +869,8 @@ mod tests {
     fn every_drum_sounds_ignores_note_off_and_falls_silent() {
         for note in 36..48 {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(10, note, 127));
-            synth.schedule(1, note_off(10, note));
+            synth.schedule(0, note_on(KIT, note, 127));
+            synth.schedule(1, note_off(KIT, note));
             let out = render(&mut synth, seconds(8.0));
 
             assert!(out.iter().all(|s| s.is_finite()), "note {note}");
@@ -863,7 +899,11 @@ mod tests {
             render(&mut synth, seconds(0.04))
         };
 
-        let kick = rising_zero_crossings(&hit(36)) as f32 / 0.04;
+        let kick = hit(36);
+        // Silence has no zero crossings, so the pitch check alone would pass
+        // on a kick that never sounded.
+        assert!(rms(&kick) > 0.02);
+        let kick = rising_zero_crossings(&kick) as f32 / 0.04;
         let hat = rising_zero_crossings(&hit(42)) as f32 / 0.04;
         assert!(kick < 200.0, "{kick} Hz");
         assert!(hat > 3_000.0, "{hat} Hz");
@@ -874,25 +914,10 @@ mod tests {
         let mut synth = Synth::new(RATE);
         synth.schedule(0, note_on(KIT, 46, 100));
         synth.schedule(seconds(0.05) as u64, note_on(KIT, 42, 100));
-        synth.schedule(0, note_on(10, 46, 100));
+        synth.schedule(0, note_on(KIT + 1, 46, 100));
         render(&mut synth, seconds(0.1));
 
-        assert_eq!(synth.sounding(), vec![(10, 46), (KIT, 42)]);
-    }
-
-    #[test]
-    fn channels_nine_to_fifteen_play_the_same_kit() {
-        let hit = |channel| {
-            let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(channel, 36, 100));
-            render(&mut synth, seconds(0.3))
-        };
-
-        let kick = hit(KIT);
-        assert!(rising_zero_crossings(&kick) as f32 / 0.3 < 200.0);
-        for channel in KIT + 1..16 {
-            assert_eq!(hit(channel), kick, "channel {channel}");
-        }
+        assert_eq!(synth.sounding(), vec![(KIT + 1, 46), (KIT, 42)]);
     }
 
     #[test]
