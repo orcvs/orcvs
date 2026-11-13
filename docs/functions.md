@@ -1035,7 +1035,7 @@ the Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
-| `channel` | `00` to `0F`: MIDI channels 1 to 16 (see **Built-in Synth**) |
+| `channel` | `00` to `0F`: MIDI channels 1 to 16 (see [Built-in Synth](#built-in-synth)) |
 | `velocity` | `00` to `7F`; `00` stops the note, and on `!%` stops the channel's Monophonic note |
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |

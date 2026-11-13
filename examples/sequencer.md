@@ -36,9 +36,10 @@ last voice plays a sixteen-step bassline twice on channel `08`, the Built-in
 Synth's 303-style voice, which sweeps its filter on every Note (ADR 0099). Every
 other voice ships empty: the fourth to the eighth on their Learn Orca channels,
 `03` to `07`, and the ninth on the kit's `09`. Each voice's steps are one `||`
-Comment, so the Notes in it are text the Reads select rather than Functions. Step `s` of every voice is the pair at columns `20 + 2s` and
-`21 + 2s`, and the Comment on row 2 numbers every eighth step, `0` to `3`, as
-Orca's labels do. Keep each row's `||` at both ends.
+Comment, so the Notes in it are text the Reads select rather than Functions.
+Step `s` of every voice is the pair at columns `20 + 2s` and `21 + 2s`, and the
+Comment on row 2 numbers every eighth step, `0` to `3`, as Orca's labels do.
+Keep each row's `||` at both ends.
 
 ## From Orca to Orcvs
 

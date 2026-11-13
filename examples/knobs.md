@@ -54,13 +54,13 @@ only up and down.
 ## The bassline
 
 The bassline plays on channel `08` (MIDI channel 9), the Built-in Synth's
-303-style voice (ADR 0099). Three parts play it, `bass`, `accent` and `slide`, each a machine
-like the Tracker example's voices that plays its Notes its own way. Its
-sixteen steps run down rows 16 to 31, one step a row, and each step row has a
-column for each part: `bass` in columns 8 and 9, `accent` in columns 11 and
-12, and `slide` in columns 14 and 15. A step holds a Note in one column and is
-empty in the other two, where that part's Timed Play sends nothing and reports
-nothing.
+303-style voice (ADR 0099). Three parts play it, `bass`, `accent` and `slide`,
+each a machine like the Tracker example's voices that plays its Notes its own
+way. Its sixteen steps run down rows 16 to 31, one step a row, and each step row
+has a column for each part: `bass` in columns 8 and 9, `accent` in columns 11
+and 12, and `slide` in columns 14 and 15. A step holds a Note in one column and
+is empty in the other two, where that part's Timed Play sends nothing and
+reports nothing.
 
 | Part | Timed Play | Column | How its Notes play |
 | --- | --- | --- | --- |
