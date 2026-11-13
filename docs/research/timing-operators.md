@@ -250,7 +250,8 @@ Tidal `euclidOff`, Strudel `euclidRot`, SuperCollider `Pbjorklund` offset.
 There's a precedent for the Pulse operand. ADR 0108 makes a Play's note `Optional<Note>`, an
 operand type that admits an unwritten value, so a nested Clear there binds to "no note" and does not
 leave the parent invalid. A **Pulse** operand type would follow the same pattern: it accepts `**`
-or a Clear, written literally or returned by a nested Function, and reads them as on and off. Today a typed operand refuses `**` (CONTEXT.md, Bang).
+or a Clear, written literally or returned by a nested Function, and reads them as on and off. Today
+a typed operand refuses `**` (CONTEXT.md, Bang).
 
 The `?` family would hold the Functions whose operands are Pulses. They answer a Bang or a Clear.
 No spelling begins with `?` today.
