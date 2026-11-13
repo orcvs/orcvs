@@ -1912,8 +1912,10 @@ mod test {
                 "{near_miss:?}"
             );
         }
-        // No name takes a filler, and `o7`, `p5` and `p3` are no names, so
-        // none of these is an Interval Set.
+        // None of these is an Interval Set: no name takes a filler, no name
+        // differs from another only by `o` against `0` (`o7` beside `07`),
+        // and the pentatonics are `pM` and `pm` because `p5` and `p3` read as
+        // a power chord and a count of tones.
         for unnamed in ["M_", "m_", "o_", "+_", "7_", "9_", "o7", "p5", "p3"] {
             assert!(
                 refused_as_its_type(Token::IntervalSet, unnamed),

@@ -27,8 +27,8 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
 where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
-is expected and Numbers where a Number is, as `07` and `09` are, and `D2` and `d7` are a Voicing or
-an Interval Set, a Note or a Number by position.
+is expected and Numbers where a Number is, as `07` and `09` are. `D2` is a Voicing, a Note or a
+Number by position, and `d7` is an Interval Set or a Note.
 An empty operand diagnoses, except a Play's `note`, which is optional (see **An empty note**).
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
@@ -286,7 +286,8 @@ Every name fills both Cells, so `M ` is half-written. A triad takes two letters 
 (`MA`, `mi`, `di`), or `+5` for augmented; both augmented chords use `+` (`+5`, `+M`), so `a` only
 means "add" (`a9`). A dominant is its bare number (`07`, `09`, `13`). A name drops an implied 7
 (`mM`, `+M`, `b9`), uses an established symbol (`h7`, `69`), and writes 11 and 13 as the
-hexadecimal digits `B` and `D` (`mB`, `MD`). A mode is its first two letters (`io`, `ae`, `do`).
+hexadecimal digits `B` and `D` (`mB`, `MD`). A mode is its first two letters (`io`, `ae`, `do`),
+except Mixolydian, `mx`.
 
 Names are case-sensitive, and some pairs differ by only a case or a letter: `mM` and `mm`, `pM`
 and `pm`, `io` and `lo`, and `di` and `do`. A slip between the two of a pair is the other name, a
@@ -1214,7 +1215,8 @@ After Tick `0`, four Note Ons, C4 up to B4:
 !:0064C4M7CL00
 ```
 
-`B3d7` stacks minor thirds on B3: B3, D4, F4 and G♯4, which Orcvs spells `g4`.
+`B3d7` stacks minor thirds on B3: B3, D4, F4 and A♭4, which Orcvs spells as
+its sharp, `g4`.
 
 ```orcvs
 **
