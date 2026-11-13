@@ -105,9 +105,10 @@ effects panel, which belongs to the sound module rather than the console.
 ## Amendment, 2026-11-13: the kit answers General MIDI drum keys
 
 The kit picks its instrument from the Note's General MIDI drum key, not its pitch class, and every
-key it does not list is silent. Kick takes 35 and 36, rim 37 (Side Stick), snare 38 and 40, clap
-39, closed hat 42 and the pedal hat 44, open hat 46, low tom the floor toms 41 and 43, mid tom 45
-and 47, high tom 48 and 50, cymbal crash 49, ride 51 and crash 57, cowbell 56, and conga 62 to 64.
+key it does not list is silent. The kick takes keys 35 and 36; the rim 37, Side Stick; the snare
+38 and 40; the clap 39; the closed hat 42 and 44, the pedal hat; the open hat 46; the low tom the
+floor toms, 41 and 43; the mid tom 45 and 47; the high tom 48 and 50; the cymbal the crashes, 49
+and 57, and the ride, 51; the cowbell 56; and the conga 62 to 64.
 `docs/functions.md`'s Built-in Synth section lists them with their General MIDI names and Orcvs
 Notes. A closed or pedal hat chokes an open hat on its channel, as General MIDI's hi-hat exclusive
 class does. Read the kit bullet in the Decision with this mapping in place of the pitch-class order.
@@ -116,5 +117,5 @@ The pitch-class mapping claimed General MIDI's order from C, but only eight of i
 matched, and because it ignored the octave a General MIDI part landed on unrelated voices: a crash
 on 49 played the rim and a cowbell on 56 the cymbal. Each family takes its General MIDI neighbours
 so a part written for either key of a pair still sounds. The shipped Beat, Tracker and Sequencer
-already played `C2`, `D2` and `f2`, keys 36, 38 and 42, so they keep their Notes and their
-instruments.
+already played `C2`, `D2` and `f2`, keys 36 (`24`), 38 (`26`) and 42 (`2A`), so they keep their
+Notes and their instruments.

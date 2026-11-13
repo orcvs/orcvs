@@ -58,8 +58,8 @@ const FADE: f32 = 0.005;
 /// The synth: sixteen voices, a frame clock, and the messages still to come.
 ///
 /// Channels `0`–`7` play tones, `8` the acid voice (ADR 0099), and `9`–`15`
-/// the 808-style kit on General MIDI drum keys, so MIDI channel 10 plays
-/// drums as in General MIDI.
+/// the 808-style kit, which answers General MIDI drum keys, so MIDI channel
+/// 10 plays drums as on a General MIDI module.
 /// Velocity is the only level. Control Change 1 to 8 on any channel set the
 /// effects (ADR 0088): `MD`, vibrato on the whole mix,
 /// `OF`, how far into its course each new sound starts, `LN`, how long it
@@ -873,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn each_general_midi_drum_key_plays_its_familys_instrument() {
+    fn the_keys_of_a_family_sound_alike() {
         for family in KIT_KEYS {
             let first = drum_hit(family[0]);
             assert!(rms(&first) > 0.0, "key {}", family[0]);
@@ -884,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn each_family_plays_its_own_instrument() {
+    fn each_family_sounds_different() {
         let hits: Vec<Vec<f32>> = KIT_KEYS.iter().map(|family| drum_hit(family[0])).collect();
         for (index, hit) in hits.iter().enumerate() {
             for (other, against) in hits.iter().enumerate().skip(index + 1) {
@@ -924,24 +924,16 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_hat_chokes_an_open_hat_on_its_channel() {
-        let mut synth = Synth::new(RATE);
-        synth.schedule(0, note_on(KIT, 46, 100));
-        synth.schedule(seconds(0.05) as u64, note_on(KIT, 42, 100));
-        synth.schedule(0, note_on(10, 46, 100));
-        render(&mut synth, seconds(0.1));
+    fn a_closed_or_pedal_hat_chokes_an_open_hat_on_its_channel_only() {
+        for hat in [42, 44] {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, note_on(KIT, 46, 100));
+            synth.schedule(seconds(0.05) as u64, note_on(KIT, hat, 100));
+            synth.schedule(0, note_on(10, 46, 100));
+            render(&mut synth, seconds(0.1));
 
-        assert_eq!(synth.sounding(), vec![(10, 46), (KIT, 42)]);
-    }
-
-    #[test]
-    fn a_pedal_hat_chokes_an_open_hat_on_its_channel() {
-        let mut synth = Synth::new(RATE);
-        synth.schedule(0, note_on(KIT, 46, 100));
-        synth.schedule(seconds(0.05) as u64, note_on(KIT, 44, 100));
-        render(&mut synth, seconds(0.1));
-
-        assert_eq!(synth.sounding(), vec![(KIT, 44)]);
+            assert_eq!(synth.sounding(), vec![(10, 46), (KIT, hat)], "key {hat}");
+        }
     }
 
     #[test]

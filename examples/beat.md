@@ -37,7 +37,8 @@ Each instrument stands under its own label, so a phone shows all three.
 | (2, 12) `!~0940f201` | Timed Play | The closed hat: Note `f2` (F#2) at velocity `40`. |
 
 At the default 120 BPM a Tick is a sixteenth note, so a bar is sixteen Ticks. The kit plays General
-MIDI drum keys: `C2` is key 36, the kick, `D2` key 38, the snare, and `f2` key 42, the closed hat.
+MIDI drum keys: `C2` is key 36 (`24`), the kick, `D2` key 38 (`26`), the snare, and `f2` key 42
+(`2A`), the closed hat.
 The kit answers a few more keys, such as the pedal hat `g2` and the crash `c3`, which the reference's
 Built-in Synth section lists; every other key is silent.
 

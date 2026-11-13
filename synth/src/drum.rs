@@ -29,21 +29,19 @@ pub(crate) enum Instrument {
 
 impl Instrument {
     /// The instrument General MIDI drum key `note` plays, or `None` for a key
-    /// the kit leaves silent. Each instrument takes the GM keys nearest its
-    /// sound: both bass drums, both snares, the pedal hat with the closed
-    /// hat, the floor toms low, the low and low-mid toms mid, the high-mid
-    /// and high toms high, crash 1, ride 1 and crash 2 on the cymbal, and the
-    /// three congas.
+    /// the kit leaves silent. An instrument also answers the General MIDI keys
+    /// that name a neighbouring sound, so a part written for either key of a
+    /// pair still plays.
     pub(crate) fn of(note: u8) -> Option<Self> {
         Some(match note {
             35 | 36 => Self::Kick,
             37 => Self::Rim,
             38 | 40 => Self::Snare,
             39 => Self::Clap,
-            42 | 44 => Self::ClosedHat,
-            46 => Self::OpenHat,
             41 | 43 => Self::LowTom,
+            42 | 44 => Self::ClosedHat,
             45 | 47 => Self::MidTom,
+            46 => Self::OpenHat,
             48 | 50 => Self::HighTom,
             49 | 51 | 57 => Self::Cymbal,
             56 => Self::Cowbell,

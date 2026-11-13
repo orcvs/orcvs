@@ -41,8 +41,8 @@ The pattern holds the basic 4/4 808 beat, the beat the Beat example plays: the
 kick `C2` on every beat, steps 0, 4, 8 and 12; the snare `D2` on beats 2 and 4,
 steps 4 and 12; and the closed hat `f2` on every eighth, every even step. The
 three voices that play it, in columns 12, 19 and 26, play on channel `09`, where
-the Built-in Synth's kit plays General MIDI drum keys: `C2` is key 36, the kick,
-`D2` key 38, the snare, and `f2` key 42, the closed hat.
+the Built-in Synth's kit plays General MIDI drum keys: `C2` is key 36 (`24`),
+the kick, `D2` key 38 (`26`), the snare, and `f2` key 42 (`2A`), the closed hat.
 The fourth voice, in column 33, plays a sixteen-step bassline on channel `08`,
 the Built-in Synth's 303-style voice, which sweeps its filter on every Note
 (ADR 0099). Every other voice ships empty, on its Learn Orca channel, `04` to
