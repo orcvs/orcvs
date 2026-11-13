@@ -1555,6 +1555,30 @@ mod tests {
         }
     }
 
+    /// Only two whole blank Cells leave a Play's optional note unwritten: a
+    /// half-written note, a note slot the row edge cuts short, and a blank
+    /// note beside a mistyped operand are all diagnosed and none is a root.
+    #[test]
+    fn a_play_with_anything_else_unbound_is_diagnosed_and_not_a_root() {
+        for (width, row) in [
+            (10, "!>007FC   "),
+            (10, "!>007F C  "),
+            (10, "!~ZZ7F  04"),
+            (10, "!~007F  ZZ"),
+            (6, "!>007F"),
+            (7, "!>007F "),
+        ] {
+            let map = LanguageMap::build(Grid::with_shape(width, 1), Cells::of(row.as_bytes()));
+
+            assert!(map.diagnostics().next().is_some(), "{row:?}");
+            assert!(
+                map.expressions()
+                    .all(|expression| expression.root().is_none()),
+                "{row:?} became a root"
+            );
+        }
+    }
+
     /// A slot with one Cell written is malformed, and a slot the row edge cuts
     /// short is one the Grid cannot hold, so both diagnose, even beside an
     /// unwritten slot.
