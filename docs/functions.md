@@ -289,9 +289,12 @@ means "add" (`a9`). A dominant is its bare number (`07`, `09`, `13`). A name dro
 hexadecimal digits `B` and `D` (`mB`, `MD`). A mode is its first two letters (`io`, `ae`, `do`),
 except Mixolydian, `mx`.
 
-Names are case-sensitive, and some pairs differ by only a case or a letter: `mM` and `mm`, `pM`
-and `pm`, `io` and `lo`, and `di` and `do`. A slip between the two of a pair is the other name, a
-valid Interval Set, and is not diagnosed.
+Names are case-sensitive, and nearly every name is one Cell away from another, such as `M7` and
+`m7` or `07` and `09`. A slip in one Cell is then the other name, a valid Interval Set, and is not
+diagnosed. Watch for these, which a slip turns into something very different: `mM` and `mm`, `pM`
+and `pm` (only the case differs), `mi` (minor triad) and `mm` (melodic minor), `d7` (diminished
+seventh) and `07` (dominant seventh), `io` and `lo`, and `di` and `do`. No two names differ only
+by `o` against `0`, which read alike.
 
 ## Pitch
 
@@ -1104,7 +1107,7 @@ the Panel's **O** to hear them.
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
-| `set` | an Interval Set name, such as `M7` or `MA` |
+| `set` | an Interval Set name, such as `M7` or `io` |
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 

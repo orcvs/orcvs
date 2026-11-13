@@ -313,13 +313,41 @@ const fn same_semitones(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
+/// Whether two spellings differ, and differ only where one holds `o` and the
+/// other `0`, in a form a `const` item can evaluate.
+const fn differ_only_by_o_against_zero(left: Spelling, right: Spelling) -> bool {
+    let left = left.cells();
+    let right = right.cells();
+    let mut differs = false;
+    let mut cell = 0;
+    while cell < left.len() {
+        let (l, r) = (left[cell], right[cell]);
+        if l != r {
+            if !matches!((l, r), (b'o', b'0') | (b'0', b'o')) {
+                return false;
+            }
+            differs = true;
+        }
+        cell += 1;
+    }
+    differs
+}
+
 // Every Interval Set is non-empty, starts at its root, rises strictly, and is
 // the only one naming its list, so the tones a set places above a root include
 // the root, are distinct and rise, and a list of semitones names at most one
-// set. A table row breaking any of these fails the build.
+// set. Every name is two meaningful characters, so none holds the filler `_`,
+// and no two names differ only by `o` against `0`, which read alike. A table
+// row breaking any of these fails the build.
 const _: () = {
     let mut index = 0;
     while index < IntervalSet::ALL.len() {
+        let name = IntervalSet::ALL[index].cells();
+        let [west, east] = name.cells();
+        assert!(
+            west != b'_' && east != b'_',
+            "no Interval Set name holds the filler `_`"
+        );
         let semitones = IntervalSet::ALL[index].semitones();
         assert!(
             !semitones.is_empty() && semitones[0] == 0,
@@ -338,6 +366,10 @@ const _: () = {
             assert!(
                 !same_semitones(semitones, IntervalSet::ALL[other].semitones()),
                 "no two Interval Sets name the same semitones"
+            );
+            assert!(
+                !differ_only_by_o_against_zero(name, IntervalSet::ALL[other].cells()),
+                "no two Interval Set names differ only by `o` against `0`"
             );
             other += 1;
         }
@@ -1906,20 +1938,12 @@ mod test {
                 );
             }
         }
-        for near_miss in ["m8", "MX", "M7 "] {
+        for near_miss in [
+            "m8", "MX", "M7 ", "M_", "m_", "o_", "+_", "7_", "9_", "o7", "p5", "p3",
+        ] {
             assert!(
                 refused_as_its_type(Token::IntervalSet, near_miss),
                 "{near_miss:?}"
-            );
-        }
-        // None of these is an Interval Set: no name takes a filler, no name
-        // differs from another only by `o` against `0` (`o7` beside `07`),
-        // and the pentatonics are `pM` and `pm` because `p5` and `p3` read as
-        // a power chord and a count of tones.
-        for unnamed in ["M_", "m_", "o_", "+_", "7_", "9_", "o7", "p5", "p3"] {
-            assert!(
-                refused_as_its_type(Token::IntervalSet, unnamed),
-                "{unnamed:?}"
             );
         }
         for near_miss in ["cl", "D4", "D1", "CLL"] {
