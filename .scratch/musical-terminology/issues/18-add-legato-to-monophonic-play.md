@@ -11,6 +11,9 @@ play legato on an external mono synth, by writing a `legato` operand, set per no
       blank.
 - [ ] `00` retriggers as today (Note Off before Note On); any other value sends the new Note On
       before the old Note Off.
+- [ ] A legato note at the same pitch as the note it replaces keeps that note sounding until the
+      new note's expiry, and sends no Note Off for it in between; a test plays two consecutive
+      legato C4s and checks the second is not cut short.
 - [ ] On the Built-in Synth's acid voice, a legato note slides to its pitch.
 - [ ] The Function reference documents `legato`, and says that on the acid voice it means slide.
 - [ ] `cargo fmt --all -- --check`, `cargo clippy --package lang --all-targets --locked -- -D

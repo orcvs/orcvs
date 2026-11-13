@@ -4,7 +4,8 @@
 they will see: `00`–`0F` are MIDI channels 1–16, and the reference shows which channels the
 Built-in Synth assigns to which voice.
 
-**Blocked by:** 13 (docs describe the names and behaviour those tickets settle).
+**Blocked by:** 13 (the channel assignment this ticket documents). Owns the Built-in Synth channel
+table.
 
 **Status:** ready-for-agent
 
@@ -12,12 +13,8 @@ Built-in Synth assigns to which voice.
 - [ ] The glossary's channel wording says the same.
 - [ ] The reference (or the Built-in Synth's documentation) has a table of the Built-in Synth's
       channels and voices, in both spellings, taken from the synth itself: tones on `00`–`07`,
-      the acid voice on `09`, the kit on `08` and `0A`–`0F`.
-- [ ] It warns that the acid voice's `09` is MIDI channel 10, the General MIDI drum channel, so a
-      GM drum pattern sent there plays the bassline.
-- [ ] The drum module's doc comment states the kit's channels correctly (it does not include `9`).
-- [ ] `cargo fmt --all -- --check`, `cargo clippy --package synth --all-targets --locked -- -D
-      warnings` and `cargo nextest run --package synth --locked` pass.
+      the acid voice on `08`, the kit on `09`–`0F`.
+- [ ] It notes that `09` is MIDI channel 10, which is a drum channel here as in General MIDI.
 - [ ] `cargo nextest run --package orcvs --locked` passes (it checks every example, summary and
       heading in the Function reference), and `mise run site_build` and `mise run site_test` pass.
 

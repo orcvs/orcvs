@@ -7,9 +7,11 @@ so a rhythm copied from another tool sounds the same in Orcvs.
 
 **Status:** ready-for-agent
 
-- [ ] For every `hits` ≤ `steps` ≤ 32, the pattern equals the Bjorklund pattern starting on an
+- [ ] For every 1 ≤ `hits` ≤ `steps` ≤ 32, the pattern equals the Bjorklund pattern starting on an
       onset (for example E(2,5) is `x.x..` and E(5,8) is `x.xx.xx.`), checked by a test against a
       reference implementation or table.
+- [ ] `hits` of `00` with positive `steps` answers a Clear on every Tick (silence), and zero
+      `steps` is refused as today; each case has its own test.
 - [ ] The Euclidean ADR and the Function reference describe the Bjorklund rotation.
 - [ ] Examples and tests whose patterns change are updated.
 - [ ] `cargo fmt --all -- --check`, `cargo clippy --package lang --all-targets --locked -- -D
