@@ -2139,7 +2139,7 @@ mod nesting_tests {
 #[cfg(test)]
 mod blank_slot_tests {
     use super::Parser;
-    use crate::{Error, Token, TypeError};
+    use crate::{Error, SyntaxError, Token, TypeError};
 
     #[test]
     fn a_blank_raw_play_note_is_recorded_absent_and_reports_nothing() {
@@ -2176,6 +2176,33 @@ mod blank_slot_tests {
                 matches!(
                     Parser::from(source).analyze().error(),
                     Some(Error::Type(TypeError::Number(_)))
+                ),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_play_with_a_blank_note_is_refused_as_nested() {
+        // A Play nested where a value is required is refused from Source
+        // alone, whatever its note holds, and so is a Play nested beside a
+        // blank optional note. The refusal names the nesting, not the note.
+        for source in [".+!>017F  01", "!~017F  !>017FC4"] {
+            let analysis = Parser::from(source).analyze();
+
+            assert!(
+                matches!(
+                    analysis.error(),
+                    Some(Error::Syntax(SyntaxError::NestedEffectFunction))
+                ),
+                "{source:?}: {:?}",
+                analysis.error()
+            );
+            assert!(!analysis.is_complete(), "{source:?}");
+            assert!(
+                matches!(
+                    Parser::from(source).try_parse(),
+                    Err(Error::Syntax(SyntaxError::NestedEffectFunction))
                 ),
                 "{source:?}"
             );
