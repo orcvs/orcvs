@@ -75,7 +75,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the site's console sounds the first note of a run while the page's audio starts", async ({ page }) => {
-  await page.goto("/");
+  // The Beat is twelve Cells wide, so the Cursor the click below places lands on empty Cells. The
+  // Source a first visit opens fills that point with Comments, where typed Functions do nothing.
+  await page.goto("/?example=beat");
   const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
   await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
   await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
@@ -130,13 +132,14 @@ const firstPlays: { gesture: string; play: (page: Page, frame: Locator) => Promi
 ];
 
 for (const { gesture, play } of firstPlays) {
-  test(`a first visit opens the Beat, and its first Tick sounds on time after ${gesture}`, async ({ page }) => {
+  test(`a first visit opens Knobs, and its first Tick sounds on time after ${gesture}`, async ({ page }) => {
     await page.goto("/");
     const frame = page.frameLocator('iframe[title="Orcvs console"]').locator("#the_canvas_id");
     await expect(frame).toHaveAttribute("width", /\d+/, { timeout: 30_000 });
     await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
 
-    // Nothing is stored, so the console opens `examples/beat.orcvs`: the kick and hat on Tick 0.
+    // Nothing is stored, so the console opens `examples/knobs.orcvs`: the bassline's accented A1 on
+    // the acid channel `09` leads Tick 0, ahead of the knobs' Control Changes.
     await play(page, frame);
     await expect
       .poll(() => page.evaluate(() => window.synthSpy.sounds.length), {
@@ -147,7 +150,7 @@ for (const { gesture, play } of firstPlays) {
     // Tick 0 waited for the audio, so its messages found it running and sound when they were
     // planned to, rather than wait behind its start-up.
     expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
-    expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x98);
+    expect(await page.evaluate(() => window.synthSpy.sounds[0].status)).toBe(0x99);
   });
 }
 

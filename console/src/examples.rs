@@ -13,17 +13,21 @@ pub(crate) struct Example {
 }
 
 ///
-/// The Beat: the 808 beat, a kick, a snare and a closed hat on the Built-in Synth's
-/// kit. The web console opens it when nothing is stored.
+/// Knobs: an acid bassline on the Built-in Synth's 303-style voice, with knobs
+/// sweeping the voice and the synth's effects. The web console opens it when
+/// nothing is stored.
 ///
-pub(crate) const BEAT: Example = Example {
-    name: "Beat",
-    text: include_bytes!("../../examples/beat.orcvs"),
+pub(crate) const KNOBS: Example = Example {
+    name: "Knobs",
+    text: include_bytes!("../../examples/knobs.orcvs"),
 };
 
 /// Every shipped example, in the order `Help → Examples` lists them.
 pub(crate) const EXAMPLES: [Example; 5] = [
-    BEAT,
+    Example {
+        name: "Beat",
+        text: include_bytes!("../../examples/beat.orcvs"),
+    },
     Example {
         name: "Melody",
         text: include_bytes!("../../examples/melody.orcvs"),
@@ -36,10 +40,7 @@ pub(crate) const EXAMPLES: [Example; 5] = [
         name: "Sequencer",
         text: include_bytes!("../../examples/sequencer.orcvs"),
     },
-    Example {
-        name: "Knobs",
-        text: include_bytes!("../../examples/knobs.orcvs"),
-    },
+    KNOBS,
 ];
 
 impl Example {

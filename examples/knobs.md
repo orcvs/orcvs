@@ -1,11 +1,12 @@
 # Knobs
 
 `knobs.orcvs` turns three of the 303-style voice's knobs and the Built-in
-Synth's eight effects over a sixteen-step acid bassline. Open it with
-**Help > Examples > Knobs** and press Space to start Playback. Each knob's
-value climbs a step at a time and glides back down when its Clock wraps; the
-Sound Module on orcvs.com shows each effect move. The example opens Untitled,
-so **File > Save** asks where to keep your edits.
+Synth's eight effects over a sixteen-step acid bassline. The web console opens
+it on a first visit, when it has no Source stored. It also opens with **Help >
+Examples > Knobs**, or as `?example=knobs`. Press Space to start Playback.
+Each knob's value climbs a step at a time and glides back down when its Clock
+wraps; the Sound Module on orcvs.com shows each effect move. The example opens
+Untitled, so **File > Save** asks where to keep your edits.
 
 ```text
 col  0         1         2         3         4         5
