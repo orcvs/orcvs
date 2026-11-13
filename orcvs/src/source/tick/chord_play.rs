@@ -77,8 +77,8 @@ fn a_chord_that_cannot_be_built_whole_diagnoses_and_sends_nothing() {
              so no tone is sent",
         ),
         (
-            "  !#017FC4MAD60003",
-            "!# cannot voice Interval Set MA as D6: the Voicing needs 4 tones and the set has 3, \
+            "  !#017FC4MA240003",
+            "!# cannot voice Interval Set MA as 24: the Voicing needs 4 tones and the set has 3, \
              so no tone is sent",
         ),
         // A channel outside its domain.

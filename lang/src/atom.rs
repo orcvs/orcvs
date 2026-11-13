@@ -352,8 +352,8 @@ define_named_literal! {
         Open => "OP",
         DropTwo => "D2",
         DropThree => "D3",
-        DropFive => "D5",
-        DropSix => "D6",
+        DropTwoAndThree => "23",
+        DropTwoAndFour => "24",
         Shell => "SH",
         Rootless => "RL",
     }
@@ -403,8 +403,8 @@ macro_rules! spellings_of {
 // `from_spelling`; this covers the pairs across types, because a reading that
 // tries one type before another would otherwise shadow the later name without
 // a diagnostic. Numbers and Notes are not checked here: they are decoded by
-// operand position, and `69`, `13`, `07`, `09`, `d7` and `D2` deliberately
-// spell one as well.
+// operand position, and `69`, `13`, `07`, `09`, `d7`, `D2`, `D3`, `23` and
+// `24` deliberately spell one as well.
 const _: () = {
     let functions = &spellings_of!(Function);
     let interval_sets = &spellings_of!(IntervalSet);
@@ -1852,7 +1852,7 @@ mod test {
     ];
 
     /// The eight Voicing names, stated from the specification.
-    const VOICINGS: [&str; 8] = ["CL", "OP", "D2", "D3", "D5", "D6", "SH", "RL"];
+    const VOICINGS: [&str; 8] = ["CL", "OP", "D2", "D3", "23", "24", "SH", "RL"];
 
     #[test]
     fn every_interval_set_name_decodes_to_its_semitones() {
@@ -1928,6 +1928,12 @@ mod test {
                 "{near_miss:?}"
             );
         }
+        // Neither is a Voicing: a drop of two positions is named for both
+        // positions it lowers (`23`, `24`), so no Voicing name is a sum of
+        // positions and none reads as the Note `D5` or `D6`.
+        for unnamed in ["D5", "D6"] {
+            assert!(refused_as_its_type(Token::Voicing, unnamed), "{unnamed:?}");
+        }
     }
 
     /// A valid Number or Note spelling that names no member is refused, so
@@ -1975,6 +1981,14 @@ mod test {
             Token::Voicing.decode("D2").unwrap(),
             Atom::Voicing(_)
         ));
+
+        for (name, number) in [("23", 0x23), ("24", 0x24)] {
+            assert_eq!(Token::Number.decode(name).unwrap(), Atom::Number(number));
+            assert!(matches!(
+                Token::Voicing.decode(name).unwrap(),
+                Atom::Voicing(_)
+            ));
+        }
     }
 
     /// Every ordered pair of Functions, which is what a replacement is: the

@@ -21,14 +21,14 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 | Number | `00` to `FF` | A byte in uppercase hexadecimal. `0a` and `G0` are not Numbers. |
 | Note | Pitch letter then octave | Uppercase for a natural, lowercase for a sharp, then `/` for the octave below `0` or `0` to `9`: `C4`, `c4`, `C/`. A Note is MIDI note `00` to `7F`. |
 | Interval Set | A chord quality or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `MA M7 M9 MD M6 69 +M mi m7 mM m6 m9 mB mD di d7 h7 b9 07 09 13 s2 s4 +5 a9`. Scales: `io ae do ph ly mx lo hm mm pM pm bl wt ch`. `M ` is half-written, not a name. See **Interval Sets** below. |
-| Voicing | A Voicing name | One of 8 names: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. |
+| Voicing | A Voicing name | One of 8 names: `CL` close, `OP` open, `D2` `D3` `23` `24` drops, `SH` shell and `RL` rootless. See **Voicings** below. |
 | Untyped | A Number, a Note, `**`, or a nested Function's answer | Carried unchanged; whatever reads them at the destination decides what they mean. Empty Cells, or Cells that form no unit, diagnose. |
 | MIDI domains | `00` to `0F` or `00` to `7F` | Numbers that a MIDI output Function also checks against a range, named in its entry. |
 
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
 where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
 is expected and Numbers where a Number is, as `07` and `09` are. `D2` is a Voicing, a Note or a
-Number by position, and `d7` is an Interval Set or a Note.
+Number by position, `23` and `24` are a Voicing or a Number, and `d7` is an Interval Set or a Note.
 An empty operand diagnoses, except a Play's `note`, which is optional (see **An empty note**).
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
@@ -292,6 +292,46 @@ except Mixolydian, `mx`.
 Names are case-sensitive, and some pairs differ by only a case or a letter: `mM` and `mm`, `pM`
 and `pm`, `io` and `lo`, and `di` and `do`. A slip between the two of a pair is the other name, a
 valid Interval Set, and is not diagnosed.
+
+## Voicings
+
+A Voicing arranges the tones an Interval Set places above the root. A Chord Play reads one beside
+an inversion, the Number of times the lowest tone moves up an octave. The Voicing removes tones
+before the inversion and moves them after it.
+
+| Voicing | Standard name | What it does |
+|---|---|---|
+| `CL` | close position | Leaves the tones where the Interval Set puts them. |
+| `OP` | open (spread) position | Raises every second tone, the 2nd, 4th and so on, an octave. Needs 2 tones. |
+| `D2` | drop 2 | Lowers the 2nd tone from the top an octave. Needs 2 tones. |
+| `D3` | drop 3 | Lowers the 3rd tone from the top an octave. Needs 3 tones. |
+| `23` | drop 2&3 | Lowers the 2nd and 3rd tones from the top an octave. Needs 3 tones. |
+| `24` | drop 2&4 | Lowers the 2nd and 4th tones from the top an octave. Needs 4 tones. |
+| `SH` | shell | Keeps only the 1st, 2nd and 4th tones. Needs 4 tones. |
+| `RL` | rootless | Removes the 1st tone, leaving the root to a bass voice. Needs 2 tones. |
+
+A drop voicing is named for the tones it lowers, counted from the top. A name is two Cells, so a
+drop of one tone is `D` and its position (`D2`, `D3`) and a drop of two tones is both positions
+with no `D` (`23`, `24`). `D2` and `D3` are also Notes and Numbers, and `23` and `24` are also
+Numbers; the operand position decides. `23` and `D3` differ by one character, as do `23` and `24`,
+and a slip between them is the other Voicing and is not diagnosed.
+
+Drop voicings are standard on four-tone chords such as `M7` and `m7`. `D3` on a triad lowers its
+root, so `C4MA` plays C3, E4 and G4, which is not a standard voicing. On an Interval Set of more
+than four tones a drop counts from the top of every tone, the 9th, 11th and 13th included.
+
+`OP` on a four-tone chord plays the tones of `24` an octave higher: `C4M7` voiced `OP` is C4, G4,
+E5 and B5, and voiced `24` is C3, G3, E4 and B4.
+
+`SH` keeps the root, 3rd and 7th of a seventh, ninth or thirteenth chord, and the root, 3rd and
+6th of a sixth chord. The shell with the 7th below the 3rd is not one of its voicings, since an
+inversion only rotates the tones `SH` keeps. `RL` keeps every tone above the root, the 5th
+included: on a ninth chord it plays the 3rd, 5th, 7th and 9th, the rootless A form, and with
+inversion 2 (`02`) the 7th, 9th, 3rd and 5th, the B form.
+
+An inversion at or above the number of tones moves the whole chord up an octave for each whole
+round of its tones and inverts the rest: on the four tones of `C4M7`, inversion 4 (`04`) plays C5,
+E5, G5 and B5, and inversion 5 (`05`) plays E5, G5, B5 and C6.
 
 ## Pitch
 
@@ -1105,7 +1145,7 @@ the Panel's **O** to hear them.
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
 | `set` | an Interval Set name, such as `M7` or `MA` |
-| `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
+| `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `23`, `24`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
 **An empty note.** The note of a Raw, Timed or Monophonic Play is optional. A Bang reaching a Play
@@ -1247,35 +1287,32 @@ After Tick `0`, seven Note Ons:
 
 The `voicing` and `inversion` then arrange the tones, in this order. The Voicing removes tones,
 the inversion moves the lowest tone up an octave as many times as its Number says, and the Voicing
-moves tones:
+moves tones. **Voicings** above gives what each Voicing does. An Interval Set with too few tones
+for its Voicing, or any tone outside `00` to `7F`, diagnoses the whole chord and sends nothing.
 
-| Voicing | What it does |
-|---|---|
-| `CL` | Leaves the tones where the Interval Set puts them. |
-| `OP` | Raises every second tone, the 2nd, 4th and so on, an octave. Needs 2 tones. |
-| `D2` | Lowers the 2nd tone from the top an octave. Needs 2 tones. |
-| `D3` | Lowers the 3rd tone from the top an octave. Needs 3 tones. |
-| `D5` | Lowers the 2nd and 3rd from the top an octave. Needs 3 tones. |
-| `D6` | Lowers the 2nd and 4th from the top an octave. Needs 4 tones. |
-| `SH` | Keeps only the 1st, 2nd and 4th tones. Needs 4 tones. |
-| `RL` | Removes the 1st tone, leaving the root to a bass voice. Needs 2 tones. |
-
-The digit in a drop voicing is the sum of the positions it drops, counted from the top: `D5` drops
-the 2nd and 3rd, and `D6` the 2nd and 4th.
-
-An Interval Set with too few tones for its Voicing, or any tone outside `00` to `7F`, diagnoses the
-whole chord and sends nothing.
-
-`C4M7` dropped with `D5`, inverted once, plays G3, B3, E4 and C5:
+`C4M7` voiced drop 2&4 with `24` plays C3, G3, E4 and B4:
 
 ```orcvs
 **
-!:0064C4M7D501
+!:0064C4M72400
 ```
 
 ```orcvs tick 0 plays 4
 
-!:0064C4M7D501
+!:0064C4M72400
+```
+
+`C4M7` inverted once is E4, G4, B4 and C5, and voiced drop 2&3 with `23` it plays G3, B3, E4 and
+C5:
+
+```orcvs
+**
+!:0064C4M72301
+```
+
+```orcvs tick 0 plays 4
+
+!:0064C4M72301
 ```
 
 ### `!#` Timed Chord Play

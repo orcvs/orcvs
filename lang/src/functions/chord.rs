@@ -246,8 +246,8 @@ impl Voicing {
             | Self::Open
             | Self::DropTwo
             | Self::DropThree
-            | Self::DropFive
-            | Self::DropSix => Kept::AllBut(&[]),
+            | Self::DropTwoAndThree
+            | Self::DropTwoAndFour => Kept::AllBut(&[]),
         }
     }
 
@@ -265,13 +265,13 @@ impl Voicing {
     }
 
     /// The positions a drop voicing lowers an octave, counted from the top
-    /// from one. The digit in a drop voicing's name is the sum of these.
+    /// from one.
     const fn dropped_from_the_top(self) -> &'static [usize] {
         match self {
             Self::DropTwo => &[2],
             Self::DropThree => &[3],
-            Self::DropFive => &[2, 3],
-            Self::DropSix => &[2, 4],
+            Self::DropTwoAndThree => &[2, 3],
+            Self::DropTwoAndFour => &[2, 4],
             Self::Close | Self::Open | Self::Shell | Self::Rootless => &[],
         }
     }
@@ -651,16 +651,16 @@ mod test {
     #[test]
     fn every_voicing_gives_the_tones_it_names() {
         // C4 M7 is 3C 40 43 47. `OP` raises the 2nd and 4th tones an octave;
-        // `D2` lowers the 2nd from the top, `D3` the 3rd, `D5` the 2nd and
-        // 3rd, and `D6` the 2nd and 4th; `SH` keeps the 1st, 2nd and 4th; and
+        // `D2` lowers the 2nd from the top, `D3` the 3rd, `23` the 2nd and
+        // 3rd, and `24` the 2nd and 4th; `SH` keeps the 1st, 2nd and 4th; and
         // `RL` removes the 1st.
         for (chord, expected) in [
             ("C4M7CL00", &[0x3C, 0x40, 0x43, 0x47][..]),
             ("C4M7OP00", &[0x3C, 0x43, 0x4C, 0x53]),
             ("C4M7D200", &[0x37, 0x3C, 0x40, 0x47]),
             ("C4M7D300", &[0x34, 0x3C, 0x43, 0x47]),
-            ("C4M7D500", &[0x34, 0x37, 0x3C, 0x47]),
-            ("C4M7D600", &[0x30, 0x37, 0x40, 0x47]),
+            ("C4M72300", &[0x34, 0x37, 0x3C, 0x47]),
+            ("C4M72400", &[0x30, 0x37, 0x40, 0x47]),
             ("C4M7SH00", &[0x3C, 0x40, 0x47]),
             ("C4M7RL00", &[0x40, 0x43, 0x47]),
         ] {
@@ -679,8 +679,8 @@ mod test {
             ("C4M7OP01", &[0x40, 0x47, 0x4F, 0x54]),
             ("C4M7D201", &[0x3B, 0x40, 0x43, 0x48]),
             ("C4M7D301", &[0x37, 0x40, 0x47, 0x48]),
-            ("C4M7D501", &[0x37, 0x3B, 0x40, 0x48]),
-            ("C4M7D601", &[0x34, 0x3B, 0x43, 0x48]),
+            ("C4M72301", &[0x37, 0x3B, 0x40, 0x48]),
+            ("C4M72401", &[0x34, 0x3B, 0x43, 0x48]),
             ("C4M7SH01", &[0x40, 0x47, 0x48]),
             ("C4M7RL01", &[0x43, 0x47, 0x4C]),
         ] {
@@ -703,9 +703,12 @@ mod test {
 
     #[test]
     fn too_few_tones_for_a_voicing_diagnoses_the_whole_chord() {
-        // A triad is the shortest Interval Set the table holds, so `D6` and
+        // A triad is the shortest Interval Set the table holds, so `24` and
         // `SH`, each needing four tones, are the Voicings a real name can fail.
-        for (chord, voicing) in [("C4MAD600", Voicing::DropSix), ("C4MASH00", Voicing::Shell)] {
+        for (chord, voicing) in [
+            ("C4MA2400", Voicing::DropTwoAndFour),
+            ("C4MASH00", Voicing::Shell),
+        ] {
             assert!(
                 matches!(
                     interpret(&format!("!:0102{chord}")),
@@ -721,7 +724,7 @@ mod test {
         // The other Voicings need at most three tones, so a triad satisfies
         // each of them.
         for chord in [
-            "C4MACL00", "C4MAOP00", "C4MAD200", "C4MAD300", "C4MAD500", "C4MARL00",
+            "C4MACL00", "C4MAOP00", "C4MAD200", "C4MAD300", "C4MA2300", "C4MARL00",
         ] {
             assert!(tones(chord).is_ok(), "{chord}");
         }
@@ -735,8 +738,8 @@ mod test {
              so no tone is sent"
         );
         assert_eq!(
-            interpret("!#0102C4s2D60004").unwrap_err().to_string(),
-            "!# cannot voice Interval Set s2 as D6: the Voicing needs 4 tones and the set has 3, \
+            interpret("!#0102C4s2240004").unwrap_err().to_string(),
+            "!# cannot voice Interval Set s2 as 24: the Voicing needs 4 tones and the set has 3, \
              so no tone is sent"
         );
     }
@@ -750,8 +753,8 @@ mod test {
             (Voicing::Open, 2),
             (Voicing::DropTwo, 2),
             (Voicing::DropThree, 3),
-            (Voicing::DropFive, 3),
-            (Voicing::DropSix, 4),
+            (Voicing::DropTwoAndThree, 3),
+            (Voicing::DropTwoAndFour, 4),
             (Voicing::Shell, 4),
             (Voicing::Rootless, 2),
         ] {
@@ -790,12 +793,12 @@ mod test {
     fn a_tone_outside_the_note_range_diagnoses_the_whole_chord() {
         // G9 is the Note 7F, so MA reaches past it; C/ is 00, so a drop falls
         // below it. Neither sends the tones that do fit. Every tone is moved
-        // before any is checked, so `D6` reports its lowest tone, the root
+        // before any is checked, so `24` reports its lowest tone, the root
         // dropped an octave, rather than the first one to leave the range.
         for (source, function, tone) in [
             ("!:0064G9MACL00", Function::RawChordPlay, 131),
             ("!:0064C/M7D200", Function::RawChordPlay, -5),
-            ("!:0064C/M7D600", Function::RawChordPlay, -12),
+            ("!:0064C/M72400", Function::RawChordPlay, -12),
             ("!#0064G9MACL0004", Function::TimedChordPlay, 131),
         ] {
             assert!(
@@ -825,7 +828,7 @@ mod test {
             "!: cannot sound chord tone 131, outside the MIDI note range 0–127"
         );
         assert_eq!(
-            interpret("!#0064C/M7D60004").unwrap_err().to_string(),
+            interpret("!#0064C/M7240004").unwrap_err().to_string(),
             "!# cannot sound chord tone -12, outside the MIDI note range 0–127"
         );
     }

@@ -49,7 +49,7 @@ A two-Cell name for a chord quality or a scale, standing for its semitones above
 _Avoid_: Chord type, scale type, chord symbol
 
 **Voicing**:
-A two-Cell name for how a chord's tones are arranged once its Interval Set has placed them: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. `D2`, `D3`, `D5` and `D6` are also Notes and Numbers, and the operand position receiving them decides. Inversion is a separate Number operand and not part of a Voicing.
+A two-Cell name for how a chord's tones are arranged once its Interval Set has placed them: `CL` close position, `OP` open position, `D2` drop 2, `D3` drop 3, `23` drop 2&3, `24` drop 2&4, `SH` shell and `RL` rootless. A drop is named for the positions it lowers, counted from the top; a drop of two positions names both and, in two Cells, has no room for the `D`. `D2` and `D3` are also Notes and Numbers and `23` and `24` are also Numbers, and the operand position receiving them decides. Inversion is a separate Number operand and not part of a Voicing.
 _Avoid_: Chord shape, arrangement
 
 **Chord**:
