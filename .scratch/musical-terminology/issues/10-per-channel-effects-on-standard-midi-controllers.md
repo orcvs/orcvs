@@ -20,7 +20,8 @@ one channel's effects changes only that channel.
       General MIDI reverb and chorus sends, 94 the delay send as on Roland GS modules, 92 and 85
       Orcvs's own. The `!c` examples in the reference and the console's Function Reference use the
       new controllers.
-- [ ] The glossary, ADR 0088 and the effect modules' doc comments state the new controllers.
+- [ ] The glossary, ADR 0088 and the effect modules' doc comments state the new controllers. ADR
+      0088 cites the Roland SC-88 Pro owner's manual ("Effect 4 (Delay Send Level)") for CC94.
 - [ ] Synth byte tests cover a per-channel send, a controller on one channel leaving another alone,
       and CC74 on `08`.
 - [ ] The crate gates for every crate the change reaches pass, including `console` wherever the

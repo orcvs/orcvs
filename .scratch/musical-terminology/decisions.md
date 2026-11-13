@@ -53,7 +53,8 @@ own docs.
   - `EQ` tilt CC74 (Brightness).
   - `R1` small reverb CC91 and `CH` chorus CC93, the General MIDI reverb and chorus sends.
   - `R2` large reverb CC92 (Effects 2 Depth), Orcvs's own second reverb send.
-  - `DL` delay CC94, the delay send as on Roland GS modules.
+  - `DL` delay CC94, the delay send as on Roland GS modules: the SC-88 Pro owner's manual lists
+    controller 94 as "Effect 4 (Delay Send Level)" in its MIDI implementation appendix.
 - On the acid voice's channel its own controllers win: CC74 is its cutoff and CC75 its decay, and
   the tilt and length effects do not apply there.
 - Reset All Controllers follows the MIDI Manufacturers Association's RP-015: it clears performance
