@@ -672,7 +672,7 @@ macro_rules! operands {
             const FUNCTION: crate::Function = crate::Function::$variant;
 
             #[inline(always)]
-            fn check(operands: &[crate::Atom]) -> Result<(), crate::Error> {
+            fn check(operands: &[Option<crate::Atom>]) -> Result<(), crate::Error> {
                 let [$($role),+] = operands else {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
@@ -683,7 +683,7 @@ macro_rules! operands {
             // Field initialisers evaluate in signature order, so the first
             // operand outside its domain is the one that diagnoses.
             #[inline(always)]
-            fn bind(operands: &[crate::Atom]) -> Result<Self, crate::Error> {
+            fn bind(operands: &[Option<crate::Atom>]) -> Result<Self, crate::Error> {
                 let [$($role),+] = operands else {
                     return Err(crate::stack::arity(Self::FUNCTION, operands.len()));
                 };
@@ -710,45 +710,9 @@ macro_rules! carried {
             }
         }
     };
-    ($variant:ident, [$role:ident: $operand:ident $(, $($rest:tt)*)?]) => {
+    ($variant:ident, [$role:ident: $operand:ident $(<$param:ident>)? $(, $($rest:tt)*)?]) => {
         carried!($variant, [$($($rest)*)?]);
     };
-}
-
-// The position of a row's `rest:` role among its declared roles. Naming a role
-// the row does not declare, or one whose operand is not a Note, fails to
-// compile.
-macro_rules! rest_operand {
-    ([$($role:ident: $operand:ident),*]) => {
-        None
-    };
-    ([$($role:ident: $operand:ident),*], $rest:ident) => {
-        Some(const {
-            rest_index(
-                &[$(stringify!($role)),*],
-                &[$(stringify!($operand)),*],
-                stringify!($rest),
-            )
-        })
-    };
-}
-
-/// The position of `rest` among `roles`, evaluated where a row is declared.
-/// `operands` are the roles' operand types in the same order, and the rest
-/// role's must be a Note: a rest is the silence of a note that did not arrive.
-const fn rest_index(roles: &[&str], operands: &[&str], rest: &str) -> usize {
-    let mut index = 0;
-    while index < roles.len() {
-        if same_name(roles[index], rest) {
-            assert!(
-                same_name(operands[index], "Note"),
-                "a `rest:` role's operand must be a Note"
-            );
-            return index;
-        }
-        index += 1;
-    }
-    panic!("a `rest:` role must be one the row declares");
 }
 
 /// Whether two names spell the same bytes, where `==` on `str` is not const.
@@ -914,6 +878,23 @@ macro_rules! declares {
     };
 }
 
+// Checks `operands` through `$variant`'s operand struct. A row that declares no
+// operand admits only an empty list.
+macro_rules! check_declared {
+    ($variant:ident, [], $operands:expr) => {{
+        let operands: &[Option<crate::Atom>] = $operands;
+        if operands.is_empty() {
+            Ok(())
+        } else {
+            Err(crate::stack::arity(Function::$variant, operands.len()))
+        }
+    }};
+    ($variant:ident, [$($role:ident),+], $operands:expr) => {{
+        use crate::stack::Operands as _;
+        operands::$variant::check($operands)
+    }};
+}
+
 // Checks and binds `values` through `$variant`'s operand struct, for the table
 // sweep in the tests below. A row that declares no operand has nothing to bind.
 #[cfg(test)]
@@ -923,8 +904,8 @@ macro_rules! bind_declared {
     };
     ($variant:ident, [$($role:ident),+], $values:expr) => {{
         use crate::stack::Operands as _;
-        let values: &[crate::Atom] = $values;
-        operands::$variant::checked_bind(values).map(drop)
+        let values: Vec<Option<crate::Atom>> = $values.iter().copied().map(Some).collect();
+        operands::$variant::checked_bind(&values).map(drop)
     }};
 }
 
@@ -945,7 +926,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])? $(, rest: $rest:ident)?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident $(<$param:ident>)?),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -1139,25 +1120,26 @@ macro_rules! define_functions {
                 }
             }
 
-            /// The index of the operand a Function rests on when it is blank,
-            /// when its row declares `rest:`.
-            ///
-            /// A Turn whose rest operand holds two blank Cells or a nested
-            /// Clear, and whose every other operand decodes, is a rest: it
-            /// performs nothing and reports nothing. A blank or cleared Cell
-            /// anywhere else, or in any operand of a Function with no rest
-            /// operand, leaves the Turn invalid.
-            pub const fn rest_operand(self) -> Option<usize> {
-                match self {
-                    $(Self::$variant => rest_operand!([$($role: $operand),*] $(, $rest)?),)+
-                }
-            }
-
             /// The token each declared operand is read as, in signature order.
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(<<crate::operand::$operand as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
+                        &[$(<<crate::operand::$operand $(<crate::operand::$param>)? as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
+                    },)+
+                }
+            }
+
+            /// Whether each declared operand admits a slot that holds no
+            /// value, in signature order: what its operand type answers.
+            ///
+            /// ```
+            /// use lang::Function;
+            /// assert_eq!(Function::Add.blank_admitted(), &[false, false]);
+            /// ```
+            pub const fn blank_admitted(self) -> &'static [bool] {
+                match self {
+                    $(Self::$variant => const {
+                        &[$(crate::operand::admits_blank::<crate::operand::$operand $(<crate::operand::$param>)?>(),)*]
                     },)+
                 }
             }
@@ -1174,11 +1156,11 @@ macro_rules! define_functions {
         pub(crate) mod operands {
             $(operands! {
                 $variant,
-                [$($role: crate::operand::$operand),*]
+                [$($role: crate::operand::$operand $(<crate::operand::$param>)?),*]
                 $(, $portal_role: $portal_type)?
             })+
 
-            $(carried!($variant, [$($role: $operand),*]);)+
+            $(carried!($variant, [$($role: $operand $(<$param>)?),*]);)+
         }
 
         /// How a directional Read's or Write's operands count the distance to
@@ -1208,7 +1190,7 @@ macro_rules! define_functions {
             /// Turn resolved, checked against that Function's own signature so
             /// they diagnose as its evaluation would: a Write's `value` follows
             /// its `distance` and is never read.
-            pub(crate) fn distance(self, values: &[Atom]) -> Result<u8, Error> {
+            pub(crate) fn distance(self, values: &[Option<Atom>]) -> Result<u8, Error> {
                 match self {
                     $($(Self::$variant => {
                         use crate::stack::Operands as _;
@@ -1238,13 +1220,36 @@ macro_rules! define_functions {
             /// Function's Turn resolved, checked against that Function's own
             /// signature so they diagnose as its evaluation would: a Write's
             /// `value` follows the Position and is never read.
-            pub(crate) fn position(self, values: &[Atom]) -> Result<(u8, u8), Error> {
+            pub(crate) fn position(self, values: &[Option<Atom>]) -> Result<(u8, u8), Error> {
                 match self {
                     $($(Self::$variant => {
                         use crate::stack::Operands as _;
                         operands::$variant::checked_bind(values)
                             .map(|operands::$variant { $p_column, $p_row, .. }| ($p_column, $p_row))
                     })?)+
+                }
+            }
+        }
+
+        impl Function {
+            /// Checks `operands`, given in signature order, as this
+            /// Function's evaluation checks them before it reads any domain
+            /// or Portal: their count, and each slot against its declared
+            /// token. A slot that holds no value is refused here by an operand
+            /// type that requires one, with
+            /// [`ArgumentError::Absent`](crate::ArgumentError::Absent).
+            ///
+            /// ```
+            /// use lang::{ArgumentError, Atom, Error, Function, Token};
+            /// assert!(Function::Add.check_operands(&[Some(Atom::Number(1)); 2]).is_ok());
+            /// assert!(matches!(
+            ///     Function::Add.check_operands(&[Some(Atom::Number(1)), None]),
+            ///     Err(Error::Argument(ArgumentError::Absent { token: Token::Number }))
+            /// ));
+            /// ```
+            pub fn check_operands(self, operands: &[Option<Atom>]) -> Result<(), Error> {
+                match self {
+                    $(Self::$variant => check_declared!($variant, [$($role),*], operands),)+
                 }
             }
         }
@@ -1316,7 +1321,7 @@ define_functions! {
     Maximum => (".>", "Maximum", "answers the larger of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Minimum => (".<", "Minimum", "answers the smaller of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Modulo => (".%", "Modulo", "answers the remainder of left / right", Value, Intrinsic, Never, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", "Monophonic Play", "replaces its channel's Monophonic note for length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    MonophonicPlay => ("!%", "Monophonic Play", "replaces its channel's Monophonic note for length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Optional<Note>, length: Length]),
     Multiply => (".x", "Multiply", "answers left * right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Osc => ("!o", "OSC", "sends its Payload as one OSC message", TerminalOutput, Bang, Never, []),
     Pick => ("#p", "Pick", "answers the Note at position index of set above root", Value, Intrinsic, Never, [root: Note, set: IntervalSet, index: Number]),
@@ -1324,7 +1329,7 @@ define_functions! {
     Push => ("@t", "Push", "writes value at pair index % count of the row below", Value, Intrinsic, May, [index: Number, count: Number, value: Untyped]),
     Random => ("~?", "Random", "answers a Number from minimum to maximum", Value, Intrinsic, Never, [seed: Number, minimum: Number, maximum: Number]),
     RawChordPlay => ("!:", "Raw Chord Play", "sends a Note On for each tone of a chord", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number]),
-    RawPlay => ("!>", "Raw Play", "sends a Note On, or a Note Off at velocity 00", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note], rest: note),
+    RawPlay => ("!>", "Raw Play", "sends a Note On, or a Note Off at velocity 00", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Optional<Note>]),
     ReadEast => ("&>", "Read East", "reads the pair distance pairs east of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input East distance),
     ReadNorth => ("&^", "Read North", "reads the pair distance rows north of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input North distance),
     ReadSouth => ("&v", "Read South", "reads the pair distance rows south of its distance operand", Value, Intrinsic, May, [distance: Number], distance: Input South distance),
@@ -1336,7 +1341,7 @@ define_functions! {
     Stack => ("#s", "Stack", "answers the chord of size tones built on degree of set", Value, Intrinsic, Never, [set: IntervalSet, degree: Number, size: Number]),
     Subtract => (".-", "Subtract", "answers left - right", Value, Intrinsic, Never, [left: Number, right: Number]),
     TimedChordPlay => ("!#", "Timed Chord Play", "sends a chord, each tone stopped after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
-    TimedPlay => ("!~", "Timed Play", "sends a Note On and its Note Off after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Note, length: Length], rest: note),
+    TimedPlay => ("!~", "Timed Play", "sends a Note On and its Note Off after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Optional<Note>, length: Length]),
     Track => ("&t", "Track", "reads pair index % count after its operands", Value, Intrinsic, May, [index: Number, count: Number]),
     Udp => ("!u", "UDP", "sends its Payload as one UDP datagram", TerminalOutput, Bang, Never, []),
     Up => ("#+", "Up", "answers the Note number semitones above note", Value, Intrinsic, Never, [note: Note, number: Number]),
@@ -2140,33 +2145,6 @@ mod test {
     }
 
     #[test]
-    fn exactly_the_note_playing_functions_rest_on_their_note_operand() {
-        // A rest is a silent Turn, so only a Function whose note says what
-        // sounds may declare one, and the operand it names is that note.
-        let resting: Vec<_> = Function::ALL
-            .iter()
-            .copied()
-            .filter_map(|function| Some((function, function.rest_operand()?)))
-            .collect();
-        assert_eq!(
-            resting,
-            [
-                (Function::MonophonicPlay, 2),
-                (Function::RawPlay, 2),
-                (Function::TimedPlay, 2),
-            ]
-        );
-        for (function, index) in resting {
-            assert_eq!(function.output(), crate::Output::Terminal, "{function:?}");
-            assert_eq!(
-                function.signature()[index],
-                crate::Token::Note,
-                "{function:?}"
-            );
-        }
-    }
-
-    #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
         // Equality, Delay and Euclidean answer a Bang or a Clear as their
         // result, a Copy, Track or Read copies a Bang from its Input
@@ -2272,10 +2250,13 @@ mod test {
                     };
                     assert_eq!(spelling.next(), Some(arrow), "{function:?}");
                 }
-                let bind = |values: &[Atom]| match selection {
-                    PairSelection::Distance(rule) => Some(rule.distance(values).map(drop)),
-                    PairSelection::Position(rule) => Some(rule.position(values).map(drop)),
-                    _ => None,
+                let bind = |values: &[Atom]| {
+                    let values: Vec<Option<Atom>> = values.iter().copied().map(Some).collect();
+                    match selection {
+                        PairSelection::Distance(rule) => Some(rule.distance(&values).map(drop)),
+                        PairSelection::Position(rule) => Some(rule.position(&values).map(drop)),
+                        _ => None,
+                    }
                 };
                 let arity = function.signature().len();
                 let Some(own) = bind(&vec![Atom::Number(1); arity]) else {

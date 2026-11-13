@@ -25,9 +25,6 @@ use std::ops::Range;
 pub struct SourceAnalysis {
     expression: Expression,
     error: Option<Error>,
-    /// Whether nothing was refused and only a blank rest operand is unbound.
-    /// Such an Expression has no `error` and can execute, but is not complete.
-    rests: bool,
     start: usize,
     consumed: usize,
 }
@@ -59,10 +56,11 @@ impl SourceAnalysis {
         self.start..self.start + self.consumed
     }
 
-    /// Whether every entry of this Expression bound what its signature
-    /// declares. A rest does not: its rest operand holds no value.
+    /// Whether the Parser refused nothing in this Expression: exactly
+    /// `self.error().is_none()`. A blank slot its operand type admits is
+    /// refused nothing, so a complete Expression may hold no value there.
     pub fn is_complete(&self) -> bool {
-        self.error.is_none() && !self.rests
+        self.error.is_none()
     }
 }
 
@@ -75,10 +73,6 @@ pub struct Parser<'a> {
     /// The Cell the Source begins at, so what was read can be reported as an
     /// address rather than as an offset into a fragment.
     start: usize,
-    /// The Token of the first blank rest operand read. Strict parsing refuses
-    /// it, since a blank operand holds no value to yield, and builds that
-    /// refusal only when it is reported.
-    blank_rest: Option<Token>,
 }
 
 impl<'a> Parser<'a> {
@@ -101,7 +95,6 @@ impl<'a> Parser<'a> {
             len: source.len(),
             source,
             start,
-            blank_rest: None,
         }
     }
 
@@ -128,23 +121,15 @@ impl<'a> Parser<'a> {
         if !self.source.is_empty() {
             return Err(SyntaxError::UnexpectedTrailingContent(self.source.to_string()).into());
         }
-        // A blank rest operand is refused last: an operand that does not
-        // decode, and Cells past the Expression, are refused ahead of it.
-        if let Some(token) = self.blank_rest {
-            return Err(token
-                .decode(BLANK_PAIR)
-                .expect_err("a blank pair decodes to no value"));
-        }
         // Every record of an Expression that reported no error carries an Atom,
-        // with one exception: a Comment is a complete Language Unit that is not
-        // a value, so it records a Token and nothing else. Strict parsing
-        // yields values, and has none to yield here.
+        // with three exceptions, each refused below: a Comment and a Payload,
+        // which record a Token and text no Atom holds, and a blank slot its
+        // operand type admits, which holds no value. Strict parsing yields
+        // values, and has none to yield for any of them.
         //
-        // The Comment alone decides the refusal, and the Atoms are collected
-        // only when there is none. Do not read the refusal off absent Atoms:
-        // an atomless record that is not a Comment and reported no error is a
-        // Parser defect, and answering it as a Comment would name one the
-        // Source does not hold.
+        // The Comment decides the refusal ahead of the blank slot, and the
+        // Atoms are collected only when neither is there, so an atomless
+        // record is never answered as a Comment the Source does not hold.
         if self.expression.comment().is_some() {
             return Err(SyntaxError::CommentIsNotAValue.into());
         }
@@ -156,6 +141,16 @@ impl<'a> Parser<'a> {
             .any(|token| token == Token::Payload)
         {
             return Err(SyntaxError::PayloadIsNotAValue.into());
+        }
+        // A blank slot its operand type admits refused nothing and holds no
+        // value, so there is none to yield for it. It is refused as its token
+        // refuses blank Cells.
+        if let Some(blank) = self
+            .expression
+            .positioned()
+            .find(|entry| entry.atom.is_none())
+        {
+            return Err(blank.token.blank_refusal());
         }
         Ok(self
             .expression
@@ -188,7 +183,6 @@ impl<'a> Parser<'a> {
 
         SourceAnalysis {
             expression: self.expression,
-            rests: error.is_none() && self.blank_rest.is_some(),
             error,
             start: self.start,
             consumed,
@@ -204,19 +198,19 @@ impl<'a> Parser<'a> {
         // this inline capacity is an optimization, not a language limit.
         let mut pending = arrayvec::ArrayVec::<_, 16>::new();
         let mut overflow = Vec::new();
-        pending.push((Token::Function, None, false));
+        pending.push((Token::Function, false, None));
         let mut error = None;
-        while let Some((token, parent, rest_operand)) = overflow.pop().or_else(|| pending.pop()) {
+        while let Some((token, blank_admitted, parent)) = overflow.pop().or_else(|| pending.pop()) {
             let cell_start = self.start + self.consumed();
             if token != Token::Function && !self.is_function_next() {
-                // A blank rest operand is recorded without decoding it: the
-                // refusal decoding would build is reported only by strict
-                // parsing, so a resting row reads without allocating.
-                if rest_operand && self.peek_next() == Some(BLANK_PAIR) {
-                    self.next_token(BLANK_PAIR.len());
-                    self.blank_rest.get_or_insert(token);
-                    self.expression.add_rest(
+                // A blank slot whose operand type admits one holds no value
+                // and refuses nothing. It is recorded without decoding, so
+                // the refusal a decode would build is never built.
+                if blank_admitted && self.is_blank_next(token) {
+                    self.next_token(token.len());
+                    self.expression.add_positioned(
                         token,
+                        None,
                         cell_start..self.start + self.consumed(),
                         parent,
                     );
@@ -327,8 +321,9 @@ impl<'a> Parser<'a> {
                         }
                         // Reverse signature order keeps the next operand on top,
                         // without growing the native call stack for nested Functions.
-                        for (slot, token) in function.signature().iter().enumerate().rev() {
-                            let item = (*token, Some(index), function.rest_operand() == Some(slot));
+                        let slots = function.signature().iter().zip(function.blank_admitted());
+                        for (token, blank_admitted) in slots.rev() {
+                            let item = (*token, *blank_admitted, Some(index));
                             // Overflow is always popped first, so any occupied
                             // overflow has a full inline stack beneath it.
                             if pending.is_full() {
@@ -388,6 +383,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Whether the next Cells are a blank `token` slot. A slot cut short by
+    /// the end of the Source is not.
+    #[inline(always)]
+    fn is_blank_next(&self, token: Token) -> bool {
+        self.source
+            .get(..token.len())
+            .is_some_and(|cells| token.is_blank(cells))
+    }
+
     #[inline(always)]
     fn is_function_next(&self) -> bool {
         let peek = self.peek_next();
@@ -407,9 +411,6 @@ impl<'a> Parser<'a> {
         }
     }
 }
-
-/// Two empty Cells: what a rest operand holds when there is no note to play.
-pub const BLANK_PAIR: &str = "  ";
 
 #[inline(always)]
 fn is_function(s: Option<&str>) -> bool {
@@ -1599,14 +1600,27 @@ mod property {
     }
 
     /// One Function spelled with a literal in each operand position its
-    /// signature declares: the shape strict parsing accepts whole.
+    /// signature declares: the shape strict parsing accepts whole. A position
+    /// whose operand type admits a blank slot is sometimes left blank, which
+    /// analysis reads whole and strict parsing refuses.
     fn complete_expression() -> BoxedStrategy<String> {
         select(Function::ALL.to_vec())
             .prop_flat_map(|function| {
                 let operands: Vec<BoxedStrategy<String>> = function
                     .signature()
                     .iter()
-                    .map(|token| literal_source(*token))
+                    .zip(function.blank_admitted())
+                    .map(|(token, blank_admitted)| {
+                        if *blank_admitted {
+                            prop_oneof![
+                                3 => literal_source(*token),
+                                1 => Just(" ".repeat(token.len())),
+                            ]
+                            .boxed()
+                        } else {
+                            literal_source(*token)
+                        }
+                    })
                     .collect();
                 (Just(function), operands)
             })
@@ -1792,6 +1806,23 @@ mod property {
                     Some(atoms) => {
                         prop_assert_eq!(rendered(atoms), &spelled[..analysis.cells().end])
                     }
+                    // Every atomless record of a complete Expression that
+                    // is not a Comment is a blank slot its operand type
+                    // admits: Cells written blank, never a placeholder for
+                    // Source that did not read.
+                    None if expression.comment().is_none() => {
+                        let atomless = expression
+                            .positioned()
+                            .filter(|entry| entry.atom.is_none() && entry.token != Token::Payload);
+                        for entry in atomless {
+                            prop_assert!(
+                                entry.token.is_blank(&spelled[entry.cells.clone()]),
+                                "{:?} completed with an unread {:?} slot",
+                                spelled,
+                                entry.token,
+                            );
+                        }
+                    }
                     None => {
                         prop_assert_eq!(
                             expression.tokens().collect::<Vec<_>>(),
@@ -1815,17 +1846,7 @@ mod property {
                     }
                 }
             } else {
-                // Every way of not completing reports an error, except a blank
-                // rest operand, which reports nothing and binds no Atom. Every
-                // other entry of such an Expression bound what it reads.
-                prop_assert!(
-                    analysis.error().is_some()
-                        || (expression.positioned().any(|entry| entry.rest)
-                            && expression.positioned().all(|entry| entry.atom.is_some()
-                                || entry.rest
-                                || entry.token == Token::Payload)),
-                    "{spelled:?}"
-                );
+                prop_assert!(analysis.error().is_some());
                 // Every way of not completing records the Token it could not
                 // read, and that record is what withholds the Atoms above,
                 // except a nested effect Function. It reads every Token, so
@@ -1897,10 +1918,17 @@ mod property {
                 .expression()
                 .tokens()
                 .any(|token| token == Token::Payload);
+            // A blank slot its operand type admits reads complete and holds
+            // no value for strict parsing to yield.
+            let blank = analysis
+                .expression()
+                .positioned()
+                .any(|entry| entry.atom.is_none() && entry.token != Token::Comment);
             let complete = analysis.is_complete()
                 && analysis.cells().end == source.len()
                 && !comment
-                && !payload;
+                && !payload
+                && !blank;
             prop_assert_eq!(parsed.is_ok(), complete, "{:?}", source);
 
             if let Ok(atoms) = parsed {
@@ -2106,53 +2134,59 @@ mod nesting_tests {
         assert!(Parser::from("!>007FC4").analyze().is_complete());
         assert!(Parser::from(".+.x030401").analyze().is_complete());
     }
+}
+
+#[cfg(test)]
+mod blank_slot_tests {
+    use super::Parser;
+    use crate::{Error, SyntaxError, Token, TypeError};
 
     #[test]
-    fn a_blank_rest_operand_is_a_rest_and_reports_nothing() {
-        for source in ["!>017F  ", "!~017F  04", "!%017F  04"] {
-            let analysis = Parser::from(source).analyze();
+    fn a_blank_raw_play_note_is_recorded_absent_and_reports_nothing() {
+        let analysis = Parser::from("!>017F  ").analyze();
 
+        assert!(analysis.error().is_none(), "{:?}", analysis.error());
+        assert!(analysis.is_complete());
+        assert_eq!(analysis.cells(), 0..8);
+        let note = analysis
+            .expression()
+            .positioned()
+            .last()
+            .expect("the note slot is recorded");
+        assert_eq!(
+            (note.token, note.cells.clone(), note.atom, note.parent),
+            (Token::Note, 6..8, None, Some(0))
+        );
+    }
+
+    #[test]
+    fn a_half_typed_or_mistyped_raw_play_note_is_refused() {
+        for source in ["!>017FC ", "!>017F C", "!>017FZZ", "!>017F ", "!>017F"] {
             assert!(
-                analysis.expression().positioned().any(|entry| entry.rest),
+                Parser::from(source).analyze().error().is_some(),
                 "{source:?}"
             );
-            assert!(analysis.error().is_none(), "{source:?}");
-            // It holds no value for the note, so it is not complete.
-            assert!(!analysis.is_complete(), "{source:?}");
         }
     }
 
     #[test]
-    fn strict_parsing_refuses_a_blank_rest_operand() {
-        assert_eq!(
-            Parser::from("!>017F  ")
-                .try_parse()
-                .unwrap_err()
-                .to_string(),
-            "expected a note, found \"  \""
-        );
+    fn a_blank_plain_operand_beside_a_blank_note_is_still_refused() {
+        for source in ["!>  7F  ", "!>01    "] {
+            assert!(
+                matches!(
+                    Parser::from(source).analyze().error(),
+                    Some(Error::Type(TypeError::Number(_)))
+                ),
+                "{source:?}"
+            );
+        }
     }
 
     #[test]
-    fn strict_parsing_refuses_trailing_content_ahead_of_a_rest() {
-        // Cells past the Expression are refused ahead of the blank rest
-        // operand's refusal, which strict parsing raises last.
-        assert!(
-            matches!(
-                Parser::from("!>017F  XX").try_parse(),
-                Err(Error::Syntax(SyntaxError::UnexpectedTrailingContent(ref trailing)))
-                    if trailing == "XX"
-            ),
-            "{:?}",
-            Parser::from("!>017F  XX").try_parse()
-        );
-    }
-
-    #[test]
-    fn a_nested_play_with_a_blank_note_is_refused_rather_than_rested() {
+    fn a_nested_play_with_a_blank_note_is_refused_as_nested() {
         // A Play nested where a value is required is refused from Source
         // alone, whatever its note holds, and so is a Play nested beside a
-        // blank rest operand. The refusal names the nesting, not the note.
+        // blank optional note. The refusal names the nesting, not the note.
         for source in [".+!>017F  01", "!~017F  !>017FC4"] {
             let analysis = Parser::from(source).analyze();
 
@@ -2176,26 +2210,13 @@ mod nesting_tests {
     }
 
     #[test]
-    fn anything_but_a_blank_rest_operand_is_no_rest() {
-        for source in [
-            // A half-written or edge-cut note.
-            "!>017FC ",
-            "!>017F C",
-            "!>017F",
-            "!>017F ",
-            // A blank or invalid operand beside the blank note.
-            "!>  7F  ",
-            "!>01    ",
-            "!>ZZ7F  ",
-            "!~017F    ",
-            "!~017F  ZZ",
-            // A Function with no rest operand.
-            ".v  ",
-            ".+  01",
-        ] {
-            let analysis = Parser::from(source).analyze();
-
-            assert!(analysis.error().is_some(), "{source:?}");
-        }
+    fn strict_parsing_refuses_a_blank_note_it_has_no_value_to_yield_for() {
+        assert_eq!(
+            Parser::from("!>017F  ")
+                .try_parse()
+                .unwrap_err()
+                .to_string(),
+            "expected a note, found \"  \""
+        );
     }
 }

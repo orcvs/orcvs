@@ -289,13 +289,17 @@ struct DerivedExpression {
 impl DerivedExpression {
     /// What a schedule reads of this Expression, when a schedule computes it.
     fn scheduled(&self) -> Option<ScheduledExpression<'_>> {
-        ScheduledExpression::of(self.span, self.function_candidate, &self.expression)
+        ScheduledExpression::of(
+            self.span,
+            self.function_candidate,
+            &self.expression,
+            self.diagnostic.is_some(),
+        )
     }
 }
 
 impl<'a> ExpressionEntry<'a> {
-    /// The first Function anchor when this Expression is executable: nothing
-    /// in it was refused, though a blank rest operand may be left unbound.
+    /// The first Function anchor when this is a complete executable Expression.
     pub fn root(self) -> Option<Position> {
         self.derived.root
     }
@@ -723,7 +727,7 @@ impl DerivedRow {
             // and then recorded on the Expression, so nothing asks again.
             let units = units_range(&row.units, grid, span);
 
-            let executable = analysis.error().is_none();
+            let executable = analysis.is_complete();
             let diagnostic = analysis
                 .error()
                 .map(|error| Diagnostic::for_range(grid, start, end, error.to_string()));
@@ -1517,9 +1521,9 @@ mod tests {
             ".+01      ",
             ".+01.+  02",
             ".+  .+0102",
+            "!c0007    ",
             "!>  7F    ",
             "!>01      ",
-            "!~007F    ",
         ] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
@@ -1533,14 +1537,16 @@ mod tests {
         }
     }
 
-    /// A Play with no note written is a root and reports nothing: its Turn
-    /// reads the slot and rests while it stays blank.
+    /// A Raw, Timed or Monophonic Play whose only blank operand is its
+    /// optional note is a root and reports nothing, nested operands included,
+    /// so its Turn runs and sends nothing while the note stays blank.
     #[test]
     fn a_play_whose_only_blank_operand_is_its_note_is_a_root() {
         for row in ["!>007F    ", "!~007F  04", "!%007F  04", "!>&v017F  "] {
             let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
 
-            assert_eq!(map.diagnostics().count(), 0, "{row:?}");
+            let diagnostics: Vec<_> = map.diagnostics().map(|d| d.message.clone()).collect();
+            assert_eq!(diagnostics, Vec::<String>::new(), "{row:?}");
             assert!(
                 map.expressions()
                     .any(|expression| expression.root().is_some()),
@@ -1549,9 +1555,9 @@ mod tests {
         }
     }
 
-    /// Only two whole blank Cells make a Play a root with no note: a
-    /// half-written note, a slot the row edge cuts short, and a blank note
-    /// beside an invalid operand are all still refused.
+    /// Only two whole blank Cells leave a Play's optional note unwritten: a
+    /// half-written note, a note slot the row edge cuts short, and a blank
+    /// note beside a mistyped operand are all diagnosed and none is a root.
     #[test]
     fn a_play_with_anything_else_unbound_is_diagnosed_and_not_a_root() {
         for (width, row) in [
@@ -2089,6 +2095,35 @@ mod property {
         .boxed()
     }
 
+    /// A Function whose operand type admits a blank slot, such as a Play's
+    /// note, with every such slot left blank and a literal in the rest: a
+    /// whole Expression that holds no value in a slot, which strict parsing
+    /// does not yield and so [`complete_expression`] never draws.
+    fn blank_slot_expression() -> BoxedStrategy<String> {
+        let admitting: Vec<Function> = Function::ALL
+            .iter()
+            .copied()
+            .filter(|function| function.blank_admitted().contains(&true))
+            .collect();
+        select(admitting)
+            .prop_flat_map(|function| {
+                let operands: Vec<BoxedStrategy<String>> = lang::Tokens::from(&function)
+                    .into_iter()
+                    .zip(function.blank_admitted())
+                    .map(|(token, &blank_admitted)| {
+                        if blank_admitted {
+                            Just(" ".repeat(token.len())).boxed()
+                        } else {
+                            literal_source(token)
+                        }
+                    })
+                    .collect();
+                (Just(function), operands)
+            })
+            .prop_map(|(function, operands)| format!("{function}{}", operands.concat()))
+            .boxed()
+    }
+
     /// Pick or Stack with a literal in each operand position, in the order
     /// their Function reference entries state.
     fn interval_set_expression() -> BoxedStrategy<String> {
@@ -2133,7 +2168,8 @@ mod property {
     /// noise: the space that ends a run, the `||` that opens and closes a
     /// Comment, the `|` that is incomplete Source rather than a Comment,
     /// a Function spelling, a standalone Atom, an Operand Literal, and — as
-    /// the minority branch — a whole Function with its operands. They are
+    /// the minority branches — a whole Function with its operands, and one
+    /// with each slot that admits a blank left blank. They are
     /// concatenated in whatever order they are drawn and then cut to the Grid,
     /// so what reaches the walk is raw text rather than a grammar.
     ///
@@ -2159,6 +2195,7 @@ mod property {
                 literal_source(Token::Voicing),
             ],
             3 => complete_expression(),
+            1 => blank_slot_expression(),
         ]
         .boxed()
     }
@@ -2389,8 +2426,9 @@ mod property {
 
                 // A value never stands in for Source that was not read: an
                 // Expression answers with Atoms exactly when it has nothing to
-                // report and is not a Comment, and a root is only ever the
-                // anchor of one that does.
+                // report, is not a Comment and holds no blank slot, and a root
+                // is the anchor of one that has nothing to report and is not
+                // a Comment.
                 //
                 // A Comment is a complete Language Unit that is not a value.
                 // That is this property's premise rather than a case skipped
@@ -2408,12 +2446,30 @@ mod property {
                 let payload = expression
                     .positioned()
                     .any(|entry| entry.token == Token::Payload);
-                // A rest reports nothing and has no note to answer with, so
-                // it is the other Expression that holds a root and no Atoms.
-                let rest = expression.positioned().any(|entry| entry.rest);
+                // A blank slot its operand type admits, such as a Play's
+                // note, holds no value and reports nothing, so its complete
+                // Expression is a root that answers with no Atoms. Every such
+                // slot is Cells written blank, never Source that did not read.
+                let mut blank = false;
+                let valueless = expression.positioned().filter(|entry| {
+                    entry.atom.is_none() && !matches!(entry.token, Token::Comment | Token::Payload)
+                });
+                if expression.diagnostic().is_none() {
+                    for entry in valueless {
+                        blank = true;
+                        prop_assert!(
+                            source.as_bytes()[entry.cells.clone()]
+                                .iter()
+                                .all(|&cell| cell == SPACE_BYTE),
+                            "{:?} completed with an unread {:?} slot",
+                            source,
+                            entry.token,
+                        );
+                    }
+                }
                 prop_assert_eq!(
                     expression.atoms().is_some(),
-                    expression.diagnostic().is_none() && !comment && !rest,
+                    expression.diagnostic().is_none() && !comment && !blank,
                     "{:?}",
                     source,
                 );
@@ -2432,17 +2488,7 @@ mod property {
                     );
                 }
                 if let Some(root) = expression.root() {
-                    // A root without Atoms is a rest: it holds a blank rest
-                    // operand, and every other entry bound an Atom.
-                    prop_assert!(
-                        expression.atoms().is_some()
-                            || (rest
-                                && expression.positioned().all(|entry| entry.atom.is_some()
-                                    || entry.rest
-                                    || entry.token == Token::Payload)),
-                        "{:?}",
-                        source,
-                    );
+                    prop_assert!(expression.atoms().is_some() || blank, "{:?}", source);
                     prop_assert!(span.positions().any(|position| position == root));
                 }
                 if let Some(diagnostic) = expression.diagnostic() {

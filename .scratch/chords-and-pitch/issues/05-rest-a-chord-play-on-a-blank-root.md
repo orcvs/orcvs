@@ -1,6 +1,6 @@
 # 05 — Rest a Chord Play on a blank root
 
-Status: ready-for-agent
+Status: needs-triage
 
 Blocked by: 01, 03
 
@@ -15,3 +15,11 @@ ignores other blank or cleared operands, so a wholly empty pattern row rests.
 - [ ] A blank Interval Set with a root present is diagnosed.
 - [ ] The Language Map admits a Chord Play with a blank root as a root.
 - [ ] `CONTEXT.md`'s Rest entry covers Chord Play.
+
+## Comments
+
+- ADR 0108 supersedes ADR 0104, which this ticket implements, and removes the Rest. A Play's note
+  is optional by its operand type, `Optional<Note>`, and a Chord Play's root stays a plain Note.
+  Whether an empty pattern row leaves a Chord Play silent, by making its root, Interval Set,
+  Voicing and inversion optional, is its own decision (ADR 0108, Consequences). Rewrite this ticket
+  in those terms, or close it as `wontfix`, before an agent picks it up.

@@ -297,4 +297,12 @@ pub enum SyntaxError {
 pub enum ArgumentError {
     #[error("invalid number of arguments (expected {expected:?}, found {found:?})")]
     Arity { expected: usize, found: usize },
+
+    /// An operand slot that holds no value, refused by an operand type that
+    /// requires one and read as `token`. It displays as
+    /// [`Token::blank_refusal`](crate::Token::blank_refusal), so a slot that
+    /// holds no value diagnoses as a blank slot written in the Source does,
+    /// and building it builds no message.
+    #[error("{}", token.blank_refusal())]
+    Absent { token: crate::Token },
 }

@@ -20,7 +20,7 @@ fn payload<'a>(ctx: &Context<'a>) -> &'a str {
 pub fn udp(ctx: &mut Context) -> Interpretation {
     let payload = payload(ctx);
     if payload.is_empty() {
-        return Interpretation::EmptyPayload;
+        return Interpretation::Inert;
     }
     Interpretation::Send(Box::new(NetworkSend::Udp(payload.as_bytes().into())))
 }
@@ -179,10 +179,7 @@ mod test {
             send(Function::Udp, "hi there ").unwrap(),
             Interpretation::Send(Box::new(NetworkSend::Udp(b"hi there ".as_slice().into())))
         );
-        assert_eq!(
-            send(Function::Udp, "").unwrap(),
-            Interpretation::EmptyPayload
-        );
+        assert_eq!(send(Function::Udp, "").unwrap(), Interpretation::Inert);
     }
 
     #[test]

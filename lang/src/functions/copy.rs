@@ -51,7 +51,7 @@ pub fn absolute_copy(ctx: &mut Context) -> Result<Interpretation, Error> {
 /// resolved, as `(column, row)`.
 ///
 /// Operands outside their domain diagnose as they would at evaluation.
-pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
+pub(crate) fn copied_from(operands: &[Option<Atom>]) -> Result<(u8, u8), Error> {
     AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
              from_column,
@@ -65,7 +65,7 @@ pub(crate) fn copied_from(operands: &[Atom]) -> Result<(u8, u8), Error> {
 /// Turn resolved, as `(column, row)`.
 ///
 /// Operands outside their domain diagnose as they would at evaluation.
-pub(crate) fn copied_to(operands: &[Atom]) -> Result<(u8, u8), Error> {
+pub(crate) fn copied_to(operands: &[Option<Atom>]) -> Result<(u8, u8), Error> {
     AbsoluteCopy::checked_bind(operands).map(
         |AbsoluteCopy {
              to_column, to_row, ..
@@ -215,7 +215,7 @@ mod test {
         let absolute = |cells| {
             Interpreter::execute_function(
                 Function::AbsoluteCopy,
-                [Atom::Number(0); 4],
+                [Some(Atom::Number(0)); 4],
                 FunctionInputs::with_portal_source(
                     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)),
                     PortalSource::from_cells(cells),

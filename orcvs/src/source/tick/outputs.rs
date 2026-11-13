@@ -6,7 +6,7 @@ use crate::source::Cells;
 use crate::source::language_map::LanguageMap;
 
 use super::Tick;
-use super::fixture::{carried_source, cell, planned, rows_of, seeded_source, snapshot};
+use super::fixture::{carried_source, cell, messages, planned, rows_of, seeded_source, snapshot};
 use super::observed::raw;
 
 #[test]
@@ -123,10 +123,10 @@ fn a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing(
 }
 
 #[test]
-fn a_banged_play_with_an_unwritten_note_rests_and_emits_nothing() {
-    // The Bang gives the timing and the note slot gives what plays. With
-    // no note written the Play rests: nothing plays, and nothing is
-    // diagnosed.
+fn a_banged_play_with_an_unwritten_note_emits_nothing_and_reports_nothing() {
+    // The Bang gives the timing and the note slot gives what plays. A Raw
+    // Play's note is optional, so with no note written nothing plays and
+    // neither the Language Map nor the Tick reports anything.
     let grid = Grid::with_shape(16, 4);
     for (play, commands, diagnosed) in [
         ("!>007FC4", vec![raw(0, 0x7F, 60)], vec![]),
@@ -155,14 +155,19 @@ fn a_banged_play_with_an_unwritten_note_rests_and_emits_nothing() {
 }
 
 #[test]
-fn a_banged_play_whose_nested_track_copies_an_empty_pair_rests() {
+fn a_banged_play_whose_nested_track_copies_an_empty_pair_plays_nothing() {
     // Track stands in the note slot and copies the pair its index
-    // selects. `C4` plays; the empty pair is a Clear, so the Play rests:
-    // it sends nothing and is not diagnosed.
+    // selects. `C4` plays; the empty pair is a Clear, which leaves the
+    // Raw Play's optional note absent, so it sends nothing and reports
+    // nothing.
     let grid = Grid::with_shape(16, 4);
-    for (play, commands) in [
-        ("!>007F&t0002C4  ", vec![raw(0, 0x7F, 60)]),
-        ("!>007F&t0102C4  ", vec![]),
+    for (play, commands, diagnosed) in [
+        (
+            "!>007F&t0002C4  ",
+            vec![raw(0, 0x7F, 60)],
+            Vec::<&str>::new(),
+        ),
+        ("!>007F&t0102C4  ", vec![], vec![]),
     ] {
         let bytes = snapshot(grid, &[".=0101", "", play, ""]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
@@ -171,11 +176,7 @@ fn a_banged_play_whose_nested_track_copies_an_empty_pair_rests() {
         let plan = plan.into_plan();
 
         assert_eq!(plan.play_commands, commands, "{play:?}");
-        assert!(
-            plan.diagnostics.is_empty(),
-            "{play:?}: {:?}",
-            plan.diagnostics
-        );
+        assert_eq!(messages(&plan), diagnosed, "{play:?}");
     }
 }
 
@@ -195,13 +196,14 @@ fn a_value_function_whose_operand_a_portal_empties_leaves_its_last_note_to_repla
     assert_eq!(&rows_of(grid, &source)[2][..8], "!>007FG4");
 
     source.set(cell(grid, 11), "1").unwrap();
-    let rest = source.execute(Tick::new(1));
+    let replay = source.execute(Tick::new(1));
 
     assert_eq!(&rows_of(grid, &source)[1][6..10], ".^  ");
     assert_eq!(&rows_of(grid, &source)[2][..8], "!>007FG4");
-    assert_eq!(rest.play_commands, vec![raw(0, 0x7F, 67)]);
+    assert_eq!(replay.play_commands, vec![raw(0, 0x7F, 67)]);
     assert_eq!(
-        rest.diagnostics
+        replay
+            .diagnostics
             .iter()
             .map(|d| (d.anchor().x(), d.anchor().y()))
             .collect::<Vec<_>>(),

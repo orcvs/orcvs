@@ -284,7 +284,7 @@ fn evaluate(calls: &[Call], inputs: TickInputs) -> usize {
         evaluated += usize::from(
             Interpreter::execute_function(
                 black_box(*function),
-                black_box(operands).iter().copied(),
+                black_box(operands).iter().copied().map(Some),
                 black_box(inputs).into(),
             )
             .is_ok(),
@@ -462,43 +462,74 @@ fn re_reading_a_source_is_independent_of_how_many_of_its_rows_are_empty() {
 }
 
 #[test]
-fn reading_a_resting_play_allocates_nothing() {
-    // A Play whose note slot holds two blank Cells rests: it reports no error,
-    // so it is held to the clean-row bound above and allocates nothing. Kept
-    // out of `SOURCE`, whose re-read is a published series that a new row
-    // would move.
-    for row in ["!>010A  ", "!~010A  04", "!%010A  04"] {
+fn reading_and_taking_the_turn_of_a_play_with_a_blank_note_allocates_nothing() {
+    // A Play whose note slot holds two blank Cells plays nothing and reports
+    // no error, so reading it is held to the clean-row bound above, and its
+    // Turn binds the absent note and answers without building a message.
+    // Kept out of `SOURCE`, whose re-read is a published series that a new
+    // row would move.
+    let channel = Some(Atom::Number(0x01));
+    let velocity = Some(Atom::Number(0x0A));
+    let length = Some(Atom::Number(0x04));
+    for (row, function, operands) in [
+        (
+            "!>010A  ",
+            Function::RawPlay,
+            &[channel, velocity, None][..],
+        ),
+        (
+            "!~010A  04",
+            Function::TimedPlay,
+            &[channel, velocity, None, length][..],
+        ),
+        (
+            "!%010A  04",
+            Function::MonophonicPlay,
+            &[channel, velocity, None, length][..],
+        ),
+    ] {
         // Warm up, for the reason the call test gives.
         black_box(Parser::at(row, 0).analyze());
         let (allocations, analysis) = measure(|| Parser::at(black_box(row), 0).analyze());
-
         assert!(analysis.error().is_none(), "{row:?} reported an error");
         assert_eq!(
             allocations,
             Allocations::default(),
-            "reading the resting {row:?} allocated"
+            "reading {row:?} allocated"
+        );
+
+        let (allocations, answer) = turn(function, operands);
+        assert_eq!(answer, Interpretation::Inert, "{row:?}");
+        assert_eq!(
+            allocations,
+            Allocations::default(),
+            "the Turn of {row:?} allocated"
         );
     }
 }
 
-/// One Turn through [`Interpreter::execute_function`], and what it allocated.
+/// One Turn through [`Interpreter::execute_function`], what it allocated, and
+/// its answer.
 ///
-/// The answer is dropped outside the span, so only what the Turn asked for is
-/// counted; the operands are built by the caller, outside it too.
-fn turn<const N: usize>(function: Function, operands: [Atom; N]) -> Allocations {
+/// The answer is returned from outside the span, so only what the Turn asked
+/// for is counted; the operands are built by the caller, outside it too.
+fn turn(function: Function, operands: &[Option<Atom>]) -> (Allocations, Interpretation) {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     // Warm up, for the reason the call test gives.
     black_box(Interpreter::execute_function(
         function,
-        operands,
+        operands.iter().copied(),
         inputs.into(),
     ))
     .expect("the warm-up Turn answers");
     let (allocations, answer) = measure(|| {
-        Interpreter::execute_function(black_box(function), black_box(operands), inputs.into())
+        Interpreter::execute_function(
+            black_box(function),
+            black_box(operands).iter().copied(),
+            inputs.into(),
+        )
     });
-    answer.expect("the measured Turn answers");
-    allocations
+    (allocations, answer.expect("the measured Turn answers"))
 }
 
 /// Chord Plays and how many tones each answers: twelve, the widest answer a
@@ -526,7 +557,11 @@ fn a_chord_play_allocates_nothing_to_read_or_evaluate() {
     // Each row is measured as the chord it claims to be, so a row that
     // stopped answering its tones cannot pass as an allocation-free Turn.
     for ((function, operands), &(row, tones)) in chords.iter().zip(CHORDS) {
-        match Interpreter::execute_function(*function, operands.iter().copied(), inputs.into()) {
+        match Interpreter::execute_function(
+            *function,
+            operands.iter().copied().map(Some),
+            inputs.into(),
+        ) {
             Ok(Interpretation::Chord(chord)) => {
                 assert_eq!(chord.commands().len(), tones, "{row:?}");
             }
@@ -580,7 +615,10 @@ fn a_turn_over_atoms_allocates_nothing() {
     // The Operand Stack is inline and the answer is one Atom, so the Turn asks
     // the allocator for nothing. Asserted rather than published, for the
     // reason the call test gives.
-    let add = turn(Function::Add, [Atom::Number(1), Atom::Number(2)]);
+    let (add, _) = turn(
+        Function::Add,
+        &[Some(Atom::Number(1)), Some(Atom::Number(2))],
+    );
 
     assert_eq!(add, Allocations::default(), "`.+0102` allocated");
 }

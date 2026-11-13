@@ -28,7 +28,7 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
 where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
 is expected and Numbers where a Number is, and `D2` is a Voicing, a Note or a Number by position.
-An empty operand diagnoses, except a Play's `note`, which rests (see **Rest**).
+An empty operand diagnoses, except a Play's `note`, which is optional (see **An empty note**).
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
 Function that answers a value writes it into its Output Portal, the two Cells one row south of its
@@ -46,7 +46,7 @@ which kind of Function it is.
 
 **Clear.** Some value Functions answer a Clear rather than a value: they write two empty Cells. An
 invalid Function writes nothing at all, so its last answer stays where it was. Nested, a Clear
-leaves its parent invalid, except in a Play's `note`, where it is a rest.
+leaves its parent invalid, except in a Play's `note`, where it leaves the note empty.
 
 **Examples.** An example shows the Source before any Tick, then the Source after the Ticks named
 above each later block, counted from Tick `0`.
@@ -1030,9 +1030,8 @@ After Tick `0`, the Add did not run:
 
 These perform an effect: each sends one MIDI message when a Bang reaches it, except a Chord Play,
 which sends one per tone, and writes nothing into the Source. Each is inert until a Bang reaches
-it. An operand outside its range diagnoses and sends nothing, except on a Play whose note is two
-empty Cells: that Play rests and checks none of its operands' ranges (see **Rest** below). Choose a
-MIDI destination under the Panel's **O** to hear them.
+it. An operand outside its range diagnoses and sends nothing. Choose a MIDI destination under
+the Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
@@ -1045,19 +1044,21 @@ MIDI destination under the Panel's **O** to hear them.
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
-**Rest.** A Raw, Timed or Monophonic Play whose note is two empty Cells rests: a Bang reaching it
-sends nothing and diagnoses nothing. It does not matter how the note got empty. You can leave it
-empty, a Function above it can write two empty Cells into it, or a Function nested in it can
-answer a Clear. Its other operands must still be written as values, but their ranges are not
-checked. Half a note, such as `C `, is partial input and diagnoses.
-A Monophonic Play that rests leaves its channel's note sounding until that note's own length ends.
+**An empty note.** The note of a Raw, Timed or Monophonic Play is optional. A Bang reaching a Play
+whose note is empty sends nothing and reports nothing, so an empty step in a pattern is a quiet
+step. It does not matter how the note got empty. You can leave it empty, a Function above it can
+write two empty Cells into it, or a Function nested in it can answer a Clear. The Play's other
+operands are still checked: an empty or out-of-range channel, velocity or length is diagnosed
+whether the note is there or not. A half-written or mistyped note, such as `C ` or `ZZ`, is an
+error: the Play is diagnosed and sends nothing. A Monophonic Play with no note leaves its channel's
+note sounding until that note's own length ends. A Chord Play's root is not optional.
 
 ```orcvs
 **
 !>0064
 ```
 
-After Tick `0`, nothing plays:
+After Tick `0`, nothing plays and nothing is diagnosed:
 
 ```orcvs tick 0
 
@@ -1067,7 +1068,8 @@ After Tick `0`, nothing plays:
 ### `!>` Raw Play
 
 `!> channel velocity note` sends a Note On, with no Note Off of its own. At velocity `00` it sends a
-Note Off for `note` instead.
+Note Off for `note` instead. The `note` is optional: with it empty, a Bang sends nothing (see **An
+empty note** above).
 
 ```orcvs
 **
@@ -1097,7 +1099,8 @@ After Tick `0`:
 ### `!~` Timed Play
 
 `!~ channel velocity note length` sends a Note On, and Playback sends its Note Off `length` Ticks
-later. A `length` of `00` sends nothing.
+later. A `length` of `00` sends nothing. The `note` is optional: with it empty, a Bang sends
+nothing (see **An empty note** above).
 
 ```orcvs
 **
@@ -1115,7 +1118,8 @@ After Tick `0`:
 
 `!% channel velocity note length` works like Timed Play, but first stops whichever note an earlier
 Monophonic Play left sounding on the same channel, so a channel plays one of these at a time. At
-velocity `00` it stops that note and plays nothing.
+velocity `00` it stops that note and plays nothing. The `note` is optional: with it empty, a Bang
+sends nothing and stops nothing (see **An empty note** above).
 
 ```orcvs
 **

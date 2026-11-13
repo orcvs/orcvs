@@ -63,7 +63,7 @@ For voice 0, the kick, with its machine at rows 3 and 4:
 | (2, 3) `~*0101` | Delay | Writes `**` at (2, 4) every Tick, which activates the Timed Play at (4, 4). |
 | (12, 3) `.+04~.0120` | Add, with a nested Clock | Adds `04` to the step and writes the sum into the Read's `n` slot at (12, 4). The nested Clock also writes its count at (16, 4). |
 | (4, 4) `!~0877&>  01` | Timed Play with a nested Read east | Channel `08` (MIDI channel 9 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&>`, whose `n` operand at (12, 4) is the Add's sum. |
-| (20, 4) to (83, 4) | Comment text | The voice's thirty-two steps, one Note to a pair. An empty step is a silent rest, as in Orca. |
+| (20, 4) to (83, 4) | Comment text | The voice's thirty-two steps, one Note to a pair. An empty step sends nothing and reports nothing. |
 
 `&> n` reads the pair `n` pairs east of its own `n` operand, so with the offset
 `04` step 0 is the pair at column 20, past the length, the Clock's count and the

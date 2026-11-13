@@ -2,8 +2,8 @@
 //! Live editing of the shipped trackers through the console's own input and
 //! file workflows.
 //!
-//! Each test opens a copy of `examples/melody.orcvs` or
-//! `examples/tracker.orcvs` through the Open path, edits
+//! Each test opens a copy of `examples/melody.orcvs`,
+//! `examples/tracker.orcvs` or a one-Play Source through the Open path, edits
 //! it with the keys, clipboard events and menu items a viewer uses, and runs
 //! Ticks against the Source the console owns. A Tick here is
 //! `SourceCommander::execute`, the call Playback makes for each Tick it runs,
@@ -133,25 +133,6 @@ fn diagnostics(plan: &TickPlan) -> Vec<((usize, usize), String)> {
         .collect()
 }
 
-///
-/// Asserts that `plan` is a rest of the Timed Play: it sends nothing, the
-/// Tick diagnoses nothing, and the Language Map does not diagnose the Play
-/// whose note slot is now empty.
-///
-fn assert_rests(harness: &Harness<'_, Console>, plan: &TickPlan, context: &str) {
-    assert!(
-        plan.play_commands.is_empty(),
-        "{context}: {:?}",
-        plan.play_commands
-    );
-    assert!(
-        plan.diagnostics.is_empty(),
-        "{context}: {:?}",
-        plan.diagnostics
-    );
-    assert!(!map_diagnoses_the_play(harness), "{context}");
-}
-
 /// Whether the Language Map diagnoses the Timed Play.
 fn map_diagnoses_the_play(harness: &Harness<'_, Console>) -> bool {
     let mut diagnosed = false;
@@ -162,6 +143,24 @@ fn map_diagnoses_the_play(harness: &Harness<'_, Console>) -> bool {
             .any(|d| (d.anchor().x(), d.anchor().y()) == PLAY);
     });
     diagnosed
+}
+
+///
+/// Asserts that `plan`, a Tick that banged the Timed Play on an empty step,
+/// sent nothing and reported nothing, and that the Language Map does not
+/// diagnose the Play either: a blank note is quiet everywhere.
+///
+fn assert_quiet(harness: &Harness<'_, Console>, plan: &TickPlan, context: &str) {
+    assert!(
+        plan.play_commands.is_empty(),
+        "{context}: {:?}",
+        plan.play_commands
+    );
+    assert_eq!(diagnostics(plan), [], "{context}: the Tick");
+    assert!(
+        !map_diagnoses_the_play(harness),
+        "{context}: the Language Map"
+    );
 }
 
 ///
@@ -259,12 +258,70 @@ async fn a_half_typed_note_is_diagnosed_once_and_finishing_it_plays_it() {
     );
 }
 
+/// A Delay banging a Timed Play on every Tick, the Play's note slot at
+/// (8, 1) left blank, so nothing but the note is missing.
+const BLANK_NOTE: &str = "~*0101\n  !~0064  04\n";
+
+/// The Language Map's diagnostics as anchor and message.
+fn mapped(harness: &Harness<'_, Console>) -> Vec<((usize, usize), String)> {
+    let mut mapped = Vec::new();
+    harness.state().orcvs.source().read_source(|source| {
+        mapped = source
+            .language_map()
+            .diagnostics()
+            .map(|d| ((d.anchor().x(), d.anchor().y()), d.message.clone()))
+            .collect();
+    });
+    mapped
+}
+
 ///
-/// Clearing a pair makes it a rest without moving the pairs after it, and
+/// A Note typed into a Play's blank note slot goes from blank, which sends
+/// and reports nothing, through half written, which the Language Map
+/// diagnoses at the Play, to whole, which plays. No step of the typing leaves
+/// a written note silent and undiagnosed.
+///
+#[tokio::test]
+async fn a_note_typed_into_a_blank_note_slot_is_diagnosed_until_it_plays() {
+    let dir = TempDir::new();
+    let (mut harness, _) = console_with(&dir, "blank-note.orcvs", BLANK_NOTE);
+    let play = (2, 1);
+
+    assert_eq!(mapped(&harness), [], "a blank note is not diagnosed");
+    let blank = tick(&harness, 0);
+    assert_eq!(diagnostics(&blank), [], "a blank note reports nothing");
+    assert_eq!(notes(&blank), [], "a blank note plays nothing");
+
+    go_to(&mut harness, 8, 1);
+    type_text(&mut harness, "E");
+    assert_eq!(text(&harness, 1, 8..10), "E ");
+    assert_eq!(
+        mapped(&harness),
+        [
+            (play, "expected a note, found \"E \"".to_owned()),
+            ((8, 1), "invalid Language Unit character 'E'".to_owned())
+        ],
+        "the Language Map"
+    );
+    // The Language Map diagnoses the Play before any Turn, so the Tick
+    // leaves it out rather than report it twice.
+    let half = tick(&harness, 1);
+    assert_eq!(diagnostics(&half), [], "the Tick");
+    assert_eq!(notes(&half), [], "a half-written note plays nothing");
+
+    type_text(&mut harness, "5");
+    assert_eq!(mapped(&harness), [], "a whole note is not diagnosed");
+    let whole = tick(&harness, 2);
+    assert_eq!(diagnostics(&whole), [], "a whole note reports nothing");
+    assert_eq!(notes(&whole), [76], "E5");
+}
+
+///
+/// Clearing a pair empties its step without moving the pairs after it, and
 /// typing its Note back restores the step.
 ///
 #[tokio::test]
-async fn a_cleared_pair_rests_in_place_and_typing_it_back_restores_it() {
+async fn a_cleared_pair_empties_its_step_in_place_and_typing_it_back_restores_it() {
     let dir = TempDir::new();
     let (mut harness, _) = console_with_the_tracker(&dir);
 
@@ -275,8 +332,8 @@ async fn a_cleared_pair_rests_in_place_and_typing_it_back_restores_it() {
 
     assert_eq!(pairs(&harness), "C4    G4  A4C5  ");
     tick(&harness, banged_tick_of(0));
-    let rest = tick(&harness, banged_tick_of(1));
-    assert_rests(&harness, &rest, "the cleared step");
+    let cleared = tick(&harness, banged_tick_of(1));
+    assert_quiet(&harness, &cleared, "the cleared step");
     assert_eq!(
         notes(&tick(&harness, banged_tick_of(3))),
         [67],
@@ -318,7 +375,7 @@ async fn a_note_pasted_into_an_empty_pair_plays_on_the_next_tick_that_selects_it
 }
 ///
 /// Copying the pairs carries their empty pairs as spaces, and pasting them
-/// back writes those spaces, so a pasted pattern keeps its rests.
+/// back writes those spaces, so a pasted pattern keeps its empty steps.
 ///
 #[tokio::test]
 async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
@@ -355,8 +412,8 @@ async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
 
     assert_eq!(pairs(&harness), "C4D4  G4  A4C5  ");
     tick(&harness, banged_tick_of(1));
-    let rest = tick(&harness, banged_tick_of(2));
-    assert_rests(&harness, &rest, "the pasted empty pair");
+    let empty = tick(&harness, banged_tick_of(2));
+    assert_quiet(&harness, &empty, "the pasted empty step");
 }
 
 ///
@@ -399,7 +456,7 @@ async fn the_pairs_east_of_track_paint_as_they_do_without_track() {
 }
 
 ///
-/// Saving the edited tracker writes the pattern as typed, rests included, and
+/// Saving the edited tracker writes the pattern as typed, empty steps included, and
 /// reopening it in a new console plays that pattern from step 0 when its
 /// Ticks start again at 0, whatever Tick the Source was saved at. That a new
 /// Playback run starts at Tick 0 is Playback's own contract, pinned in
@@ -450,10 +507,7 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
                     plan.diagnostics
                 );
             }
-            // Step 6 empties the slot step 5 filled and step 7 finds it empty
-            // already. Both rest, and neither the Tick nor the Language Map
-            // reports either one.
-            None => assert_rests(&reopened, &plan, &format!("step {step}")),
+            None => assert_quiet(&reopened, &plan, &format!("step {step}")),
         }
         let held = tick(&reopened, banged_tick_of(step) + 1);
         assert!(held.play_commands.is_empty(), "step {step}'s unbanged Tick");
@@ -464,9 +518,9 @@ async fn a_saved_and_reopened_tracker_plays_the_edited_pattern_from_tick_zero() 
 ///
 /// The Tracker edits as the Melody does. Channel 4's voice, which
 /// ships empty, reads the column at x 40 from row 15, one step per row and
-/// one step per Tick: a typed step plays, clearing it rests that voice with
-/// no diagnostic at its Timed Play at (32, 13), typing it back restores it,
-/// and Save and a reopen keep the edits and start every voice at step 0.
+/// one step per Tick: a typed step plays, clearing it silences that voice and
+/// reports nothing, typing it back restores it, and
+/// Save and a reopen keep the edits and start every voice at step 0.
 ///
 #[tokio::test]
 async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
@@ -491,18 +545,16 @@ async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
     go_to(&mut harness, COLUMN + 1, step_row(0));
     press(&mut harness, Key::Backspace, 2);
     assert_eq!(text(&harness, step_row(0), COLUMN..COLUMN + 2), "  ");
-    let rest = tick(&harness, 0);
+    let cleared = tick(&harness, 0);
     assert!(
-        notes_on(&rest, CHANNEL).is_empty(),
+        notes_on(&cleared, CHANNEL).is_empty(),
         "{:?}",
-        rest.play_commands
+        cleared.play_commands
     );
     assert!(
-        diagnostics(&rest)
-            .iter()
-            .all(|(anchor, _)| *anchor != (32, 13)),
-        "a cleared step is a silent rest: {:?}",
-        rest.diagnostics
+        cleared.diagnostics.is_empty(),
+        "a cleared step reports nothing: {:?}",
+        cleared.diagnostics
     );
 
     go_to(&mut harness, COLUMN, step_row(0));

@@ -12,20 +12,12 @@
 //! and reads a completed child's Return from that child's state rather than
 //! interpreting the child again.
 
-use lang::{Atom, Function};
+use lang::Atom;
 
 use super::{
-    Answer, Computation, ComputationId, Encoding, Execution, Operand, Position, SCALAR_WIDTH,
+    Answer, Computation, ComputationId, Encoding, Execution, Function, Operand, Position,
+    SCALAR_WIDTH,
 };
-
-/// What a Turn's operands decode to.
-pub(super) enum Decoded {
-    /// The operands, in signature order.
-    Operands(Vec<Atom>),
-    /// The Function's rest operand held two blank Cells or a Clear and every
-    /// other operand decoded: the Turn is taken with nothing to perform.
-    Rest,
-}
 
 impl Execution<'_> {
     /// The nested Function whose Return `operand` consumes, or `None` where
@@ -46,8 +38,8 @@ impl Execution<'_> {
         })
     }
 
-    /// The operands of `node`'s Turn, in signature order, or
-    /// [`Decoded::Rest`] where the Turn is a rest.
+    /// The operand slots of `node`'s Turn as `function`, in signature order,
+    /// once binding has checked them.
     ///
     /// Each operand is decoded by its declared Token, whichever way its
     /// characters arrived. Spatial delivery leaves them pending in working
@@ -56,56 +48,66 @@ impl Execution<'_> {
     /// returned into a Number operand is read as the Number it spells,
     /// exactly as the same characters written there by a Portal would be.
     ///
-    /// The first operand that does not decode refuses the Turn. A slot with
-    /// no written Cell refuses it as a partly written slot does. A child that
-    /// answered a Clear, a pulse that did not Bang or a Copy, Read or Track
-    /// of empty Cells, returns no value, and the refusal names that child.
-    /// The one exception is `function`'s rest operand: two blank Cells or a
-    /// Clear there makes the Turn a rest once every other operand decodes, so
-    /// a Play with no note to play sends nothing and reports nothing, however
-    /// its note came to be blank.
+    /// A slot holds no value, `None`, where its Cells are blank or its child
+    /// answered a Clear: a pulse that did not Bang, or a Copy, Read or Track
+    /// of empty Cells. It stands only where `function` admits a blank slot
+    /// there. Anywhere else a blank slot is refused as its Token refuses
+    /// blank Cells, and a cleared one names the child that cleared it,
+    /// because nothing at the operand says which Function did.
+    ///
+    /// Slots are decided in signature order, so the refusal is for the first
+    /// slot that does not decode, that a child returned nothing to, or that
+    /// holds no value it may not. All of it happens before any Portal is
+    /// resolved or read, so a Turn whose operands do not bind reads nothing.
     pub(super) fn decode(
         &self,
         node: &Computation,
         function: Function,
         signature: lang::Tokens,
-    ) -> Result<Decoded, String> {
-        let mut rests = false;
+    ) -> Result<Vec<Option<Atom>>, String> {
         let mut operands = Vec::with_capacity(node.operands.len());
-        for (slot, (operand, token)) in node.operands.iter().zip(signature).enumerate() {
-            let Some(child) = self.returning_child(operand) else {
-                let spelling = self.working.text(operand.cells.clone());
-                if function.rest_operand() == Some(slot) && spelling == lang::BLANK_PAIR {
-                    rests = true;
-                    continue;
+        let slots = node
+            .operands
+            .iter()
+            .zip(signature)
+            .zip(function.blank_admitted());
+        for ((operand, token), &blank_admitted) in slots {
+            let decoded = match self.returning_child(operand) {
+                None => {
+                    let spelling = self.working.text(operand.cells.clone());
+                    if token.is_blank(spelling) {
+                        if !blank_admitted {
+                            return Err(token.blank_refusal().to_string());
+                        }
+                        None
+                    } else {
+                        Some(token.decode(spelling))
+                    }
                 }
-                operands.push(token.decode(spelling).map_err(|error| error.to_string())?);
-                continue;
-            };
-            let anchor = self.schedule.lookup.nodes()[child].anchor;
-            let returned = match self.turns.result(child) {
-                Some(Answer::Clear) if function.rest_operand() == Some(slot) => {
-                    rests = true;
-                    continue;
+                Some(child) => {
+                    let anchor = self.schedule.lookup.nodes()[child].anchor;
+                    match self.turns.result(child) {
+                        // A Clear wrote two spaces at the child's Output
+                        // Portal and returns no value.
+                        Some(Answer::Clear) => {
+                            if !blank_admitted {
+                                return Err(nested(anchor, "cleared its operand"));
+                            }
+                            None
+                        }
+                        Some(Answer::Unit(atom)) => {
+                            Some(token.decode(&Encoding::render(atom).to_string()))
+                        }
+                        None => return Err(nested(anchor, "returned nothing")),
+                    }
                 }
-                // A Clear wrote two spaces at the child's Output Portal and
-                // returns no value. The parent names the child, since
-                // nothing at the operand says which Function cleared.
-                Some(Answer::Clear) => return Err(nested(anchor, "cleared its operand")),
-                Some(Answer::Unit(atom)) => Encoding::render(atom),
-                None => return Err(nested(anchor, "returned nothing")),
             };
-            operands.push(
-                token
-                    .decode(&returned.to_string())
-                    .map_err(|error| error.to_string())?,
-            );
+            operands.push(decoded.transpose().map_err(|error| error.to_string())?);
         }
-        Ok(if rests {
-            Decoded::Rest
-        } else {
-            Decoded::Operands(operands)
-        })
+        function
+            .check_operands(&operands)
+            .map_err(|error| error.to_string())?;
+        Ok(operands)
     }
 
     /// The Cell after the last one `index`'s operands occupy. A returning last

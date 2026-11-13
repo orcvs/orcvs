@@ -156,7 +156,7 @@ mod test {
 
     /// Exercises Function dispatch with resolved operands in signature order.
     fn evaluate(function: Function, note: Atom, number: Atom) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, [note, number], inputs().into())
+        Interpreter::execute_function(function, [note, number].map(Some), inputs().into())
     }
 
     fn note(value: u8) -> Atom {
@@ -482,7 +482,7 @@ mod test {
             for present in [&[][..], &[note(0x3C)][..]] {
                 let mut ctx = Context::new(inputs().into(), 4);
                 for &operand in present {
-                    ctx.stack.push(operand).unwrap();
+                    ctx.stack.push(Some(operand)).unwrap();
                 }
 
                 assert!(
@@ -501,12 +501,12 @@ mod test {
     fn a_pitch_function_reads_only_its_own_operands_from_a_deeper_stack() {
         for (function, body) in BODIES {
             let mut ctx = Context::new(inputs().into(), 4);
-            ctx.stack.push(Atom::Bang).unwrap();
-            ctx.stack.push(Atom::Number(2)).unwrap();
-            ctx.stack.push(note(0x3C)).unwrap();
+            ctx.stack.push(Some(Atom::Bang)).unwrap();
+            ctx.stack.push(Some(Atom::Number(2))).unwrap();
+            ctx.stack.push(Some(note(0x3C))).unwrap();
 
             assert!(body(&mut ctx).is_ok(), "{function:?}");
-            assert_eq!(ctx.stack.pop_value(), Some(Atom::Bang));
+            assert_eq!(ctx.stack.pop_value(), Some(Some(Atom::Bang)));
         }
     }
 
@@ -517,11 +517,19 @@ mod test {
     /// Pick and Stack, which each read three operands, with arguments the
     /// tests can name.
     fn evaluate_pick(root: Atom, set: Atom, index: Atom) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(Function::Pick, [root, set, index], inputs().into())
+        Interpreter::execute_function(
+            Function::Pick,
+            [root, set, index].map(Some),
+            inputs().into(),
+        )
     }
 
     fn evaluate_stack(set: Atom, degree: Atom, size: Atom) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(Function::Stack, [set, degree, size], inputs().into())
+        Interpreter::execute_function(
+            Function::Stack,
+            [set, degree, size].map(Some),
+            inputs().into(),
+        )
     }
 
     #[test]
@@ -603,7 +611,7 @@ mod test {
         for (function, body, operands) in three_operand_bodies() {
             let mut ctx = Context::new(inputs().into(), 4);
             for &operand in &operands[1..] {
-                ctx.stack.push(operand).unwrap();
+                ctx.stack.push(Some(operand)).unwrap();
             }
 
             assert!(
@@ -623,13 +631,13 @@ mod test {
     fn pick_and_stack_read_only_their_own_operands_from_a_deeper_stack() {
         for (function, body, operands) in three_operand_bodies() {
             let mut ctx = Context::new(inputs().into(), 4);
-            ctx.stack.push(Atom::Bang).unwrap();
+            ctx.stack.push(Some(Atom::Bang)).unwrap();
             for operand in operands {
-                ctx.stack.push(operand).unwrap();
+                ctx.stack.push(Some(operand)).unwrap();
             }
 
             assert!(body(&mut ctx).is_ok(), "{function:?}");
-            assert_eq!(ctx.stack.pop_value(), Some(Atom::Bang));
+            assert_eq!(ctx.stack.pop_value(), Some(Some(Atom::Bang)));
         }
     }
 

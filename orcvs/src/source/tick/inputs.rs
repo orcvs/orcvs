@@ -110,6 +110,10 @@ pub(in crate::source) struct ScheduledExpression<'a> {
     span: Span,
     leading: (Position, Function),
     expression: &'a Expression,
+    /// Whether the Parser refused anything in this Expression. Where it
+    /// refused nothing, an entry that bound no Atom is a slot its operand
+    /// type admits blank.
+    refused: bool,
 }
 
 impl<'a> ScheduledExpression<'a> {
@@ -122,11 +126,13 @@ impl<'a> ScheduledExpression<'a> {
         span: Span,
         leading: Option<(Position, Function)>,
         expression: &'a Expression,
+        refused: bool,
     ) -> Option<Self> {
         Some(Self {
             span,
             leading: leading?,
             expression,
+            refused,
         })
     }
 
@@ -138,6 +144,7 @@ impl<'a> ScheduledExpression<'a> {
     /// text, without the closer.
     pub(super) fn entries(self) -> impl Iterator<Item = ScheduledEntry> + 'a {
         let expression = self.expression;
+        let refused = self.refused;
         expression.positioned().map(move |entry| match entry.token {
             Token::Payload => ScheduledEntry {
                 cells: expression
@@ -150,7 +157,7 @@ impl<'a> ScheduledExpression<'a> {
             _ => ScheduledEntry {
                 cells: entry.cells.clone(),
                 parent: entry.parent,
-                parsed: Parsed::of(entry),
+                parsed: Parsed::of(entry.atom.as_ref(), refused),
             },
         })
     }
@@ -208,12 +215,11 @@ pub(super) struct FunctionSite {
 /// How one positioned entry parsed, without any value it parsed to.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Parsed {
-    /// Its Cells bound no Atom.
+    /// Its Cells bound no Atom, in an Expression the Parser refused.
     Unparsed,
-    /// Its Cells are blank in its Function's rest operand. It binds no Atom
-    /// and blocks nothing: the Turn reads those Cells and may rest on them.
-    Rest,
-    /// It bound an Atom that is not a Function.
+    /// An operand that is not a Function: an Atom it bound, or, in an
+    /// Expression the Parser refused nothing in, a blank slot its operand
+    /// type admits, which binding decides.
     Value,
     /// It bound this Function.
     Function(Function),
@@ -223,12 +229,11 @@ pub(super) enum Parsed {
 }
 
 impl Parsed {
-    fn of(entry: &lang::PositionedEntry) -> Self {
-        match entry.atom {
-            None if entry.rest => Self::Rest,
-            None => Self::Unparsed,
-            Some(Atom::Function(function)) => Self::Function(function),
-            Some(_) => Self::Value,
+    fn of(atom: Option<&Atom>, refused: bool) -> Self {
+        match atom {
+            None if refused => Self::Unparsed,
+            Some(Atom::Function(function)) => Self::Function(*function),
+            _ => Self::Value,
         }
     }
 }

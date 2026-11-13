@@ -1,9 +1,10 @@
 //! The operand types a Function declares, as Rust types.
 //!
 //! A Function's row in the table names one of these types per role. The type
-//! decides three things together: the [`Token`] the Parser reads a literal in
-//! that slot as, the payload extraction yields for it, and the value the
-//! Function body receives. [`Operand::bind`] takes exactly the payload its
+//! decides four things together: the [`Token`] the Parser reads a literal in
+//! that slot as, the payload extraction yields for it, the value the
+//! Function body receives, and whether the slot may hold no value
+//! ([`Operand::ABSENT`]). [`Operand::bind`] takes exactly the payload its
 //! [`Operand::Token`] yields, so an operand whose token and bind disagree does
 //! not compile:
 //!
@@ -99,6 +100,17 @@ pub trait Operand {
     /// Fallible because a domain may be narrower than its token: a MIDI
     /// channel is read as a Number and is a channel only once this admits it.
     fn bind(payload: <Self::Token as TokenKind>::Payload) -> Result<Self::Bound, Error>;
+
+    /// What a slot that holds no value binds to — blank Cells, or a nested
+    /// Function that answered a Clear — or `None` where this operand requires
+    /// a value and refuses the slot.
+    ///
+    /// Whether an operand admits a blank slot is this answer, so the Parser,
+    /// which reads a blank slot as absent only where it is admitted, and
+    /// binding cannot disagree. Only [`Optional`] admits one. It is a function
+    /// rather than the value, so the Function table can ask whether it is
+    /// present at compile time without dropping a generic `Bound`.
+    const ABSENT: Option<fn() -> Self::Bound> = None;
 }
 
 /// A Number: `00`–`FF`.
@@ -268,6 +280,31 @@ pub type BendLsb = Domain<crate::BendLsb>;
 /// The Pitch Bend high half over a Number literal.
 pub type BendMsb = Domain<crate::BendMsb>;
 
+/// `O`, or no value: a slot that admits blank Cells.
+///
+/// It is read as `O`'s token and binds a present value through `O::bind`, so
+/// a value `O` refuses is refused with `O`'s diagnostic. A slot that holds no
+/// value binds to `None` rather than being refused.
+pub struct Optional<O>(core::marker::PhantomData<O>, core::convert::Infallible);
+
+impl<O: Operand> Operand for Optional<O> {
+    type Token = O::Token;
+    type Bound = Option<O::Bound>;
+
+    #[inline(always)]
+    fn bind(payload: <O::Token as TokenKind>::Payload) -> Result<Option<O::Bound>, Error> {
+        O::bind(payload).map(Some)
+    }
+
+    const ABSENT: Option<fn() -> Option<O::Bound>> = Some(|| None);
+}
+
+/// Whether `O` admits a slot that holds no value, for the Function table's
+/// signature constants.
+pub(crate) const fn admits_blank<O: Operand>() -> bool {
+    O::ABSENT.is_some()
+}
+
 /// A Play lifetime over a Number literal. Every byte is a length, so this
 /// converts where the MIDI domains validate.
 pub enum Length {}
@@ -282,14 +319,37 @@ impl Operand for Length {
     }
 }
 
-/// Checks one operand Atom against `O`'s token.
+/// `O`'s refusal of an operand slot that holds no value.
 #[inline(always)]
-pub(crate) fn check<O: Operand>(atom: crate::Atom) -> Result<(), Error> {
-    O::Token::from_atom(atom).map(drop)
+fn absent<O: Operand>() -> Error {
+    crate::ArgumentError::Absent {
+        token: O::Token::TOKEN,
+    }
+    .into()
 }
 
-/// Binds one operand Atom to `O`.
+/// Checks one operand slot against `O`'s token. A slot that holds no value
+/// passes only where `O` admits one.
 #[inline(always)]
-pub(crate) fn bind_atom<O: Operand>(atom: crate::Atom) -> Result<O::Bound, Error> {
-    O::bind(O::Token::from_atom(atom)?)
+pub(crate) fn check<O: Operand>(atom: Option<crate::Atom>) -> Result<(), Error> {
+    match atom {
+        Some(atom) => O::Token::from_atom(atom).map(drop),
+        None if admits_blank::<O>() => Ok(()),
+        None => Err(absent::<O>()),
+    }
+}
+
+/// Binds one operand slot to `O`, once [`check`] has passed it.
+///
+/// [`check`] refuses a slot that holds no value wherever `O` requires one, so
+/// a slot that reaches here empty is one `O` admits.
+#[inline(always)]
+pub(crate) fn bind_atom<O: Operand>(atom: Option<crate::Atom>) -> Result<O::Bound, Error> {
+    match atom {
+        Some(atom) => O::bind(O::Token::from_atom(atom)?),
+        None => {
+            let blank = O::ABSENT.expect("check refused a blank slot this operand requires");
+            Ok(blank())
+        }
+    }
 }

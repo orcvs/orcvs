@@ -24,7 +24,6 @@ use super::{
     coverage, diagnose, resolve, tick_inputs,
 };
 use crate::source::buffer::Cells;
-use operands::Decoded;
 use turns::{Activation, Answer, Turns};
 use working::{WorkingSource, WriteKind};
 
@@ -304,17 +303,13 @@ impl<'a> Execution<'a> {
         let node = &lookup.nodes()[index];
         let function = self.turns.function(index);
         let tick = tick_inputs(self.tick, node.anchor);
-        let resolved = match self.decode(node, function, signature) {
-            Ok(Decoded::Operands(operands)) => self
-                .turn_portal(index, function, &operands)
+        let resolved = self.decode(node, function, signature).and_then(|operands| {
+            self.turn_portal(index, function, &operands)
                 .and_then(|portal| {
                     let destination = self.turn_destination(index, function, &operands)?;
                     Ok((operands, portal, destination))
-                }),
-            // A rest is a Turn taken with nothing to perform.
-            Ok(Decoded::Rest) => return None,
-            Err(message) => Err(message),
-        };
+                })
+        });
         let (operands, portal, destination) = match resolved {
             Ok(resolved) => resolved,
             Err(message) => {
@@ -370,7 +365,7 @@ impl<'a> Execution<'a> {
                 self.effects.extend(chord.commands().map(Effect::Play));
             }
             Ok(Interpretation::Send(send)) => self.effects.push(Effect::Send(*send)),
-            Ok(Interpretation::EmptyPayload) => {}
+            Ok(Interpretation::Inert) => {}
             Ok(Interpretation::Cell(atom)) => {
                 self.deliver_value(index, Answer::Unit(atom), destination, delivery);
             }
@@ -393,7 +388,7 @@ impl<'a> Execution<'a> {
         &self,
         index: ComputationId,
         function: Function,
-        operands: &[Atom],
+        operands: &[Option<Atom>],
     ) -> Result<InputSite, String> {
         let Some(declared) = function.input_portal() else {
             return Ok(InputSite::Undeclared);
@@ -456,7 +451,7 @@ impl<'a> Execution<'a> {
         &self,
         index: ComputationId,
         function: Function,
-        operands: &[Atom],
+        operands: &[Option<Atom>],
     ) -> Result<Option<Result<Position, PortalError>>, String> {
         let Output::Dynamic(selection) = function.output() else {
             return Ok(None);

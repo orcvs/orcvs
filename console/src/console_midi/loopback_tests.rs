@@ -461,8 +461,8 @@ fn tracker(notes: &[(u8, usize, &str)]) -> Source {
 /// The tracker's pattern for the loopback: a chord across both groups of
 /// voices on step 0, a lone voice on step 1, the same voice again with
 /// another on step 2, a second chord on step 8, and lone voices on steps 12
-/// and 15. Every other step rests, and so does every voice a step leaves
-/// empty.
+/// and 15. Nothing else plays: neither the other steps nor a voice a step
+/// leaves empty.
 ///
 const TRACKER_NOTES: [(u8, usize, &str); 11] = [
     (0, 0, "C4"),

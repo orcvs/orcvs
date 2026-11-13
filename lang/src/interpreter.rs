@@ -15,8 +15,9 @@ pub enum Interpretation {
     /// Orca's bang ports write `.`, and a Copy, Read or Track of two empty
     /// Cells.
     ///
-    /// Nested, it returns no value: the operand it stands in is unwritten,
-    /// so its parent is invalid and names it.
+    /// Nested, it returns no value: the operand it stands in holds none, so
+    /// a parent whose operand type requires a value is invalid and names it,
+    /// and an optional operand binds to no value.
     Clear,
     /// The one Play Command an active Terminal Output Function root performs.
     Play(PlayCommand),
@@ -28,9 +29,10 @@ pub enum Interpretation {
     /// boxed because a Send is wider than every other answer and every Turn's
     /// answer would otherwise be that wide.
     Send(Box<NetworkSend>),
-    /// What an active UDP Function answers for an empty Payload, `!u!`: it
-    /// sends nothing and reports nothing.
-    EmptyPayload,
+    /// What an active Terminal Output root with nothing to send answers: a
+    /// UDP Function's empty Payload, `!u!`, or a Play's blank note. It sends
+    /// nothing and reports nothing.
+    Inert,
     /// The lock one active locking Function root places on the Expression
     /// root at its Output Portal.
     ///
@@ -101,12 +103,14 @@ impl Interpreter {
     /// clock, static, or thread-local is read, so the same Function over the
     /// same operands and inputs answers the same way every time.
     ///
-    /// The operands are taken in signature order, one Atom each.
+    /// The operands are taken in signature order, one slot each: the Atom it
+    /// holds, or `None` where it holds no value, which only the declared
+    /// operand type decides the meaning of.
     ///
     /// ```
     /// use lang::{Anchor, Atom, Function, Interpretation, Interpreter, Tick, TickInputs};
     /// let answer = Interpreter::execute_function(
-    ///     Function::Subtract, [Atom::Number(9), Atom::Number(2)],
+    ///     Function::Subtract, [Some(Atom::Number(9)), Some(Atom::Number(2))],
     ///     TickInputs::new(Tick::ZERO, Anchor::new(0, 0)).into(),
     /// ).unwrap();
     /// assert_eq!(answer, Interpretation::Cell(Atom::Number(7)));
@@ -117,7 +121,7 @@ impl Interpreter {
         inputs: FunctionInputs<'_>,
     ) -> Result<Interpretation, Error>
     where
-        I: IntoIterator<Item = Atom>,
+        I: IntoIterator<Item = Option<Atom>>,
         I::IntoIter: ExactSizeIterator + DoubleEndedIterator,
     {
         let operands = operands.into_iter();
@@ -198,17 +202,22 @@ impl Interpreter {
             Function::Stack => Interpretation::Cell(functions::pitch::stack(&mut ctx)?),
             Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
             Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
-            Function::MonophonicPlay => Interpretation::Play(functions::monophonic_play(&mut ctx)?),
+            Function::MonophonicPlay => functions::monophonic_play(&mut ctx)?
+                .map_or(Interpretation::Inert, Interpretation::Play),
             Function::Pick => Interpretation::Cell(functions::pitch::pick(&mut ctx)?),
             Function::PitchBend => Interpretation::Play(functions::pitch_bend(&mut ctx)?),
             Function::RawChordPlay => {
                 Interpretation::Chord(functions::chord::raw_chord_play(&mut ctx)?)
             }
-            Function::RawPlay => Interpretation::Play(functions::raw_play(&mut ctx)?),
+            Function::RawPlay => {
+                functions::raw_play(&mut ctx)?.map_or(Interpretation::Inert, Interpretation::Play)
+            }
             Function::TimedChordPlay => {
                 Interpretation::Chord(functions::chord::timed_chord_play(&mut ctx)?)
             }
-            Function::TimedPlay => Interpretation::Play(functions::timed_play(&mut ctx)?),
+            Function::TimedPlay => {
+                functions::timed_play(&mut ctx)?.map_or(Interpretation::Inert, Interpretation::Play)
+            }
             Function::Udp => functions::network::udp(&mut ctx),
             Function::Osc => functions::network::osc(&mut ctx)?,
             Function::Halt
@@ -246,7 +255,7 @@ mod test {
     /// Evaluates one Function over literal operands, the way a Turn hands
     /// them over once it has resolved them.
     fn evaluate(function: Function, operands: &[Atom]) -> Result<Interpretation, Error> {
-        let operands = operands.iter().copied();
+        let operands = operands.iter().copied().map(Some);
         Interpreter::execute_function(function, operands, inputs().into())
     }
 
@@ -916,7 +925,7 @@ mod test {
                         );
                         let answer = Interpreter::execute_function(
                             function,
-                            operands.iter().copied(),
+                            operands.iter().copied().map(Some),
                             inputs,
                         );
                         if matches!(answer, Ok(Interpretation::Clear)) {
