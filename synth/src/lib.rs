@@ -58,8 +58,9 @@ const FADE: f32 = 0.005;
 /// The synth: sixteen voices, a frame clock, and the messages still to come.
 ///
 /// Channels `0`–`7` play tones, `8` the acid voice (ADR 0099), and `9`–`15`
-/// the 808-style kit, so MIDI channel 10 plays drums as in General MIDI. Velocity is the only level. Control Change 1 to
-/// 8 on any channel set the effects (ADR 0088): `MD`, vibrato on the whole mix,
+/// the 808-style kit, so MIDI channel 10 plays drums as in General MIDI.
+/// Velocity is the only level. Control Change 1 to 8 on any channel set the
+/// effects (ADR 0088): `MD`, vibrato on the whole mix,
 /// `OF`, how far into its course each new sound starts, `LN`, how long it
 /// decays, `DL`, an echo of the whole mix, `CH`, a chorus on it, `EQ`, one
 /// tilt, and `R1` and `R2`, a small and a large reverb. All Sound Off and All Notes
