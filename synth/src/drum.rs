@@ -1,5 +1,5 @@
-//! The 808-style kit on channels `9`–`15` (MIDI channels 10–16), rebuilt from what the 808's
-//! circuits do rather than from recordings.
+//! The 808-style kit ([`Part::Kit`](crate::Part::Kit)), rebuilt from what the
+//! 808's circuits do rather than from recordings.
 
 use std::f32::consts::{PI, TAU};
 

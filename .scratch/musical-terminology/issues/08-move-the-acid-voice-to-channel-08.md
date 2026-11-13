@@ -18,5 +18,7 @@ can read which channel plays what.
       new channels.
 - [x] Synth byte tests cover the acid voice on `08` and the kit on `09`.
 - [x] The crate gates for every crate the change reaches pass, including `console` wherever the
-      console compiles what changed (the examples or the Function Reference asset), and the site
-      build and tests where the site renders it.
+      console compiles what changed (the examples or the Function Reference asset).
+- [x] The site build and tests pass where the site renders it. CI's Site workflow carries this
+      gate (`mise run site_build`, `mise run site_test`, against the commit's own web console); it
+      was not run locally.
