@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794572588637,
+  "lastUpdate": 1794572599398,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -165150,6 +165150,135 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/5d4ec99486ff198fe81341e5109a1bc88564a5ba"
         },
         "date": 1794571466817,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 1,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 2,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled blocks",
+            "value": 38880,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled bytes",
+            "value": 16167053,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled blocks",
+            "value": 38880,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled bytes",
+            "value": 16167053,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 3621,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 8,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 5072,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 3749,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 17,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 13645,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 4005,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 29,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 30034,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d4b81bd9960ff6cee7d9df29fe1cb4f5bced462",
+          "message": "Merge pull request #360 from orcvs/dependabot/cargo/rust-dependencies-e27463ef88\n\nBump the rust-dependencies group with 2 updates",
+          "timestamp": "2026-11-13T12:01:05Z",
+          "tree_id": "b142e5ad3cd7618ca32b3fce1a8f449411dc7ff0",
+          "url": "https://github.com/orcvs/orcvs/commit/5d4b81bd9960ff6cee7d9df29fe1cb4f5bced462"
+        },
+        "date": 1794572599310,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
