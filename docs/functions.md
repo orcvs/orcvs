@@ -377,9 +377,13 @@ inversion only rotates the tones `SH` keeps. `RL` keeps every tone above the roo
 included: on a ninth chord it plays the 3rd, 5th, 7th and 9th, the rootless A form, and with
 inversion 2 (`02`) the 7th, 9th, 3rd and 5th, the B form.
 
-An inversion at or above the number of tones moves the whole chord up an octave for each whole
-round of its tones and inverts the rest: on the four tones of `C4M7`, inversion 4 (`04`) plays C5,
-E5, G5 and B5, and inversion 5 (`05`) plays E5, G5, B5 and C6.
+Each step of an inversion moves the current lowest tone up an octave, to its place among the
+others, so an inversion at or above the number of tones keeps going round. On a chord whose tones
+lie within an octave, each whole round of its tones moves the whole chord up an octave: on the four
+tones of `C4M7`, inversion 4 (`04`) plays C5, E5, G5 and B5, and inversion 5 (`05`) plays E5, G5,
+B5 and C6. On a wider Interval Set a raised tone can land below a tone not yet raised, so a whole
+round does not move the chord an octave: `C413` inverted 6 times (`06`) plays E5, G5, A5, a5, C6
+and D6, not the tones of `C413` an octave up.
 
 ## Pitch
 
