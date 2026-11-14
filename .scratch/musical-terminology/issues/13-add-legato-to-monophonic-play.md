@@ -34,7 +34,7 @@ The implementer made these; the spec above did not ask for them. Each is for Tob
   the channel's note whatever the `legato`.
 - `legato` takes two Cells east of `length`, so a `!%` now needs twelve Cells, and a slot running
   past the row end is refused as before; on the one Grid shape that matters only at its east edge.
-  Tests that put `!%` on ten-column Grids use twelve.
+  Tests that put `!%` on a narrow Grid write its blank `legato` and size the Grid from that row.
 - `PlayCommand::Mono` carries an `Articulation` (`Retrigger` or `Legato`), not a `bool`.
 - The row declares `legato: Defaulted<Number, 0x00>` directly, through the row grammar ticket 12
   widened.
