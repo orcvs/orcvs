@@ -1,5 +1,7 @@
 //! The MIDI controller numbers that set a channel's effects, under the
-//! effects' Orcvs names. ADR 0088's table gives each one's MIDI name.
+//! effects' Orcvs names, and the acid voice's own. ADR 0088's table gives each
+//! effect's MIDI name; on the acid channel `EQ` and `LN` are its cutoff and
+//! decay.
 
 /// Modulation: vibrato on the channel.
 pub(crate) const MD: u8 = 1;
@@ -20,3 +22,10 @@ pub(crate) const DL: u8 = 94;
 /// Reset All Controllers: clears `MD` on its channel and leaves the other
 /// effects as they are.
 pub(crate) const RESET: u8 = 121;
+/// Sound Controller 1: the acid voice's waveform.
+pub(crate) const WAVEFORM: u8 = 70;
+/// Sound Controller 2 (Timbre/Harmonic Intensity): the acid voice's
+/// resonance.
+pub(crate) const RESONANCE: u8 = 71;
+/// Sound Controller 10: the acid voice's envelope depth.
+pub(crate) const ENV_MOD: u8 = 79;
