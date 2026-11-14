@@ -73,9 +73,11 @@ const FADE: f32 = 0.005;
 /// large reverb, `CH` on CC 93, a chorus, and `DL` on CC 94, an echo. On the
 /// acid channel CC 74 and 75 are the acid voice's cutoff and decay instead,
 /// so neither the tilt nor the length applies there. All Sound Off and All
-/// Notes Off release a channel's tones and its acid voice. The acid channel's
-/// own Control Changes and Reset All Controllers set its controls; every
-/// other Control Change, Pitch Bend and Program Change is ignored.
+/// Notes Off release a channel's tones and its acid voice. Reset All
+/// Controllers clears the channel's Modulation and leaves its sound and every
+/// other effect alone (ADR 0099). The acid channel's own Control Changes set
+/// its controls; every other Control Change, Pitch Bend and Program Change is
+/// ignored.
 pub struct Synth {
     sample_rate: f32,
     frame: u64,
@@ -124,8 +126,10 @@ impl Channel {
         }
     }
 
-    /// Sets the effect on `controller` from a Control Change value; any other
-    /// controller changes nothing.
+    /// Sets the effect on `controller` from a Control Change value. Reset All
+    /// Controllers clears Modulation, a performance controller, and leaves
+    /// the rest, the Sound and Effect Controllers and `OF` beside them, as
+    /// RP-015 has it. Any other controller changes nothing.
     fn set(&mut self, controller: u8, value: u8) {
         let level = f32::from(value) / 127.0;
         match controller {
@@ -137,6 +141,7 @@ impl Channel {
             92 => self.large.set(level),
             93 => self.chorus.set(level),
             94 => self.delay.set(level),
+            121 => self.vibrato.set(0),
             _ => {}
         }
     }
@@ -1353,8 +1358,11 @@ mod tests {
         render(&mut synth, seconds(0.2))
     }
 
+    /// Reset All Controllers.
+    const RESET: u8 = 121;
+
     #[test]
-    fn reset_all_controllers_returns_the_acid_controls_and_leaves_the_effects() {
+    fn reset_all_controllers_leaves_the_acid_voices_sound_alone() {
         let turned: Vec<[u8; 3]> = [70, 71, 74, 75, 79]
             .into_iter()
             .map(|controller| control_change(ACID, controller, 0x7F))
@@ -1365,13 +1373,38 @@ mod tests {
             assert_ne!(acid_after(&[*message]), plain, "{message:?}");
         }
         assert_eq!(
-            acid_after(&[turned.as_slice(), &[control_change(ACID, 121, 0)]].concat()),
-            plain
+            acid_after(&[turned.as_slice(), &[control_change(ACID, RESET, 0)]].concat()),
+            acid_after(&turned)
         );
-        assert_eq!(
-            acid_after(&[control_change(ACID, MD, 0x7F), control_change(ACID, 121, 0)]),
-            acid_after(&[control_change(ACID, MD, 0x7F)])
-        );
+    }
+
+    #[test]
+    fn reset_all_controllers_leaves_every_effect_but_modulation_alone() {
+        for (controller, value) in TURNED
+            .into_iter()
+            .filter(|&(controller, _)| controller != MD)
+        {
+            let turned = control_change(0, controller, value);
+            assert_eq!(
+                blip(&[turned, control_change(0, RESET, 0)], seconds(1.0)),
+                blip(&[turned], seconds(1.0)),
+                "controller {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn reset_all_controllers_clears_modulation_on_its_channel_only() {
+        let reset = |channel| {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, control_change(0, MD, 0x7F));
+            synth.schedule(0, control_change(channel, RESET, 0));
+            synth.schedule(0, note_on(0, 69, 100));
+            render(&mut synth, seconds(1.0))
+        };
+
+        assert!(period_spread(&reset(0)) < 1.03);
+        assert!(period_spread(&reset(1)) > 1.08);
     }
 
     #[test]

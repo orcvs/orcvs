@@ -1286,6 +1286,26 @@ the filter envelope's decay; and CC79 (`4F`) the envelope's depth. On `08`, CC74
 cutoff and decay in place of the tilt and the length, so brightness and decay mean there what they
 mean on every other channel. Every other controller sets no effect.
 
+**Messages.** The Built-in Synth acts on Note On, Note Off and Control Change, and ignores Program
+Change, Pitch Bend, Channel Pressure and Polyphonic Key Pressure. Three Channel Mode messages act
+on the channel they arrive on:
+
+| Controller | MIDI name | Built-in Synth |
+|---|---|---|
+| 120 (`78`) | All Sound Off | Releases the channel's tones and its acid voice, which fade over their release rather than cut off; a drum rings out its own decay |
+| 121 (`79`) | Reset All Controllers | Clears Modulation, `MD`, to 0 (`00`), and leaves the acid voice's controllers and every other effect as they are |
+| 123 (`7B`) | All Notes Off | Releases the channel's tones and its acid voice, as All Sound Off does |
+
+Reset All Controllers follows MIDI's recommended practice for it, RP-015: it returns performance
+controllers such as the modulation wheel to rest and leaves the Sound Controllers, CC70 to CC79
+(`46` to `4F`), and the Effect Controllers, CC91 to CC95 (`5B` to `5F`), alone, so a reset does not
+wipe the sound a Source set up. `OF` is Orcvs's own control beside the Sound Controllers and stays
+too. Stopping Playback sends All Notes Off and Reset All Controllers on every channel, so a stop
+clears every channel's vibrato and keeps every other effect.
+
+The acid voice's accent is fixed: a Note On at velocity 120 (`78`) or above is accented by the same
+amount whatever its velocity, and the voice has no tuning control.
+
 **Drum keys.** The kit answers General MIDI's drum keys, so a drum part written for a General MIDI
 module plays the instruments it names. A key is the Note's MIDI number, and an Orcvs Note counts
 octaves so that `C4` is middle C, MIDI note 60 (`3C`): the kick, key 36 (`24`), is `C2`. Each

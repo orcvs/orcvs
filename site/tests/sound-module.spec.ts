@@ -135,13 +135,26 @@ test("the acid voice's channel shows its cutoff and decay where EQ and LN stand"
   expect(await valueOf(page, 1)).toBe("30");
   expect(await valueOf(page, 2)).toBe("30");
 
-  // Reset All Controllers on `08` returns the cutoff to its load value, as the synth does.
+});
+
+test("Reset All Controllers clears Modulation and leaves the other effects, as the synth does", async ({ page }) => {
+  await page.goto("/");
+  await page.locator(".orcvs-sound-module .channel").nth(8).click();
+
   const post = (bytes: number[]) =>
     page.evaluate((bytes) => window.postMessage({ type: "orcvs.midi", bytes, time: 0 }, location.origin), bytes);
+  await post([0xb8, 1, 0x7f]);
   await post([0xb8, 74, 0x7f]);
-  await expect.poll(() => valueOf(page, 1)).toBe("7F");
+  await post([0xb8, 91, 0x40]);
+  await expect.poll(() => valueOf(page, 4)).toBe("40");
+  // Stop sends Reset All Controllers on every channel; the chosen channel stays where it is.
   await post([0xb8, 121, 0]);
-  await expect.poll(() => valueOf(page, 1)).toBe("30");
+  await post([0xbf, 121, 0]);
+
+  await expect.poll(() => valueOf(page, 0)).toBe("00");
+  expect(await valueOf(page, 1)).toBe("7F");
+  expect(await valueOf(page, 4)).toBe("40");
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("8");
 });
 
 test("until the reader chooses a channel, the effects follow the channel a Control Change is on", async ({ page }) => {

@@ -40,8 +40,8 @@ impl Default for Controls {
 
 impl Controls {
     /// Sets `controller` to `value`, and answers whether `controller` is one
-    /// of the voice's. Reset All Controllers returns every control to its
-    /// load value; any other controller changes nothing.
+    /// of the voice's. They are Sound Controllers, which Reset All
+    /// Controllers leaves alone; any other controller changes nothing.
     pub(crate) fn set(&mut self, controller: u8, value: u8) -> bool {
         match controller {
             70 => self.waveform = value,
@@ -49,7 +49,6 @@ impl Controls {
             74 => self.cutoff = value,
             75 => self.decay = value,
             79 => self.env_mod = value,
-            121 => *self = Self::default(),
             _ => return false,
         }
         true
