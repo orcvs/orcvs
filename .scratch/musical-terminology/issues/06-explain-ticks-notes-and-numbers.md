@@ -30,13 +30,14 @@ DAW shows and the hex they type.
 Resolved on 14 November 2026. `docs/functions.md`'s reading guide gains **Ticks**, **Notes** and
 **Numbers** paragraphs: a Tick is a sixteenth note, four to a beat at the displayed BPM, unlike a
 DAW's tick; Notes are scientific pitch notation with middle C, MIDI 60 (`3C`), as `C4`, which
-Ableton Live, Logic Pro, Cubase and Bitwig Studio show as C3, lowercase letters are sharps, and a
-table spells each flat, and E♯ and B♯, as the note it sounds as; and a table of common values gives
-each in decimal beside its hex. The nested-arithmetic example is `.+.x020301`, answering `07`,
-followed by a pointer to Up and Down for raising or lowering a Note (`#+C407` answers `G4`).
-Increment is glossed as an accumulating counter that wraps, Random, Track, Push, Bang, Halt and Raw
-Play in musician terms, and the Pick, Raw Play, Monophonic Play, Timed Chord Play, Control Change
-and Pitch Bend prose names its numbers in decimal beside the hex. `CONTEXT.md`'s Tick entry states
-the sixteenth note; its Built-in Synth entry names channels, controllers and the accent velocity
-decimal first with the hex beside, in one order throughout; and its Increment entry qualifies the
-counter as accumulating, beside Clock's step counter.
+Ableton Live, Cubase, Bitwig Studio and Logic Pro on its C3 (Yamaha) setting show as C3, while
+Logic's C4 (Roland) setting matches Orcvs, lowercase letters are sharps, and a table spells each
+flat, and E♯ and B♯, as the note it sounds as; and a table of common values gives each in decimal
+beside its hex. The nested-arithmetic example is `.+.x020301`, answering `07`, followed by a pointer
+to Up and Down for raising or lowering a Note (`#+C407` answers `G4`). Increment is glossed as an
+accumulating counter that wraps, Random, Track, Push, Bang, Halt and Raw Play in musician terms, and
+the Pick, Raw Play, Monophonic Play, Timed Chord Play, Control Change and Pitch Bend prose names its
+numbers in decimal beside the hex. `CONTEXT.md`'s Tick entry states the sixteenth note; its Built-in
+Synth entry names channels, controllers and the accent velocity decimal first with the hex beside,
+in one order throughout; and its Increment entry qualifies the counter as accumulating, beside
+Clock's step counter.

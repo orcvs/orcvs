@@ -58,12 +58,15 @@ is a much finer subdivision, hundreds to a beat; an Orcvs Tick is one step of a 
 is on a drum machine.
 
 **Notes.** A Note is spelled in scientific pitch notation: a pitch letter, then its octave, with
-middle C, MIDI note 60 (`3C`), spelled `C4`. Ableton Live, Logic Pro, Cubase and Bitwig Studio show
-MIDI note 60 as C3, so a note one of them calls C3 is `C4` here, and every octave they show is one
-lower than Orcvs's. The octave below `0` is `/`: `C/` is MIDI note 0, and `G9`, MIDI note 127
-(`7F`), is the highest Note. A lowercase letter is the sharp of its uppercase letter: `c4` is C♯4.
-E and B have no sharp of their own, so Orcvs has no `e` or `b`, and a flat, or a sharp of E or B,
-is spelled as the note it sounds as:
+middle C, MIDI note 60 (`3C`), spelled `C4`. Ableton Live, Cubase and Bitwig Studio show MIDI note
+60 as C3, as Logic Pro does with its Display Middle C As setting on C3 (Yamaha): there a note called
+C3 is `C4` here, and every octave shown is one lower than Orcvs's. Logic Pro's C4 (Roland) setting
+already numbers octaves as Orcvs does
+([Apple](https://support.apple.com/en-my/guide/logicpro/lgcp9793a910/12.3/mac/15.6)). The octave
+below `0` is `/`: `C/` is MIDI note 0, and `G9`, MIDI note 127 (`7F`), is the highest Note. A
+lowercase letter is the sharp of its uppercase letter: `c4` is C♯4. E and B have no sharp of their
+own, so Orcvs has no `e` or `b`, and a flat, or a sharp of E or B, is spelled as the note it sounds
+as:
 
 | Written | Orcvs | | Written | Orcvs |
 |---|---|---|---|---|
