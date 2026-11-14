@@ -371,7 +371,7 @@ The synth a page that frames the console offers it as a MIDI destination, so an 
 _Avoid_: internal synth, sound module, Pilot, Enfer
 
 **Sound Module**:
-The row of the site's page below the console that shows the Built-in Synth: sixteen channels that show in the Function role's colours while a note sounds, and the eight effects of the channel the reader chose by clicking it, each a column of a two-Cell magnitude, a two-Cell value and a two-Cell name, set by that channel's Control Changes or by the reader typing into the values, which sends them on that channel (ADR 0088). It is drawn as Cells, as the site draws a Source.
+The row of the site's page below the console that shows the Built-in Synth: sixteen channels that show in the Function role's colours while a note sounds, and the eight effects of the chosen channel, which follows the channel of each effect Control Change it hears until the reader chooses one by clicking it or from the keyboard, each a column of a two-Cell magnitude, a two-Cell value and a two-Cell name, set by that channel's Control Changes or by the reader typing into the values, which sends them on that channel (ADR 0088). It is drawn as Cells, as the site draws a Source.
 _Avoid_: effects panel, mixer, control panel
 
 **Cursor**:

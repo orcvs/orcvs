@@ -34,6 +34,12 @@ impl Tilt {
         self.tilt.set((f32::from(value) - 64.0) / 64.0);
     }
 
+    /// Whether it is flat and staying there, so it passes the channel
+    /// unchanged.
+    pub(crate) fn is_flat(&self) -> bool {
+        self.tilt.rests_at(0.0)
+    }
+
     /// The channel's next sample, tilted.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         self.low += (input - self.low) * self.coefficient;

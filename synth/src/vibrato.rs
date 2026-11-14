@@ -46,6 +46,12 @@ impl Vibrato {
         self.target = MAX_SWING * f32::from(value) / 127.0;
     }
 
+    /// Whether its depth is zero and staying there, so it passes the
+    /// channel unchanged.
+    pub(crate) fn is_still(&self) -> bool {
+        self.swing == 0.0 && self.target == 0.0
+    }
+
     /// The vibrato's output for the channel's next sample.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         let length = self.line.len();

@@ -123,14 +123,50 @@ test("a Control Change from the console shows as its effect's value on its chann
   expect(await valueOf(page, 0)).toBe("00");
 });
 
-test("the acid voice's channel shows its cutoff and decay under EQ and LN", async ({ page }) => {
+test("the acid voice's channel shows its cutoff and decay where EQ and LN stand", async ({ page }) => {
   await page.goto("/");
 
   await page.locator(".orcvs-sound-module .channel").nth(8).click();
 
   // CC 74 and 75 on `08` are the acid voice's cutoff and decay, which load at `30`.
+  await expect(page.locator(".orcvs-sound-module .function")).toHaveText([..."MDCUDCOFR1R2CHDL"]);
+  await expect(page.locator('.orcvs-sound-module .function[data-effect="1"]').first()).toHaveAttribute("title", "Cutoff, CC 74");
+  await expect(page.locator('.orcvs-sound-module .function[data-effect="2"]').first()).toHaveAttribute("title", "Decay, CC 75");
   expect(await valueOf(page, 1)).toBe("30");
   expect(await valueOf(page, 2)).toBe("30");
+
+  // Reset All Controllers on `08` returns the cutoff to its load value, as the synth does.
+  const post = (bytes: number[]) =>
+    page.evaluate((bytes) => window.postMessage({ type: "orcvs.midi", bytes, time: 0 }, location.origin), bytes);
+  await post([0xb8, 74, 0x7f]);
+  await expect.poll(() => valueOf(page, 1)).toBe("7F");
+  await post([0xb8, 121, 0]);
+  await expect.poll(() => valueOf(page, 1)).toBe("30");
+});
+
+test("until the reader chooses a channel, the effects follow the channel a Control Change is on", async ({ page }) => {
+  await page.goto(EMPTY);
+
+  await play(page, "!c05017F");
+
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("5");
+  await expect.poll(() => valueOf(page, 0)).toBe("7F");
+});
+
+test("the keyboard chooses a channel", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator(".orcvs-sound-module .channel").nth(9).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("9");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press(" ");
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("A");
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveAttribute("aria-pressed", "true");
+
+  // A hex digit typed on a channel writes no value.
+  await page.keyboard.type("4");
+  expect(await valueOf(page, 0)).toBe("00");
 });
 
 test("typing on a value writes it as the Grid does, and sends its Control Change", async ({ page }) => {

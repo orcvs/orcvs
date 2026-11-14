@@ -26,6 +26,11 @@ impl Smoothing {
         self.target = target;
     }
 
+    /// Whether it is at `value` and staying there.
+    pub(crate) fn rests_at(&self, value: f32) -> bool {
+        self.value == value && self.target == value
+    }
+
     /// The value for the next sample.
     pub(crate) fn next(&mut self) -> f32 {
         let gap = self.target - self.value;

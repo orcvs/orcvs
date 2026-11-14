@@ -140,11 +140,24 @@ impl Channel {
             _ => {}
         }
     }
+
+    /// Whether every effect is at its load value and staying there, so that
+    /// silence on the channel adds nothing to the mix. Its offset and length
+    /// shape only sounds still to start.
+    fn rests(&self) -> bool {
+        self.vibrato.is_still()
+            && self.tilt.is_flat()
+            && self.chorus.rests_at(0.0)
+            && self.delay.rests_at(0.0)
+            && self.small.rests_at(0.0)
+            && self.large.rests_at(0.0)
+    }
 }
 
-/// What every channel sends the shared effects for one sample.
+/// One sample of the mix ahead of the shared effects: every channel's dry
+/// signal, and what the channels send each shared effect.
 #[derive(Default)]
-struct Sends {
+struct Mix {
     dry: f32,
     chorus: f32,
     delay: f32,
@@ -152,7 +165,7 @@ struct Sends {
     large: f32,
 }
 
-impl Sends {
+impl Mix {
     /// Adds `channel`'s next sample, `input`, through its own effects.
     fn add(&mut self, channel: &mut Channel, input: f32) {
         let out = channel.tilt.process(channel.vibrato.process(input));
@@ -294,28 +307,34 @@ impl Synth {
                 self.apply(message);
             }
             let mut parts = [0.0; CHANNELS];
+            let mut sounding = [false; CHANNELS];
             for slot in &mut self.voices {
                 let Some(voice) = slot else { continue };
                 match voice.sound.sample(dt, &self.acid) {
                     Some(value) => {
                         voice.fade = (voice.fade + dt / FADE).min(1.0);
-                        parts[usize::from(voice.channel)] += value * voice.level * voice.fade;
+                        let channel = usize::from(voice.channel);
+                        parts[channel] += value * voice.level * voice.fade;
+                        sounding[channel] = true;
                     }
                     None => *slot = None,
                 }
             }
-            let mut sends = Sends::default();
-            for (channel, part) in self.channels.iter_mut().zip(parts) {
-                sends.add(channel, part);
+            let mut mix = Mix::default();
+            for ((channel, part), sounding) in self.channels.iter_mut().zip(parts).zip(sounding) {
+                // A silent channel at rest would add exactly nothing.
+                if sounding || !channel.rests() {
+                    mix.add(channel, part);
+                }
             }
             // The shared effects side by side, each returning only what the
             // channels sent it.
-            let mix = sends.dry
-                + 0.5 * self.chorus.process(sends.chorus)
-                + self.delay.process(sends.delay)
-                + self.small.process(sends.small)
-                + self.large.process(sends.large);
-            *sample = mix.tanh();
+            let out = mix.dry
+                + 0.5 * self.chorus.process(mix.chorus)
+                + self.delay.process(mix.delay)
+                + self.small.process(mix.small)
+                + self.large.process(mix.large);
+            *sample = out.tanh();
             self.frame += 1;
         }
     }
@@ -330,8 +349,12 @@ impl Synth {
             // The acid voice's own controllers come first, so on its channel
             // CC 74 and 75 are its cutoff and decay.
             0xB0 => {
-                let acid = Part::of(channel) == Part::Acid && self.acid.set(data1, data2);
-                if !acid {
+                let taken = if Part::of(channel) == Part::Acid {
+                    self.acid.set(data1, data2)
+                } else {
+                    false
+                };
+                if !taken {
                     self.channels[usize::from(channel)].set(data1, data2);
                 }
             }
@@ -373,10 +396,10 @@ impl Synth {
         let mut sound = match Part::of(channel) {
             Part::Tone => Sound::Tone(Tone::new(channel, note, length)),
             Part::Acid => {
-                if self.play_acid(note, velocity, length) {
+                if self.play_acid(note, velocity) {
                     return;
                 }
-                Sound::Acid(Acid::new(note, velocity, length))
+                Sound::Acid(Acid::new(note, velocity))
             }
             Part::Kit => {
                 let Some(instrument) = Instrument::of(note) else {
@@ -411,8 +434,8 @@ impl Synth {
 
     /// Plays `note` on the acid voice if it is still sounding, and answers
     /// whether it was. The note counts as the newest voice and takes its own
-    /// velocity, slid into or struck afresh; struck afresh, it takes `length`.
-    fn play_acid(&mut self, note: u8, velocity: u8, length: f32) -> bool {
+    /// velocity, slid into or struck afresh.
+    fn play_acid(&mut self, note: u8, velocity: u8) -> bool {
         let Some(Voice {
             note: playing,
             started,
@@ -427,7 +450,7 @@ impl Synth {
         else {
             return false;
         };
-        acid.play(note, velocity, length);
+        acid.play(note, velocity);
         *playing = note;
         *started = self.started;
         *level = f32::from(velocity) / 127.0;
@@ -1025,9 +1048,18 @@ mod tests {
         let plain = acid_after(&[]);
 
         // `40` is the tilt's load value and `7F` the length's, so either
-        // effect would leave the note as it is.
+        // effect would leave the note as it is: only the voice hears them.
         assert_ne!(acid_after(&[control_change(ACID, EQ, 0x40)]), plain);
         assert_ne!(acid_after(&[control_change(ACID, LN, 0x7F)]), plain);
+        // `30` is the voice's cutoff and decay at load, and would darken and
+        // shorten the note as a tilt and a length: neither reaches them.
+        assert_eq!(
+            acid_after(&[
+                control_change(ACID, EQ, 0x30),
+                control_change(ACID, LN, 0x30)
+            ]),
+            plain
+        );
     }
 
     #[test]

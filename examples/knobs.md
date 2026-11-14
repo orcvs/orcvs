@@ -4,9 +4,10 @@
 channel's effects over a sixteen-step acid bassline. The web console opens
 it on a first visit, when it has no Source stored. It also opens with **Help >
 Examples > Knobs**, or as `?example=knobs`. Press Space to start Playback.
-Each knob's value climbs a step at a time and glides back down when its Clock
-wraps; the Sound Module on orcvs.com shows each effect move on channel `08`. The example opens
-Untitled, so **File > Save** asks where to keep your edits.
+Each knob's value climbs a step at a time and steps back down when its Clock
+wraps; the Sound Module on orcvs.com follows the knobs to channel `08` and
+shows each effect move. The example opens Untitled, so **File > Save** asks
+where to keep your edits.
 
 ```text
 col  0         1         2
@@ -66,7 +67,7 @@ reports nothing.
 | --- | --- | --- | --- |
 | `bass` | `!~0864&v0C01` | 8 | Velocity `64` (100), one Tick. |
 | `accent` | `!~087F&v0701` | 11 | Velocity `7F` (127). From `78` up a Note is accented: louder, its filter opened further, and its sweep at its shortest. |
-| `slide` | `!~0864&v0202` | 14 | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice glides to it without striking it afresh. |
+| `slide` | `!~0864&v0202` | 14 | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice slides to it without striking it afresh. |
 
 Move a Note from one column to another, keeping its row, to change how it
 plays. A slide to the same Note strikes it again, because Playback stops a
@@ -152,7 +153,7 @@ on Roland GS modules, so most devices still add vibrato, reverb and chorus.
 
 ## Learn Orca
 
-Learn Orca's knobs patch sends eight Control Changes whose values glide to one
+Learn Orca's knobs patch sends eight Control Changes whose values move to one
 of six presets chosen by hand, beside a tracker that makes the sound. This
 example keeps its idea, knobs that move the sound and the effects, with a Clock
 in place of the presets so the knobs move on their own, and its own bassline to

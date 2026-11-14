@@ -3,7 +3,7 @@
 //!
 //! Every Tick the bassline plays its next step on the Built-in Synth's acid
 //! channel, and each knob sends one Control Change on that channel: three to
-//! the acid voice and six to the channel's effects. A knob's value glides by
+//! the acid voice and six to the channel's effects. A knob's value moves by
 //! at most [`RATE`] a Tick toward its Clock, and the Clock sweeps up a step
 //! at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
@@ -68,26 +68,24 @@ const BASS: [(u8, Touch); 16] = {
 /// send on it too.
 const ACID: u8 = 0x08;
 
-/// One knob: the channel and controller it sends, and its Clock's `length`
-/// and `steps`.
+/// One knob: the controller it sends on the acid channel, and its Clock's
+/// `length` and `steps`.
 struct Knob {
-    channel: u8,
     controller: u8,
     length: u64,
     steps: u64,
 }
 
 impl Knob {
-    const fn new(channel: u8, controller: u8, length: u64, steps: u64) -> Self {
+    const fn new(controller: u8, length: u64, steps: u64) -> Self {
         Self {
-            channel,
             controller,
             length,
             steps,
         }
     }
 
-    /// Where the knob's value is gliding at `tick`.
+    /// Where the knob's value is moving at `tick`.
     fn target(&self, tick: u64) -> u8 {
         (tick / self.length % self.steps) as u8
     }
@@ -98,31 +96,32 @@ impl Knob {
 /// cutoff and decay are CC 74 and 75, which set `EQ` and `LN` on every other
 /// channel.
 const KNOBS: [Knob; 9] = [
-    Knob::new(ACID, 0x4A, 0x01, 0x80),
-    Knob::new(ACID, 0x47, 0x02, 0x80),
-    Knob::new(ACID, 0x4B, 0x03, 0x40),
-    Knob::new(ACID, 0x01, 0x05, 0x40),
-    Knob::new(ACID, 0x55, 0x07, 0x20),
-    Knob::new(ACID, 0x5B, 0x06, 0x30),
-    Knob::new(ACID, 0x5C, 0x08, 0x40),
-    Knob::new(ACID, 0x5D, 0x02, 0x40),
-    Knob::new(ACID, 0x5E, 0x03, 0x40),
+    Knob::new(0x4A, 0x01, 0x80),
+    Knob::new(0x47, 0x02, 0x80),
+    Knob::new(0x4B, 0x03, 0x40),
+    Knob::new(0x01, 0x05, 0x40),
+    Knob::new(0x55, 0x07, 0x20),
+    Knob::new(0x5B, 0x06, 0x30),
+    Knob::new(0x5C, 0x08, 0x40),
+    Knob::new(0x5D, 0x02, 0x40),
+    Knob::new(0x5E, 0x03, 0x40),
 ];
 
 /// How far a knob's value moves in one Tick, its Interpolation's `amount`.
 const RATE: u8 = 0x08;
 
-/// The Control Change a knob sends to `controller` with `value` on `channel`.
-fn knob_change(channel: u8, controller: u8, value: u8) -> OutputCommand {
+/// The Control Change a knob sends to `controller` with `value` on the acid
+/// channel.
+fn knob_change(controller: u8, value: u8) -> OutputCommand {
     OutputCommand::ControlChange {
-        channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+        channel: MidiChannel::try_from(ACID).expect("a MIDI channel"),
         controller: Controller::try_from(controller).expect("a MIDI data byte"),
         value: ControlValue::try_from(value).expect("a MIDI data byte"),
     }
 }
 
 /// `value` moved toward `target` by at most [`RATE`], never past it.
-fn glide(value: u8, target: u8) -> u8 {
+fn step_toward(value: u8, target: u8) -> u8 {
     if value < target {
         target.min(value + RATE)
     } else {
@@ -149,7 +148,7 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
     let mut sounding: Vec<(u8, u64)> = Vec::new();
 
     // Long enough for the slowest Clock, `R2`'s, to wrap at Tick `200` and
-    // its value to glide back down.
+    // its value to move back down.
     for tick in 0..0x210 {
         let plan = run.run_tick(tick);
         // The two bassline rows not holding the step read a blank note, which
@@ -173,8 +172,8 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
         delivery.push(note_on(ACID, touch.velocity(), note));
         sounding.push((note, tick + touch.length()));
         for (value, knob) in values.iter_mut().zip(&KNOBS) {
-            *value = glide(*value, knob.target(tick));
-            delivery.push(knob_change(knob.channel, knob.controller, *value));
+            *value = step_toward(*value, knob.target(tick));
+            delivery.push(knob_change(knob.controller, *value));
         }
         assert_eq!(
             adapter.command_lists().last(),

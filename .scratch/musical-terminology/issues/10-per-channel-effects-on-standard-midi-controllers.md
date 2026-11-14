@@ -13,7 +13,9 @@ one channel's effects changes only that channel.
 - [x] On the acid voice's channel its own controllers win: CC74 is its cutoff and CC75 its decay.
 - [x] The Sound Module shows and sends each effect on a chosen channel, and its spec follows.
 - [x] The Knobs example sets each effect on the channel it should change, and its test no longer
-      says any channel will do.
+      says any channel will do. Its bassline on `08` is the only part playing, and there CC74 and
+      CC75 are the cutoff and decay its `CUT` and `DEC` knobs already turn, so it keeps six effect
+      knobs (`MD`, `OF`, `R1`, `R2`, `CH`, `DL`) and has none for `EQ` or `LN`.
 - [x] The synth's parameter smoother is `Smoothing` (module and constants), and the test named for a
       glide says slide.
 - [x] The reference's Built-in Synth section has the controller table with MIDI names: 91 and 93 the

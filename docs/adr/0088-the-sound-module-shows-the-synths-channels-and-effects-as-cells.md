@@ -136,13 +136,17 @@ nothing.
 - On the acid channel, `08`, CC 74 and 75 are the acid voice's cutoff and decay (ADR 0099), so the
   tilt and the length do not apply there: brightness and decay mean the same on that channel as on
   every other.
-- **The Sound Module shows and sends the effects of a chosen channel.** A click on a channel's
-  digit chooses it, and the chosen channel is outlined in the magnitude colour; channel `00` is
-  chosen at load. The effects' columns show that channel's values and the reader's typing sends
-  each change as a Control Change on it. The Sound Module keeps every channel's values from the
-  one stream it hears, so choosing another channel shows what that channel was last sent. On `08`
-  the `EQ` and `LN` columns show the acid voice's cutoff and decay, which load at `30`. The effects
-  run in CC order: `MD`, `EQ`, `LN`, `OF`, `R1`, `R2`, `CH`, `DL`.
+- **The Sound Module shows and sends the effects of a chosen channel.** A click on a channel's digit
+  chooses it, and so does Enter or Space on a digit the keyboard reaches with Tab, where the arrow
+  keys step from channel to channel. The chosen channel is outlined in the magnitude colour. Channel
+  `00` is chosen at load, and until the reader chooses one the chosen channel follows the channel of
+  each effect's Control Change the module hears, so a Source's effects show as it plays. The
+  effects' columns show the chosen channel's values and the reader's typing sends each change as a
+  Control Change on it. The Sound Module keeps every channel's values from the one stream it hears,
+  so choosing another channel shows what that channel was last sent. On `08` the second and third
+  columns are the acid voice's cutoff, `CU`, and decay, `DC`, which load at `30`, and they follow
+  Reset All Controllers there as the voice does. The effects run in CC order: `MD`, `EQ`, `LN`,
+  `OF`, `R1`, `R2`, `CH`, `DL`.
 
 The Rejected alternative "Effects per channel, or Control Change on one channel only" no longer
 holds: velocity is still a channel's only level, and a send is not one, but one set of effects

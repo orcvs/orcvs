@@ -1284,7 +1284,7 @@ controllers on that channel, after General MIDI's sound controllers: CC70 (`46`)
 saw below 64 (`40`) and a square from it; CC71 (`47`) resonance; CC74 (`4A`) cutoff; CC75 (`4B`)
 the filter envelope's decay; and CC79 (`4F`) the envelope's depth. On `08`, CC74 and CC75 set its
 cutoff and decay in place of the tilt and the length, so brightness and decay mean there what they
-mean on every other channel. Every other controller sets nothing.
+mean on every other channel. Every other controller sets no effect.
 
 **Drum keys.** The kit answers General MIDI's drum keys, so a drum part written for a General MIDI
 module plays the instruments it names. A key is the Note's MIDI number, and an Orcvs Note counts
