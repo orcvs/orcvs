@@ -431,14 +431,14 @@ assert_toml_task_contains "$root_dir/mise.toml" 'test_wasm' '^run = .wasm-pack t
 # anything downstream reads. `--nresamples` carries its own share — roughly 2.7s of
 # each benchmark's ten seconds fell outside the configured time budget, and the
 # default bootstrap was most of it.
-assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --package console --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 1 --sample-size 10 --nresamples 1000.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'bench' '^run = .cargo bench --package lang --package orcvs --package console --package synth --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 1 --sample-size 10 --nresamples 1000.$'
 # The discard run differs from the measured one in exactly one figure, and that is
 # the point of it having a task of its own: its output goes to /dev/null, so it
 # needs no measurement fidelity, but it must still execute every benchmark. The
 # contamination it exists for belongs to the binary rather than to a benchmark —
 # criterion's own per-benchmark warm-up did not settle `parse_source`, which read
 # 1,204 ns on the first run after a fresh compile against a settled 417 ns after.
-assert_toml_task_contains "$root_dir/mise.toml" 'bench_warmup' '^run = .cargo bench --package lang --package orcvs --package console --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 0[.]1 --sample-size 10 --nresamples 1000.$'
+assert_toml_task_contains "$root_dir/mise.toml" 'bench_warmup' '^run = .cargo bench --package lang --package orcvs --package console --package synth --benches --locked -- --output-format bencher --warm-up-time 0[.]5 --measurement-time 0[.]1 --sample-size 10 --nresamples 1000.$'
 # `--quick` looks like the flag this budget wants and it would disarm the gate in
 # silence. It drops the name from each output line, and the action's `cargo` parser
 # is one regex over `test <name> ... bench: <N> ns/iter`; a line that does not match

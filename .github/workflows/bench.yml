@@ -8,7 +8,8 @@ on:
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition, including the floor check's figures and checker.
     # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
-    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # `console/**` covers Paint derivation and the background-run fold.
+    # `synth/**` covers the Built-in Synth's render block. The memory
     # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
@@ -16,6 +17,7 @@ on:
       - 'lang/**'
       - 'orcvs/**'
       - 'console/**'
+      - 'synth/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -29,7 +31,8 @@ on:
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition, including the floor check's figures and checker.
     # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
-    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # `console/**` covers Paint derivation and the background-run fold.
+    # `synth/**` covers the Built-in Synth's render block. The memory
     # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
@@ -37,6 +40,7 @@ on:
       - 'lang/**'
       - 'orcvs/**'
       - 'console/**'
+      - 'synth/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
