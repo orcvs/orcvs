@@ -50,7 +50,7 @@ impl Interpretation {
     ///
     /// What a pulse answers: a Bang, or a Clear on a Turn it does not Bang.
     ///
-    /// Equality, Delay and Euclidean answer the same pair, so the pair is
+    /// Equality, Every and Euclidean answer the same pair, so the pair is
     /// named once. The Clear erases the last `**` the pulse wrote, which would
     /// otherwise fire again as a Bang Function, and leaves the Source no Cell
     /// meaning "no" for the next Tick to read as an operand.
@@ -159,13 +159,12 @@ impl Interpreter {
             Function::ConvertToNumber => {
                 Interpretation::Cell(numeric_conversion::to_number(&mut ctx)?)
             }
-            Function::Delay => tick::delay(&mut ctx)?,
             Function::Divide => Interpretation::Cell(math::divide(&mut ctx)?),
             Function::Down => Interpretation::Cell(pitch::down(&mut ctx)?),
             Function::Equality => math::equality(&mut ctx)?,
             Function::Euclidean => tick::euclidean(&mut ctx)?,
+            Function::Every => tick::every(&mut ctx)?,
             Function::Increment => Interpretation::Cell(tick::increment(&mut ctx)?),
-            Function::Interpolation => Interpretation::Cell(tick::interpolation(&mut ctx)?),
             Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
                 functions::copy::copy(&mut ctx, function)?
             }
@@ -199,6 +198,7 @@ impl Interpreter {
             Function::Minimum => Interpretation::Cell(math::minimum(&mut ctx)?),
             Function::Modulo => Interpretation::Cell(math::modulo(&mut ctx)?),
             Function::Multiply => Interpretation::Cell(math::multiply(&mut ctx)?),
+            Function::Slew => Interpretation::Cell(tick::slew(&mut ctx)?),
             Function::Stack => Interpretation::Cell(functions::pitch::stack(&mut ctx)?),
             Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
             Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
@@ -937,8 +937,8 @@ mod test {
         }
         let expected: BTreeSet<String> = [
             Function::Equality,
-            Function::Delay,
             Function::Euclidean,
+            Function::Every,
             Function::CopyEast,
             Function::CopyNorth,
             Function::CopySouth,

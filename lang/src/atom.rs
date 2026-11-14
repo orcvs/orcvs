@@ -251,39 +251,38 @@ macro_rules! define_interval_sets {
 }
 
 define_interval_sets! {
-    /// A list of semitones above a root, named by a chord or a scale.
+    /// A list of semitones above a root, named by a chord quality or a scale.
     ///
     /// One type serves both, so an operand taking an Interval Set accepts a
-    /// chord or a scale. Every name fills both Cells, a one-character chord
-    /// name taking the filler `_`, so a half-typed pair stays recognisably
-    /// partial.
-    Major => ("M_", [0, 4, 7]),
+    /// chord or a scale. Every name fills both Cells, so a half-typed pair
+    /// stays recognisably partial.
+    MajorTriad => ("MA", [0, 4, 7]),
     MajorSeventh => ("M7", [0, 4, 7, 11]),
     MajorNinth => ("M9", [0, 4, 7, 11, 14]),
     MajorThirteenth => ("MD", [0, 4, 7, 11, 14, 21]),
     MajorSixth => ("M6", [0, 4, 7, 9]),
     SixNine => ("69", [0, 4, 7, 9, 14]),
     AugmentedMajorSeventh => ("+M", [0, 4, 8, 11]),
-    Minor => ("m_", [0, 3, 7]),
+    MinorTriad => ("mi", [0, 3, 7]),
     MinorSeventh => ("m7", [0, 3, 7, 10]),
     MinorMajorSeventh => ("mM", [0, 3, 7, 11]),
     MinorSixth => ("m6", [0, 3, 7, 9]),
     MinorNinth => ("m9", [0, 3, 7, 10, 14]),
     MinorEleventh => ("mB", [0, 3, 7, 10, 14, 17]),
     MinorThirteenth => ("mD", [0, 3, 7, 10, 14, 21]),
-    Diminished => ("o_", [0, 3, 6]),
-    DiminishedSeventh => ("o7", [0, 3, 6, 9]),
+    DiminishedTriad => ("di", [0, 3, 6]),
+    DiminishedSeventh => ("d7", [0, 3, 6, 9]),
     HalfDiminished => ("h7", [0, 3, 6, 10]),
     DominantFlatNinth => ("b9", [0, 4, 7, 10, 13]),
-    DominantSeventh => ("7_", [0, 4, 7, 10]),
-    DominantNinth => ("9_", [0, 4, 7, 10, 14]),
+    DominantSeventh => ("07", [0, 4, 7, 10]),
+    DominantNinth => ("09", [0, 4, 7, 10, 14]),
     DominantThirteenth => ("13", [0, 4, 7, 10, 14, 21]),
     SuspendedSecond => ("s2", [0, 2, 7]),
     SuspendedFourth => ("s4", [0, 5, 7]),
-    Augmented => ("+_", [0, 4, 8]),
+    AugmentedTriad => ("+5", [0, 4, 8]),
     AddNine => ("a9", [0, 4, 7, 14]),
-    MajorScale => ("MA", [0, 2, 4, 5, 7, 9, 11]),
-    NaturalMinorScale => ("mi", [0, 2, 3, 5, 7, 8, 10]),
+    IonianScale => ("io", [0, 2, 4, 5, 7, 9, 11]),
+    AeolianScale => ("ae", [0, 2, 3, 5, 7, 8, 10]),
     DorianScale => ("do", [0, 2, 3, 5, 7, 9, 10]),
     PhrygianScale => ("ph", [0, 1, 3, 5, 7, 8, 10]),
     LydianScale => ("ly", [0, 2, 4, 6, 7, 9, 11]),
@@ -291,8 +290,8 @@ define_interval_sets! {
     LocrianScale => ("lo", [0, 1, 3, 5, 6, 8, 10]),
     HarmonicMinorScale => ("hm", [0, 2, 3, 5, 7, 8, 11]),
     MelodicMinorScale => ("mm", [0, 2, 3, 5, 7, 9, 11]),
-    MajorPentatonicScale => ("p5", [0, 2, 4, 7, 9]),
-    MinorPentatonicScale => ("p3", [0, 3, 5, 7, 10]),
+    MajorPentatonicScale => ("pM", [0, 2, 4, 7, 9]),
+    MinorPentatonicScale => ("pm", [0, 3, 5, 7, 10]),
     BluesScale => ("bl", [0, 3, 5, 6, 7, 10]),
     WholeToneScale => ("wt", [0, 2, 4, 6, 8, 10]),
     ChromaticScale => ("ch", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
@@ -314,13 +313,41 @@ const fn same_semitones(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
+/// Whether two spellings differ, and differ only where one holds `o` and the
+/// other `0`, in a form a `const` item can evaluate.
+const fn differ_only_by_o_against_zero(left: Spelling, right: Spelling) -> bool {
+    let left = left.cells();
+    let right = right.cells();
+    let mut differs = false;
+    let mut cell = 0;
+    while cell < left.len() {
+        let (l, r) = (left[cell], right[cell]);
+        if l != r {
+            if !matches!((l, r), (b'o', b'0') | (b'0', b'o')) {
+                return false;
+            }
+            differs = true;
+        }
+        cell += 1;
+    }
+    differs
+}
+
 // Every Interval Set is non-empty, starts at its root, rises strictly, and is
 // the only one naming its list, so the tones a set places above a root include
 // the root, are distinct and rise, and a list of semitones names at most one
-// set. A table row breaking any of these fails the build.
+// set. Every name is two meaningful characters, so none holds the filler `_`,
+// and no two names differ only by `o` against `0`, which read alike. A table
+// row breaking any of these fails the build.
 const _: () = {
     let mut index = 0;
     while index < IntervalSet::ALL.len() {
+        let name = IntervalSet::ALL[index].cells();
+        let [west, east] = name.cells();
+        assert!(
+            west != b'_' && east != b'_',
+            "no Interval Set name holds the filler `_`"
+        );
         let semitones = IntervalSet::ALL[index].semitones();
         assert!(
             !semitones.is_empty() && semitones[0] == 0,
@@ -340,6 +367,10 @@ const _: () = {
                 !same_semitones(semitones, IntervalSet::ALL[other].semitones()),
                 "no two Interval Sets name the same semitones"
             );
+            assert!(
+                !differ_only_by_o_against_zero(name, IntervalSet::ALL[other].cells()),
+                "no two Interval Set names differ only by `o` against `0`"
+            );
             other += 1;
         }
         index += 1;
@@ -353,8 +384,8 @@ define_named_literal! {
         Open => "OP",
         DropTwo => "D2",
         DropThree => "D3",
-        DropFive => "D5",
-        DropSix => "D6",
+        DropTwoAndThree => "23",
+        DropTwoAndFour => "24",
         Shell => "SH",
         Rootless => "RL",
     }
@@ -404,7 +435,8 @@ macro_rules! spellings_of {
 // `from_spelling`; this covers the pairs across types, because a reading that
 // tries one type before another would otherwise shadow the later name without
 // a diagnostic. Numbers and Notes are not checked here: they are decoded by
-// operand position, and `69`, `13` and `D2` deliberately spell one as well.
+// operand position, and `69`, `13`, `07`, `09`, `d7`, `D2`, `D3`, `23` and
+// `24` deliberately spell one as well.
 const _: () = {
     let functions = &spellings_of!(Function);
     let interval_sets = &spellings_of!(IntervalSet);
@@ -1298,7 +1330,7 @@ define_functions! {
     AbsoluteRead => ("&$", "Absolute Read", "reads the pair at a Position", Value, Intrinsic, May, [column: Number, row: Number], position: Input column row, grouped: [at: column row]),
     AbsoluteWrite => ("@$", "Absolute Write", "writes value at a Position", Value, Intrinsic, May, [column: Number, row: Number, value: Untyped], position: Output column row, grouped: [at: column row]),
     Add => (".+", "Add", "answers left + right", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Clock => ("~.", "Clock", "answers which of its steps the Tick is on", Value, Intrinsic, Never, [length: Number, steps: Number]),
+    Clock => ("~.", "Clock", "answers which of its steps the Tick is on", Value, Intrinsic, Never, [division: Number, steps: Number]),
     ControlChange => ("!c", "Control Change", "sends value to controller on channel", TerminalOutput, Bang, Never, [channel: MidiChannel, controller: Controller, value: ControlValue]),
     ConvertToNote => (".^", "Convert to Note", "answers the Note for a Number", Value, Intrinsic, Never, [number: Number]),
     ConvertToNumber => (".v", "Convert to Number", "answers the MIDI note number of a Note", Value, Intrinsic, Never, [note: Note]),
@@ -1306,18 +1338,17 @@ define_functions! {
     CopyNorth => ("=^", "Copy North", "copies the pair south of it to the pair north of it", Value, Intrinsic, May, []),
     CopySouth => ("=v", "Copy South", "copies the pair north of it to the pair south of it", Value, Intrinsic, May, []),
     CopyWest => ("=<", "Copy West", "copies the pair after it to the pair before it", Value, Intrinsic, May, []),
-    Delay => ("~*", "Delay", "answers a Bang every length * steps Ticks, else a Clear", Value, Intrinsic, May, [length: Number, steps: Number]),
     DirectionalBangEast => ("*>", "Bang East", "emits >> after it when a Bang reaches it", BangEast, Bang, Never, []),
     DirectionalBangNorth => ("*^", "Bang North", "emits ^^ one row north when a Bang reaches it", BangNorth, Bang, Never, []),
     DirectionalBangSouth => ("*v", "Bang South", "emits vv one row south when a Bang reaches it", BangSouth, Bang, Never, []),
     DirectionalBangWest => ("*<", "Bang West", "emits << before it when a Bang reaches it", BangWest, Bang, Never, []),
     Divide => ("./", "Divide", "answers left / right, rounded down", Value, Intrinsic, Never, [left: Number, right: Number]),
-    Down => ("#-", "Down", "answers the Note number semitones below note", Value, Intrinsic, Never, [note: Note, number: Number]),
+    Down => ("#-", "Down", "answers note lowered by semitones", Value, Intrinsic, Never, [note: Note, semitones: Number]),
     Equality => (".=", "Equality", "answers a Bang when left equals right, else a Clear", Value, Intrinsic, May, [left: Number, right: Number]),
     Euclidean => ("~%", "Euclidean", "answers a Bang on hits of every steps Ticks, else a Clear", Value, Intrinsic, May, [hits: Number, steps: Number]),
+    Every => ("~*", "Every", "answers a Bang every division * steps Ticks, else a Clear", Value, Intrinsic, May, [division: Number, steps: Number]),
     Halt => ("*!", "Halt", "locks the root south of it when a Bang reaches it", Halt, Bang, Never, []),
     Increment => ("~+", "Increment", "answers previous value + amount, wrapped at modulus", Value, Intrinsic, Never, [amount: Number, modulus: Number], portal: "previous value": Number),
-    Interpolation => ("~>", "Interpolation", "answers previous value moved toward target by at most amount", Value, Intrinsic, Never, [amount: Number, target: Number], portal: "previous value": Number),
     Maximum => (".>", "Maximum", "answers the larger of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Minimum => (".<", "Minimum", "answers the smaller of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Modulo => (".%", "Modulo", "answers the remainder of left / right", Value, Intrinsic, Never, [left: Number, right: Number]),
@@ -1338,13 +1369,14 @@ define_functions! {
     SelfBangingNorth => ("^^", "Move North", "moves itself one row north each Tick", SelfBangNorth, Intrinsic, Never, []),
     SelfBangingSouth => ("vv", "Move South", "moves itself one row south each Tick", SelfBangSouth, Intrinsic, Never, []),
     SelfBangingWest => ("<<", "Move West", "moves itself one Cell west each Tick", SelfBangWest, Intrinsic, Never, []),
-    Stack => ("#s", "Stack", "answers the chord of size tones built on degree of set", Value, Intrinsic, Never, [set: IntervalSet, degree: Number, size: Number]),
+    Slew => ("~>", "Slew", "answers previous value moved toward target by at most amount", Value, Intrinsic, Never, [amount: Number, target: Number], portal: "previous value": Number),
+    Stack => ("#s", "Stack", "answers the chord of size tones from position index of set", Value, Intrinsic, Never, [set: IntervalSet, index: Number, size: Number]),
     Subtract => (".-", "Subtract", "answers left - right", Value, Intrinsic, Never, [left: Number, right: Number]),
     TimedChordPlay => ("!#", "Timed Chord Play", "sends a chord, each tone stopped after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
     TimedPlay => ("!~", "Timed Play", "sends a Note On and its Note Off after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Optional<Note>, length: Length]),
     Track => ("&t", "Track", "reads pair index % count after its operands", Value, Intrinsic, May, [index: Number, count: Number]),
     Udp => ("!u", "UDP", "sends its Payload as one UDP datagram", TerminalOutput, Bang, Never, []),
-    Up => ("#+", "Up", "answers the Note number semitones above note", Value, Intrinsic, Never, [note: Note, number: Number]),
+    Up => ("#+", "Up", "answers note raised by semitones", Value, Intrinsic, Never, [note: Note, semitones: Number]),
     WriteEast => ("@>", "Write East", "writes value distance pairs east of its distance operand", Value, Intrinsic, May, [distance: Number, value: Untyped], distance: Output East distance),
     WriteNorth => ("@^", "Write North", "writes value distance rows north of its distance operand", Value, Intrinsic, May, [distance: Number, value: Untyped], distance: Output North distance),
     WriteSouth => ("@v", "Write South", "writes value distance rows south of its distance operand", Value, Intrinsic, May, [distance: Number, value: Untyped], distance: Output South distance),
@@ -1545,7 +1577,7 @@ impl Function {
     /// The Input Portal this Function names, or `None` when it names none.
     ///
     /// Copy names the Portal opposite its Output Portal. Increment and
-    /// Interpolation name one row south, the same site as their Output Portal.
+    /// Slew name one row south, the same site as their Output Portal.
     /// Those are static. Track's, every Read's and the absolute Copy's are
     /// dynamic, and each names the rule by which its operands select the pair
     /// it reads; a Read's row declares its rule.
@@ -1810,33 +1842,33 @@ mod test {
     /// The normative names and semitones, stated from the specification rather
     /// than read from the table under test.
     const INTERVAL_SETS: [(&str, &[u8]); 39] = [
-        ("M_", &[0, 4, 7]),
+        ("MA", &[0, 4, 7]),
         ("M7", &[0, 4, 7, 11]),
         ("M9", &[0, 4, 7, 11, 14]),
         ("MD", &[0, 4, 7, 11, 14, 21]),
         ("M6", &[0, 4, 7, 9]),
         ("69", &[0, 4, 7, 9, 14]),
         ("+M", &[0, 4, 8, 11]),
-        ("m_", &[0, 3, 7]),
+        ("mi", &[0, 3, 7]),
         ("m7", &[0, 3, 7, 10]),
         ("mM", &[0, 3, 7, 11]),
         ("m6", &[0, 3, 7, 9]),
         ("m9", &[0, 3, 7, 10, 14]),
         ("mB", &[0, 3, 7, 10, 14, 17]),
         ("mD", &[0, 3, 7, 10, 14, 21]),
-        ("o_", &[0, 3, 6]),
-        ("o7", &[0, 3, 6, 9]),
+        ("di", &[0, 3, 6]),
+        ("d7", &[0, 3, 6, 9]),
         ("h7", &[0, 3, 6, 10]),
         ("b9", &[0, 4, 7, 10, 13]),
-        ("7_", &[0, 4, 7, 10]),
-        ("9_", &[0, 4, 7, 10, 14]),
+        ("07", &[0, 4, 7, 10]),
+        ("09", &[0, 4, 7, 10, 14]),
         ("13", &[0, 4, 7, 10, 14, 21]),
         ("s2", &[0, 2, 7]),
         ("s4", &[0, 5, 7]),
-        ("+_", &[0, 4, 8]),
+        ("+5", &[0, 4, 8]),
         ("a9", &[0, 4, 7, 14]),
-        ("MA", &[0, 2, 4, 5, 7, 9, 11]),
-        ("mi", &[0, 2, 3, 5, 7, 8, 10]),
+        ("io", &[0, 2, 4, 5, 7, 9, 11]),
+        ("ae", &[0, 2, 3, 5, 7, 8, 10]),
         ("do", &[0, 2, 3, 5, 7, 9, 10]),
         ("ph", &[0, 1, 3, 5, 7, 8, 10]),
         ("ly", &[0, 2, 4, 6, 7, 9, 11]),
@@ -1844,15 +1876,15 @@ mod test {
         ("lo", &[0, 1, 3, 5, 6, 8, 10]),
         ("hm", &[0, 2, 3, 5, 7, 8, 11]),
         ("mm", &[0, 2, 3, 5, 7, 9, 11]),
-        ("p5", &[0, 2, 4, 7, 9]),
-        ("p3", &[0, 3, 5, 7, 10]),
+        ("pM", &[0, 2, 4, 7, 9]),
+        ("pm", &[0, 3, 5, 7, 10]),
         ("bl", &[0, 3, 5, 6, 7, 10]),
         ("wt", &[0, 2, 4, 6, 8, 10]),
         ("ch", &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
     ];
 
     /// The eight Voicing names, stated from the specification.
-    const VOICINGS: [&str; 8] = ["CL", "OP", "D2", "D3", "D5", "D6", "SH", "RL"];
+    const VOICINGS: [&str; 8] = ["CL", "OP", "D2", "D3", "23", "24", "SH", "RL"];
 
     #[test]
     fn every_interval_set_name_decodes_to_its_semitones() {
@@ -1898,7 +1930,7 @@ mod test {
     fn an_unknown_or_half_blank_name_is_refused_by_both_literal_types() {
         for token in [Token::IntervalSet, Token::Voicing] {
             for refused in [
-                "  ", "M ", " M", "C ", " L", "zz", "CM", "", "M", "M_ ", "**",
+                "  ", "M ", " M", "C ", " L", "zz", "CM", "", "M", "MA ", "**",
             ] {
                 assert!(
                     refused_as_its_type(token, refused),
@@ -1906,7 +1938,9 @@ mod test {
                 );
             }
         }
-        for near_miss in ["m8", "MX", "M7 "] {
+        for near_miss in [
+            "m8", "MX", "M7 ", "M_", "m_", "o_", "+_", "7_", "9_", "o7", "p5", "p3",
+        ] {
             assert!(
                 refused_as_its_type(Token::IntervalSet, near_miss),
                 "{near_miss:?}"
@@ -1917,6 +1951,12 @@ mod test {
                 refused_as_its_type(Token::Voicing, near_miss),
                 "{near_miss:?}"
             );
+        }
+        // Neither is a Voicing: a drop of two positions is named for both
+        // positions it lowers (`23`, `24`), so no Voicing name is a sum of
+        // positions and none reads as the Note `D5` or `D6`.
+        for unnamed in ["D5", "D6"] {
+            assert!(refused_as_its_type(Token::Voicing, unnamed), "{unnamed:?}");
         }
     }
 
@@ -1965,6 +2005,14 @@ mod test {
             Token::Voicing.decode("D2").unwrap(),
             Atom::Voicing(_)
         ));
+
+        for (name, number) in [("23", 0x23), ("24", 0x24)] {
+            assert_eq!(Token::Number.decode(name).unwrap(), Atom::Number(number));
+            assert!(matches!(
+                Token::Voicing.decode(name).unwrap(),
+                Atom::Voicing(_)
+            ));
+        }
     }
 
     /// Every ordered pair of Functions, which is what a replacement is: the
@@ -2146,7 +2194,7 @@ mod test {
 
     #[test]
     fn exactly_the_bang_capable_functions_declare_that_they_can_emit_bang() {
-        // Equality, Delay and Euclidean answer a Bang or a Clear as their
+        // Equality, Every and Euclidean answer a Bang or a Clear as their
         // result, a Copy, Track or Read copies a Bang from its Input
         // Portal, a Write carries a Bang in its `value`, and the Bang
         // Function's Turn delivers the Bang it stands for. Tick scheduling
@@ -2172,9 +2220,9 @@ mod test {
                 Function::CopyNorth,
                 Function::CopySouth,
                 Function::CopyWest,
-                Function::Delay,
                 Function::Equality,
                 Function::Euclidean,
+                Function::Every,
                 Function::Push,
                 Function::ReadEast,
                 Function::ReadNorth,
@@ -2319,8 +2367,8 @@ mod test {
                         rows: -1
                     }))
                 ),
-                // Increment and Interpolation read where they write.
-                Function::Increment | Function::Interpolation => {
+                // Increment and Slew read where they write.
+                Function::Increment | Function::Slew => {
                     assert_eq!(input, Some(Static(PortalCoords::SOUTH)));
                 }
                 Function::Track => {
@@ -2905,13 +2953,12 @@ mod test {
                 | Function::Clock
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
-                | Function::Delay
                 | Function::Divide
                 | Function::Down
                 | Function::Equality
                 | Function::Euclidean
+                | Function::Every
                 | Function::Increment
-                | Function::Interpolation
                 | Function::CopyEast
                 | Function::CopyNorth
                 | Function::CopySouth
@@ -2926,6 +2973,7 @@ mod test {
                 | Function::ReadNorth
                 | Function::ReadSouth
                 | Function::ReadWest
+                | Function::Slew
                 | Function::Stack
                 | Function::Subtract
                 | Function::Track

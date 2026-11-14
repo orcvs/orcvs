@@ -28,12 +28,12 @@ Each instrument stands under its own label, so a phone shows all three.
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (0, 2) `~*0104` | Delay, rate `01`, modulus `04` | Bangs every fourth Tick, on each beat. |
+| (0, 2) `~*0104` | Every, division `01`, steps `04` | Bangs every fourth Tick, on each beat. |
 | (2, 3) `!~097FC201` | Timed Play | The kick: Note `C2` at velocity `7F`, held one Tick. |
-| (2, 6) `~.0108` | Clock, rate `01`, modulus `08` | Counts `00` to `07` once a Tick and writes the count into Equality's `left`. |
+| (2, 6) `~.0108` | Clock, division `01`, steps `08` | Counts `00` to `07` once a Tick and writes the count into Equality's `left`. |
 | (0, 7) `.=0004` | Equality | Bangs when the count is `04`: beats 2 and 4. The shipped `00` is overwritten on the first Tick. |
 | (2, 8) `!~0964D201` | Timed Play | The snare: Note `D2` at velocity `64`. |
-| (0, 11) `~*0102` | Delay, rate `01`, modulus `02` | Bangs every second Tick, on each eighth. |
+| (0, 11) `~*0102` | Every, division `01`, steps `02` | Bangs every second Tick, on each eighth. |
 | (2, 12) `!~0940f201` | Timed Play | The closed hat: Note `f2` (F#2) at velocity `40`. |
 
 At the default 120 BPM a Tick is a sixteenth note, so a bar is sixteen Ticks. The kit picks its
