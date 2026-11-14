@@ -461,10 +461,11 @@ assert_not_contains "$root_dir/mise.toml" 'cargo bench.*[-]-quick'
 # `run` line, in an existing step or a new one.
 assert_not_contains "$root_dir/.github/workflows/bench.yml" '[-]-quick'
 # The measurement is only compared when the workflow runs, so every path that can
-# move a number has to trigger it: the three benchmarked crates included.
+# move a number has to trigger it: the four benchmarked crates included.
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'lang/[*][*]'$"
 assert_contains "$root_dir/.github/workflows/bench.yml" "^      - 'orcvs/[*][*]'$"
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'console/[*][*]'$" 2
+assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'synth/[*][*]'$" 2
 # The floor check's figures and its checker decide the result as much as the
 # measurement does, so a change confined to either must run the workflow too.
 assert_occurs_exactly "$root_dir/.github/workflows/bench.yml" "^      - 'benches/floors[.]toml'$" 2
@@ -972,16 +973,20 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
   fi
 done
 
-# Criterion covers the three benchmarked paths: language execution in `lang`,
-# populated Source rendering and editing in `orcvs`, and Paint derivation in
-# `console`. It stays a plain versioned dev-dependency of exactly those crates,
-# so no shipped target pulls its tree in.
+# Criterion covers the four benchmarked paths: language execution in `lang`,
+# populated Source rendering and editing in `orcvs`, Paint derivation in
+# `console`, and the Built-in Synth's render block in `synth`. It stays a plain
+# versioned dev-dependency of exactly those crates, so no shipped target pulls
+# its tree in, the synth's WASM module included.
 assert_contains "$root_dir/lang/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
 assert_contains "$root_dir/orcvs/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
 assert_contains "$root_dir/console/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
+assert_contains "$root_dir/synth/Cargo.toml" '^criterion[[:space:]]*=[[:space:]]*\{[^}]*cargo_bench_support'
 # `--benches` selects the library and the binary unless both set `bench = false`.
 # Either one left on hands `--output-format` to a libtest harness and fails the task.
 assert_occurs_exactly "$root_dir/console/Cargo.toml" '^bench = false$' 2
+assert_occurs_exactly "$root_dir/synth/Cargo.toml" '^bench = false$' 1
+assert_toml_table_not_contains "$root_dir/synth/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/lang/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/orcvs/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
 assert_toml_table_not_contains "$root_dir/console/Cargo.toml" '^[[:space:]]*[[]([^]]+[.])?dependencies[]][[:space:]]*$' '^[[:space:]]*criterion[[:space:]]*='
