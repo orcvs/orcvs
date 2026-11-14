@@ -1,6 +1,6 @@
 # Requirements snapshot — run record
 
-Status: drafted, audited and reconciled through `c8cc197`; delivered as a draft pull request
+Status: drafted, audited and reconciled through `c8cc197`; delivered as draft PR #399 (not merged)
 
 This record lets another session resume the requirements rewrite without this conversation. It
 follows the `requirements-rewrite` workflow: ADRs stay the binding, append-only history, and
