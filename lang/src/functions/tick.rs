@@ -108,17 +108,10 @@ pub fn every(ctx: &mut Context) -> Result<Interpretation, Error> {
 
 /// Euclidean: `~% hits steps`.
 ///
-/// Bucket distribution: `hits` onsets spread as evenly as the whole
-/// numbers allow across a cycle of `steps` Ticks, which is the family of
-/// rhythms `~% 03 08` names — `X..X..X.` — without a pattern being written
-/// anywhere.
-///
-/// The absolute Tick is reduced into the cycle *before* the phase offset is
-/// added. That is not a rearrangement for tidiness: `(hits * (t + steps - 1))`
-/// over an absolute Tick would overflow the counter the Tick was read from, and
-/// reducing first is exactly equivalent because every term after it is taken
-/// modulo `steps` anyway. What the counter itself does at its end is decided
-/// by [`crate::Tick::next`], which saturates rather than wraps.
+/// `hits` onsets spread as evenly as the whole numbers allow across a cycle of
+/// `steps` Ticks, in the rotation Tidal's `bjorklund` gives, so `~% 03 08` is
+/// `X..X..X.` and `~% 03 04` is `XXX.`. The absolute Tick is reduced into the
+/// cycle first, so the counter's size never reaches the pattern.
 #[inline(always)]
 pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
@@ -127,8 +120,7 @@ pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
     // Zero steps is answered before hits are compared to steps, which is what
     // ADR 0012 requires and not an accident of the order the two checks are
     // written in: `~% 00 00` is a cycle with no positions rather than a cycle
-    // with no onsets, so it diagnoses instead of falling to the zero-hits rule
-    // below.
+    // with no onsets, so it diagnoses instead of answering silence.
     if steps == 0 {
         return Err(zero_cycle(Function::Euclidean, "steps"));
     }
@@ -137,18 +129,115 @@ pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
         return Err(InterpretationError::EuclideanOverfull { hits, steps }.into());
     }
 
-    let hits = u64::from(hits);
-    let steps = u64::from(steps);
-    let tick_in_cycle = tick % steps;
-    let phase = (tick_in_cycle + steps - 1) % steps;
+    let position = tick % u64::from(steps);
 
-    // Zero hits falls out of this rather than being special-cased: `0 + 0 >=
-    // steps` is false for every positive `steps`. So does a full cycle, where
-    // `hits == steps` makes the remainder zero and the comparison an equality
-    // that always holds.
-    Ok(Interpretation::pulse(
-        (hits * phase) % steps + hits >= steps,
-    ))
+    Ok(Interpretation::pulse(onset(hits, steps, position)))
+}
+
+/// Whether Tidal's Euclidean pattern of `hits` in `steps` has an onset at
+/// `position`, which is below `steps`.
+#[inline(always)]
+fn onset(hits: u8, steps: u8, position: u64) -> bool {
+    let start = Groups {
+        fronts: u64::from(hits),
+        backs: u64::from(steps - hits),
+        front_len: 1,
+        back_len: 1,
+    };
+
+    // At the start the front group is one onset and the back group one rest.
+    locate(start, position).0
+}
+
+/// One level of Tidal's pairing: the pattern is `fronts` copies of a front
+/// group of `front_len` steps, then `backs` copies of a back group of
+/// `back_len` steps.
+///
+/// Tidal pairs groups off until one side has at most one group left, and each
+/// side only ever holds copies of one group, so a level is these four counts
+/// and no steps. `fronts * front_len + backs * back_len` is `steps` at every
+/// level.
+#[derive(Clone, Copy)]
+struct Groups {
+    fronts: u64,
+    backs: u64,
+    front_len: u64,
+    back_len: u64,
+}
+
+impl Groups {
+    /// The next level, or `None` once one side has at most one group left.
+    ///
+    /// With more fronts than backs, each back joins a front, and the fronts
+    /// left over become the backs. Otherwise each front takes backs until fewer
+    /// backs than fronts are left, so a run of such pairings is one level, and
+    /// the backs stay backs. Either way a front group becomes the old front
+    /// followed by old backs.
+    fn next(self) -> Option<(Self, Pairing)> {
+        let Self {
+            fronts,
+            backs,
+            front_len,
+            back_len,
+        } = self;
+
+        if fronts.min(backs) <= 1 {
+            None
+        } else if fronts > backs {
+            let next = Self {
+                fronts: backs,
+                backs: fronts - backs,
+                front_len: front_len + back_len,
+                back_len: front_len,
+            };
+            Some((next, Pairing::FrontsLeftOver))
+        } else {
+            let next = Self {
+                fronts,
+                backs: backs % fronts,
+                front_len: front_len + backs / fronts * back_len,
+                back_len,
+            };
+            Some((next, Pairing::BacksLeftOver))
+        }
+    }
+}
+
+/// Which side a pairing left groups over on, which decides what the next
+/// level's back group is made of.
+#[derive(Clone, Copy)]
+enum Pairing {
+    /// The back group is the old front group.
+    FrontsLeftOver,
+    /// The back group is the old back group.
+    BacksLeftOver,
+}
+
+/// Which group `position` of the whole pattern falls in at `level`, whether
+/// the front, and where within that group.
+///
+/// It descends to the last level, finds the group there, and maps the place
+/// back up one level at a time, so it reads no step of any group. The counts
+/// fall as Euclid's algorithm reduces a pair, so the recursion is a few levels
+/// deep: at most ten for any byte of steps.
+fn locate(level: Groups, position: u64) -> (bool, u64) {
+    let Some((next, pairing)) = level.next() else {
+        let front_span = level.fronts * level.front_len;
+        return if position < front_span {
+            (true, position % level.front_len)
+        } else {
+            (false, (position - front_span) % level.back_len)
+        };
+    };
+
+    let (in_front, at) = locate(next, position);
+    match (in_front, pairing) {
+        // A front group is this level's front group, then its back groups.
+        (true, _) if at < level.front_len => (true, at),
+        (true, _) => (false, (at - level.front_len) % level.back_len),
+        (false, Pairing::FrontsLeftOver) => (true, at),
+        (false, Pairing::BacksLeftOver) => (false, at),
+    }
 }
 
 /// Increment: `~+ amount modulus`.
@@ -635,50 +724,91 @@ mod test {
         assert_eq!(zero.to_string(), "~* cannot count a cycle with division 00");
     }
 
-    #[test]
-    fn euclidean_places_its_hits_where_the_adr_formula_does() {
-        // Hand-written patterns rather than the formula recomputed: one `X` per
-        // Tick of one cycle, read left to right from Tick `0`. These are the
-        // Euclidean rhythms the distribution is named for — `03 08` is the
-        // tresillo — so a formula that drifted would have to drift into another
-        // recognisable pattern to pass.
-        //
-        // Each is checked over three cycles, which is what pins the reduction
-        // of the absolute Tick: a phase computed from an unreduced Tick agrees
-        // with this on the first cycle and disagrees afterwards.
-        for (hits, steps, pattern) in [
-            (0x03, 0x04, "X.XX"),
-            (0x03, 0x08, "X..X..X."),
-            (0x05, 0x08, "X.X.XX.X"),
-            (0x02, 0x05, "X..X."),
-            (0x02, 0x03, "X.X"),
-            (0x01, 0x04, "X..."),
-            (0x07, 0x10, "X..X.X.X..X.X.X."),
-        ] {
-            assert_eq!(usize::from(steps), pattern.len(), "{hits} of {steps}");
+    /// Tidal's `bjorklund`, transcribed from `Sound.Tidal.Bjorklund`: lists
+    /// of groups, the front groups `[x]` and the back groups `[.]`, paired
+    /// off until one side has at most one group left. It is the reference
+    /// `~%` is checked against, and lives here so the shipped body is never
+    /// checked against itself.
+    fn tidal_bjorklund(hits: usize, steps: usize) -> Vec<bool> {
+        let (mut fronts, mut backs) = (vec![vec![true]; hits], vec![vec![false]; steps - hits]);
 
-            for (tick, expected) in pattern.chars().cycle().take(pattern.len() * 3).enumerate() {
-                assert_eq!(
-                    banged(Function::Euclidean, tick as u64, hits, steps),
-                    expected == 'X',
-                    "~% {hits:02X} {steps:02X} at Tick {tick}"
+        while fronts.len().min(backs.len()) > 1 {
+            if fronts.len() > backs.len() {
+                // `left`: each back group joins a front group, and the
+                // unpaired front groups become the back.
+                let unpaired = fronts.split_off(backs.len());
+                for (front, back) in fronts.iter_mut().zip(&backs) {
+                    front.extend(back);
+                }
+                backs = unpaired;
+            } else {
+                // `right`: each front group takes a back group, and the
+                // unpaired back groups stay at the back.
+                let unpaired = backs.split_off(fronts.len());
+                for (front, back) in fronts.iter_mut().zip(&backs) {
+                    front.extend(back);
+                }
+                backs = unpaired;
+            }
+        }
+
+        fronts.into_iter().chain(backs).flatten().collect()
+    }
+
+    #[test]
+    fn the_tidal_reference_spells_the_published_patterns() {
+        // The reference is itself checked, against patterns Tidal's
+        // documentation and Toussaint's paper print, so the sweep below
+        // compares `~%` with Tidal rather than with a transcription slip.
+        for (hits, steps, pattern) in [
+            (3, 4, "X X X ."),
+            (3, 8, "X . . X . . X ."),
+            (5, 8, "X . X X . X X ."),
+            (2, 5, "X . X . ."),
+            (3, 7, "X . X . X . ."),
+            (5, 12, "X . . X . X . . X . X ."),
+            (5, 16, "X . . X . . X . . X . . X . . ."),
+        ] {
+            let expected: Vec<bool> = pattern.split(' ').map(|step| step == "X").collect();
+            assert_eq!(tidal_bjorklund(hits, steps), expected, "E({hits},{steps})");
+        }
+    }
+
+    #[test]
+    fn euclidean_matches_tidals_bjorklund_for_every_pattern_up_to_32_steps() {
+        // Every 1 <= hits <= steps <= 32, over two cycles, which also pins the
+        // reduction of the absolute Tick into the cycle.
+        for steps in 1..=32u8 {
+            for hits in 1..=steps {
+                let pattern = tidal_bjorklund(usize::from(hits), usize::from(steps));
+                for (tick, &onset) in pattern.iter().cycle().take(pattern.len() * 2).enumerate() {
+                    assert_eq!(
+                        banged(Function::Euclidean, tick as u64, hits, steps),
+                        onset,
+                        "~% {hits:02X} {steps:02X} at Tick {tick}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn euclidean_with_no_hits_is_silent() {
+        // With positive steps, zero hits Bangs on no Tick.
+        for steps in 1..=u8::MAX {
+            for tick in 0..u64::from(steps) * 2 {
+                assert!(
+                    !banged(Function::Euclidean, tick, 0x00, steps),
+                    "~% 00 {steps:02X} at Tick {tick}"
                 );
             }
         }
     }
 
     #[test]
-    fn euclidean_answers_no_hits_and_a_full_cycle_from_the_same_formula() {
-        // Both are consequences of the formula rather than cases: with
-        // positive steps, zero hits never Bangs and equal hits and steps Bang
-        // every Tick. A body that special-cased either would pass this too —
-        // what the test is for is the opposite, that neither needs a case.
-        for steps in 1..=16u8 {
-            for tick in 0..64u64 {
-                assert!(
-                    !banged(Function::Euclidean, tick, 0x00, steps),
-                    "~% 00 {steps:02X} at Tick {tick}"
-                );
+    fn euclidean_with_as_many_hits_as_steps_bangs_every_tick() {
+        for steps in 1..=u8::MAX {
+            for tick in 0..u64::from(steps) * 2 {
                 assert!(
                     banged(Function::Euclidean, tick, steps, steps),
                     "~% {steps:02X} {steps:02X} at Tick {tick}"
@@ -688,18 +818,35 @@ mod test {
     }
 
     #[test]
-    fn euclidean_reduces_a_tick_no_multiplication_could_have_survived() {
-        // Reducing before the phase offset is required, and the reason is
-        // arithmetic rather than style: `hits * (t + steps - 1)` over
-        // an absolute Tick near the end of a saturating counter overflows,
-        // while the reduced form is the same pattern at the same position.
-        //
-        // The last eight Ticks of the counter are exactly one cycle of `08`,
-        // because `u64::MAX` is seven more than a multiple of eight.
-        let pattern = b"X..X..X.";
-        let steps = 0x08u8;
+    fn euclidean_matches_tidals_bjorklund_up_to_a_byte_of_steps() {
+        // Past the sweep's 32 steps, sampled patterns up to a whole byte of
+        // steps still match Tidal's, step for step.
+        for steps in [0x21u8, 0x40, 0x7F, 0xFE, 0xFF] {
+            for hits in [1u8, 2, 3, 5, steps / 3, steps / 2, steps - 2, steps - 1] {
+                let pattern = tidal_bjorklund(usize::from(hits), usize::from(steps));
+                for (tick, &onset) in (0u64..).zip(&pattern) {
+                    assert_eq!(
+                        banged(Function::Euclidean, tick, hits, steps),
+                        onset,
+                        "~% {hits:02X} {steps:02X} at Tick {tick}"
+                    );
+                }
+            }
+        }
+    }
 
-        for tick in (u64::MAX - 7)..=u64::MAX {
+    #[test]
+    fn euclidean_reads_its_step_from_a_tick_at_the_end_of_the_counter() {
+        // The absolute Tick is reduced into the cycle before anything else is
+        // done with it, so a Tick near the end of a saturating counter plays
+        // the same pattern at the same position as any other.
+        //
+        // The last four Ticks of the counter are exactly one cycle of `04`,
+        // because `u64::MAX` is three more than a multiple of four.
+        let pattern = b"XXX.";
+        let steps = 0x04u8;
+
+        for tick in (u64::MAX - 3)..=u64::MAX {
             let position = usize::try_from(tick % u64::from(steps)).unwrap();
 
             assert_eq!(
