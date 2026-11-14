@@ -402,7 +402,7 @@ mod test {
             Atom::Number(0x01),
             Atom::Number(0x02),
             Atom::Note(note(0x3C)),
-            Atom::IntervalSet(IntervalSet::Major),
+            Atom::IntervalSet(IntervalSet::MajorTriad),
             Atom::Voicing(Voicing::Close),
             Atom::Number(0x03),
         ];
@@ -446,7 +446,7 @@ mod test {
             Atom::Number(0x01),
             Atom::Number(0x02),
             Atom::Note(note(0x3C)),
-            Atom::IntervalSet(IntervalSet::Major),
+            Atom::IntervalSet(IntervalSet::MajorTriad),
             Atom::Voicing(Voicing::Close),
             Atom::Number(0x00),
             Atom::Number(0x04),
@@ -521,7 +521,7 @@ mod test {
     #[test]
     fn a_number_in_a_note_operand_and_a_note_in_a_number_operand_are_refused() {
         let note_c4 = Atom::Note(note(0x3C));
-        let set = Atom::IntervalSet(IntervalSet::Major);
+        let set = Atom::IntervalSet(IntervalSet::MajorTriad);
         let close = Atom::Voicing(Voicing::Close);
         for (operands, expected) in [
             // A Number where the root stands.
@@ -605,7 +605,7 @@ mod test {
         let channel = Atom::Number(0);
         let velocity = Atom::Number(1);
         let close = Atom::Voicing(Voicing::Close);
-        let major = Atom::IntervalSet(IntervalSet::Major);
+        let major = Atom::IntervalSet(IntervalSet::MajorTriad);
         let inversion = Atom::Number(0);
         for mistyped in [number, c4] {
             assert!(matches!(
@@ -714,7 +714,7 @@ mod test {
                     interpret(&format!("!:0102{chord}")),
                     Err(Error::Interpretation(InterpretationError::TooFewTones {
                         function: Function::RawChordPlay,
-                        set: IntervalSet::Major,
+                        set: IntervalSet::MajorTriad,
                         voicing: v,
                     })) if v == voicing
                 ),
