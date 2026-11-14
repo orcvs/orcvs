@@ -4,7 +4,10 @@
 
 - Toolchain and targets: `rust-toolchain.toml`.
 - Workspace, edition, Rust version, features, dependencies, and lints: root and crate `Cargo.toml` files.
-- Architecture and vocabulary: `CONTEXT.md` and `docs/adr/`.
+- Vocabulary: `CONTEXT.md`. Decisions: `docs/adr/`, which stay binding and append-only.
+- Current required behaviour: `docs/requirements/`, a snapshot restating the accepted ADRs as of
+  each document's marker. Read the owning requirement before the ADRs, then any ADR newer than its
+  marker; where they differ the ADR binds. `docs/requirements/README.md` routes by task.
 - CI is authoritative when local and CI behaviour differ.
 
 This is an internal application. Track current stable Rust deliberately; nightly is optional and
@@ -159,7 +162,10 @@ Triage uses the five default canonical label strings. See `docs/agents/triage-la
 
 ### Domain docs
 
-Domain documentation uses a single-context layout. See `docs/agents/domain.md`.
+Domain documentation uses a single-context layout. See `docs/agents/domain.md`. Before changing
+behaviour, read `CONTEXT.md` for terms, then the owning requirement in `docs/requirements/`, then the
+ADRs. Accepting an ADR updates the owning requirement and its snapshot marker in the same change,
+or marks that topic's snapshot as behind.
 
 ### Syntax prototypes
 
