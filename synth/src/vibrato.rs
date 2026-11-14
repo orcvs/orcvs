@@ -48,7 +48,7 @@ impl Vibrato {
 
     /// Whether its depth is zero and staying there, so it passes the
     /// channel unchanged.
-    pub(crate) fn is_still(&self) -> bool {
+    pub(crate) fn rests(&self) -> bool {
         self.swing == 0.0 && self.target == 0.0
     }
 
@@ -72,17 +72,21 @@ impl Vibrato {
         // just written is the output; the line still takes every sample, so a
         // depth turned up later swings over what the channel played.
         if self.swing == 0.0 {
-            self.phase = (self.phase + RATE / self.sample_rate).fract();
-            self.write = (self.write + 1) % length;
+            self.advance();
             return input;
         }
         let delay = self.swing * (1.0 + (self.phase * TAU).sin()) * self.sample_rate;
-        self.phase = (self.phase + RATE / self.sample_rate).fract();
         let whole = delay.floor();
         let fraction = delay - whole;
         let newer = self.line[(self.write + length - whole as usize) % length];
         let older = self.line[(self.write + length - whole as usize - 1) % length];
-        self.write = (self.write + 1) % length;
+        self.advance();
         newer + (older - newer) * fraction
+    }
+
+    /// Moves the swing's phase and the write head on by one sample.
+    fn advance(&mut self) {
+        self.phase = (self.phase + RATE / self.sample_rate).fract();
+        self.write = (self.write + 1) % self.line.len();
     }
 }

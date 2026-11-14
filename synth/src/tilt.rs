@@ -36,7 +36,7 @@ impl Tilt {
 
     /// Whether it is flat and staying there, so it passes the channel
     /// unchanged.
-    pub(crate) fn is_flat(&self) -> bool {
+    pub(crate) fn rests(&self) -> bool {
         self.tilt.rests_at(0.0)
     }
 
