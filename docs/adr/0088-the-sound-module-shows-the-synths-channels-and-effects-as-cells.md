@@ -2,7 +2,9 @@
 
 Status: accepted. Settled with Toby on 2026-10-27 in `.scratch/orcvs-site/` (ticket 15), after a
 prototype of three looks. It amends [ADR 0087](0087-the-site-plays-the-console-through-a-built-in-synth.md):
-Control Change 1 to 8 now set the Built-in Synth's effects.
+Control Change 1 to 8 now set the Built-in Synth's effects. The 2026-11-14 amendment below sets
+every effect per channel on standard MIDI controllers and has the Sound Module show a chosen
+channel's.
 
 ADR 0087 left the sound module empty: the Built-in Synth had no level or effect control, and the
 effects panel was to come later and decide whether Control Change reaches it. Learn Orca's Enfer
@@ -102,3 +104,46 @@ cannot be shared.
 - The sound module is on `/` only. A page with the small console (ADR 0086) still plays the
   synth's effects as a Source sets them, but shows no sound module.
 - Native draws the same sound module when it gets the synth (ticket 14).
+
+## Amendment, 2026-11-14: every effect is per channel, on standard MIDI controllers
+
+Settled with Toby on 2026-11-13 in `.scratch/musical-terminology/` (ticket 10). Controllers 1 to 8
+are what a DAW sends as modulation, breath, volume, balance and pan, and data entry, so a DAW's
+mixer washed reverb and tilt across every channel, and one global set of effects meant turning one
+channel's reverb turned every channel's. Each effect now sits on the controller MIDI names for it,
+or on one MIDI leaves undefined, and each channel has its own:
+
+| CC | Name | MIDI name | Effect | At load |
+|---|---|---|---|---|
+| 1 | `MD` | Modulation | vibrato on the channel | `00` |
+| 74 | `EQ` | Brightness (Sound Controller 5) | one tilt on the channel | `40` |
+| 75 | `LN` | Decay Time (Sound Controller 6) | how long each new sound on the channel decays | `7F` |
+| 85 | `OF` | undefined | Orcvs's own: how far into its course each new sound starts, the reverse of CC 73 Attack Time | `00` |
+| 91 | `R1` | Effects 1 Depth, General MIDI's reverb send | the channel's send to the small reverb | `00` |
+| 92 | `R2` | Effects 2 Depth | Orcvs's own: the channel's send to the large reverb | `00` |
+| 93 | `CH` | Effects 3 Depth, General MIDI's chorus send | the channel's send to the chorus | `00` |
+| 94 | `DL` | Effects 4 Depth | the channel's send to the echo, as on Roland GS modules: the SC-88 Pro owner's manual's MIDI Implementation Chart (p. 209) lists controller 94 as "Effect 4 (Delay Send Level)" | `00` |
+
+Read the Decision's table and "Control Change 1 to 8 set the effects on any channel" with this
+table and "each channel's Control Changes set that channel's effects". Controllers 2 to 8 set
+nothing.
+
+- `MD` and `EQ` process each channel before its sends, and `OF` and `LN` shape each new sound on
+  their channel. `R1`, `R2`, `CH` and `DL` are send levels into one small reverb, one large reverb,
+  one chorus and one echo that every channel shares; the four run side by side rather than in a
+  row, and each returns only what the channels sent it. A channel sending to the chorus at `7F`
+  mixes half itself with half the chorus, as the global chorus did.
+- On the acid channel, `08`, CC 74 and 75 are the acid voice's cutoff and decay (ADR 0099), so the
+  tilt and the length do not apply there: brightness and decay mean the same on that channel as on
+  every other.
+- **The Sound Module shows and sends the effects of a chosen channel.** A click on a channel's
+  digit chooses it, and the chosen channel is outlined in the magnitude colour; channel `00` is
+  chosen at load. The effects' columns show that channel's values and the reader's typing sends
+  each change as a Control Change on it. The Sound Module keeps every channel's values from the
+  one stream it hears, so choosing another channel shows what that channel was last sent. On `08`
+  the `EQ` and `LN` columns show the acid voice's cutoff and decay, which load at `30`. The effects
+  run in CC order: `MD`, `EQ`, `LN`, `OF`, `R1`, `R2`, `CH`, `DL`.
+
+The Rejected alternative "Effects per channel, or Control Change on one channel only" no longer
+holds: velocity is still a channel's only level, and a send is not one, but one set of effects
+made a channel's controllers change every channel, which a musician's other gear never does.

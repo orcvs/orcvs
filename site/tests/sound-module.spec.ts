@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 // The Sound Module below the console on `/`: it shows the console's notes and Control Changes, and
-// sends the reader's changes to the page's Built-in Synth.
+// sends the reader's changes to the page's Built-in Synth, each on the channel it chose.
 
 declare global {
   interface Window {
@@ -69,10 +69,11 @@ test("the Sound Module draws its lights and effects at their load values", async
 
   await expect(page.locator(".orcvs-sound-module .channel")).toHaveText([..."0123456789ABCDEF"]);
   await expect(page.locator(".orcvs-sound-module .function")).toHaveText(
-    [..."MDOFLNDLCHEQR1R2"],
+    [..."MDEQLNOFR1R2CHDL"],
   );
   const values = await Promise.all([0, 1, 2, 3, 4, 5, 6, 7].map((index) => valueOf(page, index)));
-  expect(values).toEqual(["00", "00", "7F", "00", "00", "40", "00", "00"]);
+  expect(values).toEqual(["00", "40", "7F", "00", "00", "00", "00", "00"]);
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("0");
 });
 
 test("each effect's Cells name the effect and its Control Change on hover", async ({ page }) => {
@@ -83,15 +84,15 @@ test("each effect's Cells name the effect and its Control Change on hover", asyn
     .evaluateAll((cells) => cells.filter((_, index) => index % 2 === 0).map((cell) => (cell as HTMLElement).title));
   expect(titles).toEqual([
     "Modulation, CC 1",
-    "Offset, CC 2",
-    "Length, CC 3",
-    "Delay, CC 4",
-    "Chorus, CC 5",
-    "EQ, CC 6",
-    "Reverb 1, CC 7",
-    "Reverb 2, CC 8",
+    "EQ, CC 74",
+    "Length, CC 75",
+    "Offset, CC 85",
+    "Reverb 1, CC 91",
+    "Reverb 2, CC 92",
+    "Chorus, CC 93",
+    "Delay, CC 94",
   ]);
-  await expect(page.locator('.orcvs-sound-module .magnitude[data-effect="4"]').first()).toHaveAttribute("title", "Chorus, CC 5");
+  await expect(page.locator('.orcvs-sound-module .magnitude[data-effect="6"]').first()).toHaveAttribute("title", "Chorus, CC 93");
 });
 
 test("a Note On from the console shows its channel as sounding, then idle", async ({ page }) => {
@@ -108,14 +109,28 @@ test("a Note On from the console shows its channel as sounding, then idle", asyn
   await expect.poll(() => page.evaluate(() => window.soundSpy.sounding.slice(0, 2))).toEqual([true, false]);
 });
 
-test("a Control Change from the console shows as its effect's value", async ({ page }) => {
+test("a Control Change from the console shows as its effect's value on its channel", async ({ page }) => {
   await page.goto(EMPTY);
 
-  // Channel `05`, CC 1, `7F`: any channel sets the effect.
+  // Channel `05`, CC 1, `7F`: the effect is channel `05`'s, so channel `00` keeps `00`.
+  await page.locator(".orcvs-sound-module .channel").nth(5).click();
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("5");
   await play(page, "!c05017F");
 
   await expect.poll(() => valueOf(page, 0)).toBe("7F");
   expect(await magnitudeOf(page, 0)).toBe("1");
+  await page.locator(".orcvs-sound-module .channel").nth(0).click();
+  expect(await valueOf(page, 0)).toBe("00");
+});
+
+test("the acid voice's channel shows its cutoff and decay under EQ and LN", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator(".orcvs-sound-module .channel").nth(8).click();
+
+  // CC 74 and 75 on `08` are the acid voice's cutoff and decay, which load at `30`.
+  expect(await valueOf(page, 1)).toBe("30");
+  expect(await valueOf(page, 2)).toBe("30");
 });
 
 test("typing on a value writes it as the Grid does, and sends its Control Change", async ({ page }) => {
@@ -138,7 +153,7 @@ test("typing on a value writes it as the Grid does, and sends its Control Change
   await page.keyboard.type("8");
   expect(await valueOf(page, 0)).toBe("64");
 
-  // Past `MD`'s last digit, the Cursor steps onto `OF`'s first.
+  // Past `MD`'s last digit, the Cursor steps onto `EQ`'s first.
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.type("2");
@@ -146,4 +161,20 @@ test("typing on a value writes it as the Grid does, and sends its Control Change
 
   await page.keyboard.press("Escape");
   await expect(page.locator(".orcvs-sound-module .cursor")).toHaveCount(0);
+});
+
+test("typing on a value sends its Control Change on the chosen channel", async ({ page }) => {
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => window.soundSpy.node)).toBe(true);
+
+  // Channel `09`'s `R1` takes `40`; channel `00`'s keeps its own.
+  await page.locator(".orcvs-sound-module .channel").nth(9).click();
+  await page.locator('.orcvs-sound-module .number[data-effect="4"]').first().click();
+  await page.keyboard.type("40");
+  await expect.poll(() => page.evaluate(() => window.soundSpy.played.at(-1))).toEqual([0xb9, 91, 0x40]);
+
+  await page.locator(".orcvs-sound-module .channel").nth(0).click();
+  expect(await valueOf(page, 4)).toBe("00");
+  await page.locator(".orcvs-sound-module .channel").nth(9).click();
+  expect(await valueOf(page, 4)).toBe("40");
 });

@@ -2,10 +2,10 @@
 //! through Source/Tick and Playback.
 //!
 //! Every Tick the bassline plays its next step on the Built-in Synth's acid
-//! channel, and each knob sends one Control Change: three to the acid voice
-//! and eight to the synth's effects. A knob's value glides by at most
-//! [`RATE`] a Tick toward its Clock plus a floor, and the Clock sweeps up a
-//! step at a time and wraps to `00`. The bassline and knobs are written out
+//! channel, and each knob sends one Control Change on that channel: three to
+//! the acid voice and six to the channel's effects. A knob's value glides by
+//! at most [`RATE`] a Tick toward its Clock, and the Clock sweeps up a step
+//! at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
 
 use super::{HandDrivenRun, functions_mapped, note_on, stop, tick_diagnostics};
@@ -64,29 +64,24 @@ const BASS: [(u8, Touch); 16] = {
     ]
 };
 
-/// The acid channel.
+/// The acid channel. The effects are set per channel, so the effects' knobs
+/// send on it too.
 const ACID: u8 = 0x08;
 
-/// The channel the effects' knobs send on. Each effect is global, so any
-/// channel would do.
-const EFFECTS: u8 = 0x00;
-
-/// One knob: the channel and controller it sends, the floor its Add puts
-/// under the Clock, and the Clock's `length` and `steps`.
+/// One knob: the channel and controller it sends, and its Clock's `length`
+/// and `steps`.
 struct Knob {
     channel: u8,
     controller: u8,
-    floor: u8,
     length: u64,
     steps: u64,
 }
 
 impl Knob {
-    const fn new(channel: u8, controller: u8, floor: u8, length: u64, steps: u64) -> Self {
+    const fn new(channel: u8, controller: u8, length: u64, steps: u64) -> Self {
         Self {
             channel,
             controller,
-            floor,
             length,
             steps,
         }
@@ -94,24 +89,24 @@ impl Knob {
 
     /// Where the knob's value is gliding at `tick`.
     fn target(&self, tick: u64) -> u8 {
-        self.floor + (tick / self.length % self.steps) as u8
+        (tick / self.length % self.steps) as u8
     }
 }
 
 /// Each knob in Source order: the acid voice's cutoff, resonance and decay,
-/// then `MD`, `OF`, `LN`, `DL`, `CH`, `EQ`, `R1` and `R2`.
-const KNOBS: [Knob; 11] = [
-    Knob::new(ACID, 0x4A, 0x00, 0x01, 0x80),
-    Knob::new(ACID, 0x47, 0x00, 0x02, 0x80),
-    Knob::new(ACID, 0x4B, 0x00, 0x03, 0x40),
-    Knob::new(EFFECTS, 0x01, 0x00, 0x05, 0x40),
-    Knob::new(EFFECTS, 0x02, 0x00, 0x07, 0x20),
-    Knob::new(EFFECTS, 0x03, 0x40, 0x04, 0x40),
-    Knob::new(EFFECTS, 0x04, 0x00, 0x03, 0x40),
-    Knob::new(EFFECTS, 0x05, 0x00, 0x02, 0x40),
-    Knob::new(EFFECTS, 0x06, 0x30, 0x05, 0x20),
-    Knob::new(EFFECTS, 0x07, 0x00, 0x06, 0x30),
-    Knob::new(EFFECTS, 0x08, 0x00, 0x08, 0x40),
+/// then `MD`, `OF`, `R1`, `R2`, `CH` and `DL`. On the acid channel the
+/// cutoff and decay are CC 74 and 75, which set `EQ` and `LN` on every other
+/// channel.
+const KNOBS: [Knob; 9] = [
+    Knob::new(ACID, 0x4A, 0x01, 0x80),
+    Knob::new(ACID, 0x47, 0x02, 0x80),
+    Knob::new(ACID, 0x4B, 0x03, 0x40),
+    Knob::new(ACID, 0x01, 0x05, 0x40),
+    Knob::new(ACID, 0x55, 0x07, 0x20),
+    Knob::new(ACID, 0x5B, 0x06, 0x30),
+    Knob::new(ACID, 0x5C, 0x08, 0x40),
+    Knob::new(ACID, 0x5D, 0x02, 0x40),
+    Knob::new(ACID, 0x5E, 0x03, 0x40),
 ];
 
 /// How far a knob's value moves in one Tick, its Interpolation's `amount`.

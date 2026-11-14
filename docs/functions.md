@@ -1204,18 +1204,19 @@ After Tick `0`, three Note Ons, each stopped four Ticks later:
 
 ### `!c` Control Change
 
-`!c channel controller value` sends a Control Change.
+`!c channel controller value` sends a Control Change. `!c005B40` sets channel `00`'s reverb send,
+CC91 (`5B`), to 64 (`40`); the [Built-in Synth](#built-in-synth) lists the controllers it acts on.
 
 ```orcvs
 **
-!c000740
+!c005B40
 ```
 
 After Tick `0`:
 
 ```orcvs tick 0 plays 1
 
-!c000740
+!c005B40
 ```
 
 ### `!b` Pitch Bend
@@ -1259,6 +1260,31 @@ MIDI module, so a drum part a DAW sends on channel 10 plays drums.
 | `08` | 9 | Acid voice: one 303-style voice that slides between overlapping notes |
 | `09` | 10 | The kit, on General MIDI's drum channel |
 | `0A` to `0F` | 11 to 16 | The kit |
+
+**Controllers.** Each channel has its own effects, set by Control Changes on that channel, so
+turning one channel's reverb leaves every other channel as it is. Each effect sits on the
+controller MIDI gives it, or on one MIDI leaves undefined. The Sound Module on orcvs.com shows the
+chosen channel's effects under their two-letter names. At the load values a channel sounds as it
+does with no effect.
+
+| Controller | MIDI name | Effect | Built-in Synth | At load |
+|---|---|---|---|---|
+| 1 (`01`) | Modulation | `MD` | Vibrato | 0 (`00`) |
+| 74 (`4A`) | Brightness | `EQ` | One tilt: 64 (`40`) is flat, lower is darker and higher is brighter | 64 (`40`) |
+| 75 (`4B`) | Decay Time | `LN` | How long each new sound decays, and a tone's release | 127 (`7F`) |
+| 85 (`55`) | Undefined | `OF` | Orcvs's own: how far into its course each new sound starts, the reverse of CC73 (`49`) Attack Time | 0 (`00`) |
+| 91 (`5B`) | Reverb Send | `R1` | The send to a small reverb, General MIDI's reverb send | 0 (`00`) |
+| 92 (`5C`) | Effects 2 Depth | `R2` | Orcvs's own: the send to a large reverb | 0 (`00`) |
+| 93 (`5D`) | Chorus Send | `CH` | The send to a chorus, General MIDI's chorus send | 0 (`00`) |
+| 94 (`5E`) | Effects 4 Depth | `DL` | The send to an echo, as Roland GS modules put the delay send | 0 (`00`) |
+
+The four sends feed one small reverb, one large reverb, one chorus and one echo that every channel
+shares; each channel sets how much of itself reaches them. The acid voice on `08` takes its own
+controllers on that channel, after General MIDI's sound controllers: CC70 (`46`) its waveform, a
+saw below 64 (`40`) and a square from it; CC71 (`47`) resonance; CC74 (`4A`) cutoff; CC75 (`4B`)
+the filter envelope's decay; and CC79 (`4F`) the envelope's depth. On `08`, CC74 and CC75 set its
+cutoff and decay in place of the tilt and the length, so brightness and decay mean there what they
+mean on every other channel. Every other controller sets nothing.
 
 **Drum keys.** The kit answers General MIDI's drum keys, so a drum part written for a General MIDI
 module plays the instruments it names. A key is the Note's MIDI number, and an Orcvs Note counts

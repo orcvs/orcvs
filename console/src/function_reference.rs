@@ -889,7 +889,7 @@ mod tests {
     /// to.
     /// Channel, velocity, note, controller, value, and bend operands were
     /// chosen to be plausible MIDI content (a mid-velocity Middle C on
-    /// channel `00`, a Volume Control Change (`07`), a Pitch Bend above
+    /// channel `00`, a reverb send Control Change (`5B`), a Pitch Bend above
     /// centre (`40`)) rather than boundary values, since this is a worked
     /// example and not a domain-boundary test — those already live in
     /// `lang`. Timed Play's and Monophonic Play's lengths (`04` Ticks each)
@@ -930,11 +930,11 @@ mod tests {
                 note: Note::try_from(0x43).unwrap(),
                 length: Length::from(0x04),
             },
-            // !c000764 — Control Change: channel 00, controller 07 (Volume),
-            // value 64.
+            // !c005B64 — Control Change: channel 00, controller 5B (91, the
+            // reverb send), value 64.
             PlayCommand::ControlChange {
                 channel: MidiChannel::try_from(0x00).unwrap(),
-                controller: Controller::try_from(0x07).unwrap(),
+                controller: Controller::try_from(0x5B).unwrap(),
                 value: ControlValue::try_from(0x64).unwrap(),
             },
             // !b000050 — Pitch Bend: channel 00, lsb 00, msb 50 (above

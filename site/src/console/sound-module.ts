@@ -1,25 +1,34 @@
 // The Sound Module (ADR 0088): sixteen channels and the Built-in Synth's eight effects, drawn as
-// Cells. It shows what the page's `orcvs.midi` messages carry, whoever sent them, and sends the
-// reader's changes as Control Change messages on the same page, so the synth and the Sound Module
-// hear one stream.
+// Cells. Each channel has its own effects; the effects show and send those of the chosen channel.
+// It shows what the page's `orcvs.midi` messages carry, whoever sent them, and sends the reader's
+// changes as Control Change messages on the same page, so the synth and the Sound Module hear one
+// stream.
 
 /** How long a channel shows as sounding after a Note On. */
 const SOUNDING_MS = 150;
 
 /**
- * Each effect's two-Cell name, the word its Cells show on hover, and its load value, in Control
- * Change order from CC 1. The word tells `CH` (chorus) from a channel.
+ * Each effect's two-Cell name, the word its Cells show on hover, its controller and its load value,
+ * in Control Change order. The word tells `CH` (chorus) from a channel.
  */
-const EFFECTS: [string, string, number][] = [
-  ["MD", "Modulation", 0x00],
-  ["OF", "Offset", 0x00],
-  ["LN", "Length", 0x7f],
-  ["DL", "Delay", 0x00],
-  ["CH", "Chorus", 0x00],
-  ["EQ", "EQ", 0x40],
-  ["R1", "Reverb 1", 0x00],
-  ["R2", "Reverb 2", 0x00],
+const EFFECTS: [string, string, number, number][] = [
+  ["MD", "Modulation", 1, 0x00],
+  ["EQ", "EQ", 74, 0x40],
+  ["LN", "Length", 75, 0x7f],
+  ["OF", "Offset", 85, 0x00],
+  ["R1", "Reverb 1", 91, 0x00],
+  ["R2", "Reverb 2", 92, 0x00],
+  ["CH", "Chorus", 93, 0x00],
+  ["DL", "Delay", 94, 0x00],
 ];
+/** The acid voice's channel, where CC 74 and 75 are its cutoff and decay, which load at `30`. */
+const ACID = 0x8;
+const ACID_LOADS: Record<number, number> = { 74: 0x30, 75: 0x30 };
+/** Each channel's effects at load, by channel, then in `EFFECTS` order. */
+const loads = () =>
+  Array.from({ length: 16 }, (_, channel) =>
+    EFFECTS.map(([, , controller, value]) => (channel === ACID ? (ACID_LOADS[controller] ?? value) : value)),
+  );
 /**
  * The Grid's width: sixteen channels of one Cell and a spacer, or eight effects of two Cells and
  * two spacers, each effect's magnitude, value and name stacked in its own column.
@@ -43,14 +52,18 @@ export function soundModule(module: HTMLElement) {
 
   const channels = Array.from({ length: 16 }, (_, channel) => {
     const digit = cell("channel", channel.toString(16).toUpperCase());
+    digit.title = `Channel ${hex(channel)}, MIDI channel ${channel + 1}`;
     grid.append(digit, cell());
     return { digit, timer: 0 };
   });
+  // Every channel's effect values, and the channel the effects show and send.
+  const values = loads();
+  let chosen = 0;
   // A blank row between the channels and the effects.
   for (let blank = 0; blank < COLUMNS; blank++) grid.append(cell());
 
-  const effects = EFFECTS.map(([, , value]) => ({
-    value,
+  const effects = EFFECTS.map(() => ({
+    value: 0,
     magnitude: [cell("magnitude"), cell("magnitude")],
     digits: [cell("number"), cell("number")],
   }));
@@ -64,12 +77,20 @@ export function soundModule(module: HTMLElement) {
     row.forEach((pair, index) => {
       for (const target of pair) {
         target.dataset.effect = String(index);
-        target.title = `${EFFECTS[index][1]}, CC ${index + 1}`;
+        target.title = `${EFFECTS[index][1]}, CC ${EFFECTS[index][2]}`;
       }
       grid.append(...pair, cell(), cell());
     });
   }
-  for (const effect of effects) show(effect, effect.value);
+  choose(0);
+
+  /** Shows `channel`'s effects and sends the reader's changes on it. */
+  function choose(channel: number) {
+    channels[chosen].digit.classList.remove("chosen");
+    chosen = channel;
+    channels[chosen].digit.classList.add("chosen");
+    effects.forEach((effect, index) => show(effect, values[chosen][index]));
+  }
 
   function show(effect: { value: number; digits: HTMLElement[]; magnitude: HTMLElement[] }, value: number) {
     effect.value = value;
@@ -87,8 +108,11 @@ export function soundModule(module: HTMLElement) {
       sounding.digit.classList.add("sounding");
       clearTimeout(sounding.timer);
       sounding.timer = window.setTimeout(() => sounding.digit.classList.remove("sounding"), SOUNDING_MS);
-    } else if (status >> 4 === 0xb && data1 >= 1 && data1 <= EFFECTS.length) {
-      show(effects[data1 - 1], data2);
+    } else if (status >> 4 === 0xb) {
+      const index = EFFECTS.findIndex(([, , controller]) => controller === data1);
+      if (index < 0) return;
+      values[channel][index] = data2;
+      if (channel === chosen) show(effects[index], data2);
     }
   }
 
@@ -102,7 +126,8 @@ export function soundModule(module: HTMLElement) {
   // taking `orcvs.midi` that this window posts to itself, as well as a console's.
   function send(index: number, value: number) {
     if (value === effects[index].value) return;
-    const message = { type: "orcvs.midi", bytes: [0xb0, index + 1, value], time: performance.timeOrigin + performance.now() };
+    const bytes = [0xb0 | chosen, EFFECTS[index][2], value];
+    const message = { type: "orcvs.midi", bytes, time: performance.timeOrigin + performance.now() };
     window.postMessage(message, location.origin);
   }
 
@@ -133,15 +158,22 @@ export function soundModule(module: HTMLElement) {
       if (value > 0x7f) return;
       // Shown at once as well as on the round trip, so the next digit typed reads this one.
       send(index, value);
+      values[chosen][index] = value;
       show(effects[index], value);
       place(cursor + 1);
     } else return;
     event.preventDefault();
   });
 
-  // A press on a value takes the keyboard and puts the Cursor there; anywhere else the console
-  // keeps it.
+  // A press on a value takes the keyboard and puts the Cursor there, and a press on a channel
+  // chooses it; anywhere else the console keeps the keyboard.
   grid.addEventListener("pointerdown", (event) => {
+    const channel = channels.findIndex(({ digit }) => digit === event.target);
+    if (channel >= 0) {
+      event.preventDefault();
+      choose(channel);
+      return;
+    }
     const digit = digits.indexOf(event.target as HTMLSpanElement);
     if (digit < 0) return;
     event.preventDefault();
