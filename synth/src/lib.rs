@@ -12,6 +12,7 @@ mod controller;
 mod delay;
 mod drum;
 mod reverb;
+mod sends;
 mod smoothing;
 mod tilt;
 mod tone;
@@ -20,11 +21,12 @@ mod vibrato;
 mod web;
 
 use acid::{Acid, Controls};
-use channel::{Channel, Mix, Onset, Sends};
+use channel::{Channel, Onset};
 use chorus::Chorus;
 use delay::Delay;
 use drum::{Drum, Instrument};
 use reverb::{Reverb, Room};
+use sends::{Mix, Sends};
 use tone::Tone;
 
 /// How many voices sound at once.

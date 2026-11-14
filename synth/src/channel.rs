@@ -1,9 +1,8 @@
-//! One channel's own effects, and the sends that carry it to the shared ones.
+//! One channel's strip: its own effects, how each new sound on it starts,
+//! and what it sends the shared effects.
 
-use crate::chorus::Chorus;
-use crate::controller::{CH, DL, EQ, LN, MD, OF, R1, R2, RESET};
-use crate::delay::Delay;
-use crate::reverb::Reverb;
+use crate::controller::{EQ, LN, MD, OF, RESET};
+use crate::sends::{Mix, Sends};
 use crate::smoothing::Smoothing;
 use crate::tilt::Tilt;
 use crate::vibrato::Vibrato;
@@ -15,72 +14,9 @@ const MAX_OFFSET: f32 = 0.1;
 /// it.
 const SHORTEST: f32 = 0.02;
 
-/// One of something for each shared effect: the chorus, the delay, and the
-/// small and large reverbs. The processors differ in type, so each field may;
-/// every other use holds one type in all four.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct Sends<C, D = C, S = C, L = S> {
-    pub(crate) chorus: C,
-    pub(crate) delay: D,
-    pub(crate) small: S,
-    pub(crate) large: L,
-}
-
-impl<T> Sends<T> {
-    /// Four values, each made by `make`.
-    fn from_fn(mut make: impl FnMut() -> T) -> Self {
-        Self {
-            chorus: make(),
-            delay: make(),
-            small: make(),
-            large: make(),
-        }
-    }
-
-    /// The one sent on `controller`, if it is a send's: `CH`, `DL`, `R1` or
-    /// `R2`.
-    fn on(&mut self, controller: u8) -> Option<&mut T> {
-        match controller {
-            CH => Some(&mut self.chorus),
-            DL => Some(&mut self.delay),
-            R1 => Some(&mut self.small),
-            R2 => Some(&mut self.large),
-            _ => None,
-        }
-    }
-
-    /// Whether `test` holds for all four.
-    fn all(&self, test: impl Fn(&T) -> bool) -> bool {
-        [&self.chorus, &self.delay, &self.small, &self.large]
-            .into_iter()
-            .all(test)
-    }
-}
-
-impl std::ops::AddAssign for Sends<f32> {
-    fn add_assign(&mut self, other: Self) {
-        self.chorus += other.chorus;
-        self.delay += other.delay;
-        self.small += other.small;
-        self.large += other.large;
-    }
-}
-
-impl Sends<Chorus, Delay, Reverb> {
-    /// `mix`'s dry signal with the shared effects side by side, each
-    /// returning only what the channels sent it.
-    pub(crate) fn process(&mut self, mix: Mix) -> f32 {
-        let sent = mix.sends;
-        mix.dry
-            + 0.5 * self.chorus.process(sent.chorus)
-            + self.delay.process(sent.delay)
-            + self.small.process(sent.small)
-            + self.large.process(sent.large)
-    }
-}
-
 /// How a new sound on a channel starts and decays, from its `OF` and `LN`.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct Onset {
     /// The share of its own length the sound keeps, from `SHORTEST` to `1`.
     pub(crate) length: f32,
@@ -152,9 +88,10 @@ impl Channel {
         }
     }
 
-    /// What the channel adds to the mix for its next sample, given what its
-    /// voices played, or `None` when no voice sounded on it. It answers
-    /// `None` while it is idle, adding nothing.
+    /// What the channel adds to the mix for its next sample. `input` is what
+    /// its voices played, `None` when no voice sounded on it. The answer is
+    /// `None` while the channel is idle, so the caller adds nothing; the
+    /// sample it goes idle on clears what its effects held.
     pub(crate) fn process(&mut self, input: Option<f32>) -> Option<Mix> {
         if input.is_some() || !self.rests() {
             self.idle = false;
@@ -178,43 +115,19 @@ impl Channel {
     /// `input` through the channel's own effects: what it adds to the mix.
     fn mix(&mut self, input: f32) -> Mix {
         let out = self.tilt.process(self.vibrato.process(input));
-        let sends = Sends {
-            chorus: self.sends.chorus.next(),
-            delay: self.sends.delay.next(),
-            small: self.sends.small.next(),
-            large: self.sends.large.next(),
-        };
+        let gains = self.sends.map_mut(Smoothing::next);
         Mix {
             // Up to half the channel goes to the chorus in place of itself.
-            dry: out * (1.0 - 0.5 * sends.chorus),
-            sends: Sends {
-                chorus: out * sends.chorus,
-                delay: out * sends.delay,
-                small: out * sends.small,
-                large: out * sends.large,
-            },
+            dry: out * (1.0 - 0.5 * gains.chorus),
+            sends: gains.map(|gain| out * gain),
         }
-    }
-}
-
-/// One sample of the mix ahead of the shared effects: every channel's dry
-/// signal, and what the channels send each shared effect.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct Mix {
-    dry: f32,
-    sends: Sends<f32>,
-}
-
-impl std::ops::AddAssign for Mix {
-    fn add_assign(&mut self, other: Self) {
-        self.dry += other.dry;
-        self.sends += other.sends;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::controller::{CH, DL, R1, R2};
 
     const RATE: f32 = 48_000.0;
 
@@ -234,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn a_channel_with_an_effect_turned_adds_to_the_mix_with_no_voice() {
+    fn a_channel_with_an_effect_turned_is_not_skipped_with_no_voice() {
         for controller in [MD, R1, R2, CH, DL] {
             let mut channel = Channel::new(RATE);
             channel.set(controller, 0x40);
@@ -247,29 +160,53 @@ mod tests {
 
     #[test]
     fn silence_through_a_channel_at_rest_is_silence_whatever_it_played() {
-        let mut channel = Channel::new(RATE);
-        for n in 0..1_000 {
-            channel.process(Some(signal(n)));
-        }
         // Skipping the channel adds `Mix::default()`, so a resting channel
-        // given silence must add exactly that for the skip to change nothing.
-        for _ in 0..1_000 {
-            assert_eq!(channel.process(Some(0.0)), Some(Mix::default()));
+        // given silence must add exactly that for the skip to change nothing,
+        // including once an effect has been turned and returned to rest.
+        for turned in [None, Some((MD, 0x7F, 0x00)), Some((EQ, 0x00, 0x40))] {
+            let mut channel = Channel::new(RATE);
+            if let Some((controller, away, _)) = turned {
+                channel.set(controller, away);
+            }
+            for n in 0..RATE as usize / 2 {
+                channel.process(Some(signal(n)));
+            }
+            if let Some((controller, _, back)) = turned {
+                channel.set(controller, back);
+            }
+            let mut n = 0;
+            while !channel.rests() {
+                channel.process(Some(signal(n)));
+                n += 1;
+            }
+            for _ in 0..1_000 {
+                assert_eq!(
+                    channel.process(Some(0.0)),
+                    Some(Mix::default()),
+                    "{turned:?}"
+                );
+            }
         }
     }
 
     #[test]
     fn going_idle_forgets_what_the_channel_played() {
-        let mut channel = Channel::new(RATE);
-        for n in 0..1_000 {
-            channel.process(Some(signal(n)));
-        }
-        assert_eq!(channel.process(None), None);
-        // A vibrato turned up reads back over its line: the voice it held
-        // must not come back.
-        channel.set(MD, 0x7F);
-        for _ in 0..RATE as usize / 10 {
-            assert_eq!(channel.process(None), Some(Mix::default()));
+        // A vibrato turned up reads back over its line, and a tilt turned
+        // reads its low band: neither may bring back the voice it held.
+        for (controller, value) in [(MD, 0x7F), (EQ, 0x00)] {
+            let mut channel = Channel::new(RATE);
+            for n in 0..1_000 {
+                channel.process(Some(signal(n)));
+            }
+            assert_eq!(channel.process(None), None, "controller {controller}");
+            channel.set(controller, value);
+            for _ in 0..RATE as usize / 10 {
+                assert_eq!(
+                    channel.process(None),
+                    Some(Mix::default()),
+                    "controller {controller}"
+                );
+            }
         }
     }
 
