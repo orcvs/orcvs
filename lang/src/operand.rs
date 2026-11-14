@@ -107,10 +107,19 @@ pub trait Operand {
     ///
     /// Whether an operand admits a blank slot is this answer, so the Parser,
     /// which reads a blank slot as absent only where it is admitted, and
-    /// binding cannot disagree. Only [`Optional`] admits one. It is a function
-    /// rather than the value, so the Function table can ask whether it is
-    /// present at compile time without dropping a generic `Bound`.
+    /// binding cannot disagree. Only [`Optional`] and [`Defaulted`] admit one,
+    /// and neither wraps an operand that does. It is a function rather than
+    /// the value, so the Function table can ask whether it is present at
+    /// compile time without dropping a generic `Bound`.
     const ABSENT: Option<fn() -> Self::Bound> = None;
+
+    /// Whether a blank slot binds, for the test that runs it for every
+    /// operand the Function table declares: [`Defaulted`]'s fixed value must
+    /// lie in its operand's domain.
+    #[cfg(test)]
+    fn blank_binds() -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 /// A Number: `00`–`FF`.
@@ -284,7 +293,13 @@ pub type BendMsb = Domain<crate::BendMsb>;
 ///
 /// It is read as `O`'s token and binds a present value through `O::bind`, so
 /// a value `O` refuses is refused with `O`'s diagnostic. A slot that holds no
-/// value binds to `None` rather than being refused.
+/// value binds to `None` rather than being refused. `O` must require a value:
+/// an `O` that admits a blank slot would leave two meanings for one.
+///
+/// ```compile_fail
+/// use lang::operand::{Defaulted, Number, Operand, Optional};
+/// const _: bool = <Optional<Defaulted<Number, 0x00>> as Operand>::ABSENT.is_some();
+/// ```
 pub struct Optional<O>(core::marker::PhantomData<O>, core::convert::Infallible);
 
 impl<O: Operand> Operand for Optional<O> {
@@ -296,7 +311,59 @@ impl<O: Operand> Operand for Optional<O> {
         O::bind(payload).map(Some)
     }
 
-    const ABSENT: Option<fn() -> Option<O::Bound>> = Some(|| None);
+    const ABSENT: Option<fn() -> Option<O::Bound>> = {
+        assert!(
+            O::ABSENT.is_none(),
+            "Optional wraps an operand that admits a blank slot"
+        );
+        Some(|| None)
+    };
+}
+
+/// `O`, or `BLANK` where the slot holds no value: an operand a Source may
+/// leave blank, where blank means a stated Number.
+///
+/// A written value is read and bound exactly as `O` reads and binds it. A slot
+/// that holds no value, whether its Cells are blank or a nested Function
+/// answered a Clear, binds as if `BLANK` were written there, through
+/// `O::bind`, so the Function body cannot tell the two apart. `O` reads a
+/// Number, since `BLANK` is one, and requires a value, as `Optional`'s does.
+///
+/// A Function table row declares one with its value, as
+/// `role: Defaulted<Number, 0x00>`. A `BLANK` outside `O`'s domain fails
+/// the `lang` test that binds every declared operand's blank, so no table
+/// row ships one.
+///
+/// ```compile_fail
+/// use lang::operand::{Defaulted, Number, Operand, Optional};
+/// const _: bool = <Defaulted<Optional<Number>, 0x00> as Operand>::ABSENT.is_some();
+/// ```
+pub struct Defaulted<O, const BLANK: u8>(core::marker::PhantomData<O>, core::convert::Infallible);
+
+impl<O: Operand<Token = Number>, const BLANK: u8> Operand for Defaulted<O, BLANK> {
+    type Token = Number;
+    type Bound = O::Bound;
+
+    #[inline(always)]
+    fn bind(number: u8) -> Result<O::Bound, Error> {
+        O::bind(number)
+    }
+
+    const ABSENT: Option<fn() -> O::Bound> = {
+        assert!(
+            O::ABSENT.is_none(),
+            "Defaulted wraps an operand that admits a blank slot"
+        );
+        Some(|| match O::bind(BLANK) {
+            Ok(bound) => bound,
+            Err(error) => panic!("a Defaulted blank outside its operand's domain: {error}"),
+        })
+    };
+
+    #[cfg(test)]
+    fn blank_binds() -> Result<(), Error> {
+        O::bind(BLANK).map(drop)
+    }
 }
 
 /// Whether `O` admits a slot that holds no value, for the Function table's
@@ -351,5 +418,67 @@ pub(crate) fn bind_atom<O: Operand>(atom: Option<crate::Atom>) -> Result<O::Boun
             let blank = O::ABSENT.expect("check refused a blank slot this operand requires");
             Ok(blank())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Atom;
+
+    /// A Number whose blank stands for `40`.
+    type Blank40 = Defaulted<Number, 0x40>;
+
+    /// The diagnostic `O` gives a slot holding `atom`, or `None` if it binds.
+    fn refusal<O: Operand>(atom: Option<Atom>) -> Option<String> {
+        bind_atom::<O>(atom).err().map(|error| error.to_string())
+    }
+
+    #[test]
+    fn a_blank_defaulted_slot_binds_its_fixed_value() {
+        assert!(admits_blank::<Blank40>());
+        assert!(check::<Blank40>(None).is_ok());
+        assert_eq!(bind_atom::<Blank40>(None).ok(), Some(0x40));
+    }
+
+    #[test]
+    fn a_written_defaulted_slot_binds_what_is_written() {
+        for number in [0x00, 0x40, 0x7F, 0xFF] {
+            let written = Some(Atom::Number(number));
+            assert!(check::<Blank40>(written).is_ok());
+            assert_eq!(bind_atom::<Blank40>(written).ok(), Some(number));
+        }
+    }
+
+    #[test]
+    fn a_defaulted_slot_refuses_what_its_operand_refuses() {
+        let channel = Some(Atom::Number(0x10));
+        assert!(refusal::<MidiChannel>(channel).is_some());
+        assert_eq!(
+            refusal::<Defaulted<MidiChannel, 0x00>>(channel),
+            refusal::<MidiChannel>(channel)
+        );
+        let note = Some(Atom::Note(crate::Note::try_from(0x3C).unwrap()));
+        assert_eq!(
+            check::<Blank40>(note).err().map(|error| error.to_string()),
+            check::<Number>(note).err().map(|error| error.to_string())
+        );
+    }
+
+    #[test]
+    fn a_fixed_value_outside_the_domain_fails_the_table_check_as_if_written() {
+        assert_eq!(
+            Defaulted::<MidiChannel, 0x10>::blank_binds()
+                .err()
+                .map(|error| error.to_string()),
+            refusal::<MidiChannel>(Some(Atom::Number(0x10)))
+        );
+        assert!(Defaulted::<MidiChannel, 0x0F>::blank_binds().is_ok());
+    }
+
+    #[test]
+    fn a_plain_operand_still_refuses_a_blank_slot() {
+        assert!(!admits_blank::<Number>());
+        assert!(check::<Number>(None).is_err());
     }
 }

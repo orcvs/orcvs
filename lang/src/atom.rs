@@ -742,7 +742,7 @@ macro_rules! carried {
             }
         }
     };
-    ($variant:ident, [$role:ident: $operand:ident $(<$param:ident>)? $(, $($rest:tt)*)?]) => {
+    ($variant:ident, [$role:ident: $operand:ident $(<$param:ident $(, $blank:literal)?>)? $(, $($rest:tt)*)?]) => {
         carried!($variant, [$($($rest)*)?]);
     };
 }
@@ -958,7 +958,7 @@ macro_rules! define_functions {
             $($n_variant => ($n_spelling, $($n_row)*)),+
         }
     };
-    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident $(<$param:ident>)?),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])?)),+ $(,)?) => {
+    (@spelled [$($from:literal => $to:ident),+] $($variant:ident => ($spelling:literal, $name:literal, $summary:literal, $kind:ident, $activation:ident, $bang:ident, [$($role:ident: $operand:ident $(<$param:ident $(, $blank:literal)?>)?),* $(,)?] $(, portal: $portal_role:literal : $portal_type:ident)? $(, distance: $d_portal:ident $d_direction:ident $d_distance:ident)? $(, position: $p_portal:ident $p_column:ident $p_row:ident)? $(, grouped: [$($g_role:ident: $($g_operand:ident)+),+])?)),+ $(,)?) => {
         $(const _: Spelling = Spelling::checked($spelling);)+
 
         // A `portal:` row's Input Portal is the static site south of it, which
@@ -1156,7 +1156,7 @@ macro_rules! define_functions {
             pub(crate) const fn signature(self) -> &'static [crate::Token] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(<<crate::operand::$operand $(<crate::operand::$param>)? as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
+                        &[$(<<crate::operand::$operand $(<crate::operand::$param $(, $blank)?>)? as crate::operand::Operand>::Token as crate::operand::TokenKind>::TOKEN,)*]
                     },)+
                 }
             }
@@ -1171,8 +1171,20 @@ macro_rules! define_functions {
             pub const fn blank_admitted(self) -> &'static [bool] {
                 match self {
                     $(Self::$variant => const {
-                        &[$(crate::operand::admits_blank::<crate::operand::$operand $(<crate::operand::$param>)?>(),)*]
+                        &[$(crate::operand::admits_blank::<crate::operand::$operand $(<crate::operand::$param $(, $blank)?>)?>(),)*]
                     },)+
+                }
+            }
+
+            /// Whether each declared operand's blank slot binds, in signature
+            /// order, for the test that refuses a table row whose `Defaulted`
+            /// value lies outside its operand's domain.
+            #[cfg(test)]
+            pub(crate) fn blank_binds(self) -> Vec<Result<(), crate::Error>> {
+                match self {
+                    $(Self::$variant => vec![
+                        $(<crate::operand::$operand $(<crate::operand::$param $(, $blank)?>)? as crate::operand::Operand>::blank_binds(),)*
+                    ],)+
                 }
             }
         }
@@ -1188,11 +1200,11 @@ macro_rules! define_functions {
         pub(crate) mod operands {
             $(operands! {
                 $variant,
-                [$($role: crate::operand::$operand $(<crate::operand::$param>)?),*]
+                [$($role: crate::operand::$operand $(<crate::operand::$param $(, $blank)?>)?),*]
                 $(, $portal_role: $portal_type)?
             })+
 
-            $(carried!($variant, [$($role: $operand $(<$param>)?),*]);)+
+            $(carried!($variant, [$($role: $operand $(<$param $(, $blank)?>)?),*]);)+
         }
 
         /// How a directional Read's or Write's operands count the distance to
@@ -1838,6 +1850,15 @@ mod test {
         role_count, to_atom_num,
     };
     use crate::{Error, IntervalSet, Token, TypeError, Voicing};
+
+    #[test]
+    fn every_blank_a_function_admits_binds() {
+        for &function in Function::ALL {
+            for (index, binds) in function.blank_binds().into_iter().enumerate() {
+                assert!(binds.is_ok(), "{function} operand {index}: {binds:?}");
+            }
+        }
+    }
 
     /// The normative names and semitones, stated from the specification rather
     /// than read from the table under test.
