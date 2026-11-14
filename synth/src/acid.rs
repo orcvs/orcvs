@@ -42,8 +42,8 @@ impl Default for Controls {
 
 impl Controls {
     /// Takes `value` for `controller` if `controller` is one of the voice's,
-    /// and answers whether it was. Reset All Controllers returns every control
-    /// to its load value; any other controller changes nothing.
+    /// and answers whether it was. They are Sound Controllers, which Reset
+    /// All Controllers leaves alone; any other controller changes nothing.
     pub(crate) fn take(&mut self, controller: u8, value: u8) -> bool {
         match controller {
             WAVEFORM => self.waveform = value,
@@ -51,7 +51,6 @@ impl Controls {
             EQ => self.cutoff = value,
             LN => self.decay = value,
             ENV_MOD => self.env_mod = value,
-            121 => *self = Self::default(),
             _ => return false,
         }
         true
@@ -88,7 +87,7 @@ impl Acid {
         }
     }
 
-    /// Plays `note`: legato from the note held, or struck afresh once the last
+    /// Plays `note`: slid into from the note held, or struck afresh once the last
     /// has been released.
     pub(crate) fn play(&mut self, note: u8, velocity: u8) {
         self.target = pitch(note);

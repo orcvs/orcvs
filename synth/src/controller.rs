@@ -19,6 +19,9 @@ pub(crate) const R2: u8 = 92;
 pub(crate) const CH: u8 = 93;
 /// Effects 4 Depth: the send to the echo.
 pub(crate) const DL: u8 = 94;
+/// Reset All Controllers: clears `MD` on its channel and leaves the other
+/// effects as they are.
+pub(crate) const RESET: u8 = 121;
 /// Sound Controller 1: the acid voice's waveform.
 pub(crate) const WAVEFORM: u8 = 70;
 /// Sound Controller 2 (Timbre/Harmonic Intensity): the acid voice's

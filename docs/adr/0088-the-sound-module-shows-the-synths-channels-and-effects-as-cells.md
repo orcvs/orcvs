@@ -145,8 +145,9 @@ nothing.
   Control Change on it. The Sound Module keeps every channel's values from the one stream it hears,
   so choosing another channel shows what that channel was last sent. On `08` the second and third
   columns are the acid voice's cutoff, `CU`, and decay, `DC`, which load at `30`, and they follow
-  Reset All Controllers there as the voice does. The effects run in CC order: `MD`, `EQ`, `LN`,
-  `OF`, `R1`, `R2`, `CH`, `DL`.
+  Reset All Controllers there as the voice does; under ADR 0099's second 2026-11-14 amendment the
+  voice keeps them on a reset, and so do the columns, while `MD` shows `00`. The effects run in CC
+  order: `MD`, `EQ`, `LN`, `OF`, `R1`, `R2`, `CH`, `DL`.
 
 The Rejected alternative "Effects per channel, or Control Change on one channel only" no longer
 holds: velocity is still a channel's only level, and a send is not one, but one set of effects
