@@ -19,8 +19,8 @@ col  0         1         2
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (10, 1) `~.0208` | Clock, rate `02`, modulus `08` | Counts `00` to `07`, holding each value for two Ticks. It writes the count one row south, into Track's `index` slot at (10, 2). |
-| (0, 2) `~*0102` | Delay, rate `01`, modulus `02` | Bangs every second Tick, starting at Tick 0. It writes `**` one row south, at (0, 3). |
+| (10, 1) `~.0208` | Clock, division `02`, steps `08` | Counts `00` to `07`, holding each value for two Ticks. It writes the count one row south, into Track's `index` slot at (10, 2). |
+| (0, 2) `~*0102` | Every, division `01`, steps `02` | Bangs every second Tick, starting at Tick 0. It writes `**` one row south, at (0, 3). |
 | (8, 2) `&t  08` | Track, `index` at (10, 2), `count` `08` at (12, 2) | Reads pair `index % count` from the eight pairs east of its last operand, and writes it one row south, into the Timed Play's note slot at (8, 3). |
 | (14, 2) to (29, 2) | Ordinary Source | The pattern: pairs `00` to `07` at columns 14, 16, 18, 20, 22, 24, 26 and 28. As shipped they hold `C4 D4 __ G4 __ A4 C5 __`. |
 | (2, 3) `!~0064  04` | Timed Play | MIDI channel `00` (channel 1), velocity `64` (100), its note slot at (8, 3) filled by Track, length `04` Ticks. The `**` at (0, 3) activates it. |
@@ -35,8 +35,8 @@ To keep the alignment when you change it:
   directly above it: column 10, one row up.
 - Track's Output Portal must land on the Timed Play's note slot, so the Play's
   anchor is six columns west of Track and one row down.
-- The Delay's `**` must sit immediately west of the Play's anchor.
-- A longer pattern needs a larger `count` and a Clock modulus to match. Track
+- The Every's `**` must sit immediately west of the Play's anchor.
+- A longer pattern needs a larger `count` and a Clock `steps` to match. Track
   counts its pairs from the end of `count`, so pair `n` starts at column
   `14 + 2n`.
 

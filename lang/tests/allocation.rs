@@ -542,7 +542,7 @@ const CHORDS: &[(&str, usize)] = &[
     ("!:0064C4chCL00", 12),
     ("!#0064C4chCL0004", 12),
     ("!:037FC4chOP03", 12),
-    ("!#007FC3M7D60204", 4),
+    ("!#007FC3M7240204", 4),
     ("!:017FC4MDSH05", 3),
 ];
 
@@ -595,10 +595,10 @@ fn pick_and_stack_allocate_nothing_to_answer_or_refuse() {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
     for (row, answers) in [
         ("#pC4chFF", false),
-        ("#pC4MA04", true),
-        ("#sMA0404", true),
+        ("#pC4io04", true),
+        ("#sio0404", true),
         ("#sch0006", true),
-        ("#sp50003", false),
+        ("#spM0003", false),
     ] {
         let parsed = rows(&[row], 0);
         let parsed = calls(&parsed);

@@ -142,8 +142,8 @@ pub fn read(text: &[u8]) -> Result<Source, SourceFileError> {
     // The final line's terminator ends that line rather than starting another,
     // so a file that ends in LF, as every file `write` produces does, has as
     // many lines as it has line terminators.
-    let terminated = text.ends_with(b"\n");
-    let body = text.strip_suffix(b"\n").unwrap_or(text);
+    let body = text.trim_suffix(b"\n");
+    let terminated = body.len() != text.len();
     let mut lines = body.split(|byte| *byte == b'\n').enumerate().peekable();
     while let Some((row, line)) = lines.next() {
         if row >= rows {

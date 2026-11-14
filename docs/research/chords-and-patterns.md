@@ -269,7 +269,7 @@ could become a `spread` operand on `!#`, or a Strum Function of its own.
 | Thin out an arpeggio | Chance `?%` on the Bang feeding each Play (Tidal `degradeBy`) |
 | Fill chords only in the last bar | During `~:` with And `?&` |
 | Strum, ratchet an arpeggio | in-Tick scheduling (timing doc, section 5) |
-| Velocity ramp across tones (orcvs-ts `seqL` options) | velocity from Interpolation `~>` or Bounce |
+| Velocity ramp across tones (orcvs-ts `seqL` options) | velocity from Slew `~>` or Bounce |
 
 ## Suggested order
 

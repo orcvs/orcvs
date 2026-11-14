@@ -765,7 +765,7 @@ fn a_copied_bang_overwrites_an_edge_roots_anchor_rather_than_activating_it() {
 
 #[test]
 fn an_emitted_self_banging_function_first_moves_on_the_following_tick() {
-    // The whole cycle in one fixture: a Delay Bangs on Tick 0 and on no
+    // The whole cycle in one fixture: an Every Bangs on Tick 0 and on no
     // Tick after it, `*>` writes `>>`, and `>>` moves once per Tick from
     // the Tick after the one that wrote it. That a generated Function first
     // receives a turn from the next Source Snapshot is the assertion on the
@@ -773,7 +773,7 @@ fn an_emitted_self_banging_function_first_moves_on_the_following_tick() {
     // and it needs no rule of its own: a schedule is built from the Source
     // Snapshot, and nothing this Tick wrote is in it.
     //
-    // The Delay is what keeps the second half legible. An Equality would
+    // The Every is what keeps the second half legible. An Equality would
     // Bang again on Tick 1, and `*>` would then be pointing at the Cells
     // its own emission had not yet vacated.
     let (plans, grids, _) = tick_by_tick(Grid::with_shape(12, 3), &["~*0401", "", "*>"], 3);
