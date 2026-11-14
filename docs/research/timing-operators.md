@@ -5,8 +5,9 @@ and operand order below is a proposal for Toby to accept, change or drop. A prop
 accepted goes through the repo's process: a ticket under `.scratch/`, a prototype on real Grid
 Cells (`docs/agents/syntax-prototypes.md`), an ADR, then a test-first implementation.
 
-Since 2026-11-14 the shipped `~*` is named Every and `~>` Slew, and Clock's and Every's first
-operand is `division` (ADR 0012); this note uses those names for what ships. The separate `~/`
+Since 2026-11-14 the shipped `~*` is named Every and `~>` Slew, Clock's and Every's first
+operand is `division`, and `~%` plays Tidal's Euclidean patterns rather than Orca's bucket
+formula (ADR 0012); this note uses those names for what ships. The separate `~/`
 Every proposed below is dropped (`.scratch/musical-terminology/decisions.md`); its section keeps
 the name it was proposed under.
 
@@ -43,7 +44,7 @@ turn and the Tick grid holds (ADR 0037).
 |---|---|---|
 | `~. division steps` Clock | `C` | `floor(t / division) % steps` |
 | `~* division steps` Every | `D` | Bang when `t % (division × steps) == 0` |
-| `~% hits steps` Euclidean | `U` | Bang on Orca's Bjorklund distribution, no rotation |
+| `~% hits steps` Euclidean | `U` | Bang on Tidal's Euclidean pattern, no rotation operand |
 | `~+ amount modulus` Increment | `I` | previous + amount, kept in its Output Portal |
 | `~> amount target` Slew | `Z` | moves toward target by at most amount |
 | `~? seed min max` Random | `R` | deterministic per seed, Tick and Position |
@@ -245,7 +246,7 @@ There are two ways to spell rotation:
 
 - **(a)** `~% hits steps rotation`, an extra operand on the existing Function. The language is
   pre-release, so this is design, not breakage. It changes every existing `~%` in the examples.
-- **(b)** A new rotated Euclidean Function that leaves `~%` as Orca has it.
+- **(b)** A new rotated Euclidean Function that leaves `~%` as it is.
 
 I recommend **(a)**, because one Euclidean with a rotation is the simpler vocabulary. Sources:
 Tidal `euclidOff`, Strudel `euclidRot`, SuperCollider `Pbjorklund` offset.

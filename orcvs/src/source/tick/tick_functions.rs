@@ -63,12 +63,12 @@ fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
     // literal Cell indices and characters rather than anything the code
     // under test could satisfy by agreeing with itself.
     let grid = Grid::with_shape(24, 2);
-    let bytes = snapshot(grid, &["~.0304 ~*0202 ~%0304", ""]);
+    let bytes = snapshot(grid, &["~.0304 ~*0202 ~%0204", ""]);
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
     // Tick 1. The Clock is still in its first step of three, so it writes
     // `00`; the Every's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
-    // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
+    // it; the Euclidean's `X.X.` over four steps has no onset at step 1.
     // Both answer a Clear and clear their pair.
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
     let plan = plan.into_plan();
@@ -87,7 +87,7 @@ fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
     );
 
     // Tick 4. The Clock has counted one whole step of three; the Every is
-    // on a multiple of its cycle; and step 0 of `X.XX` is an onset. A
+    // on a multiple of its cycle; and step 0 of `X.X.` is an onset. A
     // hardcoded first Tick would write `00` here and a hardcoded Tick of
     // its own would move all three at once, so the pair of assertions is
     // what makes this about the Tick rather than about the formulas.
@@ -147,7 +147,7 @@ fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
     // Ticks per Function. A hardcoded edge would fire the terminal at both
     // and a missing one at neither, so the pair is what makes this about
     // the pulse rather than about scheduling in general.
-    for (spelling, banging, silent) in [("~*0202", 4, 1), ("~%0304", 4, 1)] {
+    for (spelling, banging, silent) in [("~*0202", 4, 1), ("~%0304", 4, 3)] {
         let grid = Grid::with_shape(16, 6);
         let bytes = snapshot(grid, &["", "!>007FC4", "", "", "", spelling]);
         let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));

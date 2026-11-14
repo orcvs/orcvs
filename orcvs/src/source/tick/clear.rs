@@ -112,11 +112,11 @@ fn an_unequal_root_equality_clears_the_pair_south_and_an_equal_one_bangs_there()
 fn every_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
     // Each Tick starts from Source that holds `C4` in the Output Portal,
     // so a Tick that left it alone would show it. `~*0201` Bangs on every
-    // second Tick, and `~%0304` places onsets at steps 0, 2 and 3.
+    // second Tick, and `~%0304` places onsets at steps 0, 1 and 2, Tidal's `XXX.`.
     let grid = Grid::with_shape(8, 2);
     for (function, bangs) in [
         ("~*0201", [true, false, true, false]),
-        ("~%0304", [true, false, true, true]),
+        ("~%0304", [true, true, true, false]),
     ] {
         for (tick, bangs) in (0..).zip(bangs) {
             let observed = super::observed::observe_at(grid, &[function, "C4"], [tick]).remove(0);
@@ -132,11 +132,11 @@ fn nested_every_and_euclidean_clear_their_output_portal_on_every_tick_they_do_no
     // Nested as the Addition's left operand, each Bang producer's Output
     // Portal is the pair one row south of its own anchor, which holds `C4`
     // at the start of every Tick. `~*0201` Bangs on every second Tick and
-    // `~%0304` on steps 0, 2 and 3, so on Tick 1 neither Bangs.
+    // `~%0304` on steps 0, 1 and 2, so on Tick 3 neither Bangs.
     let grid = Grid::with_shape(10, 2);
     for function in ["~*0201", "~%0304"] {
         let row = format!(".+{function}01");
-        let observed = super::observed::observe_at(grid, &[&row, "  C4"], [1]).remove(0);
+        let observed = super::observed::observe_at(grid, &[&row, "  C4"], [3]).remove(0);
         assert_eq!(observed.rows[1], "          ", "{function}");
     }
 }
