@@ -343,13 +343,14 @@ rather than a change to a checkout, so
 records the intended settings and holds that decision.
 
 A third tier measures locally and checks only in CI. `mise run bench` runs the criterion benchmarks
-in `lang`, `orcvs`, and `console` and prints them in the bencher output format. `lang` covers language
+in `lang`, `orcvs`, `console`, and `synth` and prints them in the bencher output format. `lang` covers language
 execution: parsing an Expression and interpreting it. `orcvs` covers a populated Source: reading an
 unchanged revision, deriving its Render Frame, and applying an edit with the Language Map rebuild it
 forces. `console` covers `Paint::derive` and `Paint::background_runs` at a fitted range and a culled
 window, so work that follows the viewport reads as a flat series. Each Source path is measured over
 several sizes, so whole-map work shows as growth across the series rather than hiding inside one
-fixed size. `.github/workflows/bench.yml` runs the same command
+fixed size. `synth` covers `Synth::render` filling one render quantum with every channel idle, with
+one tone at rest, and with 1, 4 and 16 channels running their effects. `.github/workflows/bench.yml` runs the same command
 in two jobs and fails either when a benchmark is more than three times slower than the previous
 stored result.
 
