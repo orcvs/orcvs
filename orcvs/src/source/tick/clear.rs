@@ -109,7 +109,7 @@ fn an_unequal_root_equality_clears_the_pair_south_and_an_equal_one_bangs_there()
 }
 
 #[test]
-fn delay_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
+fn every_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
     // Each Tick starts from Source that holds `C4` in the Output Portal,
     // so a Tick that left it alone would show it. `~*0201` Bangs on every
     // second Tick, and `~%0304` places onsets at steps 0, 2 and 3.
@@ -128,7 +128,7 @@ fn delay_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang(
 }
 
 #[test]
-fn nested_delay_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
+fn nested_every_and_euclidean_clear_their_output_portal_on_every_tick_they_do_not_bang() {
     // Nested as the Addition's left operand, each Bang producer's Output
     // Portal is the pair one row south of its own anchor, which holds `C4`
     // at the start of every Tick. `~*0201` Bangs on every second Tick and

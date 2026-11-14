@@ -4,7 +4,7 @@
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick, with these
 //! exceptions: the tracker, sequencer and chord tracker tests Bang each Play
-//! with a Delay `~*0101` north of it, and the Portal-written operand test
+//! with an Every `~*0101` north of it, and the Portal-written operand test
 //! puts Equality at (0, 1) and the Play at (2, 2), beneath the Read on row 1
 //! that writes the operand.
 
@@ -107,7 +107,7 @@ fn nested_tracker(shipped: &str) -> (Vec<String>, usize) {
 /// has to cross.
 ///
 /// Each conversion shifts everything east of it on both rows of the voice by
-/// those eight Cells, so a later voice on the same rows keeps its Delay over
+/// those eight Cells, so a later voice on the same rows keeps its Every over
 /// its Play. A row's voices are found before any moves and converted east to
 /// west, so each column still to be converted is one no conversion has
 /// shifted yet.

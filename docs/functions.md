@@ -530,9 +530,10 @@ Tick.
 
 ### `~.` Clock
 
-`~. length steps` answers which step a cycle is on: each step lasts `length` Ticks, and the cycle
-holds `steps` steps, counted from `00`. It reads the Tick number, so a stopped and resumed
-Clock carries on from the same step. A `length` or `steps` of `00` diagnoses.
+`~. division steps` is a step counter: it answers which step a cycle is on, holding each step for
+`division` Ticks, and the cycle holds `steps` steps, counted from `00`. A higher `division` is
+slower, as on a clock divider. It reads the Tick number, so a stopped and resumed Clock carries on
+from the same step. A `division` or `steps` of `00` diagnoses.
 
 ```orcvs
 ~.0204
@@ -550,10 +551,12 @@ After Tick `0`, then after Tick `2`:
 01
 ```
 
-### `~*` Delay
+### `~*` Every
 
-`~* length steps` answers a Bang once every `length * steps` Ticks, starting at Tick `0`, and a
-Clear on every other Tick. A `length` or `steps` of `00` diagnoses.
+`~* division steps` is a clock divider: it answers a Bang once every `division × steps` Ticks,
+starting at Tick `0`, and a Clear on every other Tick. A `division` or `steps` of `00` diagnoses.
+Tidal's `every` applies a function to every nth cycle of a pattern; Orcvs's Every fires a pulse
+and transforms nothing.
 
 ```orcvs
 ~*0102
@@ -568,6 +571,23 @@ After Tick `0`, then after Tick `1`:
 
 ```orcvs tick 1
 ~*0102
+```
+
+A `division` of `04` and `steps` of `01` Bangs once a beat, every four Ticks.
+
+```orcvs
+~*0401
+```
+
+After Tick `3`, then after Tick `4`:
+
+```orcvs tick 3
+~*0401
+```
+
+```orcvs tick 4
+~*0401
+**
 ```
 
 ### `~%` Euclidean
@@ -618,11 +638,12 @@ After Tick `0`, then after Tick `3`, where it wraps:
 00
 ```
 
-### `~>` Interpolation
+### `~>` Slew
 
-`~> amount target` reads the Number in its own Output Portal and moves it toward `target` by at most
-`amount` each Tick, never past it. Empty Cells there count as `00`. An `amount` of `00` holds the
-value. Anything other than a Number in its Output Portal diagnoses.
+`~> amount target` is a slew limiter: it reads the Number in its own Output Portal and moves it
+toward `target` by at most `amount` each Tick, never past it, so a jump in `target` becomes a
+ramp. Empty Cells there count as `00`. An `amount` of `00` holds the value. Anything other than a
+Number in its Output Portal diagnoses.
 
 ```orcvs
 ~>0205

@@ -5,6 +5,11 @@ and operand order below is a proposal for Toby to accept, change or drop. A prop
 accepted goes through the repo's process: a ticket under `.scratch/`, a prototype on real Grid
 Cells (`docs/agents/syntax-prototypes.md`), an ADR, then a test-first implementation.
 
+Since 2026-11-14 the shipped `~*` is named Every and `~>` Slew, and Clock's and Every's first
+operand is `division` (ADR 0012); this note uses those names for what ships. The separate `~/`
+Every proposed below is dropped (`.scratch/musical-terminology/decisions.md`); its section keeps
+the name it was proposed under.
+
 ## Summary
 
 - **Keep the Tick as the only unit of language time. Don't add seconds.** Every timing Function
@@ -14,8 +19,8 @@ Cells (`docs/agents/syntax-prototypes.md`), an ADR, then a test-first implementa
   steps). Milliseconds turn up in tools with no tempo grid (Teletype `M`, Pd `metro`). Where real
   time does matter, it matters *inside* a Tick: ratchets, swing and nudges. Those are proposed
   below as fractions of a Tick.
-- **"Every" is the biggest gap.** Delay `~*` can only fire at phase 0, and its period tops out at
-  `FF` Ticks unless you multiply. A three-operand **Every `~/ rate count phase`** covers Delay,
+- **"Every" is the biggest gap.** Every `~*` can only fire at phase 0, and its period tops out at
+  `FF` Ticks unless you multiply. A three-operand **Every `~/ rate count phase`** covers `~*`,
   Elektron's `A:B`, Tidal's `every' n o` and Teletype's `EVERY` + `SYNC`.
 - **"At"** becomes **`~@ high low`**: one Bang at an absolute Tick, like Elektron `1ST`, Bitwig
   "on First" and Sonic Pi `at`.
@@ -36,25 +41,25 @@ turn and the Tick grid holds (ADR 0037).
 
 | Orcvs | Orca | What it answers |
 |---|---|---|
-| `~. rate modulus` Clock | `C` | `floor(t / rate) % modulus` |
-| `~* rate modulus` Delay | `D` | Bang when `t % (rate × modulus) == 0` |
+| `~. division steps` Clock | `C` | `floor(t / division) % steps` |
+| `~* division steps` Every | `D` | Bang when `t % (division × steps) == 0` |
 | `~% hits steps` Euclidean | `U` | Bang on Orca's Bjorklund distribution, no rotation |
-| `~+ step modulus` Increment | `I` | previous + step, kept in its Output Portal |
-| `~> rate target` Interpolation | `Z` | moves toward target by at most rate |
+| `~+ amount modulus` Increment | `I` | previous + amount, kept in its Output Portal |
+| `~> amount target` Slew | `Z` | moves toward target by at most amount |
 | `~? seed min max` Random | `R` | deterministic per seed, Tick and Position |
 | `*!` Halt | `H` | stops the root south of it for one Tick |
 | `.=` Equality | `F` | Bang or Clear, the only comparison |
 
 Here's what's missing, set against the tools surveyed below:
 
-1. Delay has no phase, so you can't express an off-beat, a backbeat or "bar 3 of 4" without
+1. Every `~*` has no phase, so you can't express an off-beat, a backbeat or "bar 3 of 4" without
    arithmetic and Equality.
-2. No period longer than `FF` Ticks (16 bars) can be written as one number. Delay gets there only
-   through the product `rate × modulus`.
+2. No period longer than `FF` Ticks (16 bars) can be written as one number. Every `~*` gets there
+   only through the product `division × steps`.
 3. There's no one-shot event at a given point in the performance.
 4. Pulses can't be combined. A Bang can't be an operand, because a typed operand refuses `**` and a
    nested Clear leaves its parent invalid (CONTEXT.md, Clear; ADR 0073). As history: ADR 0039,
-   since superseded by ADR 0063, refused a Sequence operand on Delay and Euclidean and deferred
+   since superseded by ADR 0063, refused a Sequence operand on Every and Euclidean and deferred
    AND versus OR for that case. ADR 0063 removed the Sequence, so the question no longer exists in
    that form.
 5. There's no probability. Random answers Numbers, so a chance has to be built out of Random plus
@@ -163,7 +168,7 @@ Clock dividers and multipliers, burst/ratchet generators, swing modules and the 
 
 Each proposal gets a spelling, a name, its operands, what it answers and where it comes from. All
 operands are two-Cell Numbers. Unless a proposal says otherwise, it runs every Tick, answers a Bang
-(`**`) or a Clear like Delay and Euclidean do, diagnoses a zero divisor, and does its arithmetic in
+(`**`) or a Clear like Every `~*` and Euclidean do, diagnoses a zero divisor, and does its arithmetic in
 a wider integer. `t` is the absolute Tick.
 
 ### 1. Tick pulses, in the `~` family
@@ -183,7 +188,7 @@ A `phase` of `count` or more diagnoses, as do a `rate` or `count` of `00`.
 - `~/040201`: beats 2 and 4 (the backbeat), `t % 8 == 4`.
 - `~/100403`: the first Tick of bar 4 of every 4 bars. That's Elektron `4:4`, or Tidal
   `every' 4 3`.
-- `~/010200` is Delay `~*0102`, so Delay becomes a special case. Keep `~*` for Orca parity, or
+- `~/010200` is `~*0102`, so `~*` becomes a special case. Keep `~*` for Orca parity, or
   retire it; that's Toby's call.
 
 The `/` reads as "divides". It's the clock-divider idea. Sources: Orca `D`, Elektron `A:B`, Tidal
@@ -340,7 +345,7 @@ swing, Ableton's groove pool.
 
 #### `!t` Tempo: `!t high low`
 
-Sets the BPM to `high × 100 + low` when a Bang reaches it. `!t0078` is 120. Interpolation into its
+Sets the BPM to `high × 100 + low` when a Bang reaches it. `!t0078` is 120. Slew into its
 low operand gives an accelerando. Tempo changes only the wall clock, so replay stays deterministic
 in Ticks. This is Orca's `$bpm`, and it's related to the deferred `!$` (ADR 0008).
 
@@ -394,7 +399,7 @@ input. Nothing in the current product needs one.
 
 1. Ticks only, no seconds: confirm.
 2. A new `?` family and a Pulse operand type: yes or no.
-3. Keep Delay `~*` beside Every `~/`, or retire it.
+3. Keep `~*` beside Every `~/`, or retire it.
 4. Rotation as a third `~%` operand, or as a new Function.
 5. During `~:` as one step, or as Tidal's `whenmod` "from step N".
 6. Triplets through Ratchet first, or a Ticks-per-beat setting.

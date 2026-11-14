@@ -1,4 +1,4 @@
-//! The Tick Functions: Clock, Delay, Euclidean, Increment, Interpolation and
+//! The Tick Functions: Clock, Every, Euclidean, Increment, Slew and
 //! Random, read across Ticks and Anchors.
 
 use crate::grid::Grid;
@@ -67,7 +67,7 @@ fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
     let map = LanguageMap::build(grid, Cells::of(bytes.as_bytes()));
 
     // Tick 1. The Clock is still in its first step of three, so it writes
-    // `00`; the Delay's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
+    // `00`; the Every's cycle is 2 * 2 = 4 Ticks and 1 is not a multiple of
     // it; the Euclidean's `X.XX` over four steps has no onset at step 1.
     // Both answer a Clear and clear their pair.
     let (plan, _) = super::plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::new(1));
@@ -86,7 +86,7 @@ fn the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at() {
         ]
     );
 
-    // Tick 4. The Clock has counted one whole step of three; the Delay is
+    // Tick 4. The Clock has counted one whole step of three; the Every is
     // on a multiple of its cycle; and step 0 of `X.XX` is an onset. A
     // hardcoded first Tick would write `00` here and a hardcoded Tick of
     // its own would move all three at once, so the pair of assertions is
@@ -128,15 +128,15 @@ fn a_tick_function_with_no_cycle_diagnoses_and_writes_nothing() {
             .map(|diagnostic| diagnostic.message.clone())
             .collect::<Vec<_>>(),
         vec![
-            "~* cannot count a cycle with zero steps".to_string(),
-            "~% cannot count a cycle with zero steps".to_string(),
+            "~* cannot count a cycle with steps 00".to_string(),
+            "~% cannot count a cycle with steps 00".to_string(),
         ]
     );
 }
 
 #[test]
 fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
-    // Delay and Euclidean declare `can_emit_bang`, and that declaration is
+    // Every and Euclidean declare `can_emit_bang`, and that declaration is
     // what `dependencies::derive` reads to decide which roots can
     // supply activation. Nothing else asserts the edge is built:
     // the tests above watch the two Cells a pulse writes, which a Function
@@ -192,10 +192,10 @@ fn a_pulse_activates_an_aligned_root_only_on_the_ticks_it_bangs() {
 }
 
 #[test]
-fn an_empty_portal_initialises_increment_and_interpolation_as_zero() {
+fn an_empty_portal_initialises_increment_and_slew_as_zero() {
     // The first previous: two space Cells are Number `00`, so the
     // first Tick of an unused Portal is the step itself for Increment and
-    // the first step toward the target for Interpolation. The expected
+    // the first step toward the target for Slew. The expected
     // writes are literal Cells, so a body that treated empty as occupied
     // would diagnose here rather than write.
     let (plans, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", ""], 1);
@@ -218,10 +218,10 @@ fn an_empty_portal_initialises_increment_and_interpolation_as_zero() {
 }
 
 #[test]
-fn increment_and_interpolation_advance_across_two_ticks() {
+fn increment_and_slew_advance_across_two_ticks() {
     // Cross-Tick state is the Portal Cells and nothing else: the second
     // Tick reads what the first wrote. Increment walks `01 02` from empty;
-    // Interpolation walks `04 08` toward `10`. A hidden counter that
+    // Slew walks `04 08` toward `10`. A hidden counter that
     // ignored the Portal would still pass the first Tick and fail the
     // second once the Cells were live-edited, which the next test does.
     let (_, grids, _) = tick_by_tick(Grid::with_shape(6, 2), &["~+0104", ""], 2);
@@ -252,7 +252,7 @@ fn increment_reads_a_live_edited_previous_from_working_source() {
 }
 
 #[test]
-fn increment_and_interpolation_keep_their_state_across_an_unwritten_operand() {
+fn increment_and_slew_keep_their_state_across_an_unwritten_operand() {
     // Their state is the Cells they wrote. On the Tick an operand is
     // unwritten they are invalid and write nothing, so those Cells stand,
     // and once the operand is written again they continue from them.

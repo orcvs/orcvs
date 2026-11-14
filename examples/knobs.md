@@ -4,7 +4,7 @@
 Synth's eight effects over a sixteen-step acid bassline. The web console opens
 it on a first visit, when it has no Source stored. It also opens with **Help >
 Examples > Knobs**, or as `?example=knobs`. Press Space to start Playback.
-Each knob's value climbs a step at a time and glides back down when its Clock
+Each knob's value climbs a step at a time and ramps back down when its Clock
 wraps; the Sound Module on orcvs.com shows each effect move. The example opens
 Untitled, so **File > Save** asks where to keep your edits.
 
@@ -66,7 +66,7 @@ nothing.
 | --- | --- | --- | --- |
 | `bass` | `!~0964&v0C01` | 8 | Velocity `64` (100), one Tick. |
 | `accent` | `!~097F&v0701` | 11 | Velocity `7F` (127). From `78` up a Note is accented: louder, its filter opened further, and its sweep at its shortest. |
-| `slide` | `!~0964&v0202` | 14 | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice glides to it without striking it afresh. |
+| `slide` | `!~0964&v0202` | 14 | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice slides to it without striking it afresh. |
 
 Move a Note from one column to another, keeping its row, to change how it
 plays. A slide to the same Note strikes it again, because Playback stops a
@@ -77,7 +77,7 @@ above its own column of steps. For the `bass` part:
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (0, 2) `~*0101` | Delay | Writes `**` at (0, 3) every Tick, which activates the Timed Play directly south of it, at (0, 4). |
+| (0, 2) `~*0101` | Every | Writes `**` at (0, 3) every Tick, which activates the Timed Play directly south of it, at (0, 4). |
 | (8, 3) `.+0C~.0110` | Add, with a nested Clock | The Clock counts `00` to `0F`, one a Tick. The Add adds `0C` and writes the sum into the Read's `n` slot at (8, 4). The file ships that slot holding `0C`, the sum Tick 0 writes, so the Source opens with nothing diagnosed. |
 | (0, 4) `!~0964&v0C01` | Timed Play with a nested Read south | Channel `09`, velocity `64`, length `01` Tick. Its note slot holds `&v`, which reads the step `n` rows south of (8, 4), in columns 8 and 9, and writes the Note it reads at (6, 5). |
 | (8, 16) to (9, 31) | Comment text | The `bass` column of the sixteen steps, one Note to a row. Type over any step while it plays. |
@@ -96,10 +96,10 @@ the bassline loops every bar.
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (0, 35) `~*0101` | Delay | Writes `**` at (0, 36) every Tick, which activates the Control Change at (2, 36). |
+| (0, 35) `~*0101` | Every | Writes `**` at (0, 36) every Tick, which activates the Control Change at (2, 36). |
 | (8, 35) `\|\| CUT \|\|` | Comment | The knob's label. |
-| (2, 36) `!c094A` | Control Change | Channel `09`, controller `4A` (74), the acid voice's cutoff. Its value slot holds the Interpolation. |
-| (8, 36) `~>08` | Interpolation, nested | Moves its value toward the Clock's by at most `08` a Tick. It writes the value it sends at (8, 37). |
+| (2, 36) `!c094A` | Control Change | Channel `09`, controller `4A` (74), the acid voice's cutoff. Its value slot holds the Slew. |
+| (8, 36) `~>08` | Slew, nested | Moves its value toward the Clock's by at most `08` a Tick. It writes the value it sends at (8, 37). |
 | (12, 36) `~.0180` | Clock, nested | Counts `00` to `7F`, one step a Tick, then wraps. |
 
 Each knob's Clock sets how fast and how far it turns:
@@ -113,7 +113,7 @@ Each knob's Clock sets how fast and how far it turns:
 The voice's other two controls keep their load values: `46` (70), the
 waveform, a saw below `40` and a square from it, and `4F` (79), how far each
 Note's sweep opens the filter. Add a knob for either, or change a Clock's
-`rate` or `modulus` while it plays.
+`division` or `steps` while it plays.
 
 ## The effects
 
@@ -124,8 +124,8 @@ channel picks nothing. `LN` and `EQ` sweep around their load values, `7F` and
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (2, 53) `!c0003` | Control Change | Channel `00`, controller `03`, the `LN` effect. Its value slot holds the Interpolation. |
-| (8, 53) `~>08` | Interpolation, nested | Moves its value toward the Add's by at most `08` a Tick. |
+| (2, 53) `!c0003` | Control Change | Channel `00`, controller `03`, the `LN` effect. Its value slot holds the Slew. |
+| (8, 53) `~>08` | Slew, nested | Moves its value toward the Add's by at most `08` a Tick. |
 | (12, 53) `.+40` | Add, nested | Adds `40` to the Clock's count. |
 | (16, 53) `~.0440` | Clock, nested | Counts `00` to `3F`, a step every 4 Ticks, then wraps. |
 
@@ -143,7 +143,7 @@ Each effect sweeps at its own rate, so the effects peak at different times:
 | `08` | `R2`, large reverb | `~.0840` | `00` to `3F`, a step every 8 Ticks |
 
 Every value starts at `00`, so for the first second after you start Playback
-`LN` and `EQ` glide up from below their sweeps: the sounds start short and dark.
+`LN` and `EQ` ramp up from below their sweeps: the sounds start short and dark.
 
 The patch is made for the Built-in Synth. On another MIDI output, channel `09`
 is just a channel: most synths read `47`, `4A` and `4B` as resonance, cutoff and
@@ -154,7 +154,7 @@ on most devices.
 
 ## Learn Orca
 
-Learn Orca's knobs patch sends eight Control Changes whose values glide to one
+Learn Orca's knobs patch sends eight Control Changes whose values ramp to one
 of six presets chosen by hand, beside a tracker that makes the sound. This
 example keeps its idea, knobs that move the sound and the effects, with a Clock
 in place of the presets so the knobs move on their own, and its own bassline to
