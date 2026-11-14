@@ -15,3 +15,25 @@ Monophonic Play has the fixed contract `!% channel velocity note length`, matchi
 ## Amendment, 2026-10-26: UDP and OSC
 
 [ADR 0085](0085-udp-and-osc-send-the-cells-up-to-their-closer.md) ends the deferral of OSC and UDP output. Neither waits for a message or text value: each sends its Payload, the Cells after its spelling up to the next `!` on its row. This decision avoided encoding them as raw Source reads when a Sequence value was expected to carry them. Since ADR 0063 every series lives as Cells in Source and Functions read Source as a matter of course, so a Payload is an ordinary read rather than an exception. Neither Function sends anything when Playback stops, and the safety action above stays MIDI's alone.
+
+## Amendment, 2026-11-14: Monophonic Play takes `legato`
+
+Settled with Toby on 2026-11-13 in `.scratch/musical-terminology/` (ticket 13). Monophonic Play's
+contract is `!% channel velocity note length legato`. `legato` is a Number that may be blank, and
+blank binds as `00` ([ADR 0109](0109-a-blank-operand-can-stand-for-a-fixed-value.md)), so a
+Monophonic Play needs two more Cells to its east than before and behaves as before with them blank.
+
+- `00` or blank retriggers, as above: the prior Mono-owned note's Note Off, then the replacement's
+  Note On.
+- Any other value plays legato: the replacement's Note On, then the prior note's Note Off, in that
+  order within the Tick, so a mono synth hears a key still held and slides.
+- A legato replacement at the pitch the channel is sounding sends nothing: a Note On and a Note Off
+  at one pitch would end the note the Note On means to keep. The prior claim is retired and the
+  replacement claims the note to its own `T + length`, so it sounds on to the later end.
+- Velocity `00` or length `00` starts nothing whatever the `legato`, and still stops the prior
+  note.
+
+What the engine owns is unchanged: one voice per channel, the generation token, and the lifecycle
+actions that clear them. Only the order of the two messages a replacement sends, and whether it
+sends them at a pitch already sounding, depend on `legato`. An external synth slides only with its
+portamento on; a synth that retriggers on every Note On hears legato as an ordinary replacement.

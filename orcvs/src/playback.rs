@@ -2317,9 +2317,9 @@ mod tests {
     fn run_owning_a_note(
         expression: &str,
     ) -> (HandDrivenRun<InMemoryOutputAdapter>, InMemoryOutputAdapter) {
-        let source = SourceCommander::new(Grid::with_shape(10, 3));
+        let source = SourceCommander::new(Grid::with_shape(12, 3));
         write(&source, 0, ".=0101");
-        write(&source, 20, expression);
+        write(&source, 24, expression);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
@@ -3142,8 +3142,8 @@ mod tests {
         // once. Asserting it of `!~` alone would leave the claim CONTEXT.md
         // makes the same promise to untested.
         for expression in ["!~007FC402", "!%007FC402"] {
-            let source = SourceCommander::new(Grid::with_shape(10, 9));
-            write(&source, 20, expression);
+            let source = SourceCommander::new(Grid::with_shape(12, 9));
+            write(&source, 24, expression);
             write(&source, 0, ".=0101");
             let adapter = InMemoryOutputAdapter::default();
             let mut run = HandDrivenRun::new(source.clone(), adapter.clone());

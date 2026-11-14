@@ -1542,8 +1542,8 @@ mod tests {
     /// so its Turn runs and sends nothing while the note stays blank.
     #[test]
     fn a_play_whose_only_blank_operand_is_its_note_is_a_root() {
-        for row in ["!>007F    ", "!~007F  04", "!%007F  04", "!>&v017F  "] {
-            let map = LanguageMap::build(Grid::with_shape(10, 1), Cells::of(row.as_bytes()));
+        for row in ["!>007F    ", "!~007F  04", "!%007F  04  ", "!>&v017F  "] {
+            let map = LanguageMap::build(Grid::with_shape(row.len(), 1), Cells::of(row.as_bytes()));
 
             let diagnostics: Vec<_> = map.diagnostics().map(|d| d.message.clone()).collect();
             assert_eq!(diagnostics, Vec::<String>::new(), "{row:?}");

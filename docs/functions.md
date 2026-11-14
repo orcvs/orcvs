@@ -1040,6 +1040,7 @@ the Panel's **O** to hear them.
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
+| `legato` | `00` to `FF`, or empty: on `!%`, `00` or empty retriggers and any other value slides |
 | `set` | an Interval Set name, such as `M7` or `MA` |
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
@@ -1116,10 +1117,21 @@ After Tick `0`:
 
 ### `!%` Monophonic Play
 
-`!% channel velocity note length` works like Timed Play, but first stops whichever note an earlier
-Monophonic Play left sounding on the same channel, so a channel plays one of these at a time. At
-velocity `00` it stops that note and plays nothing. The `note` is optional: with it empty, a Bang
-sends nothing and stops nothing (see **An empty note** above).
+`!% channel velocity note length legato` works like Timed Play, but replaces whichever note an
+earlier Monophonic Play left sounding on the same channel, so a channel plays one of these at a
+time. At velocity `00` it stops that note and plays nothing. The `note` is optional: with it empty,
+a Bang sends nothing and stops nothing (see **An empty note** above).
+
+`legato` says how the new note follows the one sounding:
+
+- `00` or empty retriggers: the old note's Note Off goes before the new Note On, so the new note
+  starts afresh.
+- Any other value plays legato: the new Note On goes first and the old note's Note Off after it,
+  so a mono synth hears a key still held and slides into the new note. A legato note at the pitch
+  already sounding sends nothing, so that note sounds on to the new note's end.
+
+The acid voice on `08` slides between overlapping notes (see [Built-in Synth](#built-in-synth)).
+An external synth slides only with its portamento on.
 
 ```orcvs
 **
@@ -1131,6 +1143,50 @@ After Tick `0`:
 ```orcvs tick 0 plays 1
 
 !%0164G404
+```
+
+One Bang reaching two Monophonic Plays on one channel plays them in order, left to right. Here the
+second retriggers: C3's Note Off, then E3's Note On.
+
+```orcvs
+**            **
+!%0864C30800  !%0864E30800
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 2
+
+!%0864C30800  !%0864E30800
+```
+
+With `legato` `01`, the second slides: E3's Note On, then C3's Note Off.
+
+```orcvs
+**            **
+!%0864C30800  !%0864E30801
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 2
+
+!%0864C30800  !%0864E30801
+```
+
+Two legato notes at one pitch: the second sends nothing, and C3 sounds on to its own end, eight
+Ticks from now.
+
+```orcvs
+**            **
+!%0864C30401  !%0864C30801
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 2
+
+!%0864C30401  !%0864C30801
 ```
 
 ### `!:` Raw Chord Play

@@ -1972,10 +1972,11 @@ mod test {
 
     #[test]
     fn test_root_monophonic_play_function_emits_one_command_of_its_own_kind() {
-        let mut src = source();
+        // Twelve columns hold `!%`'s five operands, its `legato` blank.
+        let mut src = SourceUnderTest::new(Grid::with_shape(12, 6));
         let at = src.cells();
         src.write(at(0), ".=0101");
-        src.write(at(20), "!%017FC403");
+        src.write(at(24), "!%017FC403");
 
         let tick = src.execute();
 
@@ -1990,11 +1991,12 @@ mod test {
                 velocity: Velocity::try_from(0x7F).unwrap(),
                 note: Note::try_from(60).unwrap(),
                 length: Length::from(3),
+                legato: false,
             }]
         );
-        assert_writes_only_bangs(&tick, src.grid, &[10]);
+        assert_writes_only_bangs(&tick, src.grid, &[12]);
         assert!(tick.diagnostics.is_empty());
-        assert_eq!(src.row(1), "**        ");
+        assert_eq!(src.row(1), "**          ");
     }
 
     #[test]
@@ -2095,15 +2097,16 @@ mod test {
                 "MIDI velocity 80 is outside the range 00\u{2013}7F",
             ),
         ] {
-            let mut src = source();
+            // Twelve columns hold `!%`'s five operands, its `legato` blank.
+            let mut src = SourceUnderTest::new(Grid::with_shape(12, 6));
             let at = src.cells();
             src.write(at(0), ".=0101");
-            src.write(at(20), expression);
+            src.write(at(24), expression);
 
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert_writes_only_bangs(&tick, src.grid, &[10]);
+            assert_writes_only_bangs(&tick, src.grid, &[12]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, message, "{expression}");
         }

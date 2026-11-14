@@ -9,7 +9,8 @@ effects stay as they are, and CC 121 leaves them alone, until the second 2026-11
 under which it clears each channel's Modulation. The 2026-11-13 amendment below moves the
 acid voice to channel `08` and the kit to `09`–`0F`; the 2026-11-14 amendment has the acid voice's
 CC 74 and 75 win over the per-channel tilt and length on its channel; the second 2026-11-14
-amendment has Reset All Controllers follow RP-015, leaving the voice's sound alone.
+amendment has Reset All Controllers follow RP-015, leaving the voice's sound alone; the third
+2026-11-14 amendment lets Monophonic Play slide.
 
 Acid basslines are the music a reader expects a sequencer like Orcvs to make, and the Built-in
 Synth cannot make one. A 303's sound is its filter: a resonant lowpass swept down by an envelope on
@@ -139,3 +140,11 @@ a channel that receives it. The Decision's description of the voice says "slide"
 called legato and a glide, the vocabulary `CONTEXT.md` uses for the acid voice; the behaviour is
 unchanged.
 
+## Amendment, 2026-11-14: Monophonic Play slides with `legato`
+
+Settled with Toby on 2026-11-13 in `.scratch/musical-terminology/` (ticket 13). Monophonic Play
+takes a last operand, `legato` (ADR 0016's 2026-11-14 amendment). With a `legato` other than `00` it
+sends the new note's Note On before the prior note's Note Off, so on `08` the acid voice slides into
+the new note, as it does under an overlapping Timed Play. Read the Decision's "Monophonic Play stops
+the prior note before it starts the next one, so it never slides" as true of a `legato` of `00` or
+blank only. The language gains that operand and nothing else; the voice is unchanged.

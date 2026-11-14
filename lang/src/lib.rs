@@ -64,7 +64,8 @@ pub enum PlayCommand {
         length: Length,
     },
     ///
-    /// Monophonic Play, carrying the same operands Timed Play does.
+    /// Monophonic Play, carrying Timed Play's operands and whether the note
+    /// is played legato.
     ///
     /// A variant of its own rather than a flag on `Timed`, because the two
     /// differ in what they own rather than in what they carry: Timed Play is
@@ -73,11 +74,16 @@ pub enum PlayCommand {
     /// variant would put that difference in a field every consumer had to
     /// branch on, where a variant makes the match arms the branch.
     ///
+    /// `legato` is whether the Source wrote a `legato` other than `00`: the
+    /// Playback Engine then starts the note before it stops the one it
+    /// replaces, and lets a note at the same pitch sound on.
+    ///
     Mono {
         channel: MidiChannel,
         velocity: Velocity,
         note: Note,
         length: Length,
+        legato: bool,
     },
     /// Control Change: a controller and the value sent to it, each
     /// carrying the role it plays rather than the data-byte domain the two

@@ -71,13 +71,16 @@ pub fn timed_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> {
     )
 }
 
-/// Monophonic Play: `!% channel velocity note length`.
+/// Monophonic Play: `!% channel velocity note length legato`.
 ///
-/// The operand shape is Timed Play's, so the body is too. What differs is
-/// entirely downstream: this command owns a channel rather than a note, and
+/// The first four operands are Timed Play's, so the body is too. What differs
+/// is entirely downstream: this command owns a channel rather than a note, and
 /// the Playback Engine that counts Ticks is what knows the difference. A body
 /// that tried to say so here would be interpreting musical intent inside a
 /// Tick Plan, which is the seam ADR 0001 draws.
+///
+/// `legato` is carried as whether it is other than `00`; a blank `legato`
+/// binds as `00` (ADR 0109), so it retriggers as `00` does.
 ///
 /// A blank note answers no Play Command, so it asks the engine for nothing:
 /// the channel's held voice runs to its own Note Off.
@@ -89,12 +92,14 @@ pub fn monophonic_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> 
              velocity,
              note,
              length,
+             legato,
          }: operands::MonophonicPlay| {
             Ok(note.map(|note| PlayCommand::Mono {
                 channel,
                 velocity,
                 note,
                 length,
+                legato: legato != 0x00,
             }))
         },
     )
@@ -305,6 +310,7 @@ mod test {
             Atom::Number(0x02),
             Atom::Note(Note::try_from(60).unwrap()),
             Atom::Number(0x04),
+            Atom::Number(0x05),
         ];
 
         let expected = PlayCommand::Mono {
@@ -312,6 +318,7 @@ mod test {
             velocity: Velocity::try_from(0x02).unwrap(),
             note: Note::try_from(60).unwrap(),
             length: Length::from(0x04),
+            legato: true,
         };
 
         assert_eq!(
@@ -320,15 +327,38 @@ mod test {
         );
 
         // And the same claim from Source text: `!%` reads channel, velocity,
-        // note, then length, left to right in the Cells.
+        // note, length, then legato, left to right in the Cells.
         assert_eq!(
-            interpret("!%0102C404").unwrap(),
+            interpret("!%0102C40405").unwrap(),
             Interpretation::Play(expected.clone())
         );
     }
 
     #[test]
-    fn monophonic_play_requires_four_arguments() {
+    fn monophonic_play_retriggers_at_legato_00_or_blank_and_slides_at_any_other() {
+        let play = |legato: &str| match interpret(&format!("!%0102C404{legato}")) {
+            Ok(Interpretation::Play(PlayCommand::Mono { legato, .. })) => legato,
+            other => panic!("legato {legato:?} gave {other:?}"),
+        };
+        assert!(!play("00"));
+        // A blank `legato` binds as `00`.
+        let note = Some(Atom::Note(Note::try_from(60).unwrap()));
+        let slots = [Some(Atom::Number(0x01)), Some(Atom::Number(0x02)), note];
+        assert_eq!(
+            evaluate_slots(
+                Function::MonophonicPlay,
+                &[&slots[..], &[Some(Atom::Number(0x04)), None]].concat()
+            )
+            .unwrap(),
+            interpret("!%0102C40400").unwrap()
+        );
+        for legato in 0x01..=u8::MAX {
+            assert!(play(&format!("{legato:02X}")), "legato {legato:02X}");
+        }
+    }
+
+    #[test]
+    fn monophonic_play_requires_five_arguments() {
         // A well-typed prefix at every length, as Timed Play's arity test
         // does: what is missing is the count rather than a type. Driven
         // against the body, which is where the arity demand lives.
@@ -337,15 +367,16 @@ mod test {
             Atom::Number(0x02),
             Atom::Note(crate::Note::try_from(60).unwrap()),
             Atom::Number(0x04),
+            Atom::Number(0x00),
         ];
 
-        for found in 0..4 {
+        for found in 0..5 {
             let error = call_body(monophonic_play, &operands[..found]).unwrap_err();
 
             assert!(
                 matches!(
                     error,
-                    Error::Argument(ArgumentError::Arity { expected: 4, found: f }) if f == found
+                    Error::Argument(ArgumentError::Arity { expected: 5, found: f }) if f == found
                 ),
                 "{found} argument(s) gave {error:?}"
             );
@@ -360,7 +391,7 @@ mod test {
         for channel in 0x10..=u8::MAX {
             assert!(
                 matches!(
-                    interpret(&format!("!%{channel:02X}7FC401")),
+                    interpret(&format!("!%{channel:02X}7FC40100")),
                     Err(Error::Interpretation(InterpretationError::MidiChannel(value)))
                         if value == channel
                 ),
@@ -368,25 +399,29 @@ mod test {
             );
         }
         assert!(matches!(
-            interpret("!%0080C401"),
+            interpret("!%0080C40100"),
             Err(Error::Interpretation(InterpretationError::MidiDataByte {
                 role: "velocity",
                 value: 0x80,
             }))
         ));
         assert!(matches!(
-            evaluate(Function::MonophonicPlay, &midi_play_with_a_number_note()),
+            evaluate(
+                Function::MonophonicPlay,
+                &[midi_play_with_a_number_note().as_slice(), &[Atom::Number(0x00)]].concat()
+            ),
             Err(Error::Type(crate::TypeError::Note(found))) if found == "3C"
         ));
 
         for length in 0..=u8::MAX {
             assert_eq!(
-                interpret(&format!("!%007FC4{length:02X}")).unwrap(),
+                interpret(&format!("!%007FC4{length:02X}00")).unwrap(),
                 Interpretation::Play(PlayCommand::Mono {
                     channel: MidiChannel::try_from(0).unwrap(),
                     velocity: Velocity::try_from(0x7F).unwrap(),
                     note: Note::try_from(60).unwrap(),
                     length: Length::from(length),
+                    legato: false,
                 }),
                 "length {length:02X}"
             );
@@ -752,6 +787,19 @@ mod test {
         Interpreter::execute_function(function, operands.to_vec(), inputs().into())
     }
 
+    /// A Timed or Monophonic Play over Timed Play's four slots, with a
+    /// Monophonic Play's `legato` left blank.
+    fn evaluate_lifetime_play(
+        function: Function,
+        slots: [Option<Atom>; 4],
+    ) -> Result<Interpretation, Error> {
+        let mut slots = slots.to_vec();
+        if function == Function::MonophonicPlay {
+            slots.push(None);
+        }
+        evaluate_slots(function, &slots)
+    }
+
     #[test]
     fn a_plain_operand_refuses_an_absent_value_as_it_refuses_a_blank_slot() {
         let channel = Some(Atom::Number(0x00));
@@ -887,7 +935,7 @@ mod test {
         let length = Some(Atom::Number(0x04));
         for function in [Function::TimedPlay, Function::MonophonicPlay] {
             assert_eq!(
-                evaluate_slots(function, &[channel, velocity, None, length]).unwrap(),
+                evaluate_lifetime_play(function, [channel, velocity, None, length]).unwrap(),
                 Interpretation::Inert,
                 "{function}"
             );
@@ -901,9 +949,9 @@ mod test {
         for function in [Function::TimedPlay, Function::MonophonicPlay] {
             assert!(
                 matches!(
-                    evaluate_slots(
+                    evaluate_lifetime_play(
                         function,
-                        &[Some(Atom::Number(0x10)), velocity, None, length]
+                        [Some(Atom::Number(0x10)), velocity, None, length]
                     ),
                     Err(Error::Interpretation(InterpretationError::MidiChannel(
                         0x10
@@ -912,7 +960,7 @@ mod test {
                 "{function}"
             );
             let refused =
-                evaluate_slots(function, &[Some(Atom::Number(0x01)), velocity, None, None])
+                evaluate_lifetime_play(function, [Some(Atom::Number(0x01)), velocity, None, None])
                     .unwrap_err();
             assert_eq!(
                 refused.to_string(),
@@ -920,9 +968,9 @@ mod test {
                 "{function}"
             );
             // A present value that is no Note is refused as a Note refuses it.
-            let refused = evaluate_slots(
+            let refused = evaluate_lifetime_play(
                 function,
-                &[
+                [
                     Some(Atom::Number(0x01)),
                     velocity,
                     Some(Atom::Number(0x3C)),
