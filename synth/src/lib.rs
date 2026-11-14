@@ -110,6 +110,9 @@ struct Channel {
     delay: Smoothing,
     small: Smoothing,
     large: Smoothing,
+    /// Whether the render loop skips the channel, silent with its effects
+    /// at rest, and has cleared what its effects held.
+    idle: bool,
 }
 
 impl Channel {
@@ -123,6 +126,7 @@ impl Channel {
             delay: Smoothing::new(sample_rate, 0.0),
             small: Smoothing::new(sample_rate, 0.0),
             large: Smoothing::new(sample_rate, 0.0),
+            idle: false,
         }
     }
 
@@ -324,9 +328,18 @@ impl Synth {
             }
             let mut mix = Mix::default();
             for ((channel, part), sounding) in self.channels.iter_mut().zip(parts).zip(sounding) {
-                // A silent channel at rest would add exactly nothing.
+                // A silent channel at rest would add exactly nothing, so it is
+                // skipped. Its effects' history is cleared once as it goes
+                // idle, as the silence they would have taken in clears it, so
+                // a later turn of an effect does not replay the voice a steal
+                // cut off.
                 if sounding || !channel.rests() {
+                    channel.idle = false;
                     mix.add(channel, part);
+                } else if !channel.idle {
+                    channel.vibrato.clear();
+                    channel.tilt.clear();
+                    channel.idle = true;
                 }
             }
             // The shared effects side by side, each returning only what the
@@ -996,6 +1009,35 @@ mod tests {
                 blip(&[control_change(0, controller, value)], seconds(1.0)),
                 plain,
                 "controller {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_effect_turned_on_a_channel_whose_voice_was_stolen_replays_nothing() {
+        // Channel 0's A4 is stolen mid-note by sixteen notes on channel 1,
+        // released a frame later. Its effects rest, so it is skipped from
+        // then on, and turning one afterwards must not sound what the
+        // effect held when the voice was cut.
+        for (controller, value) in [(MD, 0x7F), (EQ, 0x00)] {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, note_on(0, 69, 100));
+            for note in 0..16 {
+                synth.schedule(1000, note_on(1, 40 + note, 100));
+                synth.schedule(1001, note_off(1, 40 + note));
+            }
+            render(&mut synth, seconds(1.0));
+            let peak = |out: &[f32]| out.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+            assert_eq!(
+                peak(&render(&mut synth, seconds(0.5))),
+                0.0,
+                "before {controller}"
+            );
+            synth.schedule(synth.frame, control_change(0, controller, value));
+            assert_eq!(
+                peak(&render(&mut synth, seconds(0.5))),
+                0.0,
+                "after {controller}"
             );
         }
     }
