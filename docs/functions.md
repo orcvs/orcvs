@@ -1128,7 +1128,8 @@ a Bang sends nothing and stops nothing (see **An empty note** above).
   starts afresh.
 - Any other value plays legato: the new Note On goes first and the old note's Note Off after it,
   so a mono synth hears a key still held and slides into the new note. A legato note at the pitch
-  already sounding sends nothing, so that note sounds on to the new note's end.
+  already sounding sends its Note On with no Note Off before it, so that note sounds on, at the
+  new velocity, to the new note's end.
 
 The acid voice on `08` slides between overlapping notes (see [Built-in Synth](#built-in-synth)).
 An external synth slides only with its portamento on.
@@ -1145,8 +1146,9 @@ After Tick `0`:
 !%0164G404
 ```
 
-One Bang reaching two Monophonic Plays on one channel plays them in order, left to right. Here the
-second retriggers: C3's Note Off, then E3's Note On.
+One Bang reaching two Monophonic Plays on one channel plays them in order, left to right: each
+sends a Play Command, which the `plays 2` below counts, and Playback turns the pair into MIDI. Here
+the second retriggers: C3's Note On, then C3's Note Off and E3's Note On.
 
 ```orcvs
 **            **
@@ -1160,7 +1162,7 @@ After Tick `0`:
 !%0864C30800  !%0864E30800
 ```
 
-With `legato` `01`, the second slides: E3's Note On, then C3's Note Off.
+With `legato` `01`, the second slides: C3's Note On, then E3's Note On and C3's Note Off.
 
 ```orcvs
 **            **
@@ -1174,8 +1176,8 @@ After Tick `0`:
 !%0864C30800  !%0864E30801
 ```
 
-Two legato notes at one pitch: the second sends nothing, and C3 sounds on to its own end, eight
-Ticks from now.
+Two legato notes at one pitch: C3's Note On, then C3's Note On again with no Note Off between, and
+C3 sounds on to the second note's end, eight Ticks from now.
 
 ```orcvs
 **            **

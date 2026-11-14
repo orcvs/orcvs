@@ -18,22 +18,37 @@ Monophonic Play has the fixed contract `!% channel velocity note length`, matchi
 
 ## Amendment, 2026-11-14: Monophonic Play takes `legato`
 
-Settled with Toby on 2026-11-13 in `.scratch/musical-terminology/` (ticket 13). Monophonic Play's
-contract is `!% channel velocity note length legato`. `legato` is a Number that may be blank, and
-blank binds as `00` ([ADR 0109](0109-a-blank-operand-can-stand-for-a-fixed-value.md)), so a
-Monophonic Play needs two more Cells to its east than before and behaves as before with them blank.
+Requested by ticket 13 of `.scratch/musical-terminology/`, from the decision settled with Toby on
+2026-11-13 that `!%` gains `legato`; the rules for a legato note at the pitch sounding, on a silent
+channel and at the Tick a note ends are the implementer's, listed under the ticket's Decisions for
+Toby to confirm. Monophonic Play's contract is `!% channel velocity note length legato`. `legato` is
+a Number that may be blank, and blank binds as `00`
+([ADR 0109](0109-a-blank-operand-can-stand-for-a-fixed-value.md)), so a Monophonic Play needs two
+more Cells to its east than before and behaves as before with them blank.
 
 - `00` or blank retriggers, as above: the prior Mono-owned note's Note Off, then the replacement's
   Note On.
 - Any other value plays legato: the replacement's Note On, then the prior note's Note Off, in that
   order within the Tick, so a mono synth hears a key still held and slides.
-- A legato replacement at the pitch the channel is sounding sends nothing: a Note On and a Note Off
-  at one pitch would end the note the Note On means to keep. The prior claim is retired and the
-  replacement claims the note to its own `T + length`, so it sounds on to the later end.
+- A legato replacement at the pitch the channel is sounding sends its Note On and no Note Off. A
+  Note Off at that pitch would end the note the Note On means to keep. The Note On carries the new
+  velocity, so accent follows the Source, and it sounds the pitch again on a receiver that a Raw or
+  Timed Note Off at the same pitch already silenced: a Note Off names only channel and note, so it
+  aliases across the three spellings at the receiver. The prior claim is retired and the
+  replacement claims the note to its own `T + length`, so the note sounds on to the replacement's
+  end, earlier or later than the prior note's. A receiver that allocates a second voice for a
+  repeated Note On, rather than restriking the one sounding, holds two at that pitch, and the one
+  Note Off the replacement's end sends may release only one; a mono synth, which `!%` is for, has
+  one voice to restrike. Sending nothing was the alternative, and it leaves the channel silent for
+  the replacement's whole length after such an aliased stop and drops the new velocity.
+- A legato replacement on the Tick the prior note's stop is due takes that stop over: it is
+  delivered after the replacement's Note On, or not at all at the same pitch, rather than at the
+  beginning of the Tick. Without that, a line whose lengths equal its steps, the usual 303 part,
+  would never slide.
 - Velocity `00` or length `00` starts nothing whatever the `legato`, and still stops the prior
   note.
 
 What the engine owns is unchanged: one voice per channel, the generation token, and the lifecycle
-actions that clear them. Only the order of the two messages a replacement sends, and whether it
-sends them at a pitch already sounding, depend on `legato`. An external synth slides only with its
+actions that clear them. Only the order of the messages a replacement sends, and whether it sends a
+Note Off at a pitch already sounding, depend on `legato`. An external synth slides only with its
 portamento on; a synth that retriggers on every Note On hears legato as an ordinary replacement.

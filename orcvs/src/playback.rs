@@ -3219,6 +3219,38 @@ mod tests {
     }
 
     #[test]
+    fn a_monophonic_play_line_delivers_each_legato_in_its_own_message_order() {
+        // A Bang every two Ticks drives `!%0864C302..`, then the note is
+        // edited before the next Bang, so the held note's stop is due on the
+        // Tick the next note starts: the step-length line a 303 part plays.
+        for (legato, second, at_tick_2) in [
+            ("00", "E3", vec![stop(8, 48), note_on(8, 0x64, 52)]),
+            ("01", "E3", vec![note_on(8, 0x64, 52), stop(8, 48)]),
+            ("01", "C3", vec![note_on(8, 0x64, 48)]),
+        ] {
+            let source = SourceCommander::new(Grid::with_shape(12, 3));
+            write(&source, 0, "~*0201");
+            write(&source, 24, &format!("!%0864C302{legato}"));
+            let adapter = InMemoryOutputAdapter::default();
+            let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
+            run.begin_run();
+
+            run.run_tick(0);
+            write(&source, 30, second);
+            for tick in 1..=3 {
+                let plan = run.run_tick(tick);
+                assert_eq!(plan.diagnostics, vec![], "legato {legato}, Tick {tick}");
+            }
+
+            assert_eq!(
+                adapter.command_lists(),
+                vec![vec![note_on(8, 0x64, 48)], vec![], at_tick_2, vec![]],
+                "legato {legato}, then {second}"
+            );
+        }
+    }
+
+    #[test]
     fn a_monophonic_play_whose_note_goes_blank_leaves_its_voice_sounding() {
         // The note slot is Source-written and an edit blanks it, or Track
         // writes it and its pair empties. Either way the note is blank on

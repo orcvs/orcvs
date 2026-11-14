@@ -114,7 +114,8 @@ pub struct CellWrite {
 /// MIDI. A chord is several roots one Bang activates, each contributing one
 /// command to the Tick Plan's ordered list.
 pub use lang::{
-    BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, PlayCommand, Velocity,
+    Articulation, BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note,
+    PlayCommand, Velocity,
 };
 
 /// What a UDP or OSC Function contributes to a Tick Plan: one datagram or one
@@ -1991,7 +1992,7 @@ mod test {
                 velocity: Velocity::try_from(0x7F).unwrap(),
                 note: Note::try_from(60).unwrap(),
                 length: Length::from(3),
-                legato: false,
+                articulation: lang::Articulation::Retrigger,
             }]
         );
         assert_writes_only_bangs(&tick, src.grid, &[12]);

@@ -142,8 +142,9 @@ unchanged.
 
 ## Amendment, 2026-11-14: Monophonic Play slides with `legato`
 
-Settled with Toby on 2026-11-13 in `.scratch/musical-terminology/` (ticket 13). Monophonic Play
-takes a last operand, `legato` (ADR 0016's 2026-11-14 amendment). With a `legato` other than `00` it
+Requested by ticket 13 of `.scratch/musical-terminology/`, from the decision settled with Toby on
+2026-11-13; ADR 0016's 2026-11-14 amendment gives the rules, some of them the implementer's for
+Toby to confirm. Monophonic Play takes a last operand, `legato`. With a `legato` other than `00` it
 sends the new note's Note On before the prior note's Note Off, so on `08` the acid voice slides into
 the new note, as it does under an overlapping Timed Play. Read the Decision's "Monophonic Play stops
 the prior note before it starts the next one, so it never slides" as true of a `legato` of `00` or

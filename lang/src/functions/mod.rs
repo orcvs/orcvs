@@ -73,14 +73,14 @@ pub fn timed_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> {
 
 /// Monophonic Play: `!% channel velocity note length legato`.
 ///
-/// The first four operands are Timed Play's, so the body is too. What differs
-/// is entirely downstream: this command owns a channel rather than a note, and
-/// the Playback Engine that counts Ticks is what knows the difference. A body
-/// that tried to say so here would be interpreting musical intent inside a
-/// Tick Plan, which is the seam ADR 0001 draws.
+/// The first four operands are Timed Play's and carried as Timed Play
+/// carries them. That this command owns a channel rather than a note is
+/// downstream: the Playback Engine that counts Ticks is what knows the
+/// difference. A body that tried to say so here would be interpreting musical
+/// intent inside a Tick Plan, which is the seam ADR 0001 draws.
 ///
-/// `legato` is carried as whether it is other than `00`; a blank `legato`
-/// binds as `00` (ADR 0109), so it retriggers as `00` does.
+/// `legato` becomes an [`Articulation`](crate::Articulation): `00` retriggers
+/// and any other value is legato. A blank `legato` binds as `00`.
 ///
 /// A blank note answers no Play Command, so it asks the engine for nothing:
 /// the channel's held voice runs to its own Note Off.
@@ -99,7 +99,11 @@ pub fn monophonic_play(ctx: &mut Context) -> Result<Option<PlayCommand>, Error> 
                 velocity,
                 note,
                 length,
-                legato: legato != 0x00,
+                articulation: if legato == 0x00 {
+                    crate::Articulation::Retrigger
+                } else {
+                    crate::Articulation::Legato
+                },
             }))
         },
     )
@@ -148,9 +152,9 @@ pub fn pitch_bend(ctx: &mut Context) -> Result<PlayCommand, Error> {
 mod test {
     use super::{control_change, monophonic_play, pitch_bend, raw_play, timed_play};
     use crate::{
-        Anchor, ArgumentError, Atom, BendLsb, BendMsb, ControlValue, Controller, Error, Function,
-        Interpretation, InterpretationError, Interpreter, Length, MidiChannel, Note, PlayCommand,
-        Tick, TickInputs, Token, Velocity, interpreter::Context,
+        Anchor, ArgumentError, Articulation, Atom, BendLsb, BendMsb, ControlValue, Controller,
+        Error, Function, Interpretation, InterpretationError, Interpreter, Length, MidiChannel,
+        Note, PlayCommand, Tick, TickInputs, Token, Velocity, interpreter::Context,
     };
 
     ///
@@ -318,7 +322,7 @@ mod test {
             velocity: Velocity::try_from(0x02).unwrap(),
             note: Note::try_from(60).unwrap(),
             length: Length::from(0x04),
-            legato: true,
+            articulation: Articulation::Legato,
         };
 
         assert_eq!(
@@ -337,7 +341,9 @@ mod test {
     #[test]
     fn monophonic_play_retriggers_at_legato_00_or_blank_and_slides_at_any_other() {
         let play = |legato: &str| match interpret(&format!("!%0102C404{legato}")) {
-            Ok(Interpretation::Play(PlayCommand::Mono { legato, .. })) => legato,
+            Ok(Interpretation::Play(PlayCommand::Mono { articulation, .. })) => {
+                articulation == Articulation::Legato
+            }
             other => panic!("legato {legato:?} gave {other:?}"),
         };
         assert!(!play("00"));
@@ -421,7 +427,7 @@ mod test {
                     velocity: Velocity::try_from(0x7F).unwrap(),
                     note: Note::try_from(60).unwrap(),
                     length: Length::from(length),
-                    legato: false,
+                    articulation: Articulation::Retrigger,
                 }),
                 "length {length:02X}"
             );
