@@ -31,7 +31,8 @@ col  0         1         2         3         4         5         6         7    
 The first three voices play the basic 4/4 808 beat over both bars, the beat the
 Beat example plays: the kick `C2` on every beat, the snare `D2` on beats 2 and 4,
 and the closed hat `f2` on every eighth. They play on channel `09`, where the
-Built-in Synth's kit picks each instrument from the Note's pitch class. The
+Built-in Synth's kit plays General MIDI drum keys: `C2` is key 36 (`24`), the
+kick, `D2` key 38 (`26`), the snare, and `f2` key 42 (`2A`), the closed hat. The
 last voice plays a sixteen-step bassline twice on channel `08`, the Built-in
 Synth's 303-style voice, which sweeps its filter on every Note (ADR 0099). Every
 other voice ships empty: the fourth to the eighth on their Learn Orca channels,
