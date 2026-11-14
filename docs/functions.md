@@ -20,14 +20,15 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 |---|---|---|
 | Number | `00` to `FF` | A byte in uppercase hexadecimal. `0a` and `G0` are not Numbers. |
 | Note | Pitch letter then octave | Uppercase for a natural, lowercase for a sharp, then `/` for the octave below `0` or `0` to `9`: `C4`, `c4`, `C/`. A Note is MIDI note `00` to `7F`. |
-| Interval Set | A chord or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `M_ M7 M9 MD M6 69 +M m_ m7 mM m6 m9 mB mD o_ o7 h7 b9 7_ 9_ 13 s2 s4 +_ a9`. Scales: `MA mi do ph ly mx lo hm mm p5 p3 bl wt ch`. A one-character chord name takes the filler `_`, and `B` and `D` stand for 11 and 13. `M ` is half-written, not a name. |
+| Interval Set | A chord quality or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `MA M7 M9 MD M6 69 +M mi m7 mM m6 m9 mB mD di d7 h7 b9 07 09 13 s2 s4 +5 a9`. Scales: `io ae do ph ly mx lo hm mm pM pm bl wt ch`. `M ` is half-written, not a name. See **Interval Sets** below. |
 | Voicing | A Voicing name | One of 8 names: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. |
 | Untyped | A Number, a Note, `**`, or a nested Function's answer | Carried unchanged; whatever reads them at the destination decides what they mean. Empty Cells, or Cells that form no unit, diagnose. |
 | MIDI domains | `00` to `0F` or `00` to `7F` | Numbers that a MIDI output Function also checks against a range, named in its entry. |
 
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
 where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
-is expected and Numbers where a Number is, and `D2` is a Voicing, a Note or a Number by position.
+is expected and Numbers where a Number is, as `07` and `09` are. `D2` is a Voicing, a Note or a
+Number by position, and `d7` is an Interval Set or a Note.
 An empty operand diagnoses, except a Play's `note`, which is optional (see **An empty note**).
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
@@ -229,6 +230,72 @@ After Tick `0`:
 C4
 ```
 
+## Interval Sets
+
+An Interval Set is a chord quality or a scale, stored as its semitones above the root. They rise
+and can pass the octave: 14, 17 and 21 semitones are the 9th, 11th and 13th. Pick, Stack and the
+Chord Plays read one, and a scale name is valid wherever a chord name is. The lead-sheet column is
+how a lead sheet writes the chord on C.
+
+| Name | Chord quality | On a lead sheet | Semitones |
+|---|---|---|---|
+| `MA` | major triad | C | 0 4 7 |
+| `M7` | major seventh | Cmaj7 | 0 4 7 11 |
+| `M9` | major ninth | Cmaj9 | 0 4 7 11 14 |
+| `MD` | major thirteenth, without the 11th | Cmaj13 | 0 4 7 11 14 21 |
+| `M6` | major sixth | C6 | 0 4 7 9 |
+| `69` | six-nine | C6/9 | 0 4 7 9 14 |
+| `+M` | augmented major seventh | C+maj7 | 0 4 8 11 |
+| `mi` | minor triad | Cm | 0 3 7 |
+| `m7` | minor seventh | Cm7 | 0 3 7 10 |
+| `mM` | minor-major seventh | Cm(maj7) | 0 3 7 11 |
+| `m6` | minor sixth | Cm6 | 0 3 7 9 |
+| `m9` | minor ninth | Cm9 | 0 3 7 10 14 |
+| `mB` | minor eleventh | Cm11 | 0 3 7 10 14 17 |
+| `mD` | minor thirteenth, without the 11th | Cm13 | 0 3 7 10 14 21 |
+| `di` | diminished triad | C° | 0 3 6 |
+| `d7` | diminished seventh | C°7 | 0 3 6 9 |
+| `h7` | half-diminished seventh | Cø7, Cm7♭5 | 0 3 6 10 |
+| `b9` | dominant seventh, flat ninth | C7♭9 | 0 4 7 10 13 |
+| `07` | dominant seventh | C7 | 0 4 7 10 |
+| `09` | dominant ninth | C9 | 0 4 7 10 14 |
+| `13` | dominant thirteenth, without the 11th | C13 | 0 4 7 10 14 21 |
+| `s2` | suspended second | Csus2 | 0 2 7 |
+| `s4` | suspended fourth | Csus4 | 0 5 7 |
+| `+5` | augmented triad | C+ | 0 4 8 |
+| `a9` | added ninth | Cadd9 | 0 4 7 14 |
+
+| Name | Scale | Semitones |
+|---|---|---|
+| `io` | major, the Ionian mode | 0 2 4 5 7 9 11 |
+| `ae` | natural minor, the Aeolian mode | 0 2 3 5 7 8 10 |
+| `do` | Dorian | 0 2 3 5 7 9 10 |
+| `ph` | Phrygian | 0 1 3 5 7 8 10 |
+| `ly` | Lydian | 0 2 4 6 7 9 11 |
+| `mx` | Mixolydian | 0 2 4 5 7 9 10 |
+| `lo` | Locrian | 0 1 3 5 6 8 10 |
+| `hm` | harmonic minor | 0 2 3 5 7 8 11 |
+| `mm` | melodic minor, ascending (jazz minor) | 0 2 3 5 7 9 11 |
+| `pM` | major pentatonic | 0 2 4 7 9 |
+| `pm` | minor pentatonic | 0 3 5 7 10 |
+| `bl` | blues, the minor blues scale | 0 3 5 6 7 10 |
+| `wt` | whole tone | 0 2 4 6 8 10 |
+| `ch` | chromatic | 0 1 2 3 4 5 6 7 8 9 10 11 |
+
+Every name fills both Cells, so `M ` is half-written. A triad takes two letters of its quality
+(`MA`, `mi`, `di`), or `+5` for augmented; both augmented chords use `+` (`+5`, `+M`), so `a` only
+means "add" (`a9`). A dominant is its bare number (`07`, `09`, `13`). A name drops an implied 7
+(`mM`, `+M`, `b9`), uses an established symbol (`h7`, `69`), and writes 11 and 13 as the
+hexadecimal digits `B` and `D` (`mB`, `MD`). A mode is its first two letters (`io`, `ae`, `do`),
+except Mixolydian, `mx`.
+
+Names are case-sensitive, and nearly every name is one Cell away from another, such as `M7` and
+`m7` or `07` and `09`. A slip in one Cell is then the other name, a valid Interval Set, and is not
+diagnosed. Watch for these, which a slip turns into something very different: `mM` and `mm`, `pM`
+and `pm` (only the case differs), `mi` (minor triad) and `mm` (melodic minor), `d7` (diminished
+seventh) and `07` (dominant seventh), `io` and `lo`, and `di` and `do`. No two names differ only
+by `o` against `0`, which read alike.
+
 ## Pitch
 
 Each derives a Note or an Interval Set from the Notes and Interval Sets it reads, and runs every
@@ -316,13 +383,13 @@ Index `00` is the root. An index past the end of the set wraps up an octave, so 
 tones answers the root an octave up at index `07`.
 
 ```orcvs
-#pC4MA04
+#pC4io04
 ```
 
 After Tick `0`:
 
 ```orcvs tick 0
-#pC4MA04
+#pC4io04
 G4
 ```
 
@@ -348,13 +415,13 @@ C5
 An answer above `G9` diagnoses and writes nothing.
 
 ```orcvs
-#pG9M_01
+#pG9MA01
 ```
 
 After Tick `0`:
 
 ```orcvs tick 0 diagnoses
-#pG9M_01
+#pG9MA01
 ```
 
 ### `#s` Stack
@@ -364,13 +431,13 @@ position `degree` and stepping two positions at a time, wrapping up octaves as P
 subtracts the first tone and answers the Interval Set with exactly those semitones.
 
 ```orcvs
-#sMA0004
+#sio0004
 ```
 
 After Tick `0`:
 
 ```orcvs tick 0
-#sMA0004
+#sio0004
 M7
 ```
 
@@ -378,23 +445,23 @@ When no name holds exactly those semitones, Stack diagnoses and writes nothing. 
 stacked from `C` reads the semitones `0 4 9`, which no name holds.
 
 ```orcvs
-#sp50003
+#spM0003
 ```
 
 After Tick `0`:
 
 ```orcvs tick 0 diagnoses
-#sp50003
+#spM0003
 ```
 
 Pick in a Chord Play's `root` and Stack in its `set` sound a chord on a scale degree. Here degree
-`04` of C major is `G4`, and the chord built on it answers `7_`, so the Chord Play sounds a G
+`04` of C major is `G4`, and the chord built on it answers `07`, so the Chord Play sounds a G
 dominant seventh.
 
 ```orcvs
 .=0101
 
-!:0064#pC4MA04#sMA0404CL00
+!:0064#pC4io04#sio0404CL00
 ```
 
 After Tick `0`:
@@ -402,8 +469,8 @@ After Tick `0`:
 ```orcvs tick 0 plays 4
 .=0101
 **
-!:0064#pC4MA04#sMA0404CL00
-      G4      7_
+!:0064#pC4io04#sio0404CL00
+      G4      07
 ```
 
 ## Tick
@@ -1040,7 +1107,7 @@ the Panel's **O** to hear them.
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
-| `set` | an Interval Set name, such as `M7` or `MA` |
+| `set` | an Interval Set name, such as `M7` or `io` |
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `D5`, `D6`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
 
@@ -1151,6 +1218,36 @@ After Tick `0`, four Note Ons, C4 up to B4:
 !:0064C4M7CL00
 ```
 
+`B3d7` stacks minor thirds on B3: B3, D4, F4 and A♭4, which Orcvs spells as
+its sharp, `g4`.
+
+```orcvs
+**
+!:0064B3d7CL00
+```
+
+After Tick `0`, four Note Ons:
+
+```orcvs tick 0 plays 4
+
+!:0064B3d7CL00
+```
+
+A scale name sounds every tone of the scale at once. `C4io` is the seven tones of C major, C4 up
+to B4.
+
+```orcvs
+**
+!:0064C4ioCL00
+```
+
+After Tick `0`, seven Note Ons:
+
+```orcvs tick 0 plays 7
+
+!:0064C4ioCL00
+```
+
 The `voicing` and `inversion` then arrange the tones, in this order. The Voicing removes tones,
 the inversion moves the lowest tone up an octave as many times as its Number says, and the Voicing
 moves tones:
@@ -1192,14 +1289,14 @@ of `00` stops every tone, and a `length` of `00` starts none.
 
 ```orcvs
 **
-!#0064C4M_CL0004
+!#0064C4MACL0004
 ```
 
 After Tick `0`, three Note Ons, each stopped four Ticks later:
 
 ```orcvs tick 0 plays 3
 
-!#0064C4M_CL0004
+!#0064C4MACL0004
 ```
 
 ### `!c` Control Change
