@@ -1,8 +1,6 @@
-//! `CH`, Control Change 5: a chorus on the whole mix.
+//! `CH`, Control Change 93 (Chorus Send): one chorus every channel sends to.
 
 use std::f32::consts::TAU;
-
-use crate::glide::Glide;
 
 /// The two taps' middle delay, in seconds.
 const CENTRE: f32 = 0.012;
@@ -11,15 +9,14 @@ const SWING: f32 = 0.004;
 /// How fast the taps swing, in Hz.
 const RATE: f32 = 0.7;
 
-/// Two delay taps that swing in opposite phase, mixed in with the dry mix up
-/// to half and half at the chorus's level. At level zero the mix passes
-/// unchanged.
+/// Two delay taps that swing in opposite phase. It answers their average
+/// alone; a channel sending at its full level mixes half itself with half
+/// that, and at level zero passes unchanged.
 pub(crate) struct Chorus {
     sample_rate: f32,
     line: Vec<f32>,
     write: usize,
     phase: f32,
-    level: Glide,
 }
 
 impl Chorus {
@@ -30,23 +27,17 @@ impl Chorus {
             line: vec![0.0; ((CENTRE + SWING) * sample_rate).ceil() as usize + 2],
             write: 0,
             phase: 0.0,
-            level: Glide::new(sample_rate, 0.0),
         }
     }
 
-    /// Sets the chorus's level from a Control Change value, `00`–`7F`.
-    pub(crate) fn set(&mut self, value: u8) {
-        self.level.set(f32::from(value) / 127.0);
-    }
-
-    /// The mix's next sample through the chorus.
+    /// The chorus for the next sample the channels send it.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         self.line[self.write] = input;
         let swing = (self.phase * TAU).sin();
         let wet = 0.5 * (self.tap(CENTRE + SWING * swing) + self.tap(CENTRE - SWING * swing));
         self.phase = (self.phase + RATE / self.sample_rate).fract();
         self.write = (self.write + 1) % self.line.len();
-        input + 0.5 * self.level.next() * (wet - input)
+        wet
     }
 
     /// The line `delay` seconds before the sample just written, interpolated.

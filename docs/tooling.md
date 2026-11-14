@@ -353,13 +353,14 @@ rather than a change to a checkout, so
 records the intended settings and holds that decision.
 
 A third tier measures locally and checks only in CI. `mise run bench` runs the criterion benchmarks
-in `lang`, `orcvs`, and `console` and prints them in the bencher output format. `lang` covers language
+in `lang`, `orcvs`, `console`, and `synth` and prints them in the bencher output format. `lang` covers language
 execution: parsing an Expression and interpreting it. `orcvs` covers a populated Source: reading an
 unchanged revision, deriving its Render Frame, and applying an edit with the Language Map rebuild it
 forces. `console` covers `Paint::derive` and `Paint::background_runs` at a fitted range and a culled
 window, so work that follows the viewport reads as a flat series. Each Source path is measured over
 several sizes, so whole-map work shows as growth across the series rather than hiding inside one
-fixed size. `.github/workflows/bench.yml` runs the same command
+fixed size. `synth` covers `Synth::render` filling one render quantum with every channel idle, with
+one tone at rest, and with 1, 4 and 16 channels running their effects. `.github/workflows/bench.yml` runs the same command
 in two jobs and fails either when a benchmark is more than three times slower than the previous
 stored result.
 
@@ -521,8 +522,9 @@ and a second `rustc-hash`, and `snapshot`'s image differ brings `colored` 2 unde
 for that one crate. `mise run audit_deps` answers for all three on every pull request whether or not
 anything compiles them.
 
-- `criterion` measures the three benchmarked paths — language execution in `lang`, populated Source
-  reading, rendering, and editing in `orcvs`, and Paint derivation in `console`; `benchmark-action/github-action-benchmark` stores and
+- `criterion` measures the four benchmarked paths — language execution in `lang`, populated Source
+  reading, rendering, and editing in `orcvs`, Paint derivation in `console`, and the Built-in Synth's
+  render block in `synth`; `benchmark-action/github-action-benchmark` stores and
   compares the results, and the same pinned action stores the allocation series beside them. The
   allocation counting itself takes no dependency at all: it is a `GlobalAlloc` forwarding to
   `System` inside each crate's `tests/allocation.rs`, which those files explain in place.

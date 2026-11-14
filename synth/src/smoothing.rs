@@ -1,22 +1,22 @@
-//! A setting that glides to each new value rather than steps, so an effect
-//! changed mid-note does not click.
+//! A setting that moves to each new value smoothly rather than steps, so an
+//! effect changed mid-note does not click.
 
-/// How long a glide by `1` takes, in seconds.
-const GLIDE: f32 = 0.02;
+/// How long a move by `1` takes, in seconds.
+const TIME: f32 = 0.02;
 
-/// A value that moves by at most `1 / GLIDE` a second and reaches each new
+/// A value that moves by at most `1 / TIME` a second and reaches each new
 /// value exactly.
-pub(crate) struct Glide {
+pub(crate) struct Smoothing {
     step: f32,
     value: f32,
     target: f32,
 }
 
-impl Glide {
+impl Smoothing {
     /// A value at `value` from the start.
     pub(crate) fn new(sample_rate: f32, value: f32) -> Self {
         Self {
-            step: 1.0 / (GLIDE * sample_rate),
+            step: 1.0 / (TIME * sample_rate),
             value,
             target: value,
         }
@@ -24,6 +24,11 @@ impl Glide {
 
     pub(crate) fn set(&mut self, target: f32) {
         self.target = target;
+    }
+
+    /// Whether it is at `value` and staying there.
+    pub(crate) fn rests_at(&self, value: f32) -> bool {
+        self.value == value && self.target == value
     }
 
     /// The value for the next sample.

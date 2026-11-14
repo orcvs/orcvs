@@ -1,12 +1,13 @@
 # Knobs
 
-`knobs.orcvs` turns three of the 303-style voice's knobs and the Built-in
-Synth's eight effects over a sixteen-step acid bassline. The web console opens
+`knobs.orcvs` turns three of the 303-style voice's knobs and six of its
+channel's effects over a sixteen-step acid bassline. The web console opens
 it on a first visit, when it has no Source stored. It also opens with **Help >
 Examples > Knobs**, or as `?example=knobs`. Press Space to start Playback.
 Each knob's value climbs a step at a time and ramps back down when its Clock
-wraps; the Sound Module on orcvs.com shows each effect move. The example opens
-Untitled, so **File > Save** asks where to keep your edits.
+wraps; the Sound Module on orcvs.com follows the knobs to channel `08` and
+shows each effect move. The example opens Untitled, so **File > Save** asks
+where to keep your edits.
 
 ```text
 col  0         1         2
@@ -43,9 +44,9 @@ col  0         1         2
  44
  45  || effects ||
  46  ~*0101  || MD ||
- 47    !c0001~>08~.0540
+ 47    !c0801~>08~.0540
  ...
- 68    !c0008~>08~.0840
+ 62    !c085E~>08~.0340
 ```
 
 The file is 24 columns wide, so a phone shows every line whole and scrolls it
@@ -117,40 +118,39 @@ Note's sweep opens the filter. Add a knob for either, or change a Clock's
 
 ## The effects
 
-Each effect knob is the same machine on channel `00`, sending controller `01`
-to `08`, the Built-in Synth's effects (ADR 0088). Each effect is global, so the
-channel picks nothing. `LN` and `EQ` sweep around their load values, `7F` and
-`40`, so an Add puts a floor under the Clock:
+Each effect knob is the same machine on channel `08`, sending one of the
+Built-in Synth's effect controllers. Each channel has its own effects, so the
+knobs send on the bassline's channel to change the bassline. On `08`,
+controllers 74 (`4A`) and 75 (`4B`) are the voice's cutoff and decay, which
+the `CUT` and `DEC` knobs already turn, so the tilt and the length have no
+knob here:
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (2, 53) `!c0003` | Control Change | Channel `00`, controller `03`, the `LN` effect. Its value slot holds the Slew. |
-| (8, 53) `~>08` | Slew, nested | Moves its value toward the Add's by at most `08` a Tick. |
-| (12, 53) `.+40` | Add, nested | Adds `40` to the Clock's count. |
-| (16, 53) `~.0440` | Clock, nested | Counts `00` to `3F`, a step every 4 Ticks, then wraps. |
+| (2, 50) `!c0855` | Control Change | Channel `08`, controller `55` (85), the `OF` effect. Its value slot holds the Slew. |
+| (8, 50) `~>08` | Slew, nested | Moves its value toward the Clock's by at most `08` a Tick. |
+| (12, 50) `~.0720` | Clock, nested | Counts `00` to `1F`, a step every 7 Ticks, then wraps. |
 
 Each effect sweeps at its own rate, so the effects peak at different times:
 
 | Controller | Effect | Clock | Sweep |
 | --- | --- | --- | --- |
-| `01` | `MD`, vibrato | `~.0540` | `00` to `3F`, a step every 5 Ticks |
-| `02` | `OF`, how far into its course each sound starts | `~.0720` | `00` to `1F`, a step every 7 Ticks |
-| `03` | `LN`, how long each sound decays | `.+40~.0440` | `40` to `7F`, a step every 4 Ticks |
-| `04` | `DL`, delay | `~.0340` | `00` to `3F`, a step every 3 Ticks |
-| `05` | `CH`, chorus | `~.0240` | `00` to `3F`, a step every 2 Ticks |
-| `06` | `EQ`, tilt | `.+30~.0520` | `30` to `4F`, darker to brighter, a step every 5 Ticks |
-| `07` | `R1`, small reverb | `~.0630` | `00` to `2F`, a step every 6 Ticks |
-| `08` | `R2`, large reverb | `~.0840` | `00` to `3F`, a step every 8 Ticks |
+| `01` (1) | `MD`, vibrato | `~.0540` | `00` to `3F`, a step every 5 Ticks |
+| `55` (85) | `OF`, how far into its course each sound starts | `~.0720` | `00` to `1F`, a step every 7 Ticks |
+| `5B` (91) | `R1`, the small reverb's send | `~.0630` | `00` to `2F`, a step every 6 Ticks |
+| `5C` (92) | `R2`, the large reverb's send | `~.0840` | `00` to `3F`, a step every 8 Ticks |
+| `5D` (93) | `CH`, the chorus's send | `~.0240` | `00` to `3F`, a step every 2 Ticks |
+| `5E` (94) | `DL`, the delay's send | `~.0340` | `00` to `3F`, a step every 3 Ticks |
 
-Every value starts at `00`, so for the first second after you start Playback
-`LN` and `EQ` ramp up from below their sweeps: the sounds start short and dark.
+Every value starts at `00`, the effects' load values, so each effect comes in
+as its knob climbs.
 
 The patch is made for the Built-in Synth. On another MIDI output, channel `08`
 is just a channel: most synths read `47`, `4A` and `4B` as resonance, cutoff and
-decay, and the accents and slides only change loudness and length. Controllers
-`01` to `08` carry General MIDI's meanings instead: `01` is the modulation
-wheel and `07` channel volume, so the sweep on `07` swells channel 1's volume
-on most devices.
+decay, and the accents and slides only change loudness and length. The effect
+controllers carry their MIDI meanings there: `01` is the modulation wheel, `5B`
+and `5D` are General MIDI's reverb and chorus sends, and `5E` is the delay send
+on Roland GS modules, so most devices still add vibrato, reverb and chorus.
 
 ## Learn Orca
 

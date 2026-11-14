@@ -1,6 +1,5 @@
-//! `DL`, Control Change 4: an echo of the whole mix.
-
-use crate::glide::Glide;
+//! `DL`, Control Change 94 (Delay Send, as on Roland GS modules): one echo
+//! every channel sends to.
 
 /// The time between echoes, in seconds: three Ticks at the default tempo.
 const TIME: f32 = 0.375;
@@ -10,14 +9,13 @@ const FEEDBACK: f32 = 0.45;
 /// darker than the last.
 const DAMPING: f32 = 3_000.0;
 
-/// A feedback delay line whose echoes are added to the mix at its level. At
-/// level zero the mix passes unchanged.
+/// A feedback delay line. It answers its echoes alone, so what no channel
+/// sends it never echoes.
 pub(crate) struct Delay {
     line: Vec<f32>,
     position: usize,
     damping: f32,
     damped: f32,
-    level: Glide,
 }
 
 impl Delay {
@@ -27,21 +25,15 @@ impl Delay {
             position: 0,
             damping: 1.0 - (-std::f32::consts::TAU * DAMPING / sample_rate).exp(),
             damped: 0.0,
-            level: Glide::new(sample_rate, 0.0),
         }
     }
 
-    /// Sets the echo's level from a Control Change value, `00`–`7F`.
-    pub(crate) fn set(&mut self, value: u8) {
-        self.level.set(f32::from(value) / 127.0);
-    }
-
-    /// The mix's next sample with its echo.
+    /// The echo for the next sample the channels send it.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         let echo = self.line[self.position];
         self.damped += (echo - self.damped) * self.damping;
         self.line[self.position] = input + FEEDBACK * self.damped;
         self.position = (self.position + 1) % self.line.len();
-        input + self.level.next() * echo
+        echo
     }
 }

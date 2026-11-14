@@ -3585,6 +3585,9 @@ dependencies = [
 [[package]]
 name = "synth"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "tempfile"

@@ -234,7 +234,7 @@ description = "Compile the release captures without rendering them"
 run = 'cargo clippy --package console --lib --tests --features release-capture --locked -- -D warnings'
 
 [tasks.bench]
-description = "Benchmark the lang, Source, and console Paint paths"
+description = "Benchmark the lang, Source, console Paint, and synth render paths"
 # `--benches` keeps the orcvs integration-test harnesses out, and each benchmarked
 # crate sets `[lib] bench = false` to keep its unit-test harness out. Every one of
 # them rejects `--output-format` and fails the task before criterion runs.
@@ -261,7 +261,7 @@ description = "Benchmark the lang, Source, and console Paint paths"
 # here it was not even faster: 17.3s against 17.0s over the same nine benchmarks.
 # `scripts/check-tooling-contract.sh` asserts the flag appears in neither this file
 # nor the workflow.
-run = 'cargo bench --package lang --package orcvs --package console --benches --locked -- --output-format bencher --warm-up-time 0.5 --measurement-time 1 --sample-size 10 --nresamples 1000'
+run = 'cargo bench --package lang --package orcvs --package console --package synth --benches --locked -- --output-format bencher --warm-up-time 0.5 --measurement-time 1 --sample-size 10 --nresamples 1000'
 
 [tasks.bench_warmup]
 description = "Run the benchmarks once and discard them, to settle a freshly compiled binary"
@@ -277,7 +277,7 @@ description = "Run the benchmarks once and discard them, to settle a freshly com
 # on the three that followed. Only a prior whole-binary pass settled it. So the
 # warm-up keeps `--warm-up-time` and cuts `--measurement-time` to the floor: it
 # runs the same set the measured task runs, and reads none of the answers.
-run = 'cargo bench --package lang --package orcvs --package console --benches --locked -- --output-format bencher --warm-up-time 0.5 --measurement-time 0.1 --sample-size 10 --nresamples 1000'
+run = 'cargo bench --package lang --package orcvs --package console --package synth --benches --locked -- --output-format bencher --warm-up-time 0.5 --measurement-time 0.1 --sample-size 10 --nresamples 1000'
 
 [tasks.check]
 description = "Full repository verification gate"
