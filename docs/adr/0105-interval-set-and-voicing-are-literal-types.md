@@ -79,10 +79,15 @@ sounds a triad and nothing diagnoses it; every scale use the project ships was m
 are also Numbers and `d7` is also a Note, which costs nothing for the reason the Decision gives for
 `69`, `13` and `D2`. The uniqueness check across Functions, Interval Sets and Voicings still holds.
 
-Four pairs now differ by only a case or a letter: `mM` (minor-major seventh) and `mm` (melodic
-minor), `pM` and `pm` (major and minor pentatonic), `io` (Ionian) and `lo` (Locrian), and `di`
-(diminished triad) and `do` (Dorian). A slip between the two of a pair is a valid different
-Interval Set and is not diagnosed. Each is accepted to keep names a musician already reads.
+Two Cells hold few names this full, so nearly every name is one Cell from another (`M7` and
+`m7`, `07` and `09`), and a slip in one Cell is a valid different Interval Set that is not
+diagnosed. The rule above is narrower: no two names differ only by look-alike glyphs, `0` against
+`o`, and the build refuses a table that breaks it or spells a name with the filler. Some one-Cell
+pairs mean very different things: `mM` (minor-major seventh) and `mm` (melodic minor), and `pM`
+and `pm` (major and minor pentatonic), differ only by case; `mi` (minor triad) and `mm` (melodic
+minor); `d7` (diminished seventh) and `07` (dominant seventh); `io` (Ionian) and `lo` (Locrian);
+and `di` (diminished triad) and `do` (Dorian). Each is accepted to keep names a musician already
+reads.
 
 ## Amendment, 2026-11-14: drop Voicings named for their positions
 
