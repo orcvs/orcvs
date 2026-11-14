@@ -64,6 +64,10 @@ _Avoid_: Rotation
 Two Source Cells interpreted as an Atom according to the typed operand position of the Function that consumes them. The characters have no Number, Note, Interval Set or Voicing type outside that context. A Write's or Push's `value` takes no type: it carries the Language Unit its two Cells hold unchanged, and whatever reads them at the destination interprets them. Whether a standalone operand literal is diagnosed is open (ADR 0067); the Language Map diagnoses one today, including Cells a Function wrote on an earlier Tick and the pairs east of Track.
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
+**Defaulted Operand**:
+An operand whose type gives a slot that holds no value a fixed Number, stated where the Function declares it. Per ADR 0109 a blank slot, whether written blank, emptied by a Portal write or cleared by a nested Function, binds exactly as that Number written there would, so the Function cannot tell the two apart, and a written value binds as the plain operand binds it. It sits beside ADR 0108's optional operand, whose blank binds to no value; every other operand still refuses a blank slot.
+_Avoid_: Default argument, optional value, fallback
+
 **Spatial Output**:
 A Function output delivered through a Portal as literal Source encoding, interpreted in the receiving operand's context. A nested Function's Return is the same encoding and the receiving operand interprets it the same way, so identical characters mean the same thing however they arrived.
 _Avoid_: Implicit numeric conversion, typed spatial argument

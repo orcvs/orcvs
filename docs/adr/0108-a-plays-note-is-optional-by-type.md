@@ -7,6 +7,8 @@ Status: accepted. Supersedes [ADR 0075](0075-a-play-with-a-cleared-note-rests.md
 input, and [ADR 0073](0073-a-function-with-nothing-to-write-answers-nothing.md)'s rule that a nested
 Clear leaves its parent invalid, by operand type: both hold for every operand whose type requires a
 value, and neither holds for an optional one. Settled in `.scratch/optional-play-note/`.
+[ADR 0109](0109-a-blank-operand-can-stand-for-a-fixed-value.md) takes up the default for an empty
+operand this ADR set aside: `Defaulted<O, BLANK>` binds a blank slot as a fixed Number.
 
 A tracker or melody pattern leaves most of its steps empty, and a performer reads an empty step as
 "nothing plays here", as Orca's `:` with no note does. ADR 0075 and ADR 0104 made a blank note a
