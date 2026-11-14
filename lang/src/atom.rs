@@ -1364,7 +1364,7 @@ define_functions! {
     Maximum => (".>", "Maximum", "answers the larger of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Minimum => (".<", "Minimum", "answers the smaller of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Modulo => (".%", "Modulo", "answers the remainder of left / right", Value, Intrinsic, Never, [left: Number, right: Number]),
-    MonophonicPlay => ("!%", "Monophonic Play", "replaces its channel's Monophonic note for length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Optional<Note>, length: Length]),
+    MonophonicPlay => ("!%", "Monophonic Play", "replaces its channel's Monophonic note for length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, note: Optional<Note>, length: Length, legato: Defaulted<Number, 0x00>]),
     Multiply => (".x", "Multiply", "answers left * right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Osc => ("!o", "OSC", "sends its Payload as one OSC message", TerminalOutput, Bang, Never, []),
     Pick => ("#p", "Pick", "answers the Note at position index of set above root", Value, Intrinsic, Never, [root: Note, set: IntervalSet, index: Number]),

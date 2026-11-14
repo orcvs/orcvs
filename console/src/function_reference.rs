@@ -929,6 +929,7 @@ mod tests {
                 velocity: Velocity::try_from(0x64).unwrap(),
                 note: Note::try_from(0x43).unwrap(),
                 length: Length::from(0x04),
+                articulation: lang::Articulation::Retrigger,
             },
             // !c005B64 — Control Change: channel 00, controller 5B (91, the
             // reverb send), value 64.

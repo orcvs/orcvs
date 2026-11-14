@@ -483,9 +483,9 @@ fn reading_and_taking_the_turn_of_a_play_with_a_blank_note_allocates_nothing() {
             &[channel, velocity, None, length][..],
         ),
         (
-            "!%010A  04",
+            "!%010A  04  ",
             Function::MonophonicPlay,
-            &[channel, velocity, None, length][..],
+            &[channel, velocity, None, length, None][..],
         ),
     ] {
         // Warm up, for the reason the call test gives.

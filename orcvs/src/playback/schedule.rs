@@ -16,7 +16,7 @@
 use std::collections::BTreeMap;
 
 use super::OutputCommand;
-use crate::source::{Length, MidiChannel, Note, PlayCommand, Tick, Velocity};
+use crate::source::{Articulation, Length, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 ///
 /// One voice this schedule can own, and what counts as the same voice.
@@ -123,6 +123,34 @@ fn note_off(channel: MidiChannel, note: Note) -> OutputCommand {
     OutputCommand::NoteOff { channel, note }
 }
 
+///
+/// Whether the first Monophonic command `commands` hold for `voice`'s channel
+/// slides, so it takes over the claim on that voice. A Timed voice is never
+/// taken over.
+///
+fn slides_over(voice: Voice, commands: &[PlayCommand]) -> bool {
+    let Voice::Mono { channel } = voice else {
+        return false;
+    };
+    commands
+        .iter()
+        .find_map(|command| match *command {
+            PlayCommand::Mono {
+                channel: on,
+                velocity,
+                length,
+                articulation,
+                ..
+            } if on == channel => Some(
+                articulation == Articulation::Legato
+                    && velocity != Velocity::ZERO
+                    && length != Length::ZERO,
+            ),
+            _ => None,
+        })
+        .unwrap_or(false)
+}
+
 impl OwnedNotes {
     ///
     /// This Tick's delivery: every stop due at `tick`, then `commands`
@@ -131,11 +159,12 @@ impl OwnedNotes {
     /// One list rather than two submissions, because the order is the whole of
     /// what ADR 0016 requires here — a scheduled Note Off arrives at the
     /// beginning of executed Tick `T + length`, before that Tick's new Play
-    /// Commands — and a Tick that submitted twice would leave that order to
-    /// the adapter to keep.
+    /// Commands, except a Mono stop that a sliding command takes over and
+    /// delivers after its Note On — and a Tick that submitted twice would
+    /// leave that order to the adapter to keep.
     ///
     pub(crate) fn deliver(&mut self, tick: Tick, commands: &[PlayCommand]) -> Vec<OutputCommand> {
-        let mut delivery = self.expired_at(tick);
+        let mut delivery = self.expired_at(tick, commands);
 
         for command in commands {
             match *command {
@@ -193,17 +222,18 @@ impl OwnedNotes {
                     velocity,
                     note,
                     length,
+                    articulation,
                 } => {
                     let voice = Voice::Mono { channel };
-                    // Every Monophonic command stops the note its channel was
-                    // sounding before it does anything else, and whether or
-                    // not it goes on to start one. The note comes back out of
-                    // the claim rather than off the command, which is what
-                    // monophony means here: the voice is the channel, and the
-                    // Source need not remember what it last put on it.
-                    if let Some(stopped) = self.release(voice) {
-                        delivery.push(note_off(channel, stopped));
-                    }
+                    // Every Monophonic command replaces the claim its channel
+                    // holds, whether or not it goes on to start a note. The
+                    // note comes back out of the claim rather than off the
+                    // command, which is what monophony means here: the voice
+                    // is the channel, and the Source need not remember what it
+                    // last put on it. A claim whose stop is due this Tick is
+                    // still held here when this command slides, because
+                    // `expired_at` left it for this command to take over.
+                    let held = self.release(voice);
                     // Velocity `00` and length `00` both leave the channel
                     // silent, and ADR 0016 makes that the end of the command.
                     // Timed Play's length `00` is a no-op instead, and the
@@ -213,12 +243,44 @@ impl OwnedNotes {
                     // command claims the channel whether or not it sounds, so
                     // one that starts nothing has replaced the voice with
                     // silence.
-                    if velocity != Velocity::ZERO && length != Length::ZERO {
-                        delivery.push(OutputCommand::NoteOn {
-                            channel,
-                            velocity,
-                            note,
-                        });
+                    let starts = velocity != Velocity::ZERO && length != Length::ZERO;
+                    let note_on = OutputCommand::NoteOn {
+                        channel,
+                        velocity,
+                        note,
+                    };
+                    match (starts.then_some(articulation), held) {
+                        // Silence: the held note stops and nothing starts.
+                        (None, held) => {
+                            if let Some(stopped) = held {
+                                delivery.push(note_off(channel, stopped));
+                            }
+                        }
+                        // Nothing held: the note starts as any note does.
+                        (Some(_), None) => delivery.push(note_on),
+                        // Retrigger: the held note stops before the new one
+                        // starts.
+                        (Some(Articulation::Retrigger), Some(stopped)) => {
+                            delivery.push(note_off(channel, stopped));
+                            delivery.push(note_on);
+                        }
+                        // Legato at the held pitch: the Note On alone. A Note
+                        // Off at that pitch would end the note it means to
+                        // keep; the Note On carries the new velocity and
+                        // sounds the pitch again on a receiver an aliased Raw
+                        // or Timed Note Off silenced.
+                        (Some(Articulation::Legato), Some(stopped)) if stopped == note => {
+                            delivery.push(note_on);
+                        }
+                        // Legato to a new pitch: the new note starts first, so
+                        // a mono synth hears a key still held and slides into
+                        // it (ADR 0099), and the held note stops after it.
+                        (Some(Articulation::Legato), Some(stopped)) => {
+                            delivery.push(note_on);
+                            delivery.push(note_off(channel, stopped));
+                        }
+                    }
+                    if starts {
                         self.claim(voice, note, tick.after(length.ticks()));
                     }
                 }
@@ -260,7 +322,12 @@ impl OwnedNotes {
     /// compared against can no longer reach — and a run whose absolute Tick
     /// has stopped advancing has already lost more than a Note Off.
     ///
-    fn expired_at(&mut self, tick: Tick) -> Vec<OutputCommand> {
+    /// A Mono claim due now is left standing for `commands` when the first
+    /// Monophonic command on its channel slides: that command then delivers
+    /// the stop after its own Note On, or none at the same pitch, so a note
+    /// whose length is its step slides into the next one.
+    ///
+    fn expired_at(&mut self, tick: Tick, commands: &[PlayCommand]) -> Vec<OutputCommand> {
         let later = self.expiries.split_off(&tick.next());
         let due = std::mem::replace(&mut self.expiries, later);
 
@@ -272,6 +339,7 @@ impl OwnedNotes {
             // to stop.
             if let Some(sounding) = self.voices.get(&expiry.voice).copied()
                 && sounding.claim == expiry.claim
+                && !slides_over(expiry.voice, commands)
             {
                 self.voices.remove(&expiry.voice);
                 stops.push(note_off(expiry.voice.channel(), sounding.note));
@@ -387,14 +455,19 @@ mod tests {
 
     ///
     /// One Monophonic Play Command, stated as the four Numbers a Source
-    /// writes.
+    /// writes and whether its `legato` slides.
     ///
-    fn mono_play(channel: u8, velocity: u8, note: u8, length: u8) -> PlayCommand {
+    fn mono_play(channel: u8, velocity: u8, note: u8, length: u8, legato: bool) -> PlayCommand {
         PlayCommand::Mono {
             channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
             velocity: Velocity::try_from(velocity).expect("a MIDI data byte"),
             note: Note::try_from(note).expect("a MIDI note"),
             length: Length::from(length),
+            articulation: if legato {
+                Articulation::Legato
+            } else {
+                Articulation::Retrigger
+            },
         }
     }
 
@@ -718,7 +791,7 @@ mod tests {
         // the start is delivered in the Tick that planned it and the stop at
         // the beginning of Tick `0 + 02`.
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 2)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 2, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         assert_eq!(idle(&mut schedule, 1), Vec::new());
@@ -732,7 +805,7 @@ mod tests {
         let mut schedule = OwnedNotes::default();
 
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         // A different note on the channel the first is sounding. Mono
@@ -742,7 +815,7 @@ mod tests {
         // Play is, by channel and note, this Tick would start E4 over a C4
         // that nothing would stop until Tick 5.
         assert_eq!(
-            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 64, 5)]),
+            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 64, 5, false)]),
             vec![stop(0, 60), note_on(0, 0x7F, 64)]
         );
         // Tick 5 is where the replaced claim's stop was due. Its generation
@@ -756,17 +829,214 @@ mod tests {
     }
 
     #[test]
+    fn a_legato_monophonic_play_starts_its_note_before_it_stops_the_one_it_replaces() {
+        let mut schedule = OwnedNotes::default();
+
+        assert_eq!(
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5, false)]),
+            vec![note_on(0, 0x7F, 60)]
+        );
+        // The overlap is what a mono synth reads as legato: a Note On while
+        // a key is held slides, where a Note Off first would retrigger.
+        assert_eq!(
+            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 64, 2, true)]),
+            vec![note_on(0, 0x7F, 64), stop(0, 60)]
+        );
+        assert_eq!(idle(&mut schedule, 2), Vec::new());
+        assert_eq!(idle(&mut schedule, 3), vec![stop(0, 64)]);
+        // Tick 5 is where the replaced claim's stop was due.
+        for tick in 4..=5 {
+            assert_eq!(idle(&mut schedule, tick), Vec::new(), "Tick {tick}");
+        }
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_on_the_tick_the_held_note_ends_slides_into_it() {
+        let mut schedule = OwnedNotes::default();
+
+        // A Bang every two Ticks driving `!%0864C30201` then `!%0864E30201`:
+        // each note's length is its step, as in a 303 line, so the held note's
+        // stop is due on the Tick the next note starts. That stop belongs
+        // after the new Note On, or the synth hears no key held and retriggers.
+        assert_eq!(
+            plan(&mut schedule, 0, &[mono_play(8, 0x64, 48, 2, true)]),
+            vec![note_on(8, 0x64, 48)]
+        );
+        assert_eq!(idle(&mut schedule, 1), Vec::new());
+        assert_eq!(
+            plan(&mut schedule, 2, &[mono_play(8, 0x64, 52, 2, true)]),
+            vec![note_on(8, 0x64, 52), stop(8, 48)]
+        );
+        assert_eq!(idle(&mut schedule, 3), Vec::new());
+        assert_eq!(idle(&mut schedule, 4), vec![stop(8, 52)]);
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_at_the_held_pitch_on_the_tick_it_ends_restrikes_it() {
+        let mut schedule = OwnedNotes::default();
+
+        // `!%0864C30201` twice, two Ticks apart: C3 sounds on through Tick 2
+        // with a Note On and no Note Off, to the second note's end.
+        assert_eq!(
+            plan(&mut schedule, 0, &[mono_play(8, 0x64, 48, 2, true)]),
+            vec![note_on(8, 0x64, 48)]
+        );
+        assert_eq!(idle(&mut schedule, 1), Vec::new());
+        assert_eq!(
+            plan(&mut schedule, 2, &[mono_play(8, 0x64, 48, 2, true)]),
+            vec![note_on(8, 0x64, 48)]
+        );
+        assert_eq!(idle(&mut schedule, 3), Vec::new());
+        assert_eq!(idle(&mut schedule, 4), vec![stop(8, 48)]);
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
+    fn a_retriggered_or_silent_monophonic_play_on_the_tick_the_held_note_ends_stops_it_first() {
+        // Only a legato command that starts a note takes over the ending
+        // claim; anything else finds its stop delivered at the Tick's start.
+        for (command, expected) in [
+            (
+                mono_play(8, 0x64, 52, 2, false),
+                vec![stop(8, 48), note_on(8, 0x64, 52)],
+            ),
+            (mono_play(8, 0x00, 52, 2, true), vec![stop(8, 48)]),
+            (mono_play(8, 0x64, 52, 0, true), vec![stop(8, 48)]),
+        ] {
+            let mut schedule = OwnedNotes::default();
+            plan(&mut schedule, 0, &[mono_play(8, 0x64, 48, 2, true)]);
+            assert_eq!(
+                plan(&mut schedule, 2, std::slice::from_ref(&command)),
+                expected,
+                "{command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_takes_over_only_its_own_channels_ending_note() {
+        let mut schedule = OwnedNotes::default();
+
+        assert_eq!(
+            plan(
+                &mut schedule,
+                0,
+                &[
+                    mono_play(8, 0x64, 48, 2, true),
+                    mono_play(7, 0x64, 60, 2, true)
+                ]
+            ),
+            vec![note_on(8, 0x64, 48), note_on(7, 0x64, 60)]
+        );
+        assert_eq!(
+            plan(&mut schedule, 2, &[mono_play(8, 0x64, 52, 2, true)]),
+            vec![stop(7, 60), note_on(8, 0x64, 52), stop(8, 48)]
+        );
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_at_the_pitch_sounding_restrikes_it_with_no_note_off() {
+        let mut schedule = OwnedNotes::default();
+
+        assert_eq!(
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 2, false)]),
+            vec![note_on(0, 0x7F, 60)]
+        );
+        // A Note Off at the pitch would end the note the Note On means to
+        // keep, so only the Note On goes, carrying each new velocity. C4
+        // sounds on to the last replacement's end, Tick 2 + 3.
+        assert_eq!(
+            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 60, 3, true)]),
+            vec![note_on(0, 0x7F, 60)]
+        );
+        assert_eq!(
+            plan(&mut schedule, 2, &[mono_play(0, 0x40, 60, 3, true)]),
+            vec![note_on(0, 0x40, 60)]
+        );
+        for tick in 3..=4 {
+            assert_eq!(idle(&mut schedule, tick), Vec::new(), "Tick {tick}");
+        }
+        assert_eq!(idle(&mut schedule, 5), vec![stop(0, 60)]);
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_at_the_pitch_sounding_ends_it_at_its_own_end_even_when_earlier() {
+        let mut schedule = OwnedNotes::default();
+
+        assert_eq!(
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5, false)]),
+            vec![note_on(0, 0x7F, 60)]
+        );
+        assert_eq!(
+            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 60, 1, true)]),
+            vec![note_on(0, 0x7F, 60)]
+        );
+        assert_eq!(idle(&mut schedule, 2), vec![stop(0, 60)]);
+        for tick in 3..=5 {
+            assert_eq!(idle(&mut schedule, tick), Vec::new(), "Tick {tick}");
+        }
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_on_a_silent_channel_starts_its_note() {
+        let mut schedule = OwnedNotes::default();
+
+        assert_eq!(
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 2, true)]),
+            vec![note_on(0, 0x7F, 60)]
+        );
+        assert_eq!(idle(&mut schedule, 2), vec![stop(0, 60)]);
+        // After its own Note Off the channel is silent again: the next
+        // legato note has nothing to slide from.
+        assert_eq!(
+            plan(&mut schedule, 3, &[mono_play(0, 0x7F, 60, 1, true)]),
+            vec![note_on(0, 0x7F, 60)]
+        );
+        assert_eq!(idle(&mut schedule, 4), vec![stop(0, 60)]);
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_that_starts_nothing_still_stops_the_voice() {
+        let mut schedule = OwnedNotes::default();
+
+        for (tick, silence) in [
+            (0, mono_play(0, 0x00, 64, 5, true)),
+            (2, mono_play(0, 0x7F, 60, 0, true)),
+        ] {
+            assert_eq!(
+                plan(&mut schedule, tick, &[mono_play(0, 0x7F, 60, 5, false)]),
+                vec![note_on(0, 0x7F, 60)]
+            );
+            assert_eq!(
+                plan(&mut schedule, tick + 1, &[silence]),
+                vec![stop(0, 60)],
+                "Tick {}",
+                tick + 1
+            );
+        }
+        for tick in 4..=8 {
+            assert_eq!(idle(&mut schedule, tick), Vec::new(), "Tick {tick}");
+        }
+        assert!(!schedule.holds_note_ownership());
+    }
+
+    #[test]
     fn a_monophonic_play_with_velocity_zero_replaces_the_voice_with_silence() {
         let mut schedule = OwnedNotes::default();
 
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         // Velocity `00`, and a note operand that is not the note sounding, so
         // the stop can only have come from the claim.
         assert_eq!(
-            plan(&mut schedule, 1, &[mono_play(0, 0x00, 69, 5)]),
+            plan(&mut schedule, 1, &[mono_play(0, 0x00, 69, 5, false)]),
             vec![stop(0, 60)]
         );
         for tick in 2..=6 {
@@ -787,7 +1057,7 @@ mod tests {
         // silent, and a Note Off here would stop whatever else is sounding
         // that pitch on the channel.
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x00, 60, 5)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x00, 60, 5, false)]),
             Vec::new()
         );
         for tick in 1..=5 {
@@ -801,7 +1071,7 @@ mod tests {
         let mut schedule = OwnedNotes::default();
 
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 5, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         // The operand Timed Play treats as a no-op. Monophonic Play claims its
@@ -809,7 +1079,7 @@ mod tests {
         // still replaced the voice — with silence — and the note it replaced
         // is stopped rather than left standing until its own expiry.
         assert_eq!(
-            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 60, 0)]),
+            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 60, 0, false)]),
             vec![stop(0, 60)]
         );
         for tick in 2..=6 {
@@ -826,15 +1096,15 @@ mod tests {
         // retires that claim while leaving its scheduled stop where it was,
         // and Tick 2 claims the same channel again until Tick 7.
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 3)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 3, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         assert_eq!(
-            plan(&mut schedule, 1, &[mono_play(0, 0x00, 60, 3)]),
+            plan(&mut schedule, 1, &[mono_play(0, 0x00, 60, 3, false)]),
             vec![stop(0, 60)]
         );
         assert_eq!(
-            plan(&mut schedule, 2, &[mono_play(0, 0x7F, 60, 5)]),
+            plan(&mut schedule, 2, &[mono_play(0, 0x7F, 60, 5, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
 
@@ -853,7 +1123,7 @@ mod tests {
         let mut schedule = OwnedNotes::default();
 
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 3)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 3, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         // The same note on a second channel, which is a second instrument
@@ -861,7 +1131,7 @@ mod tests {
         // voice across every channel would stop channel 0 here to sound
         // channel 1, one Tick into a note the Source gave three.
         assert_eq!(
-            plan(&mut schedule, 1, &[mono_play(1, 0x7F, 60, 3)]),
+            plan(&mut schedule, 1, &[mono_play(1, 0x7F, 60, 3, false)]),
             vec![note_on(1, 0x7F, 60)]
         );
         assert_eq!(idle(&mut schedule, 2), Vec::new());
@@ -881,7 +1151,10 @@ mod tests {
             plan(
                 &mut schedule,
                 0,
-                &[mono_play(0, 0x7F, 60, 5), mono_play(0, 0x7F, 64, 2)],
+                &[
+                    mono_play(0, 0x7F, 60, 5, false),
+                    mono_play(0, 0x7F, 64, 2, false)
+                ],
             ),
             vec![note_on(0, 0x7F, 60), stop(0, 60), note_on(0, 0x7F, 64)]
         );
@@ -907,15 +1180,15 @@ mod tests {
         // the claim with it, so the command that follows finds nothing left to
         // release and the note it starts is not immediately silenced.
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 1)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 1, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         assert_eq!(
-            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 60, 1)]),
+            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 60, 1, false)]),
             vec![stop(0, 60), note_on(0, 0x7F, 60)]
         );
         assert_eq!(
-            plan(&mut schedule, 2, &[mono_play(0, 0x7F, 60, 1)]),
+            plan(&mut schedule, 2, &[mono_play(0, 0x7F, 60, 1, false)]),
             vec![stop(0, 60), note_on(0, 0x7F, 60)]
         );
     }
@@ -941,7 +1214,7 @@ mod tests {
         );
         // Nor does the Mono command find the Timed claim beside it.
         assert_eq!(
-            plan(&mut schedule, 2, &[mono_play(0, 0x7F, 60, 3)]),
+            plan(&mut schedule, 2, &[mono_play(0, 0x7F, 60, 3, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         assert_eq!(idle(&mut schedule, 3), Vec::new());
@@ -995,11 +1268,11 @@ mod tests {
         // Only the second is still standing, so Tick 3 holds two expiries for
         // one voice, the stale one first.
         assert_eq!(
-            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 3)]),
+            plan(&mut schedule, 0, &[mono_play(0, 0x7F, 60, 3, false)]),
             vec![note_on(0, 0x7F, 60)]
         );
         assert_eq!(
-            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 64, 2)]),
+            plan(&mut schedule, 1, &[mono_play(0, 0x7F, 64, 2, false)]),
             vec![stop(0, 60), note_on(0, 0x7F, 64)]
         );
         assert_eq!(idle(&mut schedule, 2), Vec::new());
@@ -1070,7 +1343,7 @@ mod tests {
             plan(
                 &mut schedule,
                 0,
-                &[timed_play(0, 0x7F, 60, 3), mono_play(1, 0x7F, 64, 3)],
+                &[timed_play(0, 0x7F, 60, 3), mono_play(1, 0x7F, 64, 3, false)],
             ),
             vec![note_on(0, 0x7F, 60), note_on(1, 0x7F, 64)]
         );

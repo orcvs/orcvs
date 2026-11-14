@@ -1248,6 +1248,7 @@ the Panel's **O** to hear them.
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
 | `length` | `00` to `FF` Ticks |
+| `legato` | `00` to `FF`, or empty: on `!%`, `00` or empty retriggers and any other value slides |
 | `set` | an Interval Set name, such as `M7` or `io` |
 | `voicing` | a Voicing name: `CL`, `OP`, `D2`, `D3`, `23`, `24`, `SH` or `RL` |
 | `inversion` | a Number, `00` to `FF`: how many times the lowest tone moves up an octave |
@@ -1325,10 +1326,22 @@ After Tick `0`:
 
 ### `!%` Monophonic Play
 
-`!% channel velocity note length` works like Timed Play, but first stops whichever note an earlier
-Monophonic Play left sounding on the same channel, so a channel plays one of these at a time. At
-velocity 0 (`00`) it stops that note and plays nothing. The `note` is optional: with it empty, a Bang
-sends nothing and stops nothing (see **An empty note** above).
+`!% channel velocity note length legato` works like Timed Play, but replaces whichever note an
+earlier Monophonic Play left sounding on the same channel, so a channel plays one of these at a
+time. At velocity 0 (`00`) it stops that note and plays nothing. The `note` is optional: with it empty,
+a Bang sends nothing and stops nothing (see **An empty note** above).
+
+`legato` says how the new note follows the one sounding:
+
+- `00` or empty retriggers: the old note's Note Off goes before the new Note On, so the new note
+  starts afresh.
+- Any other value plays legato: the new Note On goes first and the old note's Note Off after it,
+  so a mono synth hears a key still held and slides into the new note. A legato note at the pitch
+  already sounding sends its Note On with no Note Off before it, so that note sounds on, at the
+  new velocity, to the new note's end.
+
+The acid voice on `08` slides between overlapping notes (see [Built-in Synth](#built-in-synth)).
+An external synth slides only with its portamento on.
 
 ```orcvs
 **
@@ -1340,6 +1353,51 @@ After Tick `0`:
 ```orcvs tick 0 plays 1
 
 !%0164G404
+```
+
+One Bang reaching two Monophonic Plays on one channel plays them in order, left to right: each
+sends a Play Command, which the `plays 2` below counts, and Playback turns the pair into MIDI. Here
+the second retriggers: C3's Note On, then C3's Note Off and E3's Note On.
+
+```orcvs
+**            **
+!%0864C30800  !%0864E30800
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 2
+
+!%0864C30800  !%0864E30800
+```
+
+With `legato` `01`, the second slides: C3's Note On, then E3's Note On and C3's Note Off.
+
+```orcvs
+**            **
+!%0864C30800  !%0864E30801
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 2
+
+!%0864C30800  !%0864E30801
+```
+
+Two legato notes at one pitch: C3's Note On, then C3's Note On again with no Note Off between, and
+C3 sounds on to the second note's end, eight Ticks from now.
+
+```orcvs
+**            **
+!%0864C30401  !%0864C30801
+```
+
+After Tick `0`:
+
+```orcvs tick 0 plays 2
+
+!%0864C30401  !%0864C30801
 ```
 
 ### `!:` Raw Chord Play
