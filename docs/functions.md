@@ -36,8 +36,9 @@ Function that answers a value writes it into its Output Portal, the two Cells on
 anchor unless the entry names another place. A value Function can also stand in another Function's
 operand, nested: `.+.x020301` adds `01` to the `06` that `.x0203` answers, and answers `07`. A
 Function that performs an effect, such as playing a note, writes no answer and cannot be nested.
-Arithmetic reads a Note's two Cells as a byte, not as a pitch, so to transpose a Note use Up `#+`
-or Down `#-` (see **Pitch**): `#+C407` answers `G4`, a fifth, 7 semitones (`07`), above `C4`.
+Arithmetic reads a Note's two Cells as a Number only where they spell one (`C4` is the Number
+`C4`; `G4` diagnoses), never as a pitch, so to raise or lower a Note by semitones use Up `#+` or
+Down `#-` (see **Pitch**): `#+C407` answers `G4`, a fifth, 7 semitones (`07`), above `C4`.
 
 **Runs.** Most Functions take a Turn every Tick. Some are inert until a Bang reaches them. A root is
 the Function that begins an Expression, as opposed to one nested in an operand. A Bang activates each root whose anchor is aligned with the `**` in one of four places: directly north or
@@ -51,16 +52,18 @@ invalid Function writes nothing at all, so its last answer stays where it was. N
 leaves its parent invalid, except in a Play's `note`, where it leaves the note empty.
 
 **Ticks.** A Tick is a sixteenth note: four Ticks make a beat at the BPM the Panel shows, so a 4/4
-bar is 16 Ticks (`10`). Every timing operand counts Ticks. A DAW's "tick" is a much finer
-subdivision, hundreds to a beat; an Orcvs Tick is one step, as on a step sequencer.
+bar is 16 Ticks (`10`). Timing operands are in Ticks unless the entry says otherwise: a Clock's
+`steps` counts steps of `division` Ticks each, so `~.0410` runs 64 Ticks, four bars. A DAW's "tick"
+is a much finer subdivision, hundreds to a beat; an Orcvs Tick is one step of a pattern, as a step
+is on a drum machine.
 
 **Notes.** A Note is spelled in scientific pitch notation: a pitch letter, then its octave, with
 middle C, MIDI note 60 (`3C`), spelled `C4`. Ableton Live, Logic Pro, Cubase and Bitwig Studio show
 MIDI note 60 as C3, so a note one of them calls C3 is `C4` here, and every octave they show is one
 lower than Orcvs's. The octave below `0` is `/`: `C/` is MIDI note 0, and `G9`, MIDI note 127
 (`7F`), is the highest Note. A lowercase letter is the sharp of its uppercase letter: `c4` is C♯4.
-E and B have no sharp of their own, so Orcvs has no `e` or `b`, and a flat is spelled as the sharp
-or natural it sounds as:
+E and B have no sharp of their own, so Orcvs has no `e` or `b`, and a flat, or a sharp of E or B,
+is spelled as the note it sounds as:
 
 | Written | Orcvs | | Written | Orcvs |
 |---|---|---|---|---|
@@ -673,9 +676,10 @@ After Tick `2`, then after Tick `3`:
 
 ### `~+` Increment
 
-`~+ amount modulus` is a wrapping counter. It reads the Number in its own Output Portal, adds
-`amount`, and answers the result modulo `modulus`. It reads back its last answer, so it counts up; empty Cells count as `00`, so it
-starts from `00`. A `modulus` of `00`, or anything other than a Number in its Output Portal, diagnoses.
+`~+ amount modulus` is an accumulating counter that wraps. It reads the Number in its own Output
+Portal, adds `amount`, and answers the result modulo `modulus`. It reads back its last answer, so it
+counts up; empty Cells count as `00`, so it starts from `00`. A `modulus` of `00`, or anything other
+than a Number in its Output Portal, diagnoses.
 
 ```orcvs
 ~+0104
@@ -922,8 +926,8 @@ E4
 
 ### `&t` Track
 
-`&t index count` is a step sequencer's playhead over the row that follows it: it reads one of the
-`count` pairs that follow its operands, the pair `index % count`, counted from zero. A Clock in its
+`&t index count` is a playhead over the pairs that follow its operands on its own row: it reads one
+of those `count` pairs, the pair `index % count`, counted from zero. A Clock in its
 `index` steps through a pattern of `count` Notes. A `count` of `00` diagnoses.
 
 ```orcvs
@@ -1041,8 +1045,8 @@ After Tick `0`:
 
 ### `**` Bang
 
-`**` where an Expression starts is the Bang Function, a trigger, as a gate or trig is on a
-sequencer. On its Turn it activates the roots aligned with it and empties its own two Cells, so it
+`**` where an Expression starts is the Bang Function, a one-Tick trigger, as a trig is on a drum
+machine. On its Turn it activates the roots aligned with it and empties its own two Cells, so it
 fires once. Functions that answer a Bang write `**`, which
 then fires on the next Tick unless something writes over it first.
 
@@ -1206,8 +1210,8 @@ vv
 
 ### `*!` Halt
 
-A mute for one Tick. Inert until a Bang reaches it. When active, it stops the root directly south
-of it from taking its Turn that Tick.
+Skips one Turn: nothing new starts, and nothing already sounding stops. Inert until a Bang reaches
+it. When active, it stops the root directly south of it from taking its Turn that Tick.
 
 ```orcvs
 **
@@ -1265,9 +1269,9 @@ After Tick `0`, nothing plays and nothing is diagnosed:
 ### `!>` Raw Play
 
 `!> channel velocity note` sends a Note On, with no Note Off of its own: you send the Note Off,
-with a second Raw Play at velocity 0 (`00`), which sends a Note Off for `note` instead. `!>0064C4`
-plays middle C at velocity 100 (`64`). The `note` is optional: with it empty, a Bang sends nothing (see **An
-empty note** above).
+with a second Raw Play at velocity 0 (`00`), which sends a Note Off for `note` rather than a Note
+On. `!>0064C4` plays middle C at velocity 100 (`64`) when a Bang reaches it. The `note` is
+optional: with it empty, a Bang sends nothing (see **An empty note** above).
 
 ```orcvs
 **
@@ -1316,7 +1320,7 @@ After Tick `0`:
 
 `!% channel velocity note length` works like Timed Play, but first stops whichever note an earlier
 Monophonic Play left sounding on the same channel, so a channel plays one of these at a time. At
-velocity `00` it stops that note and plays nothing. The `note` is optional: with it empty, a Bang
+velocity 0 (`00`) it stops that note and plays nothing. The `note` is optional: with it empty, a Bang
 sends nothing and stops nothing (see **An empty note** above).
 
 ```orcvs
@@ -1413,7 +1417,7 @@ C5:
 
 `!# channel velocity root set voicing inversion length` builds its tones as Raw Chord Play does and
 sends each as a Timed Play: every tone stops `length` Ticks later, at its own Note Off. A `velocity`
-of `00` stops every tone, and a `length` of `00` starts none.
+of 0 (`00`) stops every tone, and a `length` of `00` starts none.
 
 ```orcvs
 **
@@ -1429,8 +1433,8 @@ After Tick `0`, three Note Ons, each stopped four Ticks later:
 
 ### `!c` Control Change
 
-`!c channel controller value` sends a Control Change. `!c000740` sends controller 7 (`07`),
-Channel Volume, at 64 (`40`), half its range.
+`!c channel controller value` sends a Control Change. When a Bang reaches it, `!c000740` sends
+controller 7 (`07`), Channel Volume, at 64 (`40`), half its range.
 
 ```orcvs
 **
