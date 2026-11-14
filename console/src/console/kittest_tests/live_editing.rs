@@ -13,7 +13,7 @@
 //!
 //! The Melody's layout, as `examples/melody.md` describes it: Track at
 //! (8, 2) reads pair `n` at column `14 + 2n` of row 2, the Clock selects step
-//! `(Tick / 2) % 8`, the Delay bangs every even Tick, and the Timed Play at
+//! `(Tick / 2) % 8`, the Every bangs every even Tick, and the Timed Play at
 //! (2, 3) plays what Track writes into its note slot at (8, 3).
 //!
 
@@ -42,7 +42,7 @@ fn pair_column(n: usize) -> usize {
 /// The Timed Play's anchor, where its diagnostics are anchored.
 const PLAY: (usize, usize) = (2, 3);
 
-/// The first even Tick that selects pair `n`, so the Delay bangs on it.
+/// The first even Tick that selects pair `n`, so the Every bangs on it.
 fn banged_tick_of(n: usize) -> u64 {
     2 * n as u64
 }
@@ -258,7 +258,7 @@ async fn a_half_typed_note_is_diagnosed_once_and_finishing_it_plays_it() {
     );
 }
 
-/// A Delay banging a Timed Play on every Tick, the Play's note slot at
+/// An Every banging a Timed Play on every Tick, the Play's note slot at
 /// (8, 1) left blank, so nothing but the note is missing.
 const BLANK_NOTE: &str = "~*0101\n  !~0064  04\n";
 

@@ -53,9 +53,9 @@ pub enum InterpretationError {
         size: u8,
     },
 
-    /// A Tick-reading Function handed a zero where its cycle needs a length.
+    /// A Tick-reading Function handed a zero where its cycle needs a nonzero factor.
     ///
-    /// Clock's and Delay's cycle is `length * steps` and Euclidean's is
+    /// Clock's and Every's cycle is `division * steps` and Euclidean's is
     /// `steps`, and none of the three has a cycle at all once a
     /// factor is zero: there is no step to be at, no period to be on, and no
     /// position for an onset to fall in. Each therefore diagnoses rather than
@@ -128,7 +128,7 @@ pub enum InterpretationError {
         role: &'static str,
     },
 
-    /// Increment or Interpolation found a previous that is not a Number.
+    /// Increment or Slew found a previous that is not a Number.
     ///
     /// An empty Portal reads as Number `00` and any other present Language
     /// Unit diagnoses. Portal binding raises this after cell operand
@@ -153,10 +153,10 @@ pub enum InterpretationError {
     #[error("{function} has partial or invalid input")]
     PartialInput { function: crate::Function },
 
-    /// Increment or Interpolation computed a Number their answer cannot hold.
+    /// Increment or Slew computed a Number their answer cannot hold.
     ///
     /// Unreachable while the formulas stand: Increment's result is a
-    /// remainder of a modulus that arrived as a Number, and Interpolation
+    /// remainder of a modulus that arrived as a Number, and Slew
     /// moves a Number toward a Number, so both stay below `FF`. The variant
     /// exists for the reason [`InterpretationError::ClockStepOutOfRange`]
     /// does: a panic is ruled out under the Source write guard, and a

@@ -114,7 +114,7 @@ const KNOBS: [Knob; 11] = [
     Knob::new(EFFECTS, 0x08, 0x00, 0x08, 0x40),
 ];
 
-/// How far a knob's value moves in one Tick, its Interpolation's `amount`.
+/// How far a knob's value moves in one Tick, its Slew's `amount`.
 const RATE: u8 = 0x08;
 
 /// The Control Change a knob sends to `controller` with `value` on `channel`.

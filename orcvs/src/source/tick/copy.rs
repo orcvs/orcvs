@@ -248,7 +248,7 @@ fn a_chain_of_copies_carries_a_bang_down_a_column_in_one_tick() {
 fn a_copied_function_is_not_actionable_until_the_next_snapshot() {
     // `>>` copied this Tick is in the Grid but not in the Snapshot the
     // schedule was built from, so it first moves on the following Tick.
-    // Delay Bangs once; `*>` emits `>>`; the Copy copies that spelling.
+    // Every Bangs once; `*>` emits `>>`; the Copy copies that spelling.
     // The copy sits at columns 8–9 on this Tick. If it were actionable
     // from the Snapshot that wrote it, it would already have moved to 9.
     let (plans, grids, _) = tick_by_tick(Grid::with_shape(16, 2), &["~*0401", "  *>  =>"], 1);

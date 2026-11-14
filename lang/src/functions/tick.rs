@@ -1,6 +1,6 @@
 use crate::{
     Atom, Error, Function, Interpretation, InterpretationError,
-    atom::operands::{Clock, Delay, Euclidean, Increment, Interpolation, Random},
+    atom::operands::{Clock, Euclidean, Every, Increment, Random, Slew},
     interpreter::Context,
 };
 use rand_chacha::ChaCha8Rng;
@@ -36,39 +36,39 @@ fn zero_cycle(function: Function, role: &'static str) -> Error {
 /// The two factors of a cycle length, widened, and refused where either is
 /// zero.
 ///
-/// Clock and Delay both measure their cycle as `length * steps`, so both refuse
+/// Clock and Every both measure their cycle as `division * steps`, so both refuse
 /// the same two zeroes, and refusing them in one place is what keeps the two
-/// diagnostics saying the same thing about the same fault. The length is answered
+/// diagnostics saying the same thing about the same fault. The division is answered
 /// before the steps because that is signature order, which is the order every
 /// other operand fault in the language is reported in — `Stack::extract` checks
 /// and binds operands in it — so a Source that wrote two zeroes is told about
 /// the earlier Cell pair.
 ///
 #[inline(always)]
-fn cycle_factors(function: Function, length: u8, steps: u8) -> Result<(u64, u64), Error> {
-    if length == 0 {
-        return Err(zero_cycle(function, "length"));
+fn cycle_factors(function: Function, division: u8, steps: u8) -> Result<(u64, u64), Error> {
+    if division == 0 {
+        return Err(zero_cycle(function, "division"));
     }
 
     if steps == 0 {
         return Err(zero_cycle(function, "steps"));
     }
 
-    Ok((u64::from(length), u64::from(steps)))
+    Ok((u64::from(division), u64::from(steps)))
 }
 
-/// Clock: `~. length steps`.
+/// Clock: `~. division steps`.
 ///
-/// The step a cycle of `length * steps` Ticks is at, as a Number: `length` Ticks
+/// The step a cycle of `division * steps` Ticks is at, as a Number: `division` Ticks
 /// to a step and `steps` steps to the cycle, so the answer counts `00`,
 /// `01`, … up to `steps - 1` and begins again.
 #[inline(always)]
 pub fn clock(ctx: &mut Context) -> Result<Atom, Error> {
     let tick = ctx.inputs.tick().get();
 
-    ctx.stack.apply(move |Clock { length, steps }: Clock| {
-        let (length, steps) = cycle_factors(Function::Clock, length, steps)?;
-        let step = (tick / length) % steps;
+    ctx.stack.apply(move |Clock { division, steps }: Clock| {
+        let (division, steps) = cycle_factors(Function::Clock, division, steps)?;
+        let step = (tick / division) % steps;
 
         // A remainder of `steps` is below it and `steps` came out of a
         // Number, so narrowing the step back into one is total. If that ever
@@ -82,28 +82,28 @@ pub fn clock(ctx: &mut Context) -> Result<Atom, Error> {
     })
 }
 
-/// Delay: `~* length steps`.
+/// Every: `~* division steps`.
 ///
-/// One Bang every `length * steps` Ticks, beginning at Tick `0` — the first
-/// Tick of a Playback run counts as a Tick like any other, so a Delay
+/// One Bang every `division * steps` Ticks, beginning at Tick `0` — the first
+/// Tick of a Playback run counts as a Tick like any other, so an Every
 /// fires as the run starts rather than one cycle into it. A `steps` of `01` is
-/// therefore a Bang once per `length` Ticks and not one every Tick, which is what
-/// makes the two operands a length and a step count rather than two names for the
+/// therefore a Bang once per `division` Ticks and not one every Tick, which is what
+/// makes the two operands a division and a step count rather than two names for the
 /// same period.
 #[inline(always)]
-pub fn delay(ctx: &mut Context) -> Result<Interpretation, Error> {
+pub fn every(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
-    let Delay { length, steps } = ctx.stack.extract::<Delay>()?;
-    let (length, steps) = cycle_factors(Function::Delay, length, steps)?;
+    let Every { division, steps } = ctx.stack.extract::<Every>()?;
+    let (division, steps) = cycle_factors(Function::Every, division, steps)?;
 
     // The product is the cycle length, not a Number: two bytes multiply to at
     // most 0xFE01, and `~* 10 20` is a cycle of 512 Ticks that a byte multiply
     // would fold to zero and then divide by.
     //
-    // The cycle test is `Tick % (length * steps) == 0`, and
+    // The cycle test is `Tick % (division * steps) == 0`, and
     // `is_multiple_of` is that test rather than a different one: the two differ
     // only at a zero divisor, which `cycle_factors` has already refused.
-    Ok(Interpretation::pulse(tick.is_multiple_of(length * steps)))
+    Ok(Interpretation::pulse(tick.is_multiple_of(division * steps)))
 }
 
 /// Euclidean: `~% hits steps`.
@@ -184,7 +184,7 @@ pub fn increment(ctx: &mut Context) -> Result<Atom, Error> {
     Ok(Atom::Number(next))
 }
 
-/// Interpolation: `~> amount target`.
+/// Slew: `~> amount target`.
 ///
 /// The Number one Tick closer to `target`, moving by at most `amount` and
 /// never past it. There are three orderings: below, above, and equal. Each
@@ -195,8 +195,8 @@ pub fn increment(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// It binds as Increment does.
 #[inline(always)]
-pub fn interpolation(ctx: &mut Context) -> Result<Atom, Error> {
-    let (Interpolation { amount, target }, previous) =
+pub fn slew(ctx: &mut Context) -> Result<Atom, Error> {
+    let (Slew { amount, target }, previous) =
         crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portal_source())?;
     let previous = previous.number();
 
@@ -221,7 +221,7 @@ pub fn interpolation(ctx: &mut Context) -> Result<Atom, Error> {
     };
 
     let next = u8::try_from(next).map_err(|_| InterpretationError::TickNumberOutOfRange {
-        function: Function::Interpolation,
+        function: Function::Slew,
         value: next,
     })?;
 
@@ -318,9 +318,9 @@ mod test {
     /// Evaluates one Tick-reading Function at absolute Tick `tick`, with its
     /// operands in signature order and an empty previous.
     ///
-    /// Clock, Delay, and Euclidean ignore the previous; Increment and
-    /// Interpolation treat empty as Number `00`. The anchor is the Grid origin
-    /// throughout: Clock, Delay, and Euclidean do not read a Position. Random
+    /// Clock, Every, and Euclidean ignore the previous; Increment and
+    /// Slew treat empty as Number `00`. The anchor is the Grid origin
+    /// throughout: Clock, Every, and Euclidean do not read a Position. Random
     /// has its own helpers below, because it does.
     fn evaluate(
         function: Function,
@@ -368,26 +368,26 @@ mod test {
     }
 
     #[test]
-    fn clock_counts_one_step_per_length_ticks_and_wraps_at_its_steps() {
+    fn clock_counts_one_step_per_division_ticks_and_wraps_at_its_steps() {
         // The formula is small enough to enumerate against rather than sample:
-        // every length and steps from `01` to `08` over four cycles of the
+        // every division and steps from `01` to `08` over four cycles of the
         // widest of them, which is enough Ticks for every pair to wrap at least
         // twice. The reference here is the formula retyped, so what
         // the sweep pins is operand order and the width the arithmetic is done
-        // in — a length read as a step count fails at every asymmetric pair — and
+        // in — a division read as a step count fails at every asymmetric pair — and
         // not the shape of the expression itself, which a retyped reference
         // agrees with by construction.
         // `clock_counts_the_literal_step_sequence_its_operands_name` is the
         // independent half, written from what the operands mean.
-        for length in 1..=8u8 {
+        for division in 1..=8u8 {
             for steps in 1..=8u8 {
                 for tick in 0..256u64 {
-                    let expected = (tick / u64::from(length)) % u64::from(steps);
+                    let expected = (tick / u64::from(division)) % u64::from(steps);
 
                     assert_eq!(
-                        answer(Function::Clock, tick, length, steps).unwrap(),
+                        answer(Function::Clock, tick, division, steps).unwrap(),
                         Atom::Number(u8::try_from(expected).unwrap()),
-                        "~. {length:02X} {steps:02X} at Tick {tick}"
+                        "~. {division:02X} {steps:02X} at Tick {tick}"
                     );
                 }
             }
@@ -398,16 +398,16 @@ mod test {
     fn clock_counts_the_literal_step_sequence_its_operands_name() {
         // Hand-written step sequences, one entry per Tick of one cycle, read
         // from what the operands mean rather than from the expression the body
-        // evaluates: `length` Ticks to a step and `steps` steps to the cycle
+        // evaluates: `division` Ticks to a step and `steps` steps to the cycle
         // make `~. 02 04` the sequence `00 00 01 01 02 02 03 03` and nothing
-        // else. A body that divided by the steps, or wrapped at the length,
+        // else. A body that divided by the steps, or wrapped at the division,
         // would have to land on that same sequence to pass here, which is what
         // the enumeration above cannot ask because it computes its reference
         // the way the body does.
         //
         // Each sequence is walked three times over, which separates a cycle
         // that begins again from a counter that keeps counting.
-        for (length, steps, sequence) in [
+        for (division, steps, sequence) in [
             (
                 0x02u8,
                 0x04u8,
@@ -420,16 +420,16 @@ mod test {
         ] {
             assert_eq!(
                 sequence.len(),
-                usize::from(length) * usize::from(steps),
-                "~. {length:02X} {steps:02X} names a cycle of {} Ticks",
-                usize::from(length) * usize::from(steps)
+                usize::from(division) * usize::from(steps),
+                "~. {division:02X} {steps:02X} names a cycle of {} Ticks",
+                usize::from(division) * usize::from(steps)
             );
 
             for (tick, expected) in sequence.iter().cycle().take(sequence.len() * 3).enumerate() {
                 assert_eq!(
-                    answer(Function::Clock, tick as u64, length, steps).unwrap(),
+                    answer(Function::Clock, tick as u64, division, steps).unwrap(),
                     Atom::Number(*expected),
-                    "~. {length:02X} {steps:02X} at Tick {tick}"
+                    "~. {division:02X} {steps:02X} at Tick {tick}"
                 );
             }
         }
@@ -487,29 +487,32 @@ mod test {
     }
 
     #[test]
-    fn clock_diagnoses_a_zero_length_before_zero_steps() {
+    fn clock_diagnoses_a_zero_division_before_zero_steps() {
         // A cycle needs both factors, so either zero refuses. The order is
         // signature order, which is the order every other operand fault is
         // reported in, and `00 00` is what pins it: a Source that wrote two
-        // zeroes is told about the length, the earlier Cell pair.
+        // zeroes is told about the division, the earlier Cell pair.
         for tick in [0u64, 1, 7] {
-            let length = answer(Function::Clock, tick, 0x00, 0x04).unwrap_err();
+            let division = answer(Function::Clock, tick, 0x00, 0x04).unwrap_err();
             assert_eq!(
-                length.to_string(),
-                "~. cannot count a cycle with zero length"
+                division.to_string(),
+                "~. cannot count a cycle with zero division"
             );
 
             let steps = answer(Function::Clock, tick, 0x04, 0x00).unwrap_err();
             assert_eq!(steps.to_string(), "~. cannot count a cycle with zero steps");
 
             let both = answer(Function::Clock, tick, 0x00, 0x00).unwrap_err();
-            assert_eq!(both.to_string(), "~. cannot count a cycle with zero length");
+            assert_eq!(
+                both.to_string(),
+                "~. cannot count a cycle with zero division"
+            );
         }
     }
 
     #[test]
-    fn delay_bangs_once_per_cycle_beginning_at_the_first_tick() {
-        // Tick `0` counts as a Tick like any other, so a Delay fires
+    fn every_bangs_once_per_cycle_beginning_at_the_first_tick() {
+        // Tick `0` counts as a Tick like any other, so an Every fires
         // as a Playback run starts rather than one cycle into it. The sweep
         // states the whole rule — Bang exactly on a multiple of the cycle — and
         // Tick `0` is the case a reference computed as "some Ticks have passed"
@@ -517,16 +520,16 @@ mod test {
         // every claim: the cycle it compares against is the product the body
         // takes, so it pins operand order and the width of the multiply and
         // leaves the shape to
-        // `delay_bangs_on_the_literal_ticks_its_operands_name`.
-        for length in 1..=8u8 {
+        // `every_bangs_on_the_literal_ticks_its_operands_name`.
+        for division in 1..=8u8 {
             for steps in 1..=8u8 {
                 for tick in 0..256u64 {
-                    let cycle = u64::from(length) * u64::from(steps);
+                    let cycle = u64::from(division) * u64::from(steps);
 
                     assert_eq!(
-                        banged(Function::Delay, tick, length, steps),
+                        banged(Function::Every, tick, division, steps),
                         tick % cycle == 0,
-                        "~* {length:02X} {steps:02X} at Tick {tick}"
+                        "~* {division:02X} {steps:02X} at Tick {tick}"
                     );
                 }
             }
@@ -534,7 +537,7 @@ mod test {
     }
 
     #[test]
-    fn delay_bangs_on_the_literal_ticks_its_operands_name() {
+    fn every_bangs_on_the_literal_ticks_its_operands_name() {
         // The Ticks written out rather than a multiple recomputed: `~* 03 02`
         // is a cycle of six Ticks, so it Bangs at `0`, `6`, `12`, `18` and
         // nowhere between, and every Tick up to the last of those is asked so
@@ -543,9 +546,9 @@ mod test {
         // is where the cycle length itself is claimed.
         //
         // The last pair is 384 Ticks long, which is the case a byte product
-        // would fold: `40 * 06` wraps to `80`, and a Delay counting that would
+        // would fold: `40 * 06` wraps to `80`, and an Every counting that would
         // Bang three times inside every cycle written here.
-        for (length, steps, bangs) in [
+        for (division, steps, bangs) in [
             (0x03u8, 0x02u8, &[0u64, 6, 12, 18][..]),
             (0x01, 0x04, &[0, 4, 8, 12, 16]),
             (0x05, 0x01, &[0, 5, 10, 15, 20]),
@@ -556,22 +559,22 @@ mod test {
 
             for tick in 0..=last {
                 assert_eq!(
-                    banged(Function::Delay, tick, length, steps),
+                    banged(Function::Every, tick, division, steps),
                     bangs.contains(&tick),
-                    "~* {length:02X} {steps:02X} at Tick {tick}"
+                    "~* {division:02X} {steps:02X} at Tick {tick}"
                 );
             }
         }
     }
 
     #[test]
-    fn delay_with_one_step_bangs_once_per_length_ticks_rather_than_every_tick() {
-        // Pinned because it is what makes the two operands a length
+    fn every_with_one_step_bangs_once_per_division_ticks_rather_than_every_tick() {
+        // Pinned because it is what makes the two operands a division
         // and a step count instead of two spellings of one period: a `steps` of
-        // `01` is a cycle of one step, and that step is `length` Ticks long.
+        // `01` is a cycle of one step, and that step is `division` Ticks long.
         for tick in 0..32u64 {
             assert_eq!(
-                banged(Function::Delay, tick, 0x04, 0x01),
+                banged(Function::Every, tick, 0x04, 0x01),
                 tick % 4 == 0,
                 "Tick {tick}"
             );
@@ -579,28 +582,28 @@ mod test {
     }
 
     #[test]
-    fn delay_counts_a_cycle_product_wider_than_a_byte() {
+    fn every_counts_a_cycle_product_wider_than_a_byte() {
         // The test that catches a byte multiply. `10 * 20` is 512, which wraps
         // a byte to zero — a cycle length that would then be divided by — and
         // `10 * 11` is 272, which wraps to 16 and would Bang seventeen times
         // per cycle instead of once.
         for tick in [0u64, 512, 1024] {
             assert!(
-                banged(Function::Delay, tick, 0x10, 0x20),
+                banged(Function::Every, tick, 0x10, 0x20),
                 "512-Tick cycle at Tick {tick}"
             );
         }
 
         for tick in [1u64, 16, 256, 511, 513] {
             assert!(
-                !banged(Function::Delay, tick, 0x10, 0x20),
+                !banged(Function::Every, tick, 0x10, 0x20),
                 "512-Tick cycle at Tick {tick}"
             );
         }
 
         for tick in [0u64, 272, 544] {
             assert!(
-                banged(Function::Delay, tick, 0x10, 0x11),
+                banged(Function::Every, tick, 0x10, 0x11),
                 "272-Tick cycle at Tick {tick}"
             );
         }
@@ -609,30 +612,33 @@ mod test {
         // exactly what a byte multiply would have Banged on.
         for tick in (16..272).step_by(16) {
             assert!(
-                !banged(Function::Delay, tick, 0x10, 0x11),
+                !banged(Function::Every, tick, 0x10, 0x11),
                 "272-Tick cycle at Tick {tick}"
             );
         }
     }
 
     #[test]
-    fn delay_diagnoses_a_zero_length_before_zero_steps() {
+    fn every_diagnoses_a_zero_division_before_zero_steps() {
         // The same two faults Clock refuses, under a diagnostic that names
-        // Delay: a Source shown "cannot count a cycle" has to be able to tell
+        // Every: a Source shown "cannot count a cycle" has to be able to tell
         // which of the two Cell pairs it wrote is the one to edit.
-        let length = answer(Function::Delay, 5, 0x00, 0x04).unwrap_err();
+        let division = answer(Function::Every, 5, 0x00, 0x04).unwrap_err();
         assert_eq!(
-            length.to_string(),
-            "~* cannot count a cycle with zero length"
+            division.to_string(),
+            "~* cannot count a cycle with zero division"
         );
 
-        let steps = answer(Function::Delay, 5, 0x04, 0x00).unwrap_err();
+        let steps = answer(Function::Every, 5, 0x04, 0x00).unwrap_err();
         assert_eq!(steps.to_string(), "~* cannot count a cycle with zero steps");
 
-        // Tick `0` is a multiple of every cycle, so it is the Tick a Delay that
+        // Tick `0` is a multiple of every cycle, so it is the Tick an Every that
         // skipped its validation would answer Bang at for any operands at all.
-        let zero = answer(Function::Delay, 0, 0x00, 0x00).unwrap_err();
-        assert_eq!(zero.to_string(), "~* cannot count a cycle with zero length");
+        let zero = answer(Function::Every, 0, 0x00, 0x00).unwrap_err();
+        assert_eq!(
+            zero.to_string(),
+            "~* cannot count a cycle with zero division"
+        );
     }
 
     #[test]
@@ -736,15 +742,15 @@ mod test {
         // Every operand of these five is declared Number, so a Note is refused
         // at each of them rather than converted: ADR 0021 makes the Numeric
         // Conversion Functions the only crossing between the two numeric types,
-        // and a length that silently read a Note's byte would be another.
+        // and a division that silently read a Note's byte would be another.
         let note = Atom::Note(Note::try_from(0x3C).unwrap());
 
         for function in [
             Function::Clock,
-            Function::Delay,
+            Function::Every,
             Function::Euclidean,
             Function::Increment,
-            Function::Interpolation,
+            Function::Slew,
         ] {
             for (left, right) in [
                 (note, Atom::Number(0x04)),
@@ -859,7 +865,7 @@ mod test {
 
     #[test]
     fn increment_diagnoses_a_zero_modulus() {
-        // A wrap needs a length, so a zero modulus refuses. The diagnostic
+        // A wrap needs a division, so a zero modulus refuses. The diagnostic
         // names Increment and the role rather than Modulo: a Source shown
         // "cannot modulo by zero" would be told about a Function it did not
         // write.
@@ -873,7 +879,7 @@ mod test {
     }
 
     #[test]
-    fn interpolation_moves_toward_target_without_overshoot() {
+    fn slew_moves_toward_target_without_overshoot() {
         // The three orderings, written as the Numbers they name
         // rather than as the expression the body evaluates. Below steps up
         // by at most `amount` and lands on the target rather than past it;
@@ -890,13 +896,7 @@ mod test {
             (0xFF, 0xFF, 0x00, 0x00),
         ] {
             assert_eq!(
-                feedback(
-                    Function::Interpolation,
-                    &format!("{previous:02X}"),
-                    amount,
-                    target
-                )
-                .unwrap(),
+                feedback(Function::Slew, &format!("{previous:02X}"), amount, target).unwrap(),
                 Atom::Number(expected),
                 "~> {amount:02X} {target:02X} from {previous:02X}"
             );
@@ -904,20 +904,14 @@ mod test {
     }
 
     #[test]
-    fn interpolation_holds_when_its_amount_is_zero() {
+    fn slew_holds_when_its_amount_is_zero() {
         // Amount `00` is a step of nothing, so the current value is unchanged
         // whether it sits below the target, above it, or on it. The hold is
         // the formula, not a case: a body that special-cased zero would pass
         // this too — what the test is for is the opposite, that it needs none.
         for (previous, target) in [(0x05u8, 0x10u8), (0x80, 0x10), (0x10, 0x10)] {
             assert_eq!(
-                feedback(
-                    Function::Interpolation,
-                    &format!("{previous:02X}"),
-                    0x00,
-                    target
-                )
-                .unwrap(),
+                feedback(Function::Slew, &format!("{previous:02X}"), 0x00, target).unwrap(),
                 Atom::Number(previous),
                 "~> 00 {target:02X} from {previous:02X}"
             );
@@ -925,7 +919,7 @@ mod test {
 
         // Empty is Number `00`, so a hold from an unused Portal stays `00`.
         assert_eq!(
-            feedback(Function::Interpolation, "  ", 0x00, 0x10).unwrap(),
+            feedback(Function::Slew, "  ", 0x00, 0x10).unwrap(),
             Atom::Number(0x00)
         );
     }
@@ -936,7 +930,7 @@ mod test {
         // A Note spelling that cannot decode as a Number is supplied, and both
         // Functions name themselves so a Source shown the message knows which
         // of the two Cell pairs it wrote is the one that cannot read.
-        for function in [Function::Increment, Function::Interpolation] {
+        for function in [Function::Increment, Function::Slew] {
             let error = feedback(function, "G4", 0x01, 0x04).unwrap_err();
             assert_eq!(
                 error.to_string(),
@@ -948,7 +942,7 @@ mod test {
 
     #[test]
     fn cell_operand_faults_precede_an_invalid_portal_input() {
-        for function in [Function::Increment, Function::Interpolation] {
+        for function in [Function::Increment, Function::Slew] {
             let note = Atom::Note(Note::try_from(60).unwrap());
             for (left, right) in [(note, Atom::Number(4)), (Atom::Number(1), note)] {
                 assert!(matches!(
