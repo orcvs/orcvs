@@ -35,7 +35,7 @@ pub(crate) fn note_at(value: i16) -> Option<Note> {
 
 /// Up: `#+ note semitones`.
 ///
-/// Answers the Note `semitones` semitones above `note`.
+/// Answers `note` raised by `semitones` semitones.
 #[inline(always)]
 pub fn up(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack.apply(|Up { note, semitones }: Up| {
@@ -45,7 +45,7 @@ pub fn up(ctx: &mut Context) -> Result<Atom, Error> {
 
 /// Down: `#- note semitones`.
 ///
-/// Answers the Note `semitones` semitones below `note`.
+/// Answers `note` lowered by `semitones` semitones.
 #[inline(always)]
 pub fn down(ctx: &mut Context) -> Result<Atom, Error> {
     ctx.stack.apply(|Down { note, semitones }: Down| {
@@ -169,11 +169,15 @@ mod test {
     /// Evaluates `outer` with the Return of the flat Source text `inner` in
     /// its note operand: `lang` evaluates one Function per Turn, so the inner
     /// Turn's two-Cell answer reaches the outer one decoded by its signature.
-    fn nested(outer: Function, inner: &str, number: u8) -> Result<Interpretation, Error> {
+    fn nested(outer: Function, inner: &str, semitones: u8) -> Result<Interpretation, Error> {
         let [token, _] = outer.signature() else {
             panic!("{outer:?} declares two operands");
         };
-        evaluate(outer, token.decode(&returned(inner))?, Atom::Number(number))
+        evaluate(
+            outer,
+            token.decode(&returned(inner))?,
+            Atom::Number(semitones),
+        )
     }
 
     /// Asserts the Source text answers Note `expected`.
@@ -367,24 +371,24 @@ mod test {
     }
 
     #[test]
-    fn up_and_down_move_every_note_by_every_number_and_never_wrap() {
+    fn up_and_down_move_every_note_by_every_semitone_count_and_never_wrap() {
         // The whole operand square, against an expectation stated by the
         // range's bounds: an answer inside `00`–`7F` is that Note, and any
         // other answer diagnoses the Function and the semitone it reached.
         for (function, direction) in [(Function::Up, 1), (Function::Down, -1)] {
             for start in 0x00..=0x7F {
-                for number in 0x00..=u8::MAX {
-                    let semitone = i16::from(start) + direction * i16::from(number);
-                    let answer = evaluate(function, note(start), Atom::Number(number));
+                for semitones in 0x00..=u8::MAX {
+                    let semitone = i16::from(start) + direction * i16::from(semitones);
+                    let answer = evaluate(function, note(start), Atom::Number(semitones));
                     match semitone {
                         0x00..=0x7F => assert_eq!(
                             answer.unwrap(),
                             Interpretation::Cell(note(semitone as u8)),
-                            "{function:?} {start:02X} {number:02X}"
+                            "{function:?} {start:02X} {semitones:02X}"
                         ),
                         _ => assert!(
                             out_of_range(&answer, function, semitone),
-                            "{function:?} {start:02X} {number:02X}: {answer:?}"
+                            "{function:?} {start:02X} {semitones:02X}: {answer:?}"
                         ),
                     }
                 }
@@ -397,20 +401,20 @@ mod test {
         // Over the whole Note and Number domains, Down inverts every Up that
         // answers, and an Up that refuses refuses as out of range.
         for start in 0x00..=0x7F {
-            for number in 0x00..=u8::MAX {
-                let raised = evaluate(Function::Up, note(start), Atom::Number(number));
+            for semitones in 0x00..=u8::MAX {
+                let raised = evaluate(Function::Up, note(start), Atom::Number(semitones));
                 let Ok(Interpretation::Cell(raised)) = raised else {
-                    let semitone = i16::from(start) + i16::from(number);
+                    let semitone = i16::from(start) + i16::from(semitones);
                     assert!(
                         out_of_range(&raised, Function::Up, semitone),
-                        "{start:02X} {number:02X}: {raised:?}"
+                        "{start:02X} {semitones:02X}: {raised:?}"
                     );
                     continue;
                 };
                 assert_eq!(
-                    evaluate(Function::Down, raised, Atom::Number(number)).unwrap(),
+                    evaluate(Function::Down, raised, Atom::Number(semitones)).unwrap(),
                     Interpretation::Cell(note(start)),
-                    "{start:02X} {number:02X}"
+                    "{start:02X} {semitones:02X}"
                 );
             }
         }
@@ -436,7 +440,7 @@ mod test {
     }
 
     #[test]
-    fn a_note_in_the_number_operand_is_refused() {
+    fn a_note_in_the_semitones_operand_is_refused() {
         for (function, _) in BODIES {
             assert!(
                 matches!(
@@ -465,16 +469,16 @@ mod test {
                         evaluate(function, note(0x3C), value),
                         Err(Error::Type(TypeError::Number(found))) if found == spelling
                     ),
-                    "{function:?} number {spelling}"
+                    "{function:?} semitones {spelling}"
                 );
             }
         }
     }
 
     #[test]
-    fn the_number_operand_reads_a_note_spelling_as_the_number_it_spells() {
+    fn the_semitones_operand_reads_a_note_spelling_as_the_number_it_spells() {
         // A Cell pair is typed by the slot it stands in, so `C4` in the
-        // number slot is Number C4, and either direction passes the range.
+        // semitones slot is Number C4, and either direction passes the range.
         diagnoses("#+C4C4", Function::Up, 256);
         diagnoses("#-C4C4", Function::Down, -136);
     }

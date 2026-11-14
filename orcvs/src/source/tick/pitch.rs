@@ -187,7 +187,7 @@ fn a_pick_above_a_note_slot_writes_the_note_the_play_sounds() {
 
 #[test]
 fn pick_in_root_and_stack_in_set_sound_a_chord_on_a_scale_degree() {
-    // Degree 4 of C major: Pick answers G4 and Stack answers 07, so the Chord
+    // Index 04 of C major, the 5th degree, V: Pick answers G4 and Stack answers 07, so the Chord
     // Play sounds G4 B4 D5 F5.
     let (plans, grids, _) = tick_by_tick(
         Grid::with_shape(26, 4),
@@ -210,7 +210,7 @@ fn pick_in_root_and_stack_in_set_sound_a_chord_on_a_scale_degree() {
 
 #[test]
 fn pick_and_stack_compose_in_a_timed_chord_play() {
-    // Degree 4 of C major, three tones: G4 B4 D5.
+    // Index 04 of C major, the 5th degree, V, three tones: G4 B4 D5.
     let (plans, _, _) = tick_by_tick(
         Grid::with_shape(28, 4),
         &[".=0101", "", "!#0064#pC4io04#sio0403CL0004", ""],

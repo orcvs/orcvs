@@ -26,4 +26,5 @@ show them, and the diagnostic Stack gives when no name fits reads "from index 00
 Pick and Stack example gives the one-based degree beside the index (index `04` of C major is G, the
 5th degree, V). `CONTEXT.md`'s Up, Down, Pick and Stack entries use the new names; Pick's
 _Avoid_ keeps "Degree" off the operand and keeps it for the one-based count.
-`docs/research/chords-and-patterns.md` keeps `degree`, since it records a proposal.
+A dated amendment to ADR 0105 names Stack's operand `index`, since its Decision says Stack takes
+"a degree". `docs/research/chords-and-patterns.md` keeps `degree`, since it records a proposal.

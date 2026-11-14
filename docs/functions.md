@@ -346,7 +346,7 @@ nothing.
 
 ### `#+` Up
 
-`#+ note semitones` answers the Note `semitones` semitones above `note`.
+`#+ note semitones` answers `note` raised by `semitones` semitones.
 
 ```orcvs
 #+C402
@@ -391,7 +391,7 @@ After Tick `0`:
 
 ### `#-` Down
 
-`#- note semitones` answers the Note `semitones` semitones below `note`.
+`#- note semitones` answers `note` lowered by `semitones` semitones.
 
 ```orcvs
 #-D402
@@ -473,8 +473,8 @@ After Tick `0`:
 `#s set index size` builds a chord on a scale degree. It takes `size` tones of `set`, starting at
 position `index` and stepping two positions at a time, wrapping up octaves as Pick does. It
 subtracts the first tone and answers the Interval Set with exactly those semitones. `index` counts
-from zero, as Pick's does, so the degree is the index plus one: index `00` of C major is the 1st
-degree, I, and four tones stacked on it answer `M7`, the I chord Cmaj7.
+from zero, as Pick's does, so the degree is the index plus one: index `04` of C major is G, the 5th
+degree, V. Four tones stacked from index `00`, the 1st degree, I, answer `M7`, the I chord Cmaj7.
 
 ```orcvs
 #sio0004

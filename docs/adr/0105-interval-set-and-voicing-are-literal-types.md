@@ -1,6 +1,6 @@
 # Interval Set and Voicing are literal types
 
-Status: accepted. Adds two Atoms beside Number, Note, Bang and Function. Settled in `.scratch/chords-and-pitch/`. The Interval Set names, the filler `_` and the `mM`/`mm` consequence are amended by the 2026-11-13 amendment below, settled in `.scratch/musical-terminology/`, and the drop Voicings `D5` and `D6` are renamed `23` and `24` by the 2026-11-14 amendment below; every other decision stands.
+Status: accepted. Adds two Atoms beside Number, Note, Bang and Function. Settled in `.scratch/chords-and-pitch/`. The Interval Set names, the filler `_` and the `mM`/`mm` consequence are amended by the 2026-11-13 amendment below, settled in `.scratch/musical-terminology/`, the drop Voicings `D5` and `D6` are renamed `23` and `24` by the 2026-11-14 amendment below, and Stack's degree operand is named `index` by the second 2026-11-14 amendment below; every other decision stands.
 
 A Chord must be drivable by a Clock and a Read or Track, so what follows its root has to be a pair of Cells that those Functions can carry and a Chord Play can decode. Today a Copy, Read or Track refuses `M7`, because it is neither a Function, a Number nor a Note.
 
@@ -110,3 +110,9 @@ check across Functions, Interval Sets and Voicings still holds.
 `23` and `24` sit beside `D2` and `D3`: `23` and `D3` differ by one character, as do `23` and `24`
 and `D2` and `D3`. A slip between them is a valid different Voicing and is not diagnosed. That is
 accepted to keep the names a musician already reads.
+
+## Amendment, 2026-11-14: Stack's position is an index
+
+The Decision above says Stack takes "a degree". Its position counts from zero, as Pick's `index`
+does, while a musician counts degrees from one, so Stack's operand is named `index`: `#s set index
+size`. Index `04` of C major is G, the 5th degree, V. What Stack answers is unchanged.
