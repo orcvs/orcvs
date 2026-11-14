@@ -171,19 +171,19 @@ A stateless value Function in the `#` family, which derives a Note or an Interva
 _Avoid_: Transpose operator, numeric Function, wrapping pitch
 
 **Up**:
-The Pitch Function `#+ note number`, which answers the Note `number` semitones above `note`. The note operand is a Note and the number operand a Number, so Up raises a Note without converting it through Number and back. An answer above `7F` diagnoses and writes nothing.
+The Pitch Function `#+ note semitones`, which answers `note` raised by `semitones` semitones. The note operand is a Note and the semitones operand a Number, so Up raises a Note without converting it through Number and back. An answer above `7F` diagnoses and writes nothing.
 _Avoid_: Add, Transpose
 
 **Down**:
-The Pitch Function `#- note number`, which answers the Note `number` semitones below `note`. Its operands are Up's. An answer below `00` diagnoses and writes nothing.
+The Pitch Function `#- note semitones`, which answers `note` lowered by `semitones` semitones. Its operands are Up's. An answer below `00` diagnoses and writes nothing.
 _Avoid_: Subtract, Transpose
 
 **Pick**:
-The Pitch Function `#p root set index`, which answers the Note at position `index` of the Interval Set `set` above `root`: `root + set[index % n] + 12 * floor(index / n)`, where `n` is the size of the Interval Set. An index past the end of the Interval Set therefore wraps up an octave, so one Function arpeggiates a chord and picks a scale degree. The wrap adds exactly one octave per pass, so the arpeggio rises only while every entry is below `12`: a set wider than an octave steps back down at the wrap, as `#pC4MD05` answers A5 and `#pC4MD06` answers C5. An answer above `7F` diagnoses and writes nothing.
-_Avoid_: Arpeggiator, Degree
+The Pitch Function `#p root set index`, which answers the Note at position `index` of the Interval Set `set` above `root`: `root + set[index % n] + 12 * floor(index / n)`, where `n` is the size of the Interval Set. `index` counts from zero, so the one-based scale degree a musician counts is the index plus one: index `04` of C major is G, the 5th degree, V. An index past the end of the Interval Set therefore wraps up an octave, so one Function arpeggiates a chord and picks a scale degree. The wrap adds exactly one octave per pass, so the arpeggio rises only while every entry is below `12`: a set wider than an octave steps back down at the wrap, as `#pC4MD05` answers A5 and `#pC4MD06` answers C5. An answer above `7F` diagnoses and writes nothing.
+_Avoid_: Arpeggiator, Degree (as the operand's name: `index` names it in Pick and Stack, and "degree" is kept for the one-based count)
 
 **Stack**:
-The Pitch Function `#s set degree size`, which answers the Interval Set a chord on a scale degree forms. It takes `size` tones of `set` at positions `degree`, `degree + 2` and so on, wrapping up octaves as Pick does, subtracts the first tone, and answers the Interval Set with exactly those semitones. When no name holds exactly those semitones, as for a major pentatonic stacked from `C`, it diagnoses and writes nothing. Not the Operand Stack.
+The Pitch Function `#s set index size`, which answers the Interval Set a chord on a scale degree forms. It takes `size` tones of `set` at positions `index`, `index + 2` and so on, wrapping up octaves as Pick does, subtracts the first tone, and answers the Interval Set with exactly those semitones. `index` counts from zero, as Pick's does, so index `04` of C major is G, the 5th degree, V, and Stack builds the chord on it. When no name holds exactly those semitones, as for a major pentatonic stacked from index `00`, it diagnoses and writes nothing. Not the Operand Stack.
 _Avoid_: Chord lookup, Build chord
 
 **Arithmetic Function**:

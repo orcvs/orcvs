@@ -33,23 +33,26 @@ pub(crate) fn note_at(value: i16) -> Option<Note> {
         .and_then(|value| Note::try_from(value).ok())
 }
 
-/// Up: `#+ note number`.
+/// Up: `#+ note semitones`.
 ///
-/// Answers the Note `number` semitones above `note`.
+/// Answers `note` raised by `semitones` semitones.
 #[inline(always)]
 pub fn up(ctx: &mut Context) -> Result<Atom, Error> {
-    ctx.stack.apply(|Up { note, number }: Up| {
-        answer(Function::Up, i16::from(note.value()) + i16::from(number))
+    ctx.stack.apply(|Up { note, semitones }: Up| {
+        answer(Function::Up, i16::from(note.value()) + i16::from(semitones))
     })
 }
 
-/// Down: `#- note number`.
+/// Down: `#- note semitones`.
 ///
-/// Answers the Note `number` semitones below `note`.
+/// Answers `note` lowered by `semitones` semitones.
 #[inline(always)]
 pub fn down(ctx: &mut Context) -> Result<Atom, Error> {
-    ctx.stack.apply(|Down { note, number }: Down| {
-        answer(Function::Down, i16::from(note.value()) - i16::from(number))
+    ctx.stack.apply(|Down { note, semitones }: Down| {
+        answer(
+            Function::Down,
+            i16::from(note.value()) - i16::from(semitones),
+        )
     })
 }
 
@@ -58,7 +61,7 @@ pub fn down(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// `i16` holds every value Pick and Stack reach through here, for any entry
 /// a byte can hold. Pick's index is a byte, and Stack reads positions up to
-/// `FF + 2 * (MAX_TONES - 1)` from its degree, 277 while the longest set
+/// `FF + 2 * (MAX_TONES - 1)` from its index, 277 while the longest set
 /// holds twelve tones, so no position is past that. A set holds at least one
 /// tone, so a tone is at most `FF + 12 * 277`, 3579 semitones above its root.
 /// Pick adds a root no higher than `7F`, reaching 3706, and Stack subtracts
@@ -92,16 +95,16 @@ pub fn pick(ctx: &mut Context) -> Result<Atom, Error> {
     })
 }
 
-/// Stack: `#s set degree size`.
+/// Stack: `#s set index size`.
 ///
 /// Answers the Interval Set with the semitones of `size` tones of `set` from
-/// `degree`, each two positions on from the last, less the first; or diagnoses
+/// `index`, each two positions on from the last, less the first; or diagnoses
 /// when no name holds exactly those. The build refuses a table in which two
 /// names hold the same semitones, so the answer is never a choice.
 #[inline(always)]
 pub fn stack(ctx: &mut Context) -> Result<Atom, Error> {
-    ctx.stack.apply(|Stack { set, degree, size }: Stack| {
-        stacked(set, usize::from(degree), usize::from(size))
+    ctx.stack.apply(|Stack { set, index, size }: Stack| {
+        stacked(set, usize::from(index), usize::from(size))
             .and_then(|stacked| {
                 IntervalSet::ALL.iter().copied().find(|name| {
                     name.semitones()
@@ -115,7 +118,7 @@ pub fn stack(ctx: &mut Context) -> Result<Atom, Error> {
                 InterpretationError::NoIntervalSet {
                     function: Function::Stack,
                     set,
-                    degree,
+                    index,
                     size,
                 }
                 .into()
@@ -126,11 +129,11 @@ pub fn stack(ctx: &mut Context) -> Result<Atom, Error> {
 /// Stack's tones as semitones above the first, read once; or `None` when
 /// `size` is past the longest name, so that no name could hold them.
 #[inline(always)]
-fn stacked(set: IntervalSet, degree: usize, size: usize) -> Option<ArrayVec<i16, MAX_TONES>> {
+fn stacked(set: IntervalSet, index: usize, size: usize) -> Option<ArrayVec<i16, MAX_TONES>> {
     (size <= MAX_TONES).then(|| {
-        let first = tone(set, degree);
+        let first = tone(set, index);
         (0..size)
-            .map(|step| tone(set, degree + 2 * step) - first)
+            .map(|step| tone(set, index + 2 * step) - first)
             .collect()
     })
 }
@@ -155,8 +158,8 @@ mod test {
     const BODIES: [(Function, Body); 2] = [(Function::Up, up), (Function::Down, down)];
 
     /// Exercises Function dispatch with resolved operands in signature order.
-    fn evaluate(function: Function, note: Atom, number: Atom) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, [note, number].map(Some), inputs().into())
+    fn evaluate(function: Function, note: Atom, semitones: Atom) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(function, [note, semitones].map(Some), inputs().into())
     }
 
     fn note(value: u8) -> Atom {
@@ -166,11 +169,15 @@ mod test {
     /// Evaluates `outer` with the Return of the flat Source text `inner` in
     /// its note operand: `lang` evaluates one Function per Turn, so the inner
     /// Turn's two-Cell answer reaches the outer one decoded by its signature.
-    fn nested(outer: Function, inner: &str, number: u8) -> Result<Interpretation, Error> {
+    fn nested(outer: Function, inner: &str, semitones: u8) -> Result<Interpretation, Error> {
         let [token, _] = outer.signature() else {
             panic!("{outer:?} declares two operands");
         };
-        evaluate(outer, token.decode(&returned(inner))?, Atom::Number(number))
+        evaluate(
+            outer,
+            token.decode(&returned(inner))?,
+            Atom::Number(semitones),
+        )
     }
 
     /// Asserts the Source text answers Note `expected`.
@@ -323,15 +330,15 @@ mod test {
     }
 
     /// Asserts the Source text diagnoses that no name fits Stack's operands.
-    fn no_name(source: &str, expected_degree: u8, expected_size: u8) {
+    fn no_name(source: &str, expected_index: u8, expected_size: u8) {
         assert!(
             matches!(
                 crate::interpret_source(source),
                 Err(Error::Interpretation(InterpretationError::NoIntervalSet {
-                    degree,
+                    index,
                     size,
                     ..
-                })) if degree == expected_degree && size == expected_size
+                })) if index == expected_index && size == expected_size
             ),
             "{source}"
         );
@@ -364,24 +371,24 @@ mod test {
     }
 
     #[test]
-    fn up_and_down_move_every_note_by_every_number_and_never_wrap() {
+    fn up_and_down_move_every_note_by_every_semitone_count_and_never_wrap() {
         // The whole operand square, against an expectation stated by the
         // range's bounds: an answer inside `00`–`7F` is that Note, and any
         // other answer diagnoses the Function and the semitone it reached.
         for (function, direction) in [(Function::Up, 1), (Function::Down, -1)] {
             for start in 0x00..=0x7F {
-                for number in 0x00..=u8::MAX {
-                    let semitone = i16::from(start) + direction * i16::from(number);
-                    let answer = evaluate(function, note(start), Atom::Number(number));
+                for semitones in 0x00..=u8::MAX {
+                    let semitone = i16::from(start) + direction * i16::from(semitones);
+                    let answer = evaluate(function, note(start), Atom::Number(semitones));
                     match semitone {
                         0x00..=0x7F => assert_eq!(
                             answer.unwrap(),
                             Interpretation::Cell(note(semitone as u8)),
-                            "{function:?} {start:02X} {number:02X}"
+                            "{function:?} {start:02X} {semitones:02X}"
                         ),
                         _ => assert!(
                             out_of_range(&answer, function, semitone),
-                            "{function:?} {start:02X} {number:02X}: {answer:?}"
+                            "{function:?} {start:02X} {semitones:02X}: {answer:?}"
                         ),
                     }
                 }
@@ -394,20 +401,20 @@ mod test {
         // Over the whole Note and Number domains, Down inverts every Up that
         // answers, and an Up that refuses refuses as out of range.
         for start in 0x00..=0x7F {
-            for number in 0x00..=u8::MAX {
-                let raised = evaluate(Function::Up, note(start), Atom::Number(number));
+            for semitones in 0x00..=u8::MAX {
+                let raised = evaluate(Function::Up, note(start), Atom::Number(semitones));
                 let Ok(Interpretation::Cell(raised)) = raised else {
-                    let semitone = i16::from(start) + i16::from(number);
+                    let semitone = i16::from(start) + i16::from(semitones);
                     assert!(
                         out_of_range(&raised, Function::Up, semitone),
-                        "{start:02X} {number:02X}: {raised:?}"
+                        "{start:02X} {semitones:02X}: {raised:?}"
                     );
                     continue;
                 };
                 assert_eq!(
-                    evaluate(Function::Down, raised, Atom::Number(number)).unwrap(),
+                    evaluate(Function::Down, raised, Atom::Number(semitones)).unwrap(),
                     Interpretation::Cell(note(start)),
-                    "{start:02X} {number:02X}"
+                    "{start:02X} {semitones:02X}"
                 );
             }
         }
@@ -433,7 +440,7 @@ mod test {
     }
 
     #[test]
-    fn a_note_in_the_number_operand_is_refused() {
+    fn a_note_in_the_semitones_operand_is_refused() {
         for (function, _) in BODIES {
             assert!(
                 matches!(
@@ -462,16 +469,16 @@ mod test {
                         evaluate(function, note(0x3C), value),
                         Err(Error::Type(TypeError::Number(found))) if found == spelling
                     ),
-                    "{function:?} number {spelling}"
+                    "{function:?} semitones {spelling}"
                 );
             }
         }
     }
 
     #[test]
-    fn the_number_operand_reads_a_note_spelling_as_the_number_it_spells() {
+    fn the_semitones_operand_reads_a_note_spelling_as_the_number_it_spells() {
         // A Cell pair is typed by the slot it stands in, so `C4` in the
-        // number slot is Number C4, and either direction passes the range.
+        // semitones slot is Number C4, and either direction passes the range.
         diagnoses("#+C4C4", Function::Up, 256);
         diagnoses("#-C4C4", Function::Down, -136);
     }
@@ -524,10 +531,10 @@ mod test {
         )
     }
 
-    fn evaluate_stack(set: Atom, degree: Atom, size: Atom) -> Result<Interpretation, Error> {
+    fn evaluate_stack(set: Atom, index: Atom, size: Atom) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             Function::Stack,
-            [set, degree, size].map(Some),
+            [set, index, size].map(Some),
             inputs().into(),
         )
     }
