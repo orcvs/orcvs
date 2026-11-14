@@ -152,7 +152,7 @@ fn a_pick_above_the_note_range_and_a_stack_no_name_fits_diagnose_and_write_nothi
         ),
         (
             "#spM0003",
-            "#s finds no Interval Set for pM from degree 00 with size 03",
+            "#s finds no Interval Set for pM from index 00 with size 03",
         ),
     ] {
         let (plans, grids, _) = tick_by_tick(Grid::with_shape(8, 2), &[expression, "A4"], 1);
@@ -240,7 +240,7 @@ fn a_nested_stack_no_name_fits_sends_no_chord() {
     assert_eq!(
         messages(&plans[0]),
         [
-            "#s finds no Interval Set for pM from degree 00 with size 03",
+            "#s finds no Interval Set for pM from index 00 with size 03",
             "nested computation at column 8, row 2 returned nothing"
         ]
     );

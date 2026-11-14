@@ -346,7 +346,7 @@ nothing.
 
 ### `#+` Up
 
-`#+ note number` answers the Note `number` semitones above `note`.
+`#+ note semitones` answers the Note `semitones` semitones above `note`.
 
 ```orcvs
 #+C402
@@ -391,7 +391,7 @@ After Tick `0`:
 
 ### `#-` Down
 
-`#- note number` answers the Note `number` semitones below `note`.
+`#- note semitones` answers the Note `semitones` semitones below `note`.
 
 ```orcvs
 #-D402
@@ -419,8 +419,10 @@ After Tick `0`:
 ### `#p` Pick
 
 `#p root set index` answers the Note at position `index` of the Interval Set `set`, above `root`.
-Index `00` is the root. An index past the end of the set wraps up an octave, so a set of seven
-tones answers the root an octave up at index `07`.
+Index `00` is the root. An index counts from zero, so a musician's degree, counted from one, is
+the index plus one: index `04` of C major (`io`) is G, the 5th degree, V. An index past the end of
+the set wraps up an octave, so a set of seven tones answers the root an octave up at index `07`,
+the 8th degree.
 
 ```orcvs
 #pC4io04
@@ -435,7 +437,8 @@ G4
 
 The wrap adds exactly one octave per pass, so Pick rises through a set only while every entry is
 less than an octave above the root. A set wider than an octave steps back down at the wrap: the
-last entry of `MD` is `21` semitones, so index `05` answers `A5` and index `06` answers `C5`.
+last entry of `MD` is `21` semitones, so index `05`, its 6th tone, the 13th, answers `A5`, and
+index `06`, its 7th, wraps to the root an octave up and answers `C5`.
 
 ```orcvs
 #pC4MD05
@@ -452,7 +455,8 @@ A5
 C5
 ```
 
-An answer above `G9` diagnoses and writes nothing.
+An answer above `G9` diagnoses and writes nothing. Index `01` of the major triad is its 2nd tone,
+the 3rd, four semitones above `G9`.
 
 ```orcvs
 #pG9MA01
@@ -466,9 +470,11 @@ After Tick `0`:
 
 ### `#s` Stack
 
-`#s set degree size` builds a chord on a scale degree. It takes `size` tones of `set`, starting at
-position `degree` and stepping two positions at a time, wrapping up octaves as Pick does. It
-subtracts the first tone and answers the Interval Set with exactly those semitones.
+`#s set index size` builds a chord on a scale degree. It takes `size` tones of `set`, starting at
+position `index` and stepping two positions at a time, wrapping up octaves as Pick does. It
+subtracts the first tone and answers the Interval Set with exactly those semitones. `index` counts
+from zero, as Pick's does, so the degree is the index plus one: index `00` of C major is the 1st
+degree, I, and four tones stacked on it answer `M7`, the I chord Cmaj7.
 
 ```orcvs
 #sio0004
@@ -482,7 +488,7 @@ M7
 ```
 
 When no name holds exactly those semitones, Stack diagnoses and writes nothing. A major pentatonic
-stacked from `C` reads the semitones `0 4 9`, which no name holds.
+stacked from index `00`, its 1st degree, reads the semitones `0 4 9`, which no name holds.
 
 ```orcvs
 #spM0003
@@ -494,9 +500,9 @@ After Tick `0`:
 #spM0003
 ```
 
-Pick in a Chord Play's `root` and Stack in its `set` sound a chord on a scale degree. Here degree
-`04` of C major is `G4`, and the chord built on it answers `07`, so the Chord Play sounds a G
-dominant seventh.
+Pick in a Chord Play's `root` and Stack in its `set` sound a chord on a scale degree. Here index
+`04` of C major is `G4`, the 5th degree, V, and the chord built on it answers `07`, so the Chord
+Play sounds G7, the V7 chord.
 
 ```orcvs
 .=0101

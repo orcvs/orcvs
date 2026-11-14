@@ -43,13 +43,13 @@ pub enum InterpretationError {
     /// Stack's tones form no Interval Set: their semitones above the first
     /// are not exactly any name's.
     #[error(
-        "{function} finds no Interval Set for {} from degree {degree:02X} with size {size:02X}",
+        "{function} finds no Interval Set for {} from index {index:02X} with size {size:02X}",
         set.cells()
     )]
     NoIntervalSet {
         function: crate::Function,
         set: crate::IntervalSet,
-        degree: u8,
+        index: u8,
         size: u8,
     },
 
