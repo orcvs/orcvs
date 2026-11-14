@@ -34,9 +34,10 @@ An empty operand diagnoses, except a Play's `note`, which is optional (see **An 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
 Function that answers a value writes it into its Output Portal, the two Cells one row south of its
 anchor unless the entry names another place. A value Function can also stand in another Function's
-operand, nested: `.+.^3C01` adds `01` to the `C4` that `.^3C` answers, read as the Number `C4`, and
-answers `C5`. A Function that
-performs an effect, such as playing a note, writes no answer and cannot be nested.
+operand, nested: `.+.x020301` adds `01` to the `06` that `.x0203` answers, and answers `07`. A
+Function that performs an effect, such as playing a note, writes no answer and cannot be nested.
+Arithmetic reads a Note's two Cells as a byte, not as a pitch, so to transpose a Note use Up `#+`
+or Down `#-` (see **Pitch**): `#+C407` answers `G4`, a fifth, 7 semitones (`07`), above `C4`.
 
 **Runs.** Most Functions take a Turn every Tick. Some are inert until a Bang reaches them. A root is
 the Function that begins an Expression, as opposed to one nested in an operand. A Bang activates each root whose anchor is aligned with the `**` in one of four places: directly north or
@@ -48,6 +49,44 @@ which kind of Function it is.
 **Clear.** Some value Functions answer a Clear rather than a value: they write two empty Cells. An
 invalid Function writes nothing at all, so its last answer stays where it was. Nested, a Clear
 leaves its parent invalid, except in a Play's `note`, where it leaves the note empty.
+
+**Ticks.** A Tick is a sixteenth note: four Ticks make a beat at the BPM the Panel shows, so a 4/4
+bar is 16 Ticks (`10`). Every timing operand counts Ticks. A DAW's "tick" is a much finer
+subdivision, hundreds to a beat; an Orcvs Tick is one step, as on a step sequencer.
+
+**Notes.** A Note is spelled in scientific pitch notation: a pitch letter, then its octave, with
+middle C, MIDI note 60 (`3C`), spelled `C4`. Ableton Live, Logic Pro, Cubase and Bitwig Studio show
+MIDI note 60 as C3, so a note one of them calls C3 is `C4` here, and every octave they show is one
+lower than Orcvs's. The octave below `0` is `/`: `C/` is MIDI note 0, and `G9`, MIDI note 127
+(`7F`), is the highest Note. A lowercase letter is the sharp of its uppercase letter: `c4` is C♯4.
+E and B have no sharp of their own, so Orcvs has no `e` or `b`, and a flat is spelled as the sharp
+or natural it sounds as:
+
+| Written | Orcvs | | Written | Orcvs |
+|---|---|---|---|---|
+| D♭4, C♯4 | `c4` | | C♭4 | `B3` |
+| E♭4, D♯4 | `d4` | | F♭4 | `E4` |
+| G♭4, F♯4 | `f4` | | E♯4 | `F4` |
+| A♭4, G♯4 | `g4` | | B♯3 | `C4` |
+| B♭4, A♯4 | `a4` | | | |
+
+C♭ and B♯ cross an octave boundary: C♭4 sounds as B3, a semitone below C4, and B♯3 as C4.
+
+**Numbers.** Source spells every Number in hexadecimal, while a DAW, a synth's manual and a lead
+sheet name the same values in decimal. Prose here gives a well-known number in decimal with the
+hex you type beside it, such as velocity 100 (`64`) or controller 74 (`4A`). Some common values:
+
+| Value | Decimal | Hex |
+|---|---|---|
+| Minor third, major third | 3, 4 semitones | `03`, `04` |
+| Perfect fourth, perfect fifth | 5, 7 semitones | `05`, `07` |
+| Octave | 12 semitones | `0C` |
+| One beat, one 4/4 bar | 4, 16 Ticks | `04`, `10` |
+| Middle C, A440 | MIDI notes 60, 69 | `3C`, `45` |
+| Velocity: medium, loud, full | 64, 100, 127 | `40`, `64`, `7F` |
+| Controllers: Modulation, Channel Volume, Pan | 1, 7, 10 | `01`, `07`, `0A` |
+| Controllers: Sustain, Brightness | 64, 74 | `40`, `4A` |
+| A controller's or a Pitch Bend's centre | 64 | `40` |
 
 **Examples.** An example shows the Source before any Tick, then the Source after the Ticks named
 above each later block, counted from Tick `0`.
@@ -437,7 +476,7 @@ G4
 
 The wrap adds exactly one octave per pass, so Pick rises through a set only while every entry is
 less than an octave above the root. A set wider than an octave steps back down at the wrap: the
-last entry of `MD` is `21` semitones, so index `05`, its 6th tone, the 13th, answers `A5`, and
+last entry of `MD` is 21 semitones (`15`), so index `05`, its 6th tone, the 13th, answers `A5`, and
 index `06`, its 7th, wraps to the root an octave up and answers `C5`.
 
 ```orcvs
@@ -614,8 +653,8 @@ After Tick `0`, after Tick `1`, then after Tick `3`:
 
 ### `~+` Increment
 
-`~+ amount modulus` reads the Number in its own Output Portal, adds `amount`, and answers the result
-modulo `modulus`. It reads back its last answer, so it counts up; empty Cells count as `00`, so it
+`~+ amount modulus` is a wrapping counter. It reads the Number in its own Output Portal, adds
+`amount`, and answers the result modulo `modulus`. It reads back its last answer, so it counts up; empty Cells count as `00`, so it
 starts from `00`. A `modulus` of `00`, or anything other than a Number in its Output Portal, diagnoses.
 
 ```orcvs
@@ -659,10 +698,11 @@ After Tick `0`, then after Tick `2`:
 
 ### `~?` Random
 
-`~? seed minimum maximum` answers a Number from `minimum` to `maximum`, inclusive. The result
-depends only on `seed`, the Tick number, and the Function's own Position, so the same Source
-replays the same values, and moving the Function changes its values. Reversed bounds give the same
-range.
+`~? seed minimum maximum` answers a reproducible random value for each Tick and Position: a Number
+from `minimum` to `maximum`, inclusive. The result depends only on `seed`, the Tick number, and the
+Function's own Position, so the same Source replays the same values, and moving the Function
+changes its values. It holds nothing between Ticks, so a value is not a sample-and-hold that waits
+for a trigger: each Tick answers afresh. Reversed bounds give the same range.
 
 ```orcvs
 ~?010010
@@ -862,8 +902,9 @@ E4
 
 ### `&t` Track
 
-`&t index count` reads one of the `count` pairs that follow its operands: the pair `index % count`,
-counted from zero. A `count` of `00` diagnoses.
+`&t index count` is a step sequencer's playhead over the row that follows it: it reads one of the
+`count` pairs that follow its operands, the pair `index % count`, counted from zero. A Clock in its
+`index` steps through a pattern of `count` Notes. A `count` of `00` diagnoses.
 
 ```orcvs
 &t0103C4D4E4
@@ -959,8 +1000,9 @@ C4
 
 ### `@t` Push
 
-`@t index count value` writes `value` into one of `count` pairs on the row below, numbered from
-directly under its anchor: pair `index % count`. A `count` of `00` diagnoses.
+`@t index count value` is Track in reverse, recording a value into a step: it writes `value` into
+one of `count` pairs on the row below, numbered from directly under its anchor, pair
+`index % count`. A `count` of `00` diagnoses.
 
 ```orcvs
 @t0103G4
@@ -979,8 +1021,9 @@ After Tick `0`:
 
 ### `**` Bang
 
-`**` where an Expression starts is the Bang Function. On its Turn it activates the roots aligned with it
-and empties its own two Cells, so it fires once. Functions that answer a Bang write `**`, which
+`**` where an Expression starts is the Bang Function, a trigger, as a gate or trig is on a
+sequencer. On its Turn it activates the roots aligned with it and empties its own two Cells, so it
+fires once. Functions that answer a Bang write `**`, which
 then fires on the next Tick unless something writes over it first.
 
 ```orcvs
@@ -1143,8 +1186,8 @@ vv
 
 ### `*!` Halt
 
-Inert until a Bang reaches it. When active, it stops the root directly south of it from taking its
-Turn that Tick.
+A mute for one Tick. Inert until a Bang reaches it. When active, it stops the root directly south
+of it from taking its Turn that Tick.
 
 ```orcvs
 **
@@ -1201,8 +1244,9 @@ After Tick `0`, nothing plays and nothing is diagnosed:
 
 ### `!>` Raw Play
 
-`!> channel velocity note` sends a Note On, with no Note Off of its own. At velocity `00` it sends a
-Note Off for `note` instead. The `note` is optional: with it empty, a Bang sends nothing (see **An
+`!> channel velocity note` sends a Note On, with no Note Off of its own: you send the Note Off,
+with a second Raw Play at velocity 0 (`00`), which sends a Note Off for `note` instead. `!>0064C4`
+plays middle C at velocity 100 (`64`). The `note` is optional: with it empty, a Bang sends nothing (see **An
 empty note** above).
 
 ```orcvs
@@ -1365,7 +1409,8 @@ After Tick `0`, three Note Ons, each stopped four Ticks later:
 
 ### `!c` Control Change
 
-`!c channel controller value` sends a Control Change.
+`!c channel controller value` sends a Control Change. `!c000740` sends controller 7 (`07`),
+Channel Volume, at 64 (`40`), half its range.
 
 ```orcvs
 **
@@ -1381,7 +1426,8 @@ After Tick `0`:
 
 ### `!b` Pitch Bend
 
-`!b channel lsb msb` sends a Pitch Bend, low byte first. `!b000040` is the centre.
+`!b channel lsb msb` sends a Pitch Bend, low byte first. `!b000040`, an `msb` of 64 (`40`), is the
+centre.
 
 ```orcvs
 **
