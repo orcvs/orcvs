@@ -1,6 +1,6 @@
 # Interval Set and Voicing are literal types
 
-Status: accepted. Adds two Atoms beside Number, Note, Bang and Function. Settled in `.scratch/chords-and-pitch/`. The Interval Set names, the filler `_` and the `mM`/`mm` consequence are amended by the 2026-11-13 amendment below, settled in `.scratch/musical-terminology/`; every other decision stands.
+Status: accepted. Adds two Atoms beside Number, Note, Bang and Function. Settled in `.scratch/chords-and-pitch/`. The Interval Set names, the filler `_` and the `mM`/`mm` consequence are amended by the 2026-11-13 amendment below, settled in `.scratch/musical-terminology/`, and the drop Voicings `D5` and `D6` are renamed `23` and `24` by the 2026-11-14 amendment below; every other decision stands.
 
 A Chord must be drivable by a Clock and a Read or Track, so what follows its root has to be a pair of Cells that those Functions can carry and a Chord Play can decode. Today a Copy, Read or Track refuses `M7`, because it is neither a Function, a Number nor a Note.
 
@@ -88,3 +88,25 @@ and `pm` (major and minor pentatonic), differ only by case; `mi` (minor triad) a
 minor); `d7` (diminished seventh) and `07` (dominant seventh); `io` (Ionian) and `lo` (Locrian);
 and `di` (diminished triad) and `do` (Dorian). Each is accepted to keep names a musician already
 reads.
+
+## Amendment, 2026-11-14: drop Voicings named for their positions
+
+The Decision above names the drop 2&3 and drop 2&4 Voicings `D5` and `D6`, the sum of the
+positions each lowers. No musician uses that name: jazz texts list the positions dropped, a sum
+does not say which positions it adds (1 and 4 also make 5), and `D5` and `D6` read as Notes. A drop
+Voicing is now named for the positions it lowers, counted from the top:
+
+| Was | Is | Voicing |
+|---|---|---|
+| `D5` | `23` | drop 2&3 |
+| `D6` | `24` | drop 2&4 |
+
+A drop of one position keeps the `D` (`D2`, `D3`); a drop of two names both positions and, in two
+Cells, has no room for it. The Voicings are now `CL` close, `OP` open, `D2`, `D3`, `23`, `24` drops,
+`SH` shell and `RL` rootless. No old name is kept as an alias. `23` and `24` are also Numbers,
+which costs nothing for the reason the Decision gives for `69`, `13` and `D2`, and the uniqueness
+check across Functions, Interval Sets and Voicings still holds.
+
+`23` and `24` sit beside `D2` and `D3`: `23` and `D3` differ by one character, as do `23` and `24`
+and `D2` and `D3`. A slip between them is a valid different Voicing and is not diagnosed. That is
+accepted to keep the names a musician already reads.
