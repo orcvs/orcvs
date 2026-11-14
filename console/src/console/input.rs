@@ -355,10 +355,10 @@ impl Console {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if ctx.input(|i| i.events.iter().any(toggles_diagnostics)) {
-                self.diagnostics_open = !self.diagnostics_open;
+                self.diagnostics_open.toggle();
             }
             if ctx.input(|i| i.events.iter().any(toggles_info)) {
-                self.info_open = !self.info_open;
+                self.info_open.toggle();
             }
             ctx.input(|i| i.events.iter().find_map(file_command))
         }

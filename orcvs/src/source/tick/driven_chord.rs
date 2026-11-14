@@ -4,7 +4,7 @@
 //!
 //! Equality at (0, 0) Bangs the Play at (2, 1) on every Tick, with these
 //! exceptions: the tracker, sequencer and chord tracker tests Bang each Play
-//! with a Delay `~*0101` north of it, and the Portal-written operand test
+//! with an Every `~*0101` north of it, and the Portal-written operand test
 //! puts Equality at (0, 1) and the Play at (2, 2), beneath the Read on row 1
 //! that writes the operand.
 
@@ -38,7 +38,7 @@ fn a_clock_steps_nested_reads_through_all_six_operands_after_channel() {
         ".=0101",
         "  !#01&v.+02~.0102&v.+02~.0102&v.+02~.0102&v.+02~.0102&v.+02~.0102&v.+02~.0102",
         "",
-        "      ||7F          F4          m_          CL          00          03||",
+        "      ||7F          F4          mi          CL          00          03||",
         "      ||40          C4          M7          OP          01          02||",
     ];
 
@@ -107,7 +107,7 @@ fn nested_tracker(shipped: &str) -> (Vec<String>, usize) {
 /// has to cross.
 ///
 /// Each conversion shifts everything east of it on both rows of the voice by
-/// those eight Cells, so a later voice on the same rows keeps its Delay over
+/// those eight Cells, so a later voice on the same rows keeps its Every over
 /// its Play. A row's voices are found before any moves and converted east to
 /// west, so each column still to be converted is one no conversion has
 /// shifted yet.
@@ -227,7 +227,7 @@ struct Step {
 
 /// The operands of a Timed Chord Play at rest, each two Cells; a Raw Chord
 /// Play holds every one but the last.
-const BASE: [&str; 7] = ["01", "7F", "C4", "M_", "CL", "00", "03"];
+const BASE: [&str; 7] = ["01", "7F", "C4", "MA", "CL", "00", "03"];
 
 const fn step(
     value: &'static str,
@@ -277,7 +277,7 @@ const OPERANDS: [(usize, [Step; 2]); 7] = [
     (
         4,
         [
-            // C4 M_ with its 2nd tone from the top an octave lower.
+            // C4 MA with its 2nd tone from the top an octave lower.
             step("D2", 1, 0x7F, &[0x34, 0x3C, 0x43], 3),
             step("RL", 1, 0x7F, &[0x40, 0x43], 3),
         ],
@@ -448,7 +448,7 @@ fn the_same_cells_mean_what_each_operand_receiving_them_reads() {
                 .to_vec(),
         ),
         (
-            "  !:017F&$0803M_&$080300",
+            "  !:017F&$0803MA&$080300",
             "D2",
             // The pair is the root D2, MIDI 38, and the Voicing `D2`.
             [0x1E, 0x26, 0x2D].map(|note| raw(1, 0x7F, note)).to_vec(),
@@ -477,10 +477,10 @@ fn a_chord_tracker_steps_root_and_set_columns_through_a_progression() {
         "  ~*0101                                  ~*0101",
         "    !#0877&v.+02~.0104&v.+02~.0104CL0001    !#0977&v.+02~.0104&v.+02~.0104CL0001",
         "",
-        "          ||D4          m7                          D3          m_||",
-        "          ||G4          7_                          G3          M_||",
-        "          ||C4          M7                          C3          M_||",
-        "          ||A4          m7                          A3          m_||",
+        "          ||D4          m7                          D3          mi||",
+        "          ||G4          07                          G3          MA||",
+        "          ||C4          M7                          C3          MA||",
+        "          ||A4          m7                          A3          mi||",
     ];
 
     let bars: [(&[u8], &[u8]); 4] = [
@@ -496,11 +496,11 @@ fn a_chord_tracker_steps_root_and_set_columns_through_a_progression() {
     let portal_rows = [
         (
             0,
-            "          D402  00    m702  00                    D302  00    m_02  00",
+            "          D402  00    m702  00                    D302  00    mi02  00",
         ),
         (
             3,
-            "          A405  03    m705  03                    A305  03    m_05  03",
+            "          A405  03    m705  03                    A305  03    mi05  03",
         ),
     ];
 
@@ -521,7 +521,7 @@ fn a_chord_tracker_steps_root_and_set_columns_through_a_progression() {
 
 /// The value a Portal-written operand holds before its writer's first Turn,
 /// which no step of [`OPERANDS`] plays.
-const STALE: [(usize, &str); 4] = [(2, "G2"), (3, "o_"), (4, "SH"), (5, "03")];
+const STALE: [(usize, &str); 4] = [(2, "G2"), (3, "di"), (4, "SH"), (5, "03")];
 
 #[test]
 fn a_portal_written_operand_means_what_a_return_means() {

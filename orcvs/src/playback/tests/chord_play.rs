@@ -48,7 +48,7 @@ fn stop_each(tones: &[u8]) -> Vec<OutputCommand> {
 
 #[test]
 fn each_tone_of_a_timed_chord_starts_in_tick_plan_order_and_stops_at_its_own_note_off() {
-    let (mut run, source, adapter) = run_of("!#007FC4M_CL0002");
+    let (mut run, source, adapter) = run_of("!#007FC4MACL0002");
 
     run.run_tick(0);
     stop_banging(&source);
@@ -65,7 +65,7 @@ fn each_tone_of_a_timed_chord_starts_in_tick_plan_order_and_stops_at_its_own_not
 
 #[test]
 fn velocity_zero_stops_every_tone_and_schedules_nothing() {
-    let (mut run, source, adapter) = run_of("!#007FC4M_CL0008");
+    let (mut run, source, adapter) = run_of("!#007FC4MACL0008");
 
     run.run_tick(0);
     // Velocity is the operand after the channel: `00` stops every tone,
@@ -86,7 +86,7 @@ fn velocity_zero_stops_every_tone_and_schedules_nothing() {
 
 #[test]
 fn length_zero_starts_nothing_and_leaves_sounding_tones_standing() {
-    let (mut run, source, adapter) = run_of("!#007FC4M_CL0003");
+    let (mut run, source, adapter) = run_of("!#007FC4MACL0003");
 
     run.run_tick(0);
     write(&source, ROW_2 + 14, "00");
@@ -103,7 +103,7 @@ fn length_zero_starts_nothing_and_leaves_sounding_tones_standing() {
 
 #[test]
 fn a_repeated_chord_replaces_the_tones_it_repeats_and_retires_their_expiries() {
-    let (mut run, source, adapter) = run_of("!#007FC4M_CL0002");
+    let (mut run, source, adapter) = run_of("!#007FC4MACL0002");
 
     run.run_tick(0);
     run.run_tick(1);
@@ -125,7 +125,7 @@ fn a_repeated_chord_replaces_the_tones_it_repeats_and_retires_their_expiries() {
 
 #[test]
 fn a_chord_overlapping_another_by_some_tones_releases_only_those() {
-    let (mut run, source, adapter) = run_of("!#007FC4M_CL0004");
+    let (mut run, source, adapter) = run_of("!#007FC4MACL0004");
 
     run.run_tick(0);
     // E4 major shares only E4 with C4 major: the replacement stops that one
@@ -160,7 +160,7 @@ fn a_chord_overlapping_another_by_some_tones_releases_only_those() {
 
 #[test]
 fn a_raw_chord_play_delivers_one_note_on_per_tone_and_owns_nothing() {
-    let (mut run, _source, adapter) = run_of("!:007FC4M_CL00");
+    let (mut run, _source, adapter) = run_of("!:007FC4MACL00");
 
     run.run_tick(0);
 
@@ -174,7 +174,7 @@ fn every_lifecycle_action_that_silences_output_clears_a_sounding_chord() {
     // schedule answers for a note. Asserted for a chord because the claims are
     // several, and a clear that took only the first would leave tones hanging.
     let sounding = || {
-        let (mut run, _source, adapter) = run_of("!#007FC4M_CL000A");
+        let (mut run, _source, adapter) = run_of("!#007FC4MACL000A");
         run.run_tick(0);
         assert!(run.holds_note_ownership());
         (run, adapter)
@@ -212,7 +212,7 @@ fn a_chord_and_a_monophonic_play_on_one_channel_keep_separate_ownership() {
     let source = SourceCommander::new(Grid::with_shape(40, 3));
     write(&source, 0, ".=0101");
     write(&source, 20, ".=0101");
-    write(&source, 80, "!#007FC4M_CL0008");
+    write(&source, 80, "!#007FC4MACL0008");
     write(&source, 100, "!%007FC404");
     let adapter = InMemoryOutputAdapter::default();
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());

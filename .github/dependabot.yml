@@ -1,9 +1,13 @@
 version: 2
 updates:
+  # Every entry's `cooldown` holds back a release younger than seven days;
+  # docs/tooling.md records why and how an advisory fix inside the window is handled.
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       rust-dependencies:
         patterns: ["*"]
@@ -11,6 +15,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns: ["*"]
@@ -23,3 +29,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

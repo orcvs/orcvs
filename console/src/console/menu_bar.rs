@@ -108,7 +108,7 @@ fn trailing_checkbox(
     let box_rect = shown.rect(box_id);
     let mut response = shown.response;
     if response.clicked() {
-        *checked = !*checked;
+        checked.toggle();
         response.mark_changed();
     }
     let enabled = ui.is_enabled();

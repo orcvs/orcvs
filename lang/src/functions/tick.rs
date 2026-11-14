@@ -1,6 +1,6 @@
 use crate::{
     Atom, Error, Function, Interpretation, InterpretationError,
-    atom::operands::{Clock, Delay, Euclidean, Increment, Interpolation, Random},
+    atom::operands::{Clock, Euclidean, Every, Increment, Random, Slew},
     interpreter::Context,
 };
 use rand_chacha::ChaCha8Rng;
@@ -36,39 +36,39 @@ fn zero_cycle(function: Function, role: &'static str) -> Error {
 /// The two factors of a cycle length, widened, and refused where either is
 /// zero.
 ///
-/// Clock and Delay both measure their cycle as `length * steps`, so both refuse
+/// Clock and Every both measure their cycle as `division * steps`, so both refuse
 /// the same two zeroes, and refusing them in one place is what keeps the two
-/// diagnostics saying the same thing about the same fault. The length is answered
+/// diagnostics saying the same thing about the same fault. The division is answered
 /// before the steps because that is signature order, which is the order every
 /// other operand fault in the language is reported in — `Stack::extract` checks
 /// and binds operands in it — so a Source that wrote two zeroes is told about
 /// the earlier Cell pair.
 ///
 #[inline(always)]
-fn cycle_factors(function: Function, length: u8, steps: u8) -> Result<(u64, u64), Error> {
-    if length == 0 {
-        return Err(zero_cycle(function, "length"));
+fn cycle_factors(function: Function, division: u8, steps: u8) -> Result<(u64, u64), Error> {
+    if division == 0 {
+        return Err(zero_cycle(function, "division"));
     }
 
     if steps == 0 {
         return Err(zero_cycle(function, "steps"));
     }
 
-    Ok((u64::from(length), u64::from(steps)))
+    Ok((u64::from(division), u64::from(steps)))
 }
 
-/// Clock: `~. length steps`.
+/// Clock: `~. division steps`.
 ///
-/// The step a cycle of `length * steps` Ticks is at, as a Number: `length` Ticks
+/// The step a cycle of `division * steps` Ticks is at, as a Number: `division` Ticks
 /// to a step and `steps` steps to the cycle, so the answer counts `00`,
 /// `01`, … up to `steps - 1` and begins again.
 #[inline(always)]
 pub fn clock(ctx: &mut Context) -> Result<Atom, Error> {
     let tick = ctx.inputs.tick().get();
 
-    ctx.stack.apply(move |Clock { length, steps }: Clock| {
-        let (length, steps) = cycle_factors(Function::Clock, length, steps)?;
-        let step = (tick / length) % steps;
+    ctx.stack.apply(move |Clock { division, steps }: Clock| {
+        let (division, steps) = cycle_factors(Function::Clock, division, steps)?;
+        let step = (tick / division) % steps;
 
         // A remainder of `steps` is below it and `steps` came out of a
         // Number, so narrowing the step back into one is total. If that ever
@@ -82,43 +82,36 @@ pub fn clock(ctx: &mut Context) -> Result<Atom, Error> {
     })
 }
 
-/// Delay: `~* length steps`.
+/// Every: `~* division steps`.
 ///
-/// One Bang every `length * steps` Ticks, beginning at Tick `0` — the first
-/// Tick of a Playback run counts as a Tick like any other, so a Delay
+/// One Bang every `division * steps` Ticks, beginning at Tick `0` — the first
+/// Tick of a Playback run counts as a Tick like any other, so an Every
 /// fires as the run starts rather than one cycle into it. A `steps` of `01` is
-/// therefore a Bang once per `length` Ticks and not one every Tick, which is what
-/// makes the two operands a length and a step count rather than two names for the
+/// therefore a Bang once per `division` Ticks and not one every Tick, which is what
+/// makes the two operands a division and a step count rather than two names for the
 /// same period.
 #[inline(always)]
-pub fn delay(ctx: &mut Context) -> Result<Interpretation, Error> {
+pub fn every(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
-    let Delay { length, steps } = ctx.stack.extract::<Delay>()?;
-    let (length, steps) = cycle_factors(Function::Delay, length, steps)?;
+    let Every { division, steps } = ctx.stack.extract::<Every>()?;
+    let (division, steps) = cycle_factors(Function::Every, division, steps)?;
 
     // The product is the cycle length, not a Number: two bytes multiply to at
     // most 0xFE01, and `~* 10 20` is a cycle of 512 Ticks that a byte multiply
     // would fold to zero and then divide by.
     //
-    // The cycle test is `Tick % (length * steps) == 0`, and
+    // The cycle test is `Tick % (division * steps) == 0`, and
     // `is_multiple_of` is that test rather than a different one: the two differ
     // only at a zero divisor, which `cycle_factors` has already refused.
-    Ok(Interpretation::pulse(tick.is_multiple_of(length * steps)))
+    Ok(Interpretation::pulse(tick.is_multiple_of(division * steps)))
 }
 
 /// Euclidean: `~% hits steps`.
 ///
-/// Bucket distribution: `hits` onsets spread as evenly as the whole
-/// numbers allow across a cycle of `steps` Ticks, which is the family of
-/// rhythms `~% 03 08` names — `X..X..X.` — without a pattern being written
-/// anywhere.
-///
-/// The absolute Tick is reduced into the cycle *before* the phase offset is
-/// added. That is not a rearrangement for tidiness: `(hits * (t + steps - 1))`
-/// over an absolute Tick would overflow the counter the Tick was read from, and
-/// reducing first is exactly equivalent because every term after it is taken
-/// modulo `steps` anyway. What the counter itself does at its end is decided
-/// by [`crate::Tick::next`], which saturates rather than wraps.
+/// `hits` onsets spread as evenly as the whole numbers allow across a cycle of
+/// `steps` Ticks, in the rotation Tidal's `bjorklund` gives, so `~% 03 08` is
+/// `X..X..X.` and `~% 03 04` is `XXX.`. The absolute Tick is reduced into the
+/// cycle first, so the counter's size never reaches the pattern.
 #[inline(always)]
 pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
     let tick = ctx.inputs.tick().get();
@@ -127,8 +120,7 @@ pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
     // Zero steps is answered before hits are compared to steps, which is what
     // ADR 0012 requires and not an accident of the order the two checks are
     // written in: `~% 00 00` is a cycle with no positions rather than a cycle
-    // with no onsets, so it diagnoses instead of falling to the zero-hits rule
-    // below.
+    // with no onsets, so it diagnoses instead of answering silence.
     if steps == 0 {
         return Err(zero_cycle(Function::Euclidean, "steps"));
     }
@@ -137,18 +129,115 @@ pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
         return Err(InterpretationError::EuclideanOverfull { hits, steps }.into());
     }
 
-    let hits = u64::from(hits);
-    let steps = u64::from(steps);
-    let tick_in_cycle = tick % steps;
-    let phase = (tick_in_cycle + steps - 1) % steps;
+    let position = tick % u64::from(steps);
 
-    // Zero hits falls out of this rather than being special-cased: `0 + 0 >=
-    // steps` is false for every positive `steps`. So does a full cycle, where
-    // `hits == steps` makes the remainder zero and the comparison an equality
-    // that always holds.
-    Ok(Interpretation::pulse(
-        (hits * phase) % steps + hits >= steps,
-    ))
+    Ok(Interpretation::pulse(onset(hits, steps, position)))
+}
+
+/// Whether Tidal's Euclidean pattern of `hits` in `steps` has an onset at
+/// `position`, which is below `steps`.
+#[inline(always)]
+fn onset(hits: u8, steps: u8, position: u64) -> bool {
+    let start = Groups {
+        fronts: u64::from(hits),
+        backs: u64::from(steps - hits),
+        front_len: 1,
+        back_len: 1,
+    };
+
+    // At the start the front group is one onset and the back group one rest.
+    locate(start, position).0
+}
+
+/// One level of Tidal's pairing: the pattern is `fronts` copies of a front
+/// group of `front_len` steps, then `backs` copies of a back group of
+/// `back_len` steps.
+///
+/// Tidal pairs groups off until one side has at most one group left, and each
+/// side only ever holds copies of one group, so a level is these four counts
+/// and no steps. `fronts * front_len + backs * back_len` is `steps` at every
+/// level.
+#[derive(Clone, Copy)]
+struct Groups {
+    fronts: u64,
+    backs: u64,
+    front_len: u64,
+    back_len: u64,
+}
+
+impl Groups {
+    /// The next level, or `None` once one side has at most one group left.
+    ///
+    /// With more fronts than backs, each back joins a front, and the fronts
+    /// left over become the backs. Otherwise each front takes backs until fewer
+    /// backs than fronts are left, so a run of such pairings is one level, and
+    /// the backs stay backs. Either way a front group becomes the old front
+    /// followed by old backs.
+    fn next(self) -> Option<(Self, Pairing)> {
+        let Self {
+            fronts,
+            backs,
+            front_len,
+            back_len,
+        } = self;
+
+        if fronts.min(backs) <= 1 {
+            None
+        } else if fronts > backs {
+            let next = Self {
+                fronts: backs,
+                backs: fronts - backs,
+                front_len: front_len + back_len,
+                back_len: front_len,
+            };
+            Some((next, Pairing::FrontsLeftOver))
+        } else {
+            let next = Self {
+                fronts,
+                backs: backs % fronts,
+                front_len: front_len + backs / fronts * back_len,
+                back_len,
+            };
+            Some((next, Pairing::BacksLeftOver))
+        }
+    }
+}
+
+/// Which side a pairing left groups over on, which decides what the next
+/// level's back group is made of.
+#[derive(Clone, Copy)]
+enum Pairing {
+    /// The back group is the old front group.
+    FrontsLeftOver,
+    /// The back group is the old back group.
+    BacksLeftOver,
+}
+
+/// Which group `position` of the whole pattern falls in at `level`, whether
+/// the front, and where within that group.
+///
+/// It descends to the last level, finds the group there, and maps the place
+/// back up one level at a time, so it reads no step of any group. The counts
+/// fall as Euclid's algorithm reduces a pair, so the recursion is a few levels
+/// deep: at most ten for any byte of steps.
+fn locate(level: Groups, position: u64) -> (bool, u64) {
+    let Some((next, pairing)) = level.next() else {
+        let front_span = level.fronts * level.front_len;
+        return if position < front_span {
+            (true, position % level.front_len)
+        } else {
+            (false, (position - front_span) % level.back_len)
+        };
+    };
+
+    let (in_front, at) = locate(next, position);
+    match (in_front, pairing) {
+        // A front group is this level's front group, then its back groups.
+        (true, _) if at < level.front_len => (true, at),
+        (true, _) => (false, (at - level.front_len) % level.back_len),
+        (false, Pairing::FrontsLeftOver) => (true, at),
+        (false, Pairing::BacksLeftOver) => (false, at),
+    }
 }
 
 /// Increment: `~+ amount modulus`.
@@ -184,7 +273,7 @@ pub fn increment(ctx: &mut Context) -> Result<Atom, Error> {
     Ok(Atom::Number(next))
 }
 
-/// Interpolation: `~> amount target`.
+/// Slew: `~> amount target`.
 ///
 /// The Number one Tick closer to `target`, moving by at most `amount` and
 /// never past it. There are three orderings: below, above, and equal. Each
@@ -195,8 +284,8 @@ pub fn increment(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// It binds as Increment does.
 #[inline(always)]
-pub fn interpolation(ctx: &mut Context) -> Result<Atom, Error> {
-    let (Interpolation { amount, target }, previous) =
+pub fn slew(ctx: &mut Context) -> Result<Atom, Error> {
+    let (Slew { amount, target }, previous) =
         crate::portal::bind_operands(&mut ctx.stack, ctx.inputs.portal_source())?;
     let previous = previous.number();
 
@@ -221,7 +310,7 @@ pub fn interpolation(ctx: &mut Context) -> Result<Atom, Error> {
     };
 
     let next = u8::try_from(next).map_err(|_| InterpretationError::TickNumberOutOfRange {
-        function: Function::Interpolation,
+        function: Function::Slew,
         value: next,
     })?;
 
@@ -318,9 +407,9 @@ mod test {
     /// Evaluates one Tick-reading Function at absolute Tick `tick`, with its
     /// operands in signature order and an empty previous.
     ///
-    /// Clock, Delay, and Euclidean ignore the previous; Increment and
-    /// Interpolation treat empty as Number `00`. The anchor is the Grid origin
-    /// throughout: Clock, Delay, and Euclidean do not read a Position. Random
+    /// Clock, Every, and Euclidean ignore the previous; Increment and
+    /// Slew treat empty as Number `00`. The anchor is the Grid origin
+    /// throughout: Clock, Every, and Euclidean do not read a Position. Random
     /// has its own helpers below, because it does.
     fn evaluate(
         function: Function,
@@ -368,26 +457,26 @@ mod test {
     }
 
     #[test]
-    fn clock_counts_one_step_per_length_ticks_and_wraps_at_its_steps() {
+    fn clock_counts_one_step_per_division_ticks_and_wraps_at_its_steps() {
         // The formula is small enough to enumerate against rather than sample:
-        // every length and steps from `01` to `08` over four cycles of the
+        // every division and steps from `01` to `08` over four cycles of the
         // widest of them, which is enough Ticks for every pair to wrap at least
         // twice. The reference here is the formula retyped, so what
         // the sweep pins is operand order and the width the arithmetic is done
-        // in — a length read as a step count fails at every asymmetric pair — and
+        // in — a division read as a step count fails at every asymmetric pair — and
         // not the shape of the expression itself, which a retyped reference
         // agrees with by construction.
         // `clock_counts_the_literal_step_sequence_its_operands_name` is the
         // independent half, written from what the operands mean.
-        for length in 1..=8u8 {
+        for division in 1..=8u8 {
             for steps in 1..=8u8 {
                 for tick in 0..256u64 {
-                    let expected = (tick / u64::from(length)) % u64::from(steps);
+                    let expected = (tick / u64::from(division)) % u64::from(steps);
 
                     assert_eq!(
-                        answer(Function::Clock, tick, length, steps).unwrap(),
+                        answer(Function::Clock, tick, division, steps).unwrap(),
                         Atom::Number(u8::try_from(expected).unwrap()),
-                        "~. {length:02X} {steps:02X} at Tick {tick}"
+                        "~. {division:02X} {steps:02X} at Tick {tick}"
                     );
                 }
             }
@@ -398,16 +487,16 @@ mod test {
     fn clock_counts_the_literal_step_sequence_its_operands_name() {
         // Hand-written step sequences, one entry per Tick of one cycle, read
         // from what the operands mean rather than from the expression the body
-        // evaluates: `length` Ticks to a step and `steps` steps to the cycle
+        // evaluates: `division` Ticks to a step and `steps` steps to the cycle
         // make `~. 02 04` the sequence `00 00 01 01 02 02 03 03` and nothing
-        // else. A body that divided by the steps, or wrapped at the length,
+        // else. A body that divided by the steps, or wrapped at the division,
         // would have to land on that same sequence to pass here, which is what
         // the enumeration above cannot ask because it computes its reference
         // the way the body does.
         //
         // Each sequence is walked three times over, which separates a cycle
         // that begins again from a counter that keeps counting.
-        for (length, steps, sequence) in [
+        for (division, steps, sequence) in [
             (
                 0x02u8,
                 0x04u8,
@@ -420,16 +509,16 @@ mod test {
         ] {
             assert_eq!(
                 sequence.len(),
-                usize::from(length) * usize::from(steps),
-                "~. {length:02X} {steps:02X} names a cycle of {} Ticks",
-                usize::from(length) * usize::from(steps)
+                usize::from(division) * usize::from(steps),
+                "~. {division:02X} {steps:02X} names a cycle of {} Ticks",
+                usize::from(division) * usize::from(steps)
             );
 
             for (tick, expected) in sequence.iter().cycle().take(sequence.len() * 3).enumerate() {
                 assert_eq!(
-                    answer(Function::Clock, tick as u64, length, steps).unwrap(),
+                    answer(Function::Clock, tick as u64, division, steps).unwrap(),
                     Atom::Number(*expected),
-                    "~. {length:02X} {steps:02X} at Tick {tick}"
+                    "~. {division:02X} {steps:02X} at Tick {tick}"
                 );
             }
         }
@@ -487,29 +576,29 @@ mod test {
     }
 
     #[test]
-    fn clock_diagnoses_a_zero_length_before_zero_steps() {
+    fn clock_diagnoses_a_zero_division_before_zero_steps() {
         // A cycle needs both factors, so either zero refuses. The order is
         // signature order, which is the order every other operand fault is
         // reported in, and `00 00` is what pins it: a Source that wrote two
-        // zeroes is told about the length, the earlier Cell pair.
+        // zeroes is told about the division, the earlier Cell pair.
         for tick in [0u64, 1, 7] {
-            let length = answer(Function::Clock, tick, 0x00, 0x04).unwrap_err();
+            let division = answer(Function::Clock, tick, 0x00, 0x04).unwrap_err();
             assert_eq!(
-                length.to_string(),
-                "~. cannot count a cycle with zero length"
+                division.to_string(),
+                "~. cannot count a cycle with division 00"
             );
 
             let steps = answer(Function::Clock, tick, 0x04, 0x00).unwrap_err();
-            assert_eq!(steps.to_string(), "~. cannot count a cycle with zero steps");
+            assert_eq!(steps.to_string(), "~. cannot count a cycle with steps 00");
 
             let both = answer(Function::Clock, tick, 0x00, 0x00).unwrap_err();
-            assert_eq!(both.to_string(), "~. cannot count a cycle with zero length");
+            assert_eq!(both.to_string(), "~. cannot count a cycle with division 00");
         }
     }
 
     #[test]
-    fn delay_bangs_once_per_cycle_beginning_at_the_first_tick() {
-        // Tick `0` counts as a Tick like any other, so a Delay fires
+    fn every_bangs_once_per_cycle_beginning_at_the_first_tick() {
+        // Tick `0` counts as a Tick like any other, so an Every fires
         // as a Playback run starts rather than one cycle into it. The sweep
         // states the whole rule — Bang exactly on a multiple of the cycle — and
         // Tick `0` is the case a reference computed as "some Ticks have passed"
@@ -517,16 +606,16 @@ mod test {
         // every claim: the cycle it compares against is the product the body
         // takes, so it pins operand order and the width of the multiply and
         // leaves the shape to
-        // `delay_bangs_on_the_literal_ticks_its_operands_name`.
-        for length in 1..=8u8 {
+        // `every_bangs_on_the_literal_ticks_its_operands_name`.
+        for division in 1..=8u8 {
             for steps in 1..=8u8 {
                 for tick in 0..256u64 {
-                    let cycle = u64::from(length) * u64::from(steps);
+                    let cycle = u64::from(division) * u64::from(steps);
 
                     assert_eq!(
-                        banged(Function::Delay, tick, length, steps),
+                        banged(Function::Every, tick, division, steps),
                         tick % cycle == 0,
-                        "~* {length:02X} {steps:02X} at Tick {tick}"
+                        "~* {division:02X} {steps:02X} at Tick {tick}"
                     );
                 }
             }
@@ -534,7 +623,7 @@ mod test {
     }
 
     #[test]
-    fn delay_bangs_on_the_literal_ticks_its_operands_name() {
+    fn every_bangs_on_the_literal_ticks_its_operands_name() {
         // The Ticks written out rather than a multiple recomputed: `~* 03 02`
         // is a cycle of six Ticks, so it Bangs at `0`, `6`, `12`, `18` and
         // nowhere between, and every Tick up to the last of those is asked so
@@ -543,9 +632,9 @@ mod test {
         // is where the cycle length itself is claimed.
         //
         // The last pair is 384 Ticks long, which is the case a byte product
-        // would fold: `40 * 06` wraps to `80`, and a Delay counting that would
+        // would fold: `40 * 06` wraps to `80`, and an Every counting that would
         // Bang three times inside every cycle written here.
-        for (length, steps, bangs) in [
+        for (division, steps, bangs) in [
             (0x03u8, 0x02u8, &[0u64, 6, 12, 18][..]),
             (0x01, 0x04, &[0, 4, 8, 12, 16]),
             (0x05, 0x01, &[0, 5, 10, 15, 20]),
@@ -556,22 +645,22 @@ mod test {
 
             for tick in 0..=last {
                 assert_eq!(
-                    banged(Function::Delay, tick, length, steps),
+                    banged(Function::Every, tick, division, steps),
                     bangs.contains(&tick),
-                    "~* {length:02X} {steps:02X} at Tick {tick}"
+                    "~* {division:02X} {steps:02X} at Tick {tick}"
                 );
             }
         }
     }
 
     #[test]
-    fn delay_with_one_step_bangs_once_per_length_ticks_rather_than_every_tick() {
-        // Pinned because it is what makes the two operands a length
+    fn every_with_one_step_bangs_once_per_division_ticks_rather_than_every_tick() {
+        // Pinned because it is what makes the two operands a division
         // and a step count instead of two spellings of one period: a `steps` of
-        // `01` is a cycle of one step, and that step is `length` Ticks long.
+        // `01` is a cycle of one step, and that step is `division` Ticks long.
         for tick in 0..32u64 {
             assert_eq!(
-                banged(Function::Delay, tick, 0x04, 0x01),
+                banged(Function::Every, tick, 0x04, 0x01),
                 tick % 4 == 0,
                 "Tick {tick}"
             );
@@ -579,28 +668,28 @@ mod test {
     }
 
     #[test]
-    fn delay_counts_a_cycle_product_wider_than_a_byte() {
+    fn every_counts_a_cycle_product_wider_than_a_byte() {
         // The test that catches a byte multiply. `10 * 20` is 512, which wraps
         // a byte to zero — a cycle length that would then be divided by — and
         // `10 * 11` is 272, which wraps to 16 and would Bang seventeen times
         // per cycle instead of once.
         for tick in [0u64, 512, 1024] {
             assert!(
-                banged(Function::Delay, tick, 0x10, 0x20),
+                banged(Function::Every, tick, 0x10, 0x20),
                 "512-Tick cycle at Tick {tick}"
             );
         }
 
         for tick in [1u64, 16, 256, 511, 513] {
             assert!(
-                !banged(Function::Delay, tick, 0x10, 0x20),
+                !banged(Function::Every, tick, 0x10, 0x20),
                 "512-Tick cycle at Tick {tick}"
             );
         }
 
         for tick in [0u64, 272, 544] {
             assert!(
-                banged(Function::Delay, tick, 0x10, 0x11),
+                banged(Function::Every, tick, 0x10, 0x11),
                 "272-Tick cycle at Tick {tick}"
             );
         }
@@ -609,76 +698,117 @@ mod test {
         // exactly what a byte multiply would have Banged on.
         for tick in (16..272).step_by(16) {
             assert!(
-                !banged(Function::Delay, tick, 0x10, 0x11),
+                !banged(Function::Every, tick, 0x10, 0x11),
                 "272-Tick cycle at Tick {tick}"
             );
         }
     }
 
     #[test]
-    fn delay_diagnoses_a_zero_length_before_zero_steps() {
+    fn every_diagnoses_a_zero_division_before_zero_steps() {
         // The same two faults Clock refuses, under a diagnostic that names
-        // Delay: a Source shown "cannot count a cycle" has to be able to tell
+        // Every: a Source shown "cannot count a cycle" has to be able to tell
         // which of the two Cell pairs it wrote is the one to edit.
-        let length = answer(Function::Delay, 5, 0x00, 0x04).unwrap_err();
+        let division = answer(Function::Every, 5, 0x00, 0x04).unwrap_err();
         assert_eq!(
-            length.to_string(),
-            "~* cannot count a cycle with zero length"
+            division.to_string(),
+            "~* cannot count a cycle with division 00"
         );
 
-        let steps = answer(Function::Delay, 5, 0x04, 0x00).unwrap_err();
-        assert_eq!(steps.to_string(), "~* cannot count a cycle with zero steps");
+        let steps = answer(Function::Every, 5, 0x04, 0x00).unwrap_err();
+        assert_eq!(steps.to_string(), "~* cannot count a cycle with steps 00");
 
-        // Tick `0` is a multiple of every cycle, so it is the Tick a Delay that
+        // Tick `0` is a multiple of every cycle, so it is the Tick an Every that
         // skipped its validation would answer Bang at for any operands at all.
-        let zero = answer(Function::Delay, 0, 0x00, 0x00).unwrap_err();
-        assert_eq!(zero.to_string(), "~* cannot count a cycle with zero length");
+        let zero = answer(Function::Every, 0, 0x00, 0x00).unwrap_err();
+        assert_eq!(zero.to_string(), "~* cannot count a cycle with division 00");
+    }
+
+    /// Tidal's `bjorklund`, transcribed from `Sound.Tidal.Bjorklund`: lists
+    /// of groups, the front groups `[x]` and the back groups `[.]`, paired
+    /// off until one side has at most one group left. It is the reference
+    /// `~%` is checked against, and lives here so the shipped body is never
+    /// checked against itself.
+    fn tidal_bjorklund(hits: usize, steps: usize) -> Vec<bool> {
+        let (mut fronts, mut backs) = (vec![vec![true]; hits], vec![vec![false]; steps - hits]);
+
+        while fronts.len().min(backs.len()) > 1 {
+            if fronts.len() > backs.len() {
+                // `left`: each back group joins a front group, and the
+                // unpaired front groups become the back.
+                let unpaired = fronts.split_off(backs.len());
+                for (front, back) in fronts.iter_mut().zip(&backs) {
+                    front.extend(back);
+                }
+                backs = unpaired;
+            } else {
+                // `right`: each front group takes a back group, and the
+                // unpaired back groups stay at the back.
+                let unpaired = backs.split_off(fronts.len());
+                for (front, back) in fronts.iter_mut().zip(&backs) {
+                    front.extend(back);
+                }
+                backs = unpaired;
+            }
+        }
+
+        fronts.into_iter().chain(backs).flatten().collect()
     }
 
     #[test]
-    fn euclidean_places_its_hits_where_the_adr_formula_does() {
-        // Hand-written patterns rather than the formula recomputed: one `X` per
-        // Tick of one cycle, read left to right from Tick `0`. These are the
-        // Euclidean rhythms the distribution is named for — `03 08` is the
-        // tresillo — so a formula that drifted would have to drift into another
-        // recognisable pattern to pass.
-        //
-        // Each is checked over three cycles, which is what pins the reduction
-        // of the absolute Tick: a phase computed from an unreduced Tick agrees
-        // with this on the first cycle and disagrees afterwards.
+    fn the_tidal_reference_spells_the_published_patterns() {
+        // The reference is itself checked, against patterns Tidal's
+        // documentation and Toussaint's paper print, so the sweep below
+        // compares `~%` with Tidal rather than with a transcription slip.
         for (hits, steps, pattern) in [
-            (0x03, 0x04, "X.XX"),
-            (0x03, 0x08, "X..X..X."),
-            (0x05, 0x08, "X.X.XX.X"),
-            (0x02, 0x05, "X..X."),
-            (0x02, 0x03, "X.X"),
-            (0x01, 0x04, "X..."),
-            (0x07, 0x10, "X..X.X.X..X.X.X."),
+            (3, 4, "X X X ."),
+            (3, 8, "X . . X . . X ."),
+            (5, 8, "X . X X . X X ."),
+            (2, 5, "X . X . ."),
+            (3, 7, "X . X . X . ."),
+            (5, 12, "X . . X . X . . X . X ."),
+            (5, 16, "X . . X . . X . . X . . X . . ."),
         ] {
-            assert_eq!(usize::from(steps), pattern.len(), "{hits} of {steps}");
+            let expected: Vec<bool> = pattern.split(' ').map(|step| step == "X").collect();
+            assert_eq!(tidal_bjorklund(hits, steps), expected, "E({hits},{steps})");
+        }
+    }
 
-            for (tick, expected) in pattern.chars().cycle().take(pattern.len() * 3).enumerate() {
-                assert_eq!(
-                    banged(Function::Euclidean, tick as u64, hits, steps),
-                    expected == 'X',
-                    "~% {hits:02X} {steps:02X} at Tick {tick}"
+    #[test]
+    fn euclidean_matches_tidals_bjorklund_for_every_pattern_up_to_32_steps() {
+        // Every 1 <= hits <= steps <= 32, over two cycles, which also pins the
+        // reduction of the absolute Tick into the cycle.
+        for steps in 1..=32u8 {
+            for hits in 1..=steps {
+                let pattern = tidal_bjorklund(usize::from(hits), usize::from(steps));
+                for (tick, &onset) in pattern.iter().cycle().take(pattern.len() * 2).enumerate() {
+                    assert_eq!(
+                        banged(Function::Euclidean, tick as u64, hits, steps),
+                        onset,
+                        "~% {hits:02X} {steps:02X} at Tick {tick}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn euclidean_with_no_hits_is_silent() {
+        // With positive steps, zero hits Bangs on no Tick.
+        for steps in 1..=u8::MAX {
+            for tick in 0..u64::from(steps) * 2 {
+                assert!(
+                    !banged(Function::Euclidean, tick, 0x00, steps),
+                    "~% 00 {steps:02X} at Tick {tick}"
                 );
             }
         }
     }
 
     #[test]
-    fn euclidean_answers_no_hits_and_a_full_cycle_from_the_same_formula() {
-        // Both are consequences of the formula rather than cases: with
-        // positive steps, zero hits never Bangs and equal hits and steps Bang
-        // every Tick. A body that special-cased either would pass this too —
-        // what the test is for is the opposite, that neither needs a case.
-        for steps in 1..=16u8 {
-            for tick in 0..64u64 {
-                assert!(
-                    !banged(Function::Euclidean, tick, 0x00, steps),
-                    "~% 00 {steps:02X} at Tick {tick}"
-                );
+    fn euclidean_with_as_many_hits_as_steps_bangs_every_tick() {
+        for steps in 1..=u8::MAX {
+            for tick in 0..u64::from(steps) * 2 {
                 assert!(
                     banged(Function::Euclidean, tick, steps, steps),
                     "~% {steps:02X} {steps:02X} at Tick {tick}"
@@ -688,18 +818,35 @@ mod test {
     }
 
     #[test]
-    fn euclidean_reduces_a_tick_no_multiplication_could_have_survived() {
-        // Reducing before the phase offset is required, and the reason is
-        // arithmetic rather than style: `hits * (t + steps - 1)` over
-        // an absolute Tick near the end of a saturating counter overflows,
-        // while the reduced form is the same pattern at the same position.
-        //
-        // The last eight Ticks of the counter are exactly one cycle of `08`,
-        // because `u64::MAX` is seven more than a multiple of eight.
-        let pattern = b"X..X..X.";
-        let steps = 0x08u8;
+    fn euclidean_matches_tidals_bjorklund_up_to_a_byte_of_steps() {
+        // Past the sweep's 32 steps, sampled patterns up to a whole byte of
+        // steps still match Tidal's, step for step.
+        for steps in [0x21u8, 0x40, 0x7F, 0xFE, 0xFF] {
+            for hits in [1u8, 2, 3, 5, steps / 3, steps / 2, steps - 2, steps - 1] {
+                let pattern = tidal_bjorklund(usize::from(hits), usize::from(steps));
+                for (tick, &onset) in (0u64..).zip(&pattern) {
+                    assert_eq!(
+                        banged(Function::Euclidean, tick, hits, steps),
+                        onset,
+                        "~% {hits:02X} {steps:02X} at Tick {tick}"
+                    );
+                }
+            }
+        }
+    }
 
-        for tick in (u64::MAX - 7)..=u64::MAX {
+    #[test]
+    fn euclidean_reads_its_step_from_a_tick_at_the_end_of_the_counter() {
+        // The absolute Tick is reduced into the cycle before anything else is
+        // done with it, so a Tick near the end of a saturating counter plays
+        // the same pattern at the same position as any other.
+        //
+        // The last four Ticks of the counter are exactly one cycle of `04`,
+        // because `u64::MAX` is three more than a multiple of four.
+        let pattern = b"XXX.";
+        let steps = 0x04u8;
+
+        for tick in (u64::MAX - 3)..=u64::MAX {
             let position = usize::try_from(tick % u64::from(steps)).unwrap();
 
             assert_eq!(
@@ -720,7 +867,7 @@ mod test {
             let error = answer(Function::Euclidean, 3, hits, 0x00).unwrap_err();
             assert_eq!(
                 error.to_string(),
-                "~% cannot count a cycle with zero steps",
+                "~% cannot count a cycle with steps 00",
                 "~% {hits:02X} 00"
             );
         }
@@ -736,15 +883,15 @@ mod test {
         // Every operand of these five is declared Number, so a Note is refused
         // at each of them rather than converted: ADR 0021 makes the Numeric
         // Conversion Functions the only crossing between the two numeric types,
-        // and a length that silently read a Note's byte would be another.
+        // and a count that silently read a Note's byte would be another.
         let note = Atom::Note(Note::try_from(0x3C).unwrap());
 
         for function in [
             Function::Clock,
-            Function::Delay,
+            Function::Every,
             Function::Euclidean,
             Function::Increment,
-            Function::Interpolation,
+            Function::Slew,
         ] {
             for (left, right) in [
                 (note, Atom::Number(0x04)),
@@ -859,7 +1006,7 @@ mod test {
 
     #[test]
     fn increment_diagnoses_a_zero_modulus() {
-        // A wrap needs a length, so a zero modulus refuses. The diagnostic
+        // A wrap needs a nonzero modulus, so a zero modulus refuses. The diagnostic
         // names Increment and the role rather than Modulo: a Source shown
         // "cannot modulo by zero" would be told about a Function it did not
         // write.
@@ -873,7 +1020,7 @@ mod test {
     }
 
     #[test]
-    fn interpolation_moves_toward_target_without_overshoot() {
+    fn slew_moves_toward_target_without_overshoot() {
         // The three orderings, written as the Numbers they name
         // rather than as the expression the body evaluates. Below steps up
         // by at most `amount` and lands on the target rather than past it;
@@ -890,13 +1037,7 @@ mod test {
             (0xFF, 0xFF, 0x00, 0x00),
         ] {
             assert_eq!(
-                feedback(
-                    Function::Interpolation,
-                    &format!("{previous:02X}"),
-                    amount,
-                    target
-                )
-                .unwrap(),
+                feedback(Function::Slew, &format!("{previous:02X}"), amount, target).unwrap(),
                 Atom::Number(expected),
                 "~> {amount:02X} {target:02X} from {previous:02X}"
             );
@@ -904,20 +1045,14 @@ mod test {
     }
 
     #[test]
-    fn interpolation_holds_when_its_amount_is_zero() {
+    fn slew_holds_when_its_amount_is_zero() {
         // Amount `00` is a step of nothing, so the current value is unchanged
         // whether it sits below the target, above it, or on it. The hold is
         // the formula, not a case: a body that special-cased zero would pass
         // this too — what the test is for is the opposite, that it needs none.
         for (previous, target) in [(0x05u8, 0x10u8), (0x80, 0x10), (0x10, 0x10)] {
             assert_eq!(
-                feedback(
-                    Function::Interpolation,
-                    &format!("{previous:02X}"),
-                    0x00,
-                    target
-                )
-                .unwrap(),
+                feedback(Function::Slew, &format!("{previous:02X}"), 0x00, target).unwrap(),
                 Atom::Number(previous),
                 "~> 00 {target:02X} from {previous:02X}"
             );
@@ -925,7 +1060,7 @@ mod test {
 
         // Empty is Number `00`, so a hold from an unused Portal stays `00`.
         assert_eq!(
-            feedback(Function::Interpolation, "  ", 0x00, 0x10).unwrap(),
+            feedback(Function::Slew, "  ", 0x00, 0x10).unwrap(),
             Atom::Number(0x00)
         );
     }
@@ -936,7 +1071,7 @@ mod test {
         // A Note spelling that cannot decode as a Number is supplied, and both
         // Functions name themselves so a Source shown the message knows which
         // of the two Cell pairs it wrote is the one that cannot read.
-        for function in [Function::Increment, Function::Interpolation] {
+        for function in [Function::Increment, Function::Slew] {
             let error = feedback(function, "G4", 0x01, 0x04).unwrap_err();
             assert_eq!(
                 error.to_string(),
@@ -948,7 +1083,7 @@ mod test {
 
     #[test]
     fn cell_operand_faults_precede_an_invalid_portal_input() {
-        for function in [Function::Increment, Function::Interpolation] {
+        for function in [Function::Increment, Function::Slew] {
             let note = Atom::Note(Note::try_from(60).unwrap());
             for (left, right) in [(note, Atom::Number(4)), (Atom::Number(1), note)] {
                 assert!(matches!(

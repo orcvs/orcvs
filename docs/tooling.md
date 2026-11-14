@@ -263,6 +263,16 @@ deduplicate across incompatible ones, so the next `cargo update` undoes the pin 
 on a duplicate that is already known. When an upstream release lifts a constraint, cargo-deny
 reports the entry as an unmatched skip, which is the signal to remove it.
 
+A `[dependencies]` entry nothing uses fails the build. `[workspace.lints.cargo]` in the root
+`Cargo.toml` denies `cargo::unused_dependencies`; `-D warnings` cannot, because it reaches rustc and
+clippy but not Cargo's own lints. Cargo reports an entry only on a build that compiles every target
+of the package that could use it — the library and its binaries together, as the `--all-targets`
+and `--lib --bins` clippy runs and `trunk build` do — and never reports a dev-dependency. An entry
+used on one platform or feature set fails on the others, which is how the console's `serde` came to
+sit in the non-wasm32 table: `theme_document` compiles only on native targets and in tests. When a
+change fails with `unused dependency`, either remove the entry or move it under the
+`[target.'cfg(...)'.dependencies]` table, or behind the feature, that its use is gated by.
+
 A third trigger runs the same audit on a schedule. `cargo deny` sees the dependency graph whenever a
 commit changes the graph, and an advisory is published against code nobody changed, so between two
 quiet weeks a new RUSTSEC entry can land against a locked dependency with nothing in the repository
@@ -615,6 +625,11 @@ Every version this repository pins is bumped by something that watches the file 
 `rust-toolchain.toml`. The third is a separate ecosystem rather than a setting on the first —
 `cargo` never reads the toolchain file — and its absence is why the channel sat at 1.98.0 while
 1.98.1 was current.
+
+All three entries hold back any release younger than seven days with Dependabot's `cooldown`, the
+floor zizmor's `dependabot-cooldown` audit accepts. A compromised or broken release is usually
+yanked inside that window, and on a weekly schedule the delay costs at most one run. When an advisory
+fix needs a release younger than the window, bump it by hand; `cargo deny` still checks it.
 
 `mise.toml`'s `[tools]` table is the remaining exception, and it is an exception because Dependabot
 has no mise ecosystem and no near prospect of one. The seven pins there move only when a human edits
