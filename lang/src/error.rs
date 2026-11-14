@@ -43,19 +43,19 @@ pub enum InterpretationError {
     /// Stack's tones form no Interval Set: their semitones above the first
     /// are not exactly any name's.
     #[error(
-        "{function} finds no Interval Set for {} from degree {degree:02X} with size {size:02X}",
+        "{function} finds no Interval Set for {} from index {index:02X} with size {size:02X}",
         set.cells()
     )]
     NoIntervalSet {
         function: crate::Function,
         set: crate::IntervalSet,
-        degree: u8,
+        index: u8,
         size: u8,
     },
 
-    /// A Tick-reading Function handed a zero where its cycle needs a length.
+    /// A Tick-reading Function handed a zero where its cycle needs a nonzero factor.
     ///
-    /// Clock's and Delay's cycle is `length * steps` and Euclidean's is
+    /// Clock's and Every's cycle is `division * steps` and Euclidean's is
     /// `steps`, and none of the three has a cycle at all once a
     /// factor is zero: there is no step to be at, no period to be on, and no
     /// position for an onset to fall in. Each therefore diagnoses rather than
@@ -71,7 +71,7 @@ pub enum InterpretationError {
     /// `function` is the declared [`crate::Function`] rather than a spelling
     /// written down here, so the diagnostic renders the Cells the Source
     /// actually holds.
-    #[error("{function} cannot count a cycle with zero {role}")]
+    #[error("{function} cannot count a cycle with {role} 00")]
     ZeroCycle {
         function: crate::Function,
         role: &'static str,
@@ -102,7 +102,7 @@ pub enum InterpretationError {
     /// [`InterpretationError::ZeroCycle`] above: only one Function can raise
     /// this, so there is nothing for a field to distinguish. It is still
     /// rendered from the declaration rather than spelled out in prose, because
-    /// a Source shown `~% cannot count a cycle with zero steps` beside
+    /// a Source shown `~% cannot count a cycle with steps 00` beside
     /// `Euclidean cannot fit ...` has been told about two Functions where it
     /// wrote one: the spelling is what its Cells hold.
     #[error(
@@ -128,7 +128,7 @@ pub enum InterpretationError {
         role: &'static str,
     },
 
-    /// Increment or Interpolation found a previous that is not a Number.
+    /// Increment or Slew found a previous that is not a Number.
     ///
     /// An empty Portal reads as Number `00` and any other present Language
     /// Unit diagnoses. Portal binding raises this after cell operand
@@ -153,10 +153,10 @@ pub enum InterpretationError {
     #[error("{function} has partial or invalid input")]
     PartialInput { function: crate::Function },
 
-    /// Increment or Interpolation computed a Number their answer cannot hold.
+    /// Increment or Slew computed a Number their answer cannot hold.
     ///
     /// Unreachable while the formulas stand: Increment's result is a
-    /// remainder of a modulus that arrived as a Number, and Interpolation
+    /// remainder of a modulus that arrived as a Number, and Slew
     /// moves a Number toward a Number, so both stay below `FF`. The variant
     /// exists for the reason [`InterpretationError::ClockStepOutOfRange`]
     /// does: a panic is ruled out under the Source write guard, and a

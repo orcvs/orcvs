@@ -1,6 +1,6 @@
 # One Chord Play sounds every tone of its chord
 
-Status: accepted. Amends the clause of [ADR 0028](0028-specify-the-orcvs-evaluation-machine.md) that a Terminal Output Function answers a Play Command, and the rule that each Expression performs at most one output, for the two Chord Play Functions only. Settled in `.scratch/chords-and-pitch/`.
+Status: accepted. Amends the clause of [ADR 0028](0028-specify-the-orcvs-evaluation-machine.md) that a Terminal Output Function answers a Play Command, and the rule that each Expression performs at most one output, for the two Chord Play Functions only. Settled in `.scratch/chords-and-pitch/`. The drop Voicings `D5` and `D6` are renamed `23` and `24` by the 2026-11-14 amendment to [ADR 0105](0105-interval-set-and-voicing-are-literal-types.md), which names a drop for the positions it lowers rather than their sum; the order the tones are built in and the tones each Voicing needs stand.
 
 A chord is several Play roots that one Bang activates ([ADR 0063](0063-a-list-is-cells-in-a-claim-not-a-value.md)). That still works, and it stays the way to give tones different channels, velocities or lengths. It cannot be driven as one thing: a progression written that way needs one Play and one Read for every tone of every chord, and changing a chord's type means editing several roots at once.
 

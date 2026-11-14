@@ -3,7 +3,7 @@
 //!
 //! Every Tick the bassline plays its next step on the Built-in Synth's acid
 //! channel, and each knob sends one Control Change on that channel: three to
-//! the acid voice and six to the channel's effects. A knob's value moves by
+//! the acid voice and six to the channel's effects. A knob's value slews by
 //! at most [`RATE`] a Tick toward its Clock, and the Clock sweeps up a step
 //! at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
@@ -107,7 +107,7 @@ const KNOBS: [Knob; 9] = [
     Knob::new(0x5E, 0x03, 0x40),
 ];
 
-/// How far a knob's value moves in one Tick, its Interpolation's `amount`.
+/// How far a knob's value moves in one Tick, its Slew's `amount`.
 const RATE: u8 = 0x08;
 
 /// The Control Change a knob sends to `controller` with `value` on the acid
@@ -121,7 +121,7 @@ fn knob_change(controller: u8, value: u8) -> OutputCommand {
 }
 
 /// `value` moved toward `target` by at most [`RATE`], never past it.
-fn step_toward(value: u8, target: u8) -> u8 {
+fn slew(value: u8, target: u8) -> u8 {
     if value < target {
         target.min(value + RATE)
     } else {
@@ -148,7 +148,7 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
     let mut sounding: Vec<(u8, u64)> = Vec::new();
 
     // Long enough for the slowest Clock, `R2`'s, to wrap at Tick `200` and
-    // its value to move back down.
+    // its value to ramp back down.
     for tick in 0..0x210 {
         let plan = run.run_tick(tick);
         // The two bassline rows not holding the step read a blank note, which
@@ -172,7 +172,7 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
         delivery.push(note_on(ACID, touch.velocity(), note));
         sounding.push((note, tick + touch.length()));
         for (value, knob) in values.iter_mut().zip(&KNOBS) {
-            *value = step_toward(*value, knob.target(tick));
+            *value = slew(*value, knob.target(tick));
             delivery.push(knob_change(knob.controller, *value));
         }
         assert_eq!(

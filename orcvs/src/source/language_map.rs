@@ -2133,7 +2133,7 @@ mod property {
             (literal_source(Token::Note), set(), number())
                 .prop_map(|(root, set, index)| format!("{}{root}{set}{index}", Function::Pick)),
             (set(), number(), number())
-                .prop_map(|(set, degree, size)| format!("{}{set}{degree}{size}", Function::Stack)),
+                .prop_map(|(set, index, size)| format!("{}{set}{index}{size}", Function::Stack)),
         ]
         .boxed()
     }

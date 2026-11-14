@@ -806,7 +806,7 @@ impl<A: OutputAdapter> PlaybackInner<A> {
     /// A run resumes the absolute Tick rather than resetting it: its first
     /// Tick is the one after the last Tick executed, which is Tick `0` before
     /// any has run and after a [`Self::rewind`]. The absolute Tick is an
-    /// interpretation input, so this is what lets every Clock `~.` and Delay
+    /// interpretation input, so this is what lets every Clock `~.` and Every
     /// `~*` resume at the step it stopped on rather than at its cycle's first.
     /// Do not reset the counter here: only a rewind returns it to Tick `0`.
     /// The cleared last Tick is what lets this run's first Tick execute
@@ -4223,7 +4223,7 @@ mod tests {
     /// restart every Tick-reading Function's cycle each time the tempo moved.
     ///
     /// The counter is asserted through what it is an input to rather than read
-    /// out of the state that owns it. Delay `~*0102` pulses on the Ticks that
+    /// out of the state that owns it. Every `~*0102` pulses on the Ticks that
     /// divide its cycle of two, so the note it Bangs on Tick `0` and withholds
     /// on Tick `1` is the counter, stated in the Source the rule is about.
     ///
@@ -4240,7 +4240,7 @@ mod tests {
         assert_eq!(
             adapter.command_lists(),
             vec![vec![note_on(0, 0x7F, 60)]],
-            "Tick 0 divides the Delay's cycle"
+            "Tick 0 divides the Every's cycle"
         );
 
         // Anchored on the deadline Tick 0 was due at, so the Tick after the
@@ -4253,7 +4253,7 @@ mod tests {
         assert_eq!(
             adapter.command_lists(),
             vec![vec![note_on(0, 0x7F, 60)], vec![]],
-            "the Tick after a retune is Tick 1, which the Delay does not pulse on"
+            "the Tick after a retune is Tick 1, which the Every does not pulse on"
         );
 
         engine.stop();
