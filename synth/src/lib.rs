@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 
 mod acid;
 mod chorus;
+mod controller;
 mod delay;
 mod drum;
 mod reverb;
@@ -19,6 +20,7 @@ mod web;
 
 use acid::{Acid, Controls};
 use chorus::Chorus;
+use controller::{CH, DL, EQ, LN, MD, OF, R1, R2, RESET};
 use delay::Delay;
 use drum::{Drum, Instrument};
 use reverb::{Reverb, Room};
@@ -133,15 +135,15 @@ impl Channel {
     fn set(&mut self, controller: u8, value: u8) {
         let level = f32::from(value) / 127.0;
         match controller {
-            1 => self.vibrato.set(value),
-            74 => self.tilt.set(value),
-            75 => self.length = value,
-            85 => self.offset = value,
-            91 => self.small.set(level),
-            92 => self.large.set(level),
-            93 => self.chorus.set(level),
-            94 => self.delay.set(level),
-            121 => self.vibrato.set(0),
+            MD => self.vibrato.set(value),
+            EQ => self.tilt.set(value),
+            LN => self.length = value,
+            OF => self.offset = value,
+            R1 => self.small.set(level),
+            R2 => self.large.set(level),
+            CH => self.chorus.set(level),
+            DL => self.delay.set(level),
+            RESET => self.vibrato.set(0),
             _ => {}
         }
     }
@@ -497,16 +499,6 @@ mod tests {
     /// channel.
     const KIT: u8 = 9;
 
-    /// The effects' controllers.
-    const MD: u8 = 1;
-    const EQ: u8 = 74;
-    const LN: u8 = 75;
-    const OF: u8 = 85;
-    const R1: u8 = 91;
-    const R2: u8 = 92;
-    const CH: u8 = 93;
-    const DL: u8 = 94;
-
     fn note_on(channel: u8, note: u8, velocity: u8) -> [u8; 3] {
         [0x90 | channel, note, velocity]
     }
@@ -754,8 +746,8 @@ mod tests {
         let mut plain = Synth::new(RATE);
         plain.schedule(0, note_on(0, 69, 100));
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
-        // The acid controls act on the acid channel alone, and controllers 2
-        // to 8 set nothing.
+        // The acid controls act on the acid channel alone, and no effect
+        // answers controllers 2 to 8.
         for controller in [2, 3, 4, 5, 6, 7, 8, 70, 71, 79, 121] {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
@@ -1357,9 +1349,6 @@ mod tests {
         synth.schedule(0, note_on(ACID, 45, 100));
         render(&mut synth, seconds(0.2))
     }
-
-    /// Reset All Controllers.
-    const RESET: u8 = 121;
 
     #[test]
     fn reset_all_controllers_leaves_the_acid_voices_sound_alone() {

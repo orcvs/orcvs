@@ -1,13 +1,16 @@
 // The Sound Module (ADR 0088): sixteen channels and the Built-in Synth's eight effects, drawn as
 // Cells. Each channel has its own effects; the effects show and send those of the chosen channel,
-// which follows the channel of each Control Change heard until the reader chooses one. It shows what the page's `orcvs.midi` messages carry, whoever sent them, and sends the reader's
-// changes as Control Change messages on the same page, so the synth and the Sound Module hear one
-// stream.
+// which follows the channel of each Control Change heard until the reader chooses one. It shows
+// what the page's `orcvs.midi` messages carry, whoever sent them, and sends the reader's changes
+// as Control Change messages on the same page, so the synth and the Sound Module hear one stream.
 
 /** How long a channel shows as sounding after a Note On. */
 const SOUNDING_MS = 150;
 
-/** What an effect's column shows: its two-Cell name, the word its Cells show on hover, and its load value. */
+/**
+ * What an effect's column shows: its two-Cell name, the word its Cells show on hover, and its load
+ * value.
+ */
 type Label = { name: string; word: string; load: number };
 
 /**

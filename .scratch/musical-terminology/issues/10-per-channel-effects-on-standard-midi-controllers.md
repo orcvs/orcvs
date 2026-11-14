@@ -12,6 +12,10 @@ one channel's effects changes only that channel.
       Controllers 2–8 no longer set effects.
 - [x] On the acid voice's channel its own controllers win: CC74 is its cutoff and CC75 its decay.
 - [x] The Sound Module shows and sends each effect on a chosen channel, and its spec follows.
+      Beyond what this asked, three additions keep it usable per channel: until the reader picks
+      a channel, the chosen channel follows each Control Change heard; the channel buttons take
+      the keyboard (Enter or Space chooses, the arrow keys move between them); and on `08` the
+      `EQ` and `LN` columns read `CU` and `DC`, the acid voice's cutoff and decay.
 - [x] The Knobs example sets each effect on the channel it should change, and its test no longer
       says any channel will do. Its bassline on `08` is the only part playing, and there CC74 and
       CC75 are the cutoff and decay its `CUT` and `DEC` knobs already turn, so it keeps six effect
