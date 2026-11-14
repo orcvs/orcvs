@@ -25,11 +25,13 @@ const EFFECTS: { controller: number; label: Label; acid?: Label }[] = [
   { controller: 93, label: { name: "CH", word: "Chorus", load: 0x00 } },
   { controller: 94, label: { name: "DL", word: "Delay", load: 0x00 } },
 ];
+/** Modulation's place in `EFFECTS`. */
+const MODULATION = EFFECTS.findIndex(({ controller }) => controller === 1);
 /** The acid voice's channel. */
 const ACID = 0x8;
 /**
- * Reset All Controllers, which clears Modulation, the first effect, and leaves every other effect
- * and the acid voice's controls as they are. Stop sends it on every channel, so it moves no choice.
+ * Reset All Controllers, which clears Modulation and leaves every other effect and the acid voice's
+ * controls as they are. Stop sends it on every channel, so it moves no choice.
  */
 const RESET_ALL_CONTROLLERS = 121;
 /** Effect `index`'s label on `channel`. */
@@ -146,8 +148,8 @@ export function soundModule(module: HTMLElement) {
       sounding.timer = window.setTimeout(() => sounding.digit.classList.remove("sounding"), SOUNDING_MS);
     } else if (status >> 4 === 0xb) {
       if (data1 === RESET_ALL_CONTROLLERS) {
-        values[channel][0] = 0;
-        if (channel === chosen) show(effects[0], 0);
+        values[channel][MODULATION] = 0;
+        if (channel === chosen) show(effects[MODULATION], 0);
         return;
       }
       const index = EFFECTS.findIndex(({ controller }) => controller === data1);

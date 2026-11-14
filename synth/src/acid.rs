@@ -85,7 +85,7 @@ impl Acid {
         }
     }
 
-    /// Plays `note`: legato from the note held, or struck afresh once the last
+    /// Plays `note`: slid into from the note held, or struck afresh once the last
     /// has been released.
     pub(crate) fn play(&mut self, note: u8, velocity: u8) {
         self.target = pitch(note);

@@ -5,7 +5,8 @@ Status: accepted. Settled with Toby on 2026-10-31 in `.scratch/acid-channel/`. I
 envelope and which ignores every Control Change but All Sound Off and All Notes Off: on the acid
 channel the synth also acts on CC 70, 71, 74, 75 and 79 and on Reset All Controllers (CC 121).
 [ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)'s global
-effects stay as they are, and CC 121 leaves them alone. The 2026-11-13 amendment below moves the
+effects stay as they are, and CC 121 leaves them alone, until the second 2026-11-14 amendment,
+under which it clears each channel's Modulation. The 2026-11-13 amendment below moves the
 acid voice to channel `08` and the kit to `09`–`0F`; the 2026-11-14 amendment has the acid voice's
 CC 74 and 75 win over the per-channel tilt and length on its channel; the second 2026-11-14
 amendment has Reset All Controllers follow RP-015, leaving the voice's sound alone.

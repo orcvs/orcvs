@@ -134,7 +134,6 @@ test("the acid voice's channel shows its cutoff and decay where EQ and LN stand"
   await expect(page.locator('.orcvs-sound-module .function[data-effect="2"]').first()).toHaveAttribute("title", "Decay, CC 75");
   expect(await valueOf(page, 1)).toBe("30");
   expect(await valueOf(page, 2)).toBe("30");
-
 });
 
 test("Reset All Controllers clears Modulation and leaves the other effects, as the synth does", async ({ page }) => {
@@ -154,6 +153,22 @@ test("Reset All Controllers clears Modulation and leaves the other effects, as t
   await expect.poll(() => valueOf(page, 0)).toBe("00");
   expect(await valueOf(page, 1)).toBe("7F");
   expect(await valueOf(page, 4)).toBe("40");
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("8");
+});
+
+test("Reset All Controllers moves no choice the effects followed", async ({ page }) => {
+  await page.goto("/");
+
+  // Nothing is picked, so `MD` on `08` takes the choice there; Stop's reset on `0F` leaves it.
+  const post = (bytes: number[]) =>
+    page.evaluate((bytes) => window.postMessage({ type: "orcvs.midi", bytes, time: 0 }, location.origin), bytes);
+  await post([0xb8, 1, 0x7f]);
+  await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("8");
+  await post([0xbf, 121, 0]);
+  // A Note On after the reset, which moves no choice, shows when the reset has been heard.
+  await post([0x90, 60, 100]);
+
+  await expect(page.locator(".orcvs-sound-module .channel").nth(0)).toHaveClass(/sounding/);
   await expect(page.locator(".orcvs-sound-module .channel.chosen")).toHaveText("8");
 });
 
