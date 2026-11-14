@@ -303,9 +303,9 @@ fn comments_from(source: &SourceCommander, row: usize) -> Vec<(usize, usize, usi
 }
 
 /// The channel each Tracker voice plays on: the beat's three voices share
-/// the Built-in Synth's kit on `08`, the bassline plays its acid voice on `09`,
+/// the Built-in Synth's kit on `09`, the bassline plays its acid voice on `08`,
 /// and the others keep Learn Orca's.
-const TRACKER_CHANNELS: [u8; 8] = [8, 8, 8, 9, 4, 5, 6, 7];
+const TRACKER_CHANNELS: [u8; 8] = [9, 9, 9, 8, 4, 5, 6, 7];
 
 ///
 /// The Tracker's voices in Source order: two staircases of four, voice
@@ -335,7 +335,7 @@ fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
 #[test]
 fn the_tracker_plays_the_808_beat_and_the_acid_bassline() {
     // Kick, snare and hat on the first three voices, on the kit's channel
-    // `08`, the bassline on voice 3 on the acid channel `09`, and every other
+    // `09`, the bassline on voice 3 on the acid channel `08`, and every other
     // voice silent: every voice steps once a Tick through sixteen steps, at
     // velocity `77`, the byte Orca's default `f` sends.
     assert_two_loops(
@@ -437,13 +437,13 @@ fn a_half_typed_step_silences_only_its_own_voice() {
             other => panic!("{other:?}"),
         })
         .collect();
-    assert_eq!(played, [(9, 33), (8, 42)]);
+    assert_eq!(played, [(8, 33), (9, 42)]);
 }
 
-/// The channel each Sequencer voice plays on: the beat's three voices share
-/// the Built-in Synth's kit on `08`, and the others keep Learn Orca's, the
-/// last of them the acid voice on `09`.
-const SEQUENCER_CHANNELS: [u8; 10] = [8, 8, 8, 3, 4, 5, 6, 7, 8, 9];
+/// The channel each Sequencer voice plays on: the beat's three voices and the
+/// ninth share the Built-in Synth's kit on `09`, the last plays its acid voice
+/// on `08`, and the others keep Learn Orca's.
+const SEQUENCER_CHANNELS: [u8; 10] = [9, 9, 9, 3, 4, 5, 6, 7, 9, 8];
 
 ///
 /// The Sequencer's ten voices in Source order: voice `v` on its
@@ -464,7 +464,7 @@ fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
 #[test]
 fn the_sequencer_plays_the_808_beat_and_the_acid_bassline_over_both_bars() {
     // Kick, snare and hat on the first three voices, on the kit's channel
-    // `08`, and the bassline on the last, on the acid channel `09`, over both
+    // `09`, and the bassline on the last, on the acid channel `08`, over both
     // bars; every other voice sends nothing.
     assert_two_loops(
         include_bytes!("../../../../examples/sequencer.orcvs"),
@@ -527,7 +527,7 @@ fn the_beat_stacks_its_instruments_twelve_columns_wide() {
 ///
 /// The Beat's first bar and the Tick that starts its second: kick `C2` on
 /// every beat, snare `D2` on beats 2 and 4 and closed hat `f2` on every
-/// eighth, all on channel `08` and each held one Tick, with nothing diagnosed
+/// eighth, all on channel `09` and each held one Tick, with nothing diagnosed
 /// before or during the run.
 ///
 #[test]
@@ -547,22 +547,22 @@ fn the_beat_plays_one_bar_with_nothing_diagnosed() {
         let mut delivery = Vec::new();
         // Each hit stops on the Tick after it starts, in the order they started.
         if tick % 4 == 1 {
-            delivery.push(stop(8, kick));
+            delivery.push(stop(9, kick));
         }
         if tick % 8 == 5 {
-            delivery.push(stop(8, snare));
+            delivery.push(stop(9, snare));
         }
         if tick % 2 == 1 {
-            delivery.push(stop(8, hat));
+            delivery.push(stop(9, hat));
         }
         if tick % 4 == 0 {
-            delivery.push(note_on(8, 0x7F, kick));
+            delivery.push(note_on(9, 0x7F, kick));
         }
         if tick % 8 == 4 {
-            delivery.push(note_on(8, 0x64, snare));
+            delivery.push(note_on(9, 0x64, snare));
         }
         if tick % 2 == 0 {
-            delivery.push(note_on(8, 0x40, hat));
+            delivery.push(note_on(9, 0x40, hat));
         }
         assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
         assert_eq!(

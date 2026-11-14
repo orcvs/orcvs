@@ -5,7 +5,8 @@ Status: accepted. Settled with Toby on 2026-10-31 in `.scratch/acid-channel/`. I
 envelope and which ignores every Control Change but All Sound Off and All Notes Off: on the acid
 channel the synth also acts on CC 70, 71, 74, 75 and 79 and on Reset All Controllers (CC 121).
 [ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)'s global
-effects stay as they are, and CC 121 leaves them alone.
+effects stay as they are, and CC 121 leaves them alone. The 2026-11-13 amendment below moves the
+acid voice to channel `08` and the kit to `09`–`0F`.
 
 Acid basslines are the music a reader expects a sequencer like Orcvs to make, and the Built-in
 Synth cannot make one. A 303's sound is its filter: a resonant lowpass swept down by an envelope on
@@ -82,3 +83,14 @@ moving, which a sample cannot follow.
   and 75 are resonance, cutoff and decay on most synths, and 70 and 79 vary by device. A Source
   written for the acid channel usually only changes timbre elsewhere.
 - ADR 0087's Status line and `CONTEXT.md`'s Built-in Synth entry name the acid channel.
+
+## Amendment, 2026-11-13: the acid voice is on `08` and the kit on `09`–`0F`
+
+Settled with Toby in `.scratch/musical-terminology/` (ticket 08). The acid voice plays on channel
+`08`, MIDI channel 9, and the 808-style kit on `09` to `0F`, MIDI channels 10 to 16; the tone
+channels `00` to `07` are unchanged. `09` is MIDI channel 10, the channel General MIDI gives to
+drums, so a drum part a DAW sends there played basslines; on `08` the acid voice still takes no tone
+channel's slot, and channel 10 plays drums as on any General MIDI module. Read the Decision and
+Consequences above with `08` for the acid channel and `09` for the kit channel it repeats. Every
+shipped example moved with it: the Knobs bassline and its acid knobs, the Tracker's fourth voice
+and the Sequencer's last play on `08`, and the beat in Beat, Tracker and Sequencer plays on `09`.

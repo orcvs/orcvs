@@ -4,8 +4,8 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // fixed delay after its Tick's planned instant. The page's own clock and the audio context's are
 // compared through what the page passes the synth's AudioWorklet, which a spy records.
 
-// A note on channel `08` every Tick: sixteenths at the default 120 BPM.
-const STEADY = "~*0101\n  !~0850f401\n";
+// A closed hat on the kit's channel `09` every Tick: sixteenths at the default 120 BPM.
+const STEADY = "~*0101\n  !~0950f401\n";
 // `synth-host.js`'s delay, the 50 ms target.
 const DELAY_MS = 50;
 
@@ -138,7 +138,7 @@ for (const { gesture, play } of firstPlays) {
     await expect.poll(() => page.evaluate(() => window.synthSpy.context?.state)).toBe("suspended");
 
     // Nothing is stored, so the console opens `examples/knobs.orcvs`, whose bassline plays on the
-    // acid channel `09` from Tick 0.
+    // acid channel `08` from Tick 0.
     await play(page, frame);
     await expect
       .poll(() => page.evaluate(() => window.synthSpy.sounds.length), {
@@ -149,7 +149,7 @@ for (const { gesture, play } of firstPlays) {
     // Tick 0 waited for the audio, so its messages found it running and sound when they were
     // planned to, rather than wait behind its start-up.
     expect(await page.evaluate(() => window.synthSpy.firstMessageFound)).toBe("running");
-    expect(await page.evaluate(() => window.synthSpy.statuses)).toContain(0x99);
+    expect(await page.evaluate(() => window.synthSpy.statuses)).toContain(0x98);
   });
 }
 

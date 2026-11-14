@@ -1,4 +1,4 @@
-//! The tone channels, `0`–`7`.
+//! The tone channels ([`Part::Tone`](crate::Part::Tone)).
 
 use std::f32::consts::TAU;
 

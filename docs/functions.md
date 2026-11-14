@@ -1243,7 +1243,7 @@ the Panel's **O** to hear them.
 
 | Operand | Range |
 |---|---|
-| `channel` | `00` to `0F` |
+| `channel` | `00` to `0F`: MIDI channels 1 to 16 (see [Built-in Synth](#built-in-synth)) |
 | `velocity` | `00` to `7F`; `00` stops the note, and on `!%` stops the channel's Monophonic note |
 | `controller`, `value` | `00` to `7F` |
 | `lsb`, `msb` | `00` to `7F` |
@@ -1471,6 +1471,32 @@ After Tick `0`:
 
 !b000040
 ```
+
+## Built-in Synth
+
+A page on the Orcvs site that frames the console offers the Built-in Synth as a MIDI destination,
+so an example sounds with no MIDI device. It is listed after every MIDI port under the Panel's
+**O**. On any other output, a channel plays whatever that device puts on it.
+
+**Channels.** A `channel` operand counts from `00`, as a MIDI message does, and a DAW or a synth's
+panel counts the same sixteen channels from 1: `00` to `0F` are MIDI channels 1 to 16, so `00` is
+channel 1 and `09` is channel 10. The Built-in Synth plays tones on `00` to `07`, its acid voice on
+`08`, and an 808-style kit on `09` to `0F`. Channel `09` is a drum channel, as it is on a General
+MIDI module, so a drum part a DAW sends on channel 10 plays drums.
+
+| Orcvs | DAW | Built-in Synth |
+|---|---|---|
+| `00` | 1 | Sine |
+| `01` | 2 | Triangle |
+| `02` | 3 | Saw |
+| `03` | 4 | Square |
+| `04` | 5 | FM, a soft bell |
+| `05` | 6 | FM, a bright bass |
+| `06` | 7 | AM, harmonicity 1.5 |
+| `07` | 8 | AM, harmonicity 2 |
+| `08` | 9 | Acid voice: one 303-style voice that slides between overlapping notes |
+| `09` | 10 | The kit, on General MIDI's drum channel |
+| `0A` to `0F` | 11 to 16 | The kit |
 
 ## Network output
 
