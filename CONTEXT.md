@@ -65,7 +65,7 @@ Two Source Cells interpreted as an Atom according to the typed operand position 
 _Avoid_: Typed Source Cell, intrinsically typed literal, contextual coercion
 
 **Defaulted Operand**:
-An operand whose type gives a slot that holds no value a fixed Number, stated where the Function declares it. Per ADR 0109 a blank slot, whether written blank, emptied by a Portal write or cleared by a nested Function, binds exactly as that Number written there would, so the Function cannot tell the two apart, and a written value binds as the plain operand binds it. It sits beside ADR 0108's optional operand, whose blank binds to no value; every other operand still refuses a blank slot.
+An operand whose type gives a slot that holds no value a fixed Number, which the Function's row in the Function table states as the operand type's second parameter. Per ADR 0109 a blank slot, whether written blank, emptied by a Portal write or cleared by a nested Function, binds exactly as that Number written there would, so the Function cannot tell the two apart, and a written value binds as the plain operand binds it. It sits beside ADR 0108's optional operand, whose blank binds to no value; every other operand still refuses a blank slot.
 _Avoid_: Default argument, optional value, fallback
 
 **Spatial Output**:

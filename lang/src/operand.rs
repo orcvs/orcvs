@@ -84,10 +84,6 @@ pub trait TokenKind {
     fn from_atom(atom: crate::Atom) -> Result<Self::Payload, Error>;
 }
 
-/// What a slot that holds no value binds to, for an operand that admits one:
-/// [`Operand::ABSENT`]'s function.
-pub type BlankBinding<B> = fn() -> Result<B, Error>;
-
 /// One operand type a Function table row may declare.
 pub trait Operand {
     /// The token this operand is read as, which fixes the payload [`bind`]
@@ -111,12 +107,19 @@ pub trait Operand {
     ///
     /// Whether an operand admits a blank slot is this answer, so the Parser,
     /// which reads a blank slot as absent only where it is admitted, and
-    /// binding cannot disagree. Only [`Optional`] and [`Defaulted`] admit one.
-    /// It is a function rather than the value, so the Function table can ask
-    /// whether it is present at compile time without dropping a generic
-    /// `Bound`, and it answers a `Result` because [`Defaulted`] binds its
-    /// fixed value as a written one, through the domain's own check.
-    const ABSENT: Option<BlankBinding<Self::Bound>> = None;
+    /// binding cannot disagree. Only [`Optional`] and [`Defaulted`] admit one,
+    /// and neither wraps an operand that does. It is a function rather than
+    /// the value, so the Function table can ask whether it is present at
+    /// compile time without dropping a generic `Bound`.
+    const ABSENT: Option<fn() -> Self::Bound> = None;
+
+    /// Whether a blank slot binds, for the test that runs it for every
+    /// operand the Function table declares: [`Defaulted`]'s fixed value must
+    /// lie in its operand's domain.
+    #[cfg(test)]
+    fn blank_binds() -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 /// A Number: `00`–`FF`.
@@ -290,7 +293,13 @@ pub type BendMsb = Domain<crate::BendMsb>;
 ///
 /// It is read as `O`'s token and binds a present value through `O::bind`, so
 /// a value `O` refuses is refused with `O`'s diagnostic. A slot that holds no
-/// value binds to `None` rather than being refused.
+/// value binds to `None` rather than being refused. `O` must require a value:
+/// an `O` that admits a blank slot would leave two meanings for one.
+///
+/// ```compile_fail
+/// use lang::operand::{Defaulted, Number, Operand, Optional};
+/// const _: bool = <Optional<Defaulted<Number, 0x00>> as Operand>::ABSENT.is_some();
+/// ```
 pub struct Optional<O>(core::marker::PhantomData<O>, core::convert::Infallible);
 
 impl<O: Operand> Operand for Optional<O> {
@@ -302,7 +311,13 @@ impl<O: Operand> Operand for Optional<O> {
         O::bind(payload).map(Some)
     }
 
-    const ABSENT: Option<BlankBinding<Option<O::Bound>>> = Some(|| Ok(None));
+    const ABSENT: Option<fn() -> Option<O::Bound>> = {
+        assert!(
+            O::ABSENT.is_none(),
+            "Optional wraps an operand that admits a blank slot"
+        );
+        Some(|| None)
+    };
 }
 
 /// `O`, or `BLANK` where the slot holds no value: an operand a Source may
@@ -311,9 +326,18 @@ impl<O: Operand> Operand for Optional<O> {
 /// A written value is read and bound exactly as `O` reads and binds it. A slot
 /// that holds no value, whether its Cells are blank or a nested Function
 /// answered a Clear, binds as if `BLANK` were written there, through
-/// `O::bind`, so the Function body cannot tell the two apart. A `BLANK` that
-/// `O`'s domain refuses is refused with `O`'s diagnostic, as the written
-/// value would be. `O` reads a Number, since `BLANK` is one.
+/// `O::bind`, so the Function body cannot tell the two apart. `O` reads a
+/// Number, since `BLANK` is one, and requires a value, as `Optional`'s does.
+///
+/// A Function table row declares one with its value, as
+/// `role: Defaulted<Number, 0x00>`. A `BLANK` outside `O`'s domain fails
+/// the `lang` test that binds every declared operand's blank, so no table
+/// row ships one.
+///
+/// ```compile_fail
+/// use lang::operand::{Defaulted, Number, Operand, Optional};
+/// const _: bool = <Defaulted<Optional<Number>, 0x00> as Operand>::ABSENT.is_some();
+/// ```
 pub struct Defaulted<O, const BLANK: u8>(core::marker::PhantomData<O>, core::convert::Infallible);
 
 impl<O: Operand<Token = Number>, const BLANK: u8> Operand for Defaulted<O, BLANK> {
@@ -325,7 +349,21 @@ impl<O: Operand<Token = Number>, const BLANK: u8> Operand for Defaulted<O, BLANK
         O::bind(number)
     }
 
-    const ABSENT: Option<BlankBinding<O::Bound>> = Some(|| O::bind(BLANK));
+    const ABSENT: Option<fn() -> O::Bound> = {
+        assert!(
+            O::ABSENT.is_none(),
+            "Defaulted wraps an operand that admits a blank slot"
+        );
+        Some(|| match O::bind(BLANK) {
+            Ok(bound) => bound,
+            Err(error) => panic!("a Defaulted blank outside its operand's domain: {error}"),
+        })
+    };
+
+    #[cfg(test)]
+    fn blank_binds() -> Result<(), Error> {
+        O::bind(BLANK).map(drop)
+    }
 }
 
 /// Whether `O` admits a slot that holds no value, for the Function table's
@@ -378,7 +416,7 @@ pub(crate) fn bind_atom<O: Operand>(atom: Option<crate::Atom>) -> Result<O::Boun
         Some(atom) => O::bind(O::Token::from_atom(atom)?),
         None => {
             let blank = O::ABSENT.expect("check refused a blank slot this operand requires");
-            blank()
+            Ok(blank())
         }
     }
 }
@@ -428,11 +466,14 @@ mod tests {
     }
 
     #[test]
-    fn a_fixed_value_outside_the_domain_is_refused_as_if_written() {
+    fn a_fixed_value_outside_the_domain_fails_the_table_check_as_if_written() {
         assert_eq!(
-            refusal::<Defaulted<MidiChannel, 0x10>>(None),
+            Defaulted::<MidiChannel, 0x10>::blank_binds()
+                .err()
+                .map(|error| error.to_string()),
             refusal::<MidiChannel>(Some(Atom::Number(0x10)))
         );
+        assert!(Defaulted::<MidiChannel, 0x0F>::blank_binds().is_ok());
     }
 
     #[test]
