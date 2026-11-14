@@ -40,6 +40,11 @@ impl Tilt {
         self.tilt.rests_at(0.0)
     }
 
+    /// Forgets what the channel played, as the filter settles in silence.
+    pub(crate) fn clear(&mut self) {
+        self.low = 0.0;
+    }
+
     /// The channel's next sample, tilted.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         self.low += (input - self.low) * self.coefficient;

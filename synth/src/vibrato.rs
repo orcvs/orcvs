@@ -52,6 +52,11 @@ impl Vibrato {
         self.swing == 0.0 && self.target == 0.0
     }
 
+    /// Forgets what the channel played, as a line of silence.
+    pub(crate) fn clear(&mut self) {
+        self.line.fill(0.0);
+    }
+
     /// The vibrato's output for the channel's next sample.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         let length = self.line.len();
