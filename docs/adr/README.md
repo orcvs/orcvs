@@ -33,18 +33,20 @@ a day, and left 78 bare citations outside this directory resolving to either of 
 rule in one place, as a snapshot at the revision each document names. The ADRs stay binding: a
 requirement that disagrees with an accepted ADR is a defect in the requirement. Accepting an ADR
 updates the owning requirement and its snapshot marker in the same change, as the requirements
-index describes; an ADR that changes nothing a requirement states says so in its pull request.
+index describes, or marks that topic's snapshot as behind; an ADR that changes nothing a requirement states says so in its pull request.
 
-The topic that restates each ADR, superseded ADRs included so a reader can see where their
-surviving clauses went:
+The topic that owns each ADR, superseded ADRs included so a reader can see where their surviving
+clauses went. An ADR with clauses in several topics is listed under each owner, with the part it
+owns; a topic that only restates a neighbouring clause names that ADR in its own snapshot marker,
+which is the complete list of what the document restates.
 
 | Requirement | ADRs |
 | --- | --- |
 | [Language](../requirements/language.md) | 0005, 0007, 0008, 0010, 0011, 0013, 0015, 0017, 0018, 0019, 0021, 0023, 0024, 0025, 0026, 0029, 0030, 0033, 0035, 0039, 0043, 0049, 0054, 0061, 0062, 0063, 0067, 0069, 0070, 0071, 0072, 0073, 0074, 0075, 0103 (spelling and building), 0104, 0105, 0107, 0108, 0109 |
 | [Evaluation](../requirements/evaluation.md) | 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0031, 0032, 0034, 0036, 0057, 0060, 0065, 0066, 0068, 0077 |
-| [Playback and outputs](../requirements/playback.md) | 0001, 0002, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087 (the synth as a destination), 0088, 0090, 0099, 0103 (sounded commands) |
+| [Playback and outputs](../requirements/playback.md) | 0001, 0002, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087 (the synth as a destination), 0088 (what the effects do), 0090, 0099, 0103 (sounded commands) |
 | [Console](../requirements/console.md) | 0022, 0038, 0040, 0042, 0044, 0045, 0046, 0047, 0048, 0050, 0051, 0052, 0053, 0058, 0078, 0079, 0080, 0081, 0082, 0083, 0084, 0089, 0092, 0095, 0096, 0098, 0100, 0102 |
-| [Site](../requirements/site.md) | 0086, 0087 (page messages and timing), 0091, 0093, 0094, 0097, 0101 |
+| [Site](../requirements/site.md) | 0086, 0087 (page messages and timing), 0088 (the Sound Module), 0091, 0093, 0094, 0097, 0101 |
 
 ### Words the older ADRs use
 
@@ -57,4 +59,6 @@ ADRs keep the vocabulary they were written in. Where it has changed:
 | Pending Function, pending state | Invalid input: a Function with an unwritten required operand does not evaluate | ADR 0069 |
 | Rest, a Play that rests | A Play whose note is not written sends nothing | ADR 0108 |
 | Address Function, the `&` directional addressing family | The Read, Write and Copy families | ADR 0070 |
+| Delay `~*` | Every `~*` | ADR 0012's 2026-11-14 amendment |
+| Jump `&^ &v &< &>` | The directional Copies `=^ =v =< =>`; `&` now spells the Reads | ADR 0070 |
 | Margin of the Source View | No margin; Pan stops at the Grid's edge | ADR 0084 |

@@ -438,3 +438,13 @@ except as listed here; each retained row maps to the rule its row names.
   network settings UI, BPM; SITE — page messages `orcvs.synth/midi/wake/audio`, 500 ms start hold
   (0087, 0089), Linked/small console pick, Sound Module (0088), `sound.magnitude`, `console-web`
   shipping.
+
+### Audit fix (D2)
+
+- PLAY-520 keeps listing order and auto-pick only; the unavailable synth (former PLAY-630 content)
+  and the unframed console now link to SITE-046 and SITE-048.
+- PLAY-540 keeps only "each message carries its Tick's planned time"; the 50 ms delay and
+  late-message handling link to SITE-042/SITE-043.
+- Intro no longer claims site.md states 0088's Sound Module; it says SITE owns it.
+
+- PLAY-230 reworded: only a Monophonic Play that emits a Play Command replaces the claim; a blank note leaves the voice sounding (ADR 0108).

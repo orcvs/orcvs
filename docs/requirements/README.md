@@ -27,7 +27,7 @@ and the highest ADR it incorporates.
 | --- | --- | --- |
 | [Language](language.md) | Source, the Grid, Cells and Positions, parsing, Language Units, Atoms and literal types, operands (blank, optional, defaulted), Comments, Function families, nested Returns | `c8cc197`, 2026-11-14, ADRs through 0109 |
 | [Evaluation](evaluation.md) | Ticks, Turns and their order, Portals, placement and movers, activation and Bangs, cycles and errors, time and feedback Functions, committing a Tick against live edits | `c8cc197`, 2026-11-14, ADRs through 0109 |
-| [Playback and outputs](playback.md) | The Playback Engine's lifecycle, Stop and Rewind, the Tick Grid, diagnostics, MIDI, UDP and OSC sends, the Built-in Synth's voices | `c8cc197`, 2026-11-14, ADRs through 0109 |
+| [Playback and outputs](playback.md) | The Playback Engine's lifecycle, Stop and Rewind and what they do to the absolute Tick, the Tick Grid, diagnostics, MIDI, UDP and OSC sends, the Built-in Synth's voices | `c8cc197`, 2026-11-14, ADRs through 0109 |
 | [Console](console.md) | The console window, Source View, Pan, Zoom, Region and keys, touch, Paint and Themes, the Minimap, the Panel, Toasts, the Output list, settings | `c8cc197`, 2026-11-14, ADRs through 0109 |
 | [Site](site.md) | The site, the small console and its page messages, links into the console, Copy Link, page settings, the console's web build and deploy | `c8cc197`, 2026-11-14, ADRs through 0109 |
 

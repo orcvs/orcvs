@@ -1,6 +1,6 @@
 # Requirements snapshot — run record
 
-Status: in progress (see "Next action")
+Status: drafted, audited and reconciled through `c8cc197`; delivered as a draft pull request
 
 This record lets another session resume the requirements rewrite without this conversation. It
 follows the `requirements-rewrite` workflow: ADRs stay the binding, append-only history, and
@@ -99,6 +99,97 @@ Baseline fresh-reader run: an agent with no access to `docs/requirements/` or th
 answered all 30 questions through the existing reading path (`AGENTS.md`, `CONTEXT.md`,
 `docs/agents/domain.md`, `docs/adr/`). Its answers are summarized under "Audit".
 
+## Draft (done 2026-11-14)
+
+`docs/requirements/{language,evaluation,playback,console,site}.md` hold 288 rules under one snapshot
+marker each (`c8cc197`, ADRs through 0109), with "Accepted but not built, or built differently" and
+"Open decisions" sections. `docs/requirements/README.md` is the index and the workflow guide: the
+reading order, the topic list with markers, and same-change maintenance (decisions D1). Each trace
+maps every retained row to its final rule ID and records merges.
+
+Routing edits: `AGENTS.md` (sources of truth, Domain docs), `docs/agents/domain.md` (reading list,
+conflict rule, recording decisions and terms), `docs/adr/README.md` (ADR-to-topic table, older
+vocabulary). `CONTEXT.md`: Linked Console and Small Console added; Function, Clear, Pan, Operand
+Literal corrected against the ADRs; Built-in Synth and Playback Engine behaviour moved to the
+requirements. No ADR file changed (`git diff --stat c8cc197..HEAD -- docs/adr` lists only the
+README).
+
+## Audit (done 2026-11-14)
+
+- Independent audit by a separate agent with no part in drafting: `audit-findings.md`. Two high
+  findings (ADR 0088's Sound Module in no requirement; CONS-028 stating a retired Sequence rule with
+  nonexistent tests), four medium (CONS-076 binding proposed ADR 0079; PLAY-540/520 duplicating
+  SITE rules; CONTEXT.md Playback Engine contradicting PLAY-260; three "ruled" citations without a
+  ruling), four low. All resolved: SITE-033 to SITE-038 added; CONS-028, CONS-076, CONS-130,
+  CONS-131, CONS-133, PLAY-520, PLAY-540 rewritten; anchors fixed; glossary sentence repointed. The
+  auditor's "Jump is now Read" row was wrong (ADR 0070 renames Jump to Copy) and was corrected
+  rather than applied.
+- Fresh-reader exercises: 30 questions in `reader-questions.md`, expected answers in each trace.
+  Baseline through the old reading path: `baseline-answers.md` (main problems: no topic map, chains
+  of superseded ADRs, stale facts in ADR bodies). After drafting, a new reader through the new path:
+  `postdraft-answers.md`; the owning rule was usually found within three files. Its findings were
+  applied: PLAY-230 wording (a blank-note Monophonic Play replaces nothing), LANG-130 cites ADR 0067's
+  deferral, LANG-140 names `MA` and `io`, CONS-029 states ADR 0077's retained-record conditions,
+  the README routes Stop/Rewind's effect on the absolute Tick to playback. E1, P6 and S5 stayed
+  medium or low confidence because the questions are ambiguous, not because a rule is missing.
+- Freshness: `origin/main` re-fetched at each phase boundary and before delivery; still
+  `c8cc197c32cfd7414f617cbc8fc5e4a846a44af4`, so no reconciliation was needed.
+
+## Validation log
+
+- `python3 -I check-requirements.py .` (the script below) — passed: 288 rules in 6 documents,
+  snapshot markers present, no duplicate or undefined rule IDs, no broken relative links in the
+  requirements, `docs/adr/README.md` or `docs/agents/domain.md`.
+- `node --test scripts/tests/roadmap.test.ts` — passed (10/10).
+- `node scripts/roadmap.ts > /dev/null` — passed; the effort lists issues 01–04.
+- `cargo fmt --all -- --check` — passed (no Rust changed).
+- `git diff --check c8cc197` — passed.
+- Not run: crate clippy and nextest gates and the workspace pre-PR runs — the change edits no crate,
+  manifest or Rust file. `mise run site_build`/`site_test` — the change does not touch `site/`,
+  `docs/first-result.md` or `docs/functions.md`. Everything else in `AGENTS.md`'s list is deferred to
+  CI or untouched.
+
+```python
+# Validates docs/requirements: snapshot markers, unique rule IDs, rule references, relative links.
+import re, os, sys, glob
+root = sys.argv[1] if len(sys.argv) > 1 else '.'
+req = os.path.join(root, 'docs/requirements')
+docs = sorted(glob.glob(os.path.join(req, '*.md')))
+errors = []; defined = {}
+for d in docs:
+    t = open(d).read(); name = os.path.basename(d)
+    if name != 'README.md' and not re.search(r'^> Snapshot: checked against `[0-9a-f]{7,40}` \(\d{4}-\d\d-\d\d\); incorporates ADRs through \d{4}\.', t, re.M):
+        errors.append(f'{name}: missing snapshot marker')
+    for m in re.finditer(r'^### ([A-Z]+-\d{3})\b', t, re.M):
+        if m.group(1) in defined: errors.append(f'{name}: {m.group(1)} also defined in {defined[m.group(1)]}')
+        defined[m.group(1)] = name
+for d in docs:
+    t = open(d).read(); name = os.path.basename(d)
+    for rid in set(re.findall(r'\b((?:LANG|EVAL|PLAY|CONS|SITE)-\d{3})\b', t)):
+        if rid not in defined and not re.search(re.escape(rid) + r'.{0,80}(reserved|merged|Open decision|\(proposed\))', t, re.I | re.S):
+            errors.append(f'{name}: references undefined {rid}')
+    for link in re.findall(r'\]\(([^)#\s]+)(?:#[^)]*)?\)', t):
+        if re.match(r'[a-z]+:', link): continue
+        if not os.path.exists(os.path.normpath(os.path.join(req, link))): errors.append(f'{name}: broken link {link}')
+for extra in ['docs/adr/README.md', 'docs/agents/domain.md']:
+    p = os.path.join(root, extra); base = os.path.dirname(p)
+    for link in re.findall(r'\]\(([^)#\s]+)(?:#[^)]*)?\)', open(p).read()):
+        if re.match(r'[a-z]+:', link): continue
+        if not os.path.exists(os.path.normpath(os.path.join(base, link))): errors.append(f'{extra}: broken link {link}')
+print(f'{len(defined)} rules in {len(docs)} documents')
+print('\n'.join(errors) or 'no errors'); sys.exit(1 if errors else 0)
+```
+
+## Open items
+
+- D5 (value roots and ADR 0006) and D6 (accepting ADRs 0078 and 0079) await Toby; both are listed
+  as open in their requirements and in `issues/04`.
+- Follow-ups: `issues/01` (trim glossary entries), `issues/02` (stale code citations), `issues/03`
+  (ADR status-line forward pointers), `issues/04` (open decisions and missing glossary terms).
+
 ## Next action
 
-Draft: topic agents write `docs/requirements/<topic>.md` under the snapshot marker for `c8cc197`.
+On a D5 or D6 answer: apply it to `evaluation.md` or `console.md` (and the ADR status lines for D6,
+or a new ADR for D5), move the item out of "Open decisions", and re-run the validator. Before merge,
+re-fetch `main`; if it moved, classify `git diff --name-status c8cc197..origin/main` by topic and
+reconcile affected topics, advancing only their markers.

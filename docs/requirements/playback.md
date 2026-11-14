@@ -4,8 +4,8 @@
 > ADRs accepted after 0109 bind where they differ, until this document is updated.
 > Source ADRs: 0001, 0002, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090, 0099,
 > 0103. Reviewed, not applicable or wholly superseded: none wholly superseded; 0087's page protocol
-> and 0088's Sound Module are stated in [site.md](site.md), and 0103's Chord building in
-> [language.md](language.md).
+> and timing are stated in [site.md](site.md), 0088's Sound Module is owned by the Site topic, and
+> 0103's Chord building is stated in [language.md](language.md).
 
 This document owns the Playback Engine: its lifecycle, requests, musical time, diagnostics, stop and
 Rewind; the MIDI, UDP and OSC outputs and the policy each destination keeps; MIDI destination
@@ -393,7 +393,9 @@ Evidence: `orcvs/src/playback/schedule.rs`; test
 
 ### PLAY-230 A Monophonic Play owns one voice per channel
 
-Every Monophonic Play replaces the channel's Mono-owned claim, whatever note it held. Velocity `00`
+Every Monophonic Play that emits a Play Command replaces the channel's Mono-owned claim, whatever
+note it held. A Monophonic Play whose note is blank emits none, so the voice sounds on to its own
+Note Off ([language.md](language.md), ADR 0108). Velocity `00`
 or length `00` starts nothing, replacing the voice with silence (unlike Timed Play's length `00`).
 Otherwise the replacement starts and its Note Off is scheduled at executed Tick `T + length`.
 Channels are independent; the last command in a Tick owns the channel. Retriggered replacement and
@@ -404,7 +406,8 @@ Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
 Evidence: `orcvs/src/playback/schedule.rs`; test `a_monophonic_play_stops_whatever_note_its_channel_was_sounding`,
 `a_monophonic_play_with_velocity_zero_replaces_the_voice_with_silence`,
 `a_monophonic_play_with_no_length_replaces_the_voice_with_silence`,
-`a_mono_voice_is_owned_per_channel_and_channels_do_not_steal_from_one_another`.
+`a_mono_voice_is_owned_per_channel_and_channels_do_not_steal_from_one_another`;
+`orcvs/src/playback.rs` `a_monophonic_play_whose_note_goes_blank_leaves_its_voice_sounding`.
 
 ### PLAY-240 `legato` sets the order of a Monophonic replacement's messages
 
@@ -743,11 +746,10 @@ Evidence: `console/src/web_midi/requests.rs`; test `a_stale_refusal_leaves_the_l
 While a framing page announces a Built-in Synth, it is offered after every MIDI port and chosen like
 any destination. Automatic selection picks it only when no port exists; while MIDI access is
 pending, automatic selection picks the first destination listed until discovery settles, after
-which the first destination replaces it; a destination the performer chose stays chosen. A synth the
-page announces as unavailable is listed, and choosing it answers the page's reason as a connect
-failure while Playback runs on silently. A console no page frames offers no Built-in Synth. The page
-messages, and the Linked or small console's pick, are in [site.md](site.md); how the list is drawn
-is in [console.md](console.md).
+which the first destination replaces it; a destination the performer chose stays chosen. The page
+messages and the Linked console's pick are in [site.md](site.md) (SITE-040, SITE-041); an
+unavailable synth in SITE-046; a console no page frames in SITE-048. How the list is drawn is in
+[console.md](console.md).
 
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md),
 [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md)
@@ -756,24 +758,19 @@ Evidence: `console/src/built_in_synth.rs`; test
 `the_synth_is_listed_after_the_ports_only_while_a_page_announces_it`,
 `an_unlinked_console_picks_the_synth_only_without_a_port`,
 `pending_midi_access_plays_through_the_synth_until_a_port_is_granted`,
-`a_synth_the_performer_picked_while_pending_stays_picked`,
-`an_unavailable_synth_answers_its_reason_on_connect`.
+`a_synth_the_performer_picked_while_pending_stays_picked`.
 
-### PLAY-540 Each message carries its Tick's planned time, and the synth sounds a fixed delay after it
+### PLAY-540 Each message carries its Tick's planned time
 
 Playback hands each destination, with every message, how late its Tick is, so the destination can
-recover the Tick's planned instant; other destinations may ignore it. The Built-in Synth plays each
-message a fixed delay, within a 50 ms target, after that planned instant, so a late timer or slow
-frame moves no note until its lateness exceeds the delay; a message already later than the delay
-sounds at once.
+recover the Tick's planned instant; a destination may ignore it. The Built-in Synth's fixed delay
+and its handling of late messages are in [site.md](site.md) (SITE-042, SITE-043).
 
 Reason: a note sounds on its Tick, not when it arrives.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `orcvs/src/playback/outputs.rs` `Outputs::deliver`; `synth/web/synth-host.js`; test
-`orcvs/src/midi.rs` `a_submission_hands_each_message_how_late_its_tick_was`;
-`console/src/built_in_synth.rs` `each_message_is_posted_with_how_late_its_tick_was`;
-`site/tests/synth.spec.ts` "a framed console plays the page's synth at a constant offset from its
-Ticks" (assertions inspected).
+Evidence: `orcvs/src/playback/outputs.rs` `Outputs::deliver`; test `orcvs/src/midi.rs`
+`a_submission_hands_each_message_how_late_its_tick_was`; `console/src/built_in_synth.rs`
+`each_message_is_posted_with_how_late_its_tick_was`.
 
 ## The Built-in Synth's sound
 

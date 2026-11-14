@@ -2,10 +2,11 @@
 
 > Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
 > ADRs accepted after 0109 bind where they differ, until this document is updated.
-> Source ADRs: 0054, 0086, 0087, 0089, 0091, 0093, 0094, 0097, 0101, 0102. Reviewed, not applicable or wholly superseded: none wholly superseded; 0079 (proposed, owned by [console.md](console.md)).
+> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102. Reviewed, not applicable or wholly superseded: none wholly superseded; 0079 (proposed, owned by [console.md](console.md)).
 
 This document owns the web console's life on a page: opening a Source by link or by message, the
-messages between a console and the page that frames it, the page's audio, the web settings
+messages between a console and the page that frames it, the page's audio and the timing of its
+Built-in Synth, the Sound Module, the web settings
 element, Copy Link, and the build and deploy chain that puts a console on the site. The Built-in
 Synth's voices, effects, listing order and automatic selection belong to [playback.md](playback.md).
 Settings keys, the top bar and the Panel belong to [console.md](console.md). The Source File format
@@ -164,6 +165,101 @@ examples in a new window is bad".
 Sources: ruled 2026-10-26, no ADR (`.scratch/site-as-console/spec.md`).
 Evidence: `site/src/console/docs.ts`, `grid.ts`; tests `site/tests/lesson.spec.ts` "the lesson is docs/first-result.md, heading for heading", `site/tests/reference.spec.ts` "every example is a Grid, and every starting Source opens in the console", `site/tests/smoke.spec.ts` "nothing on the site opens a new tab or window" (assertions inspected).
 
+## The Sound Module
+
+What each effect does to the sound, and how the synth answers each controller, are in
+[playback.md](playback.md). The controller numbers and load values are in
+[docs/functions.md § Built-in Synth](../functions.md#built-in-synth). This section states what the
+Sound Module shows and sends.
+
+### SITE-033 The Sound Module is a Grid of Cells on `/` only
+
+The Sound Module is drawn the way the site draws a Source, as Cells in the console's font and the
+Grayscale Theme colours. Its top row holds the sixteen channels, each a Cell holding its hex digit
+with a spacer Cell after it. A blank row follows. Below it are eight effect columns, each two Cells
+wide with two spacer Cells between columns. Each column holds three rows:
+- a magnitude: two bordered Cells, filled at the value's fraction of `7F`, with no glyphs
+- a value: two hex digits in the Number role's colours
+- a name: two Cells in the Function role's colours
+
+The columns run in controller order: `MD`, `EQ`, `LN`, `OF`, `R1`, `R2`, `CH`, `DL`. Hovering a Cell
+names its effect and controller. The Sound Module appears on `/` only. A page with the small console
+plays the effects a Source sets but shows no Sound Module.
+
+Reason: it reads as part of the console rather than a control panel beside it.
+Not: page HTML knobs and lights, or a bar of glyphs for the magnitude.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) and its 2026-11-14 amendment.
+Evidence: `site/src/console/sound-module.ts` `soundModule`; `site/src/console/sound-module.css`; tests `site/tests/sound-module.spec.ts` "the Sound Module draws its lights and effects at their load values", "each effect's Cells name the effect and its Control Change on hover" (assertions inspected).
+
+### SITE-034 A channel lights for 150 ms when a Note On sounds it, and shows no level
+
+A channel's Cell is dim until a Note On sounds it. It then takes the Function role's colours and
+goes dim again 150 ms later. A channel shows no level.
+
+Reason: a light at velocity would read as one of the effects.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md).
+Evidence: `site/src/console/sound-module.ts` `hear`, `SOUNDING_MS`; test `site/tests/sound-module.spec.ts` "a Note On from the console shows its channel as sounding, then idle" (assertions inspected).
+
+### SITE-035 The effects show the chosen channel's values, and follow the stream until the reader chooses
+
+The Sound Module keeps every channel's effect values from the one stream of `orcvs.midi` messages it
+hears on its page, whoever sent them. Its effect columns show the chosen channel's values.
+- Channel `00` is chosen at load.
+- Until the reader chooses a channel, the chosen channel follows the channel of each effect Control
+  Change heard, so a Source's effects show as it plays.
+- Reset All Controllers changes no choice.
+- The reader chooses a channel by clicking its digit, or by pressing Enter or Space on a digit
+  reached with Tab. The arrow keys step from channel to channel.
+- The chosen channel is outlined in the magnitude colour.
+- Choosing a channel shows the values that channel was last sent.
+
+Reason: each channel has its own effects, and a musician's other gear never lets one channel's
+controller change another's.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) (2026-11-14 amendment).
+Evidence: `site/src/console/sound-module.ts` `choose`, `pick`, `hear`; tests `site/tests/sound-module.spec.ts` "a Control Change from the console shows as its effect's value on its channel", "until the reader chooses a channel, the effects follow the channel a Control Change is on", "the keyboard chooses a channel", "Reset All Controllers moves no choice the effects followed" (assertions inspected).
+
+### SITE-036 The reader types values as on the Grid, and each change is sent as a Control Change on the chosen channel
+
+Clicking a value's digit puts the Cursor there.
+- A hex digit overwrites the digit under the Cursor, and the Cursor steps east.
+- The arrow keys move the Cursor across the values.
+- Escape gives the keys back to the page.
+- A digit that would take the value past `7F` is refused.
+- No drag or scroll changes a value.
+
+Each change is sent as a Control Change on the chosen channel. It goes as an `orcvs.midi` message on
+the Sound Module's own page, the same message a console posts, so the synth and the Sound Module
+hear one stream.
+
+Reason: typing matches the Grid and leaves dragging and scrolling to the page.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) and its 2026-11-14 amendment.
+Evidence: `site/src/console/sound-module.ts` keydown handler, `send`, `place`; tests `site/tests/sound-module.spec.ts` "typing on a value writes it as the Grid does, and sends its Control Change", "typing on a value sends its Control Change on the chosen channel" (assertions inspected).
+
+### SITE-037 Values reset on every load, and the acid channel shows the acid voice's controls
+
+Nothing the Sound Module shows persists across page loads. Every channel starts at its effects' load
+values, and a Source that needs an effect sets it.
+
+On the acid channel `08`, the second and third columns are the acid voice's cutoff, `CU`, and decay,
+`DC`, which load at `30`. On every channel, Reset All Controllers shows `MD` as `00` and leaves the
+other columns, `CU` and `DC` included, as they are, matching what the synth does.
+
+Reason: a Source that sounded different on a second visit could not be shared.
+Not: keeping the reader's changes across loads.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) and its 2026-11-14 amendment; [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md).
+Evidence: `site/src/console/sound-module.ts` `EFFECTS`, `loads`, `labelOf`; tests `site/tests/sound-module.spec.ts` "the acid voice's channel shows its cutoff and decay where EQ and LN stand", "Reset All Controllers clears Modulation and leaves the other effects, as the synth does" (assertions inspected).
+
+### SITE-038 The Sound Module takes one Theme colour, `sound.magnitude`
+
+Each magnitude's border and fill, and the chosen channel's outline, use `sound.magnitude`. Each
+built-in Theme sets it to its `source.bang` colour. The site carries it as
+`--orcvs-sound-magnitude`. The console's Theme format gains the key when the console draws the
+Sound Module.
+
+Reason: the magnitude colour can then differ from Bang without changing Bang.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md).
+Evidence: `site/src/styles/orcvs.css` `--orcvs-sound-magnitude`; `site/src/console/sound-module.css`.
+
 ## The Built-in Synth on a page
 
 ### SITE-040 A page announces its synth with `orcvs.synth` after the console's `orcvs.ready`
@@ -199,7 +295,8 @@ Evidence: `console/src/built_in_synth.rs` `BrowserPage::post`; test `site/tests/
 
 ### SITE-043 The page plays a message a fixed delay after its planned instant
 
-The page plays each `orcvs.midi` a fixed delay after its `time`. The delay is set within a 50 ms
+The console recovers `time` from how late Playback says each message's Tick is (PLAY-540). The
+page plays each `orcvs.midi` a fixed delay after its `time`. The delay is set within a 50 ms
 target. A message whose time has passed by more than the delay sounds at once. The page passes
 each message on to the synth core, which [playback.md](playback.md) describes.
 

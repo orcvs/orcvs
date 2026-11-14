@@ -256,3 +256,17 @@ Document: `docs/requirements/site.md`. Each retained row above lands in the rule
 - SITE-050 and SITE-052 bind per ADR 0091 and 0102. The `[cell]` keys are pointed to CONS "Proposed, built" (D6).
 - CONTEXT rows: the Built-in Synth offer and Linked pick land in SITE-040/041, the planned time plus offset in SITE-043, the Sound Module placement in SITE-031.
 - Redirected rows to be stated elsewhere. PLAY: listing after ports and auto-pick when no port exists, the synth core in an AudioWorklet with native via cpal, voices and kit, `orcvs.midi` carrying the safety action, and `MidiConnection` planned time. CONS: the `[minimap] open` and `[diagnostics] open` keys, and the Help menu's Learn and Reference. LANG: the Source File reader.
+
+## Audit fix (F1, F4)
+
+- ADR 0088 and its 2026-11-14 amendment now belong to SITE (PLAY and SITE had each redirected them to the other). New rules:
+  - SITE-033 Grid of Cells on `/` only
+  - SITE-034 Channel light lasts 150 ms and shows no level
+  - SITE-035 Chosen channel: `00` at load, follows the CC stream until the reader chooses, outlined, chosen by click or keys
+  - SITE-036 Typing values; a digit past `7F` is refused; each change is sent as a CC on the chosen channel
+  - SITE-037 Reset on load; `CU` and `DC` on `08`; Reset All Controllers shows `MD` as `00`
+  - SITE-038 The `sound.magnitude` colour
+- Checked against `site/src/console/sound-module.ts`, `sound-module.css` and `site/tests/sound-module.spec.ts`. Typing also ends following (`picked = true`). That is built, but no ADR states it, so no rule binds it.
+- Redirected to PLAY: what each effect does to the sound and how the synth answers each controller (0088's Consequences, the amendment's first two bullets).
+- ADR 0088 and 0099 are added to the marker.
+- F4: SITE-043 now links to PLAY-540 for how late each Tick is. SITE-043, SITE-046 and SITE-048 already state the delay, the unavailable synth and the unframed console in full, so PLAY can link to them.
