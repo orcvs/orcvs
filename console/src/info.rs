@@ -82,10 +82,7 @@ pub(crate) fn info(frame: &RenderFrame) -> Vec<Entry> {
     entries.push(match owner.answer {
         Some(span) => Entry {
             cells: span.positions().collect(),
-            label: summary
-                .strip_prefix(ANSWER_PREFIX)
-                .unwrap_or(summary)
-                .to_owned(),
+            label: summary.trim_prefix(ANSWER_PREFIX).to_owned(),
             strong: false,
         },
         None => Entry {

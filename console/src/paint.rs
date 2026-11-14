@@ -2871,7 +2871,7 @@ mod tests {
 
         ///
         /// A Bang answer keeps all its own paint inside an Output Portal:
-        /// `**` left south of `~*0401` (Delay) reads as a genuine bound Bang
+        /// `**` left south of `~*0401` (Every) reads as a genuine bound Bang
         /// claim (`RenderFrame`'s own `a_standalone_bang_is_one_bound_bang_claim`)
         /// and paints as the second `**`, on the row below, which sits
         /// outside any Reservation.

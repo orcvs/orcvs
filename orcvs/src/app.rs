@@ -660,12 +660,12 @@ impl<S> Orcvs<S> {
     /// does not move to follow it.
     ///
     fn paste(&mut self, text: &str) {
-        let text = text.strip_suffix('\n').unwrap_or(text);
-        let text = text.strip_suffix('\r').unwrap_or(text);
+        let text = text.trim_suffix('\n');
+        let text = text.trim_suffix('\r');
         let top_left = self.region().top_left();
         let rows: Vec<Vec<char>> = text
             .split('\n')
-            .map(|line| line.strip_suffix('\r').unwrap_or(line).chars().collect())
+            .map(|line| line.trim_suffix('\r').chars().collect())
             .take(self.grid.rows() - top_left.y())
             .collect();
         let width = rows
