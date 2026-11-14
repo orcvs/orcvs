@@ -512,8 +512,9 @@ and a second `rustc-hash`, and `snapshot`'s image differ brings `colored` 2 unde
 for that one crate. `mise run audit_deps` answers for all three on every pull request whether or not
 anything compiles them.
 
-- `criterion` measures the three benchmarked paths — language execution in `lang`, populated Source
-  reading, rendering, and editing in `orcvs`, and Paint derivation in `console`; `benchmark-action/github-action-benchmark` stores and
+- `criterion` measures the four benchmarked paths — language execution in `lang`, populated Source
+  reading, rendering, and editing in `orcvs`, Paint derivation in `console`, and the Built-in Synth's
+  render block in `synth`; `benchmark-action/github-action-benchmark` stores and
   compares the results, and the same pinned action stores the allocation series beside them. The
   allocation counting itself takes no dependency at all: it is a `GlobalAlloc` forwarding to
   `System` inside each crate's `tests/allocation.rs`, which those files explain in place.
