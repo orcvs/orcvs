@@ -21,11 +21,12 @@
 ## Answer
 
 Resolved on 14 November 2026. `lang`'s Euclidean body places its onsets as Tidal's `bjorklund`
-does, keeping only the two groups the pairing builds, on the stack, for any `steps` up to `FF`. A
+does, for any `steps` up to `FF`, by walking the pairing's levels as counts and lengths, so it
+copies no step of any group. A
 transcription of Tidal's `Sound.Tidal.Bjorklund`, in test code only and itself checked against
 published patterns, is compared with `~%` for every 1 ≤ `hits` ≤ `steps` ≤ 32 over two cycles. Zero
-hits is silence and zero steps is refused, each with its own test, and a further test checks that
-any byte of steps holds exactly `hits` onsets starting on one. `~%0304` appeared only in `orcvs`
+hits is silence and zero steps is refused, each with its own test, and sampled patterns up to `FF`
+steps are compared with the reference too. `~%0304` appeared only in `orcvs`
 tests, which now expect `XXX.`; the shipped examples and the console's Function Reference use
 `~%0104` and `~%0308`, whose patterns do not change. `docs/functions.md` and `CONTEXT.md` describe
 the patterns as Tidal's with `~%0304` as a runnable example, `docs/research/timing-operators.md`

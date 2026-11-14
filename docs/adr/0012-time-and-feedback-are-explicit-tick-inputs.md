@@ -22,7 +22,7 @@ Delay `~*` is named **Every** and Interpolation `~>` is named **Slew**; their sp
 
 ## Amendment, 2026-11-14: Euclidean patterns match Tidal's
 
-Euclidean `~% hits steps` no longer uses Orca's bucket distribution and phase. For every `steps` from `01` to `FF` and `hits` from `00` to `steps`, it Bangs where Tidal's `bjorklund (hits, steps)` places an onset, at position `t % steps`: Tidal pairs groups of onsets with groups of rests until at most one group is left on one side, and the pattern is what remains, read front to back. Every pattern still starts on an onset, zero hits is silence, and zero steps and more hits than steps still diagnose, zero steps first.
+Euclidean `~% hits steps` no longer uses Orca's bucket distribution and phase. For every `steps` from `01` to `FF` and `hits` from `00` to `steps`, it Bangs where Tidal's `bjorklund (hits, steps)` places an onset, at position `t % steps`: Tidal pairs groups of onsets with groups of rests until at most one group is left on one side, and the pattern is what remains, read front to back. Every pattern with an onset still starts on one, zero hits is silence, and zero steps and more hits than steps still diagnose, zero steps first.
 
 The two distributions are rotations of one another, and they differ for 237 of the 560 patterns with `steps` up to `20`. E(3,4) is `XXX.` rather than `X.XX`, E(5,8) `X.XX.XX.` rather than `X.X.XX.X`, and E(2,5) `X.X..` rather than `X..X.`; E(3,8), `X..X..X.`, is the same. A musician who copies a pattern from Tidal, or from the published tables Tidal follows, now hears the same rhythm.
 

@@ -633,8 +633,8 @@ After Tick `3`, then after Tick `4`:
 `~% hits steps` answers a Bang on `hits` Ticks spread as evenly as possible across each cycle of
 `steps` Ticks, and a Clear on the rest. The patterns are Tidal's Euclidean rhythms, so a pattern
 copied from Tidal's `"bd(3,8)"` sounds the same: `~%0308` gives `X..X..X.`, the tresillo. Every
-pattern starts on a hit. Zero `hits` is silence. A `steps` of `00`, or more `hits` than `steps`,
-diagnoses.
+pattern with a hit starts on one, and zero `hits` is silence. A `steps` of `00`, or more `hits`
+than `steps`, diagnoses.
 
 ```orcvs
 ~%0308

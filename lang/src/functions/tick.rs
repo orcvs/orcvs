@@ -1,5 +1,3 @@
-use arrayvec::ArrayVec;
-
 use crate::{
     Atom, Error, Function, Interpretation, InterpretationError,
     atom::operands::{Clock, Euclidean, Every, Increment, Random, Slew},
@@ -138,42 +136,107 @@ pub fn euclidean(ctx: &mut Context) -> Result<Interpretation, Error> {
 
 /// Whether Tidal's Euclidean pattern of `hits` in `steps` has an onset at
 /// `position`, which is below `steps`.
-///
-/// Tidal pairs groups off until one side has at most one group left. Each side
-/// only ever holds copies of one group, so the pattern is `fronts` copies of
-/// `front` then `backs` copies of `back`, and only those two groups are kept.
-/// Pairing every back with a front makes `front + back` the new front, and the
-/// side with groups left over keeps them: the old fronts become the backs when
-/// there were more fronts, and the backs stay when there were not.
-///
-/// Every step is in exactly one copy, so `fronts * front.len() + backs *
-/// back.len()` is `steps`. A pairing runs only while both counts are at least
-/// two, so the joined group is at most half of `steps` and fits the capacity.
+#[inline(always)]
 fn onset(hits: u8, steps: u8, position: u64) -> bool {
-    let mut front: ArrayVec<bool, { u8::MAX as usize }> = ArrayVec::new();
-    let mut back: ArrayVec<bool, { u8::MAX as usize }> = ArrayVec::new();
-    front.push(true);
-    back.push(false);
-    let (mut fronts, mut backs) = (u64::from(hits), u64::from(steps - hits));
+    let start = Groups {
+        fronts: u64::from(hits),
+        backs: u64::from(steps - hits),
+        front_len: 1,
+        back_len: 1,
+    };
 
-    while fronts.min(backs) > 1 {
-        let joined = front.iter().chain(&back).copied().collect();
-        if fronts > backs {
-            back = std::mem::replace(&mut front, joined);
-            (fronts, backs) = (backs, fronts - backs);
+    // At the start the front group is one onset and the back group one rest.
+    locate(start, position).0
+}
+
+/// One level of Tidal's pairing: the pattern is `fronts` copies of a front
+/// group of `front_len` steps, then `backs` copies of a back group of
+/// `back_len` steps.
+///
+/// Tidal pairs groups off until one side has at most one group left, and each
+/// side only ever holds copies of one group, so a level is these four counts
+/// and no steps. `fronts * front_len + backs * back_len` is `steps` at every
+/// level.
+#[derive(Clone, Copy)]
+struct Groups {
+    fronts: u64,
+    backs: u64,
+    front_len: u64,
+    back_len: u64,
+}
+
+impl Groups {
+    /// The next level, or `None` once one side has at most one group left.
+    ///
+    /// With more fronts than backs, each back joins a front, and the fronts
+    /// left over become the backs. Otherwise each front takes backs until fewer
+    /// backs than fronts are left, so a run of such pairings is one level, and
+    /// the backs stay backs. Either way a front group becomes the old front
+    /// followed by old backs.
+    fn next(self) -> Option<(Self, Pairing)> {
+        let Self {
+            fronts,
+            backs,
+            front_len,
+            back_len,
+        } = self;
+
+        if fronts.min(backs) <= 1 {
+            None
+        } else if fronts > backs {
+            let next = Self {
+                fronts: backs,
+                backs: fronts - backs,
+                front_len: front_len + back_len,
+                back_len: front_len,
+            };
+            Some((next, Pairing::FrontsLeftOver))
         } else {
-            front = joined;
-            backs -= fronts;
+            let next = Self {
+                fronts,
+                backs: backs % fronts,
+                front_len: front_len + backs / fronts * back_len,
+                back_len,
+            };
+            Some((next, Pairing::BacksLeftOver))
         }
     }
+}
 
-    // A group is at most `steps` long and `position` is below `steps`, so
-    // every conversion between the counts and the lengths is lossless.
-    let front_span = fronts * front.len() as u64;
-    if position < front_span {
-        front[(position % front.len() as u64) as usize]
-    } else {
-        back[((position - front_span) % back.len() as u64) as usize]
+/// Which side a pairing left groups over on, which decides what the next
+/// level's back group is made of.
+#[derive(Clone, Copy)]
+enum Pairing {
+    /// The back group is the old front group.
+    FrontsLeftOver,
+    /// The back group is the old back group.
+    BacksLeftOver,
+}
+
+/// Which group `position` of the whole pattern falls in at `level`, whether
+/// the front, and where within that group.
+///
+/// It descends to the last level, finds the group there, and maps the place
+/// back up one level at a time, so it reads no step of any group. The counts
+/// fall as Euclid's algorithm reduces a pair, so the recursion is a few levels
+/// deep: at most ten for any byte of steps.
+fn locate(level: Groups, position: u64) -> (bool, u64) {
+    let Some((next, pairing)) = level.next() else {
+        let front_span = level.fronts * level.front_len;
+        return if position < front_span {
+            (true, position % level.front_len)
+        } else {
+            (false, (position - front_span) % level.back_len)
+        };
+    };
+
+    let (in_front, at) = locate(next, position);
+    match (in_front, pairing) {
+        // A front group is this level's front group, then its back groups.
+        (true, _) if at < level.front_len => (true, at),
+        (true, _) => (false, (at - level.front_len) % level.back_len),
+        (false, Pairing::FrontsLeftOver) => (true, at),
+        (false, Pairing::BacksLeftOver) => (false, at),
     }
 }
 
@@ -755,16 +818,19 @@ mod test {
     }
 
     #[test]
-    fn euclidean_spreads_hits_across_a_cycle_of_any_byte_of_steps() {
-        // Past the sweep's 32 steps, every pattern still has exactly `hits`
-        // onsets in each cycle and starts on one.
+    fn euclidean_matches_tidals_bjorklund_up_to_a_byte_of_steps() {
+        // Past the sweep's 32 steps, sampled patterns up to a whole byte of
+        // steps still match Tidal's, step for step.
         for steps in [0x21u8, 0x40, 0x7F, 0xFE, 0xFF] {
-            for hits in [1u8, 2, steps / 3, steps / 2, steps - 1] {
-                let onsets: Vec<u64> = (0..u64::from(steps))
-                    .filter(|&tick| banged(Function::Euclidean, tick, hits, steps))
-                    .collect();
-                assert_eq!(onsets.len(), usize::from(hits), "~% {hits:02X} {steps:02X}");
-                assert_eq!(onsets.first(), Some(&0), "~% {hits:02X} {steps:02X}");
+            for hits in [1u8, 2, 3, 5, steps / 3, steps / 2, steps - 2, steps - 1] {
+                let pattern = tidal_bjorklund(usize::from(hits), usize::from(steps));
+                for (tick, &onset) in (0u64..).zip(&pattern) {
+                    assert_eq!(
+                        banged(Function::Euclidean, tick, hits, steps),
+                        onset,
+                        "~% {hits:02X} {steps:02X} at Tick {tick}"
+                    );
+                }
             }
         }
     }
@@ -775,12 +841,12 @@ mod test {
         // done with it, so a Tick near the end of a saturating counter plays
         // the same pattern at the same position as any other.
         //
-        // The last eight Ticks of the counter are exactly one cycle of `08`,
-        // because `u64::MAX` is seven more than a multiple of eight.
-        let pattern = b"X..X..X.";
-        let steps = 0x08u8;
+        // The last four Ticks of the counter are exactly one cycle of `04`,
+        // because `u64::MAX` is three more than a multiple of four.
+        let pattern = b"XXX.";
+        let steps = 0x04u8;
 
-        for tick in (u64::MAX - 7)..=u64::MAX {
+        for tick in (u64::MAX - 3)..=u64::MAX {
             let position = usize::try_from(tick % u64::from(steps)).unwrap();
 
             assert_eq!(
