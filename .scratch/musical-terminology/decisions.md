@@ -15,8 +15,10 @@ own docs.
   `MA` → `io` (Ionian), natural minor `mi` → `ae` (Aeolian). `MA` and `mi` change meaning rather
   than disappear, so every existing scale use moves to `io` or `ae`; nothing diagnoses one left
   behind.
+- A mode is its first two letters (`io`, `ae`, `do`), except Mixolydian, `mx`.
 - Dominants: `7_` → `07`, `9_` → `09`, beside `13`. `b9` is unchanged.
-- Pentatonics: `p5` → `pM`, `p3` → `pm`.
+- Pentatonics: `p5` → `pM`, `p3` → `pm`, because `p5` and `p3` read as a power chord and a count
+  of tones.
 - Accepted near pairs, recorded beside `mM`/`mm` and `pM`/`pm`: `io`/`lo`, `di`/`do`, and the
   Voicings `23`/`24` beside `D2`/`D3`.
 - ADR 0105 is amended to match.
