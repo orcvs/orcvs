@@ -14,4 +14,8 @@ Repoint each to the owning requirement rule or the current ADR:
 - `lang/src/atom.rs:482`, `:1079` and `lang/src/lib.rs:356` cite ADR 0029, which ADR 0063
   superseded; the rule holds through ADRs 0028 and 0061 (LANG-250).
 
+- `orcvs/src/playback.rs:3142` (a test comment) cites the Playback Engine entry's promise that a
+  refused submission leaves the schedule standing; that sentence now points to PLAY-260, where the
+  retry is listed as differing from ADR 0016. Repoint the comment to PLAY-260.
+
 **Done when:** every listed comment cites a source that states what it says; crate gates pass.

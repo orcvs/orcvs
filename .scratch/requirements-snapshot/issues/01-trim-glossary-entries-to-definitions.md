@@ -17,11 +17,9 @@ needs those citations kept resolvable or repointed:
   entries.
 - `orcvs/src/source/tick/execution.rs:630` cites Function Replacement's four-fact sentence.
 - `orcvs/src/source/encoding.rs:3` cites Spatial Output.
-- `orcvs/src/playback.rs:3142` (a test comment) cites the Playback Engine's refused-submission
-  retry.
 
 The snapshot change trimmed only the Built-in Synth entry, which no code cites, and corrected the
-Function, Clear, Pan and Operand Literal entries.
+Function, Clear, Pan, Operand Literal and Playback Engine (refused submission) entries.
 
 **Done when:** each listed entry holds no rule a requirement states, every code citation still
 resolves, and `docs/requirements/` is unchanged in meaning.

@@ -329,3 +329,21 @@ Every retained row keeps its provisional ID as its final rule ID. There are no m
     Module, so SITE owns it.
   - ADR 0043's "presentation is not the Grid" is covered by CONS-030 and CONS-031.
 - Follow-up: CONS-028 states the ADR 0052 Output Portal fit row (previously marked redirected to EVAL), using the fit rule from `.scratch/syntax-highlighting/issues/12`. CONS-079 states ADR 0088's `sound.magnitude` Theme colour.
+- Audit fixes:
+  - F2: CONS-028 now states the built highlight, which covers each value answer's Output Portal
+    Reservation (root or nested), cited to real tests. ADR 0052's "fitted highlight on
+    SourceRevision / first-blank-Cell / gutter" clause is superseded in effect by ADRs 0063 and
+    0067, which leave no Sequence-capable root (basis: proposed). The code computes the highlight
+    in `LanguageMap` and delegates through `SourceRevision`. The syntax-highlighting/12 citation is
+    dropped (a bug report, not a ruling).
+  - F3: CONS-076 keeps only "no Theme property controls motion". "Nothing animates" moves to
+    CONS-121 (proposed). ADR 0053's animated-stroke clause is listed as built differently.
+  - F6: CONS-130 is narrowed to read-once with no settings UI (ADRs 0053, 0091). CONS-131 is
+    narrowed to the setting keys (ADRs 0091, 0100, 0098). The document model and generic per-key
+    fallback (menu-structure spec, undated) move to Open decisions. CONS-133 is dated 2026-10-26
+    (orcvs-site/13).
+  - F9: anchors fixed (`eguis`, `cells`).
+  - CONS-029 now carries ADR 0077's full retained-record conditions (anchor still claimed for the
+    same Function; subtree unedited; Selected-descendant reads; lock conditions). EVAL-106 defers
+    to it.
+- CONS-079 is reduced to the console guarantee: the console has no `sound.magnitude` key and a Theme that sets it is refused as unknown. The colour rule is owned by SITE-038.

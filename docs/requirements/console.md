@@ -5,7 +5,7 @@
 > Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0044, 0045, 0046, 0047, 0048, 0051,
 > 0052, 0053, 0054 (console clauses), 0055 (console clause), 0058, 0059 (console clause), 0061 (paint clause),
 > 0069 (paint clause), 0076 (Panel clauses), 0077 (paint clauses), 0080, 0081, 0082, 0083, 0084,
-> 0085 (paint clause), 0088 (Theme colour), 0089, 0091 (settings keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause);
+> 0085 (paint clause), 0088 (console Theme key), 0089, 0091 (settings keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause);
 > proposed, built: 0078, 0079. Reviewed, not applicable or wholly superseded: 0050.
 
 This document owns the console: the boundary between `orcvs` and the UI toolkit, how the Source
@@ -55,7 +55,7 @@ Evidence: `console/src/console_midi.rs`, `console/src/midi.rs`, `console/src/web
 
 The console holds the translation the Source is presented under. It applies that translation when
 it computes each Cell's rectangle. No layer carrying the Source Grid has a layer transform, and the
-console uses no `egui::Scene`. The Source View holds a translation and no scale ([CONS-040](#cons-040-the-console-has-one-zoom-egui-s-whole-ui-zoom)).
+console uses no `egui::Scene`. The Source View holds a translation and no scale ([CONS-040](#cons-040-the-console-has-one-zoom-eguis-whole-ui-zoom)).
 
 Reason: a layer transform deep-clones every Cell's galley on every Render Frame, resamples Glyphs, and leaves glyph positions stale.
 Not: drawing glyph quads into a hand-built Mesh under a transform.
@@ -148,23 +148,19 @@ Reason: choosing how a fact looks is the console's decision. Fixing the fact is 
 Sources: [ADR 0044](../adr/0044-paint-reads-the-parsers-claim.md), [ADR 0042](../adr/0042-responsibility-is-not-freedom-from-the-toolkit.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0069](../adr/0069-an-unwritten-operand-is-invalid-input.md), [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md), [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
 Evidence: `console/src/style.rs`, `console/src/paint.rs`; tests `console/src/style.rs` `a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic`, `console/src/paint.rs` `an_empty_claimed_number_or_note_operand_shows_tint_and_no_character`.
 
-### CONS-028 The static Output Portal highlight is fitted on the Source revision
+### CONS-028 The static Output Portal highlight is each value answer's Output Portal Reservation
 
-The static Output Portal highlight is computed on the Source revision, which owns it, from the
-Language Map and the revision's own bytes. The Language Map holds no fitted highlight, and the
-highlight is never part of a Claim. A scalar root highlights its Cell pair. A Sequence-capable root
-highlights:
+Before any Tick runs, the Source revision answers which Cells draw as an Output Portal: every Cell
+of an Output Portal Reservation. Each Expression whose leading Cells parse as a Function reserves,
+whether or not its operands bind. Its root reserves, and so does every nested Function that answers
+a value. An effect Function, a Bang Function, a Terminal Output Function, Halt and a Source Bundle
+reserve nothing, and the row edge clips a Reservation. Which Cells a Reservation covers is the rule
+the schedule reserves an answer write by ([evaluation.md](evaluation.md)). The highlight is never
+part of a Claim, and it paints beside the Tick Portal roles ([CONS-029](#cons-029-a-cells-tick-portal-roles-combine-and-one-is-painted)).
 
-1. Up to four Cells of its Output Portal, written or empty.
-2. Past those, the run of written Cells, ending at the first blank Cell and completing whole the
-   Cell pair the run stopped inside.
-
-A space counts as blank, so a one-Cell gutter ends the highlight. The highlight never reaches past
-the root's Reservation, so the row edge clips it.
-
-Reason: the fit needs the revision's bytes, which the Language Map does not keep. A whole-Reservation tint ran under neighbouring columns' Expressions.
-Sources: [ADR 0052](../adr/0052-a-claim-answers-whether-its-slot-is-written.md); fit rule ruled 2026-09-19, no ADR (`.scratch/syntax-highlighting/issues/12-fit-a-sequence-capable-output-portal-to-its-answer.md`).
-Evidence: `orcvs/src/source/mod.rs` `output_portal_highlight`; tests `orcvs/src/source/mod.rs` `a_blank_gutter_cell_stops_the_highlight_whatever_follows_it`, `console/src/paint.rs` `a_one_cell_gutter_stops_the_left_columns_sequence_tint`.
+Reason: a Function shows where its answer lands from the Source alone, so a Function whose Turn wrote nothing still shows its own.
+Sources: [ADR 0052](../adr/0052-a-claim-answers-whether-its-slot-is-written.md), [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md), [ADR 0063](../adr/0063-a-list-is-cells-in-a-claim-not-a-value.md).
+Evidence: `orcvs/src/source/language_map.rs` `LanguageMap::output_portal_highlight`, `output_portal_reservations`; `orcvs/src/source/mod.rs` `SourceRevision::output_portal_highlight`; tests `orcvs/src/source/language_map.rs` `output_portal` module (`a_scalar_root_covers_the_cell_pair_south_of_its_output_portal`, `a_nested_value_function_reserves_its_own_output_portal`, `a_bang_function_reserves_no_output_portal`, `a_terminal_output_function_is_never_covered`, `halt_is_never_covered`), `orcvs/src/source/mod.rs` `output_portal_highlight` module (`a_root_keeps_its_cell_pair`).
 
 ### CONS-029 A Cell's Tick Portal roles combine, and one is painted
 
@@ -175,9 +171,20 @@ The Render Frame gives each Cell three roles:
 - Locked, for the Function Cells of each root a lock withheld.
 
 The console paints Output Portal over Input Portal over Locked. Output and Input Portal leave a
-bound Function's paint alone. Locked paints a Function and a Bang. A retained record paints an
-entry only where no edit has touched its owner's subtree, or a nested read that selected it,
-since the commit. Unresolved reads, refused writes, locks that withheld nothing and Source Bundle
+bound Function's paint alone. Locked paints a Function and a Bang. A `Current` record paints every
+resolved read and admitted write. A `Retained` record paints a read or a write only while all of
+these hold:
+
+- The displayed revision's Language Map still claims the entry's anchor for a Function that begins
+  there and parsed as the entry's Function.
+- No edit since the commit has written a Cell of that owner's subtree. Writing back what stood
+  there still counts as an edit.
+- For a `Selected` entry, no resolved read from a strict descendant of the owner has read a Cell
+  an edit has written since.
+
+A lock stays marked while the Halt stands at its anchor and neither its own Cells nor the locked
+root's spelling are edited, and only where the displayed revision still has an Expression with a
+Function beginning at the locked anchor. Whether the Halt would still be banged is not asked. Unresolved reads, refused writes, locks that withheld nothing and Source Bundle
 parts paint nothing.
 
 Reason: a Cell both read and written shows the write, as Orca draws a port over a locked Cell.
@@ -553,7 +560,7 @@ Evidence: tests `console/src/theme_document.rs` `optional_colours_are_omitted_cl
 A Theme chooses colours and cannot reorder facts:
 
 - A bound Function keeps its own paint inside an Output or Input Portal, and so does a Bang.
-- Otherwise Portal paint takes precedence over the claim's, Diagnostic included ([CONS-029](#cons-029-a-cell-s-tick-portal-roles-combine-and-one-is-painted)).
+- Otherwise Portal paint takes precedence over the claim's, Diagnostic included ([CONS-029](#cons-029-a-cells-tick-portal-roles-combine-and-one-is-painted)).
 - The Cursor's own fill takes precedence over role backgrounds.
 - In a Region larger than one Cell, the Cursor uses the Region's cursor fill, falling back to the
   Cursor fill. Other Cells take the Region fill only where they have no fact fill.
@@ -588,17 +595,15 @@ Reason: text contrast cannot tell whether two Token colours are distinguishable.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendments 2026-10-10, 2026-10-25).
 Evidence: `console/src/contrast/colour_vision.rs`; tests `shipped_theme_colour_vision_gate`, `simulation_leaves_neutrals_alone`, `the_colour_difference_matches_the_published_test_vectors`.
 
-### CONS-079 The Sound Module's magnitudes take `sound.magnitude`
+### CONS-079 The console's Theme format has no Sound Module key
 
-The Sound Module takes one Theme colour, `sound.magnitude`, for each magnitude's border and fill.
-Each built-in sets it to its `source.bang` colour, so it can differ from Bang without changing Bang.
-The site carries it as `--orcvs-sound-magnitude`. The console's Theme format gains the key only once
-the console draws the Sound Module, so until then a console Theme that sets it is refused as an
-unknown key ([CONS-068](#cons-068-a-theme-document-is-strict-toml)).
+The console draws no Sound Module, so its Theme format has no `sound.magnitude` key. A console
+Theme document that sets it is refused as an unknown key, as [CONS-068](#cons-068-a-theme-document-is-strict-toml) states. The colour
+itself belongs to the site's Sound Module ([SITE-038](site.md#site-038-the-sound-module-takes-one-theme-colour-soundmagnitude)).
 
-Reason: nothing in the console reads it until the console draws the module.
-Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md); the Sound Module itself: [site.md](site.md).
-Evidence: `site/src/styles/orcvs.css` `--orcvs-sound-magnitude`, `site/src/console/sound-module.css`; no console Theme key at `c8cc197`.
+Reason: the console's Theme format gains the key only when the console draws the Sound Module.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md).
+Evidence: `console/src/theme_document.rs` (no `sound.*` key); test `console/src/theme_document.rs` `an_unknown_or_wrong_case_style_property_is_refused`.
 
 ### CONS-075 Two built-in Themes ship
 
@@ -611,12 +616,13 @@ Reason: the maintainer retired the coloured built-ins on 2026-10-25.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-25).
 Evidence: `console/src/theme_registry.rs`; tests `console/src/theme_selection.rs` `a_selection_of_a_retired_built_in_falls_back_to_the_default_and_is_kept`, `console/src/theme_registry.rs` `a_theme_file_inheriting_a_retired_built_in_is_refused`.
 
-### CONS-076 A Theme decides how things look, never how they move
+### CONS-076 A Theme decides how things look, never how much they move
 
-No Theme property controls motion, and nothing a Theme styles is animated.
+No Theme property controls motion. A Theme styles the Cursor's and the Region's colours and the
+role backgrounds.
 
 Reason: how something looks and how much it moves are separate concerns.
-Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md); [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md) (proposed) removes the only animation.
+Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
 Evidence: test `console/src/config.rs` `the_removed_glitch_keys_are_unknown`.
 
 ### CONS-077 The web console runs on the built-in Themes
@@ -668,28 +674,19 @@ Reason: eframe restoring the window would show a console-sized frame before ever
 Sources: [ADR 0083](../adr/0083-the-console-opens-through-its-own-window-as-a-splash.md).
 Evidence: `console/src/window_geometry.rs`, `console/src/main.rs`; tests `console/src/console/kittest_tests/splash.rs` `a_save_during_the_hold_stores_the_consoles_geometry`, `console/src/window_geometry.rs` `the_size_fits_between_the_minimum_and_the_monitor`.
 
-### CONS-130 Settings come from the config file; the native console tracks its open file
+### CONS-130 Settings are read once at startup, with no settings UI
 
-Settings come only from the config file (the page's settings element on the web; see
-[site.md](site.md)). The file is read once, before the console is built, with no settings UI and no
-reload. On native:
+On native the console reads `~/.orcvs/config.toml` once, at startup. On the web it reads the same
+text from its page instead ([site.md](site.md)). No menu offers a setting, nothing reloads the
+file, and the console never writes it.
 
-- The window title names the open Source File and marks unsaved changes.
-- New, Open, the Function reference, an example, Quit and closing the window each ask before
-  discarding unsaved changes.
-- Autosave is session recovery, and Save writes the file.
+Reason: a setting has one owner, the file, and the console never stores a second answer.
+Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-10), [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md).
+Evidence: `console/src/config.rs`; tests `console/src/console/kittest_tests.rs` `no_menu_offers_a_setting`, `console/src/persistence.rs` `a_save_writes_the_source_and_no_settings`.
 
-The web has no file Open or Save.
+### CONS-131 The settings open views and time Toasts
 
-Reason: one owner per setting, and a document model a performer can trust.
-Sources: ruled 2026-10-28, no ADR (`.scratch/menu-structure/spec.md`); [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: `console/src/console/files.rs`, `console/src/config.rs`; tests `console/src/console/kittest_tests.rs` `the_window_title_names_the_source_and_marks_unsaved_changes`, `closing_the_window_asks_before_discarding_unsaved_changes`.
-
-### CONS-131 Each setting falls back on its own
-
-A missing file is an ordinary start. An unreadable or malformed file, an unknown key, or a value of
-the wrong type or out of range raises a notice, and only the affected keys take their defaults. The
-settings are:
+These settings exist on native and the web:
 
 - `[minimap] open`: default open.
 - `[diagnostics] open`: default closed.
@@ -698,11 +695,13 @@ settings are:
 - The Theme selection ([CONS-062](#cons-062-settings-select-a-dark-and-a-light-theme-by-identity-and-hold-no-theme-values)).
 
 The View menu still toggles the Minimap, Diagnostics and Info, and a menu change is not saved.
-`console/src/config.rs` owns the key list, the defaults and the ranges.
+`console/src/config.rs` owns the key list, the defaults and the ranges. An unusable Theme selection
+falls back as [CONS-067](#cons-067-an-unavailable-selected-theme-falls-back-without-losing-the-selection)
+states. How other faulty keys fall back is an [open decision](#open-decisions).
 
-Reason: one bad key must not cost the rest.
-Sources: [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md), [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md), [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md); per-key fallback ruled 2026-10-28, no ADR (`.scratch/menu-structure/spec.md`).
-Evidence: tests `console/src/config.rs` `an_unknown_key_is_a_notice_and_leaves_the_known_keys_applied`, `an_out_of_range_or_mistyped_value_falls_back_alone`, `the_minimap_and_the_diagnostics_open_as_the_file_says`, `a_toast_lasts_the_seconds_the_file_says`.
+Reason: the views a console opens with, including on a phone, are configuration rather than code.
+Sources: [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md), [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md), [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md).
+Evidence: tests `console/src/config.rs` `the_minimap_and_the_diagnostics_open_as_the_file_says`, `the_info_is_hidden_as_the_file_says`, `a_toast_lasts_the_seconds_the_file_says`.
 
 ### CONS-132 A stored Source of another shape is discarded, not migrated
 
@@ -720,7 +719,7 @@ The Help menu offers the site's Learn and Reference pages, the Function referenc
 examples, and About.
 
 Reason: the site's documentation is reached from the console.
-Sources: ruled 2026-10-28, no ADR (`.scratch/site-as-console/spec.md`, `orcvs-site/13`).
+Sources: ruled 2026-10-26, no ADR ([orcvs-site/13](../../.scratch/orcvs-site/issues/13-link-learn-and-reference-from-the-help-menu.md)).
 Evidence: tests `console/src/console/kittest_tests.rs` `the_help_menu_offers_the_sites_learn_and_reference_pages`, `the_help_menu_opens_every_shipped_example`.
 
 ## Minimap
@@ -993,7 +992,7 @@ Evidence: `console/src/grid_viewport.rs` `CELL_SIZE`, `glyph_size`; tests `conso
 ### CONS-121 The Cursor and Region show a still outline (ADR 0079, proposed)
 
 The Cursor and a Region show a still outline in `cursor.border` and `region.border` at their
-widths, and nothing animates. `[cursor_effects]` keys get the unknown-key notice, and a Theme that
+widths. Nothing a Theme styles is animated. `[cursor_effects]` keys get the unknown-key notice, and a Theme that
 sets `cursor.area` is refused.
 
 Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
@@ -1015,7 +1014,7 @@ line. The facts rank, highest first:
 
 Among the Portal and Locked borders, ADR 0078 defers to ADR 0077's order. The code observes Output
 Portal over Input Portal over Locked (`console/src/paint.rs` `EdgeRank`), the same order ADR 0077
-paints those roles in ([CONS-029](#cons-029-a-cell-s-tick-portal-roles-combine-and-one-is-painted)).
+paints those roles in ([CONS-029](#cons-029-a-cells-tick-portal-roles-combine-and-one-is-painted)).
 
 A width of zero withdraws a fact from the edge rather than hiding the edge. The winning line's
 colour is composited once over the facts below it. A Sector Seam composites over its edge's line,
@@ -1046,10 +1045,26 @@ and does nothing, although 0078 says a Cell's border width no longer hides anyth
 - CONS-011: `orcvs` still carries presentation configuration with no reader:
   `orcvs/src/opts.rs` `CursorBloomRadius` and `RenderFrame::cursor_bloom_radius`. No tracking
   issue found.
+- CONS-076 / ADR 0053: the accepted clause "Animated strokes vary around the nominal width ...
+  0.45–1.25 times that width" is not built. The code removed every animation under proposed ADR
+  0079 ([CONS-121](#cons-121-the-cursor-and-region-show-a-still-outline-adr-0079-proposed)). No
+  tracking issue found; acceptance of 0079 would settle it (D6).
 
 ## Open decisions
 
 None of these is binding.
+
+- The native document model and per-key settings fallback. `.scratch/menu-structure/spec.md`
+  (undated, with no recorded maintainer ruling) proposes the following, and the code does it
+  (`console/src/console/files.rs`, `console/src/config.rs`):
+  - The window title names the open Source File and marks unsaved changes.
+  - New, Open, the Function reference, an example, Quit and closing the window ask before
+    discarding unsaved changes.
+  - Autosave is session recovery, and Save writes the file. The web has no Open or Save.
+  - A malformed file, an unknown key, or a mistyped or out-of-range value raises a notice, and
+    only the affected keys take their defaults.
+
+  Recording these as binding needs an ADR or a dated ruling (run decision D3).
 
 - Whether ADRs 0078 and 0079 are accepted. Until they are, [Proposed, built](#proposed-built) is
   observed behaviour, not a rule. This is decided through the ADR process (run decision D6).

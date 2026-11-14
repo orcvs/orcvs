@@ -169,14 +169,14 @@ diagnosed; the Parser refuses it as an unknown spelling. This includes Cells a F
 earlier Tick and the pairs a Track or Read selects from. A reversal is pending; see Open decisions.
 
 Reason: a literal's type exists only in the operand position that receives it.
-Sources: [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md).
+Sources: [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md); [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md) leaves whether the pairs a Track or Read selects from are diagnosed to the Parser, which applies ADR 0021's rule to them.
 Evidence: `lang/src/parser.rs` `take_language_unit`; test `lang/src/parser.rs` `an_operand_literal_outside_a_slot_is_not_an_expression` (assertions inspected); `orcvs/src/source/model.rs` assertion "a lone Number reads as an unknown Function on the next Tick" (assertions inspected).
 
 ### LANG-140 An Interval Set is one literal type of 39 two-Cell names, case-sensitive
 
 An Interval Set names semitones above a root: 25 chords and 14 scales, listed in
 [the Function reference](../functions.md#interval-sets). Every name fills both Cells and a half-blank
-pair is partial input. Names are case-sensitive and nothing folds case. A scale name is valid
+pair is partial input. `MA` is the major triad and `io` (Ionian) the major scale; no other spelling is an alias for either. Names are case-sensitive and nothing folds case. A scale name is valid
 wherever a chord name is.
 
 Reason: one type lets Pick and Stack serve chords and scales alike.

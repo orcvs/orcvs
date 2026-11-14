@@ -164,7 +164,8 @@ Triage uses the five default canonical label strings. See `docs/agents/triage-la
 
 Domain documentation uses a single-context layout. See `docs/agents/domain.md`. Before changing
 behaviour, read `CONTEXT.md` for terms, then the owning requirement in `docs/requirements/`, then the
-ADRs. Accepting an ADR updates the owning requirement and its snapshot marker in the same change.
+ADRs. Accepting an ADR updates the owning requirement and its snapshot marker in the same change,
+or marks that topic's snapshot as behind.
 
 ### Syntax prototypes
 
