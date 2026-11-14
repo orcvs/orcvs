@@ -135,8 +135,8 @@ fn an_inert_halt_does_not_lock_and_the_south_root_runs() {
 
 #[test]
 fn a_bang_its_producer_clears_does_not_activate_halt() {
-    // Delay Bangs on Tick 0 (a multiple of its cycle) and not on Tick 1,
-    // so Tick 0 locks the Add, and on Tick 1 the Delay's clear suppresses
+    // Every Bangs on Tick 0 (a multiple of its cycle) and not on Tick 1,
+    // so Tick 0 locks the Add, and on Tick 1 the Every's clear suppresses
     // the `**` it left: Halt is inert and the Add runs.
     let (plans, grids, source) = tick_by_tick(
         Grid::with_shape(8, 4),

@@ -137,9 +137,6 @@ image = { version = "0.25.6", default-features = false, features = ["png"] }
 # `parse`, `serde` and `std`. `Cargo.lock` still lists
 # `indexmap` and `toml_writer` under `toml`, because `std` names them as weak
 # `?/std` features, but neither is built (`cargo tree -i toml_writer` is empty).
-# `serde` itself is here for `derive` on the document type; it is already in the
-# graph through `orcvs/persistence`.
-serde = { version = "1", default-features = false, features = ["derive", "std"] }
 toml = { version = "1.1.6", default-features = false, features = ["parse", "serde", "std"] }
 tracing.workspace = true
 
@@ -189,6 +186,11 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "fmt",
     "std",
 ] }
+# `derive` on the Theme document type. Native only, with `theme_document`
+# itself: the web loads no Theme document, so a web build that names `serde`
+# fails `cargo::unused_dependencies`. Already in the graph through
+# `orcvs/persistence`.
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # `Uint8Array`, the buffer `MIDIOutput.send` takes a message in
@@ -268,6 +270,9 @@ egui_kittest = { version = "=0.37.0", default-features = false, features = ["efr
 ron = "0.12"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# The WASM check compiles the unit tests, and `theme_document` with them, for
+# `wasm32-unknown-unknown`; the normal dependency is native only.
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 wasm-bindgen-test = "0.3"
 # Test-only: `product_path` drives `window.localStorage`, which is the
