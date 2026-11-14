@@ -496,17 +496,14 @@ mod test {
             let division = answer(Function::Clock, tick, 0x00, 0x04).unwrap_err();
             assert_eq!(
                 division.to_string(),
-                "~. cannot count a cycle with zero division"
+                "~. cannot count a cycle with division 00"
             );
 
             let steps = answer(Function::Clock, tick, 0x04, 0x00).unwrap_err();
-            assert_eq!(steps.to_string(), "~. cannot count a cycle with zero steps");
+            assert_eq!(steps.to_string(), "~. cannot count a cycle with steps 00");
 
             let both = answer(Function::Clock, tick, 0x00, 0x00).unwrap_err();
-            assert_eq!(
-                both.to_string(),
-                "~. cannot count a cycle with zero division"
-            );
+            assert_eq!(both.to_string(), "~. cannot count a cycle with division 00");
         }
     }
 
@@ -626,19 +623,16 @@ mod test {
         let division = answer(Function::Every, 5, 0x00, 0x04).unwrap_err();
         assert_eq!(
             division.to_string(),
-            "~* cannot count a cycle with zero division"
+            "~* cannot count a cycle with division 00"
         );
 
         let steps = answer(Function::Every, 5, 0x04, 0x00).unwrap_err();
-        assert_eq!(steps.to_string(), "~* cannot count a cycle with zero steps");
+        assert_eq!(steps.to_string(), "~* cannot count a cycle with steps 00");
 
         // Tick `0` is a multiple of every cycle, so it is the Tick an Every that
         // skipped its validation would answer Bang at for any operands at all.
         let zero = answer(Function::Every, 0, 0x00, 0x00).unwrap_err();
-        assert_eq!(
-            zero.to_string(),
-            "~* cannot count a cycle with zero division"
-        );
+        assert_eq!(zero.to_string(), "~* cannot count a cycle with division 00");
     }
 
     #[test]
@@ -726,7 +720,7 @@ mod test {
             let error = answer(Function::Euclidean, 3, hits, 0x00).unwrap_err();
             assert_eq!(
                 error.to_string(),
-                "~% cannot count a cycle with zero steps",
+                "~% cannot count a cycle with steps 00",
                 "~% {hits:02X} 00"
             );
         }
@@ -742,7 +736,7 @@ mod test {
         // Every operand of these five is declared Number, so a Note is refused
         // at each of them rather than converted: ADR 0021 makes the Numeric
         // Conversion Functions the only crossing between the two numeric types,
-        // and a division that silently read a Note's byte would be another.
+        // and a count that silently read a Note's byte would be another.
         let note = Atom::Note(Note::try_from(0x3C).unwrap());
 
         for function in [
@@ -865,7 +859,7 @@ mod test {
 
     #[test]
     fn increment_diagnoses_a_zero_modulus() {
-        // A wrap needs a division, so a zero modulus refuses. The diagnostic
+        // A wrap needs a nonzero modulus, so a zero modulus refuses. The diagnostic
         // names Increment and the role rather than Modulo: a Source shown
         // "cannot modulo by zero" would be told about a Function it did not
         // write.

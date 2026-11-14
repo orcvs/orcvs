@@ -677,7 +677,7 @@ After Tick `0`, then after Tick `3`, where it wraps:
 
 `~> amount target` is a slew limiter: it reads the Number in its own Output Portal and moves it
 toward `target` by at most `amount` each Tick, never past it, so a jump in `target` becomes a
-glide. Empty Cells there count as `00`. An `amount` of `00` holds the value. Anything other than a
+ramp. Empty Cells there count as `00`. An `amount` of `00` holds the value. Anything other than a
 Number in its Output Portal diagnoses.
 
 ```orcvs
