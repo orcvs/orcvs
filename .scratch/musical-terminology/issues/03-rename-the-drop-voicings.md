@@ -26,6 +26,7 @@ the variants `DropTwoAndThree` and `DropTwoAndFour`; `lang`'s literal test refus
 and reads `23` and `24` as a Voicing or a Number by position. `docs/functions.md` gains a Voicings
 section giving each Voicing its standard name, why `23` and `24` carry no `D`, that `OP` on a
 four-tone chord plays `24` an octave up, what `SH` and `RL` keep, that `D3` on a triad is not a
-standard voicing, and how an inversion at or above the tone count moves the chord; runnable
+standard voicing, and that each step of an inversion raises the lowest tone, which moves a chord
+within an octave up an octave per whole round but re-sorts a wider Interval Set; runnable
 examples play `C4M7` voiced `24` and, inverted once, `23`. `CONTEXT.md`'s Voicing entry and a dated
 amendment to ADR 0105 state the new names, and ADR 0103's Status line points to that amendment.
