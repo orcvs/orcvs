@@ -16,6 +16,9 @@ one channel's effects changes only that channel.
       a channel, the chosen channel follows each Control Change heard; the channel buttons take
       the keyboard (Enter or Space chooses, the arrow keys move between them); and on `08` the
       `EQ` and `LN` columns read `CU` and `DC`, the acid voice's cutoff and decay.
+      The synth also skips a silent channel whose effects rest, which holds because two fast
+      paths pass the channel unchanged: a vibrato at zero swing returns the sample it was given,
+      and a flat tilt returns its input.
 - [x] The Knobs example sets each effect on the channel it should change, and its test no longer
       says any channel will do. Its bassline on `08` is the only part playing, and there CC74 and
       CC75 are the cutoff and decay its `CUT` and `DEC` knobs already turn, so it keeps six effect

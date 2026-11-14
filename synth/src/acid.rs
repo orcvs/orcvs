@@ -3,6 +3,8 @@
 
 use std::f32::consts::TAU;
 
+use crate::controller::{ENV_MOD, EQ, LN, RESONANCE, WAVEFORM};
+
 /// The time constant of the gate's rise and fall, in seconds: short enough to
 /// sound percussive, long enough not to click.
 const GATE: f32 = 0.003;
@@ -39,16 +41,16 @@ impl Default for Controls {
 }
 
 impl Controls {
-    /// Sets `controller` to `value`, and answers whether `controller` is one
-    /// of the voice's. Reset All Controllers returns every control to its
-    /// load value; any other controller changes nothing.
-    pub(crate) fn set(&mut self, controller: u8, value: u8) -> bool {
+    /// Takes `value` for `controller` if `controller` is one of the voice's,
+    /// and answers whether it was. Reset All Controllers returns every control
+    /// to its load value; any other controller changes nothing.
+    pub(crate) fn take(&mut self, controller: u8, value: u8) -> bool {
         match controller {
-            70 => self.waveform = value,
-            71 => self.resonance = value,
-            74 => self.cutoff = value,
-            75 => self.decay = value,
-            79 => self.env_mod = value,
+            WAVEFORM => self.waveform = value,
+            RESONANCE => self.resonance = value,
+            EQ => self.cutoff = value,
+            LN => self.decay = value,
+            ENV_MOD => self.env_mod = value,
             121 => *self = Self::default(),
             _ => return false,
         }
