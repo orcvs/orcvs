@@ -4,7 +4,7 @@
 Synth's eight effects over a sixteen-step acid bassline. The web console opens
 it on a first visit, when it has no Source stored. It also opens with **Help >
 Examples > Knobs**, or as `?example=knobs`. Press Space to start Playback.
-Each knob's value climbs a step at a time and glides back down when its Clock
+Each knob's value climbs a step at a time and ramps back down when its Clock
 wraps; the Sound Module on orcvs.com shows each effect move. The example opens
 Untitled, so **File > Save** asks where to keep your edits.
 
@@ -66,7 +66,7 @@ nothing.
 | --- | --- | --- | --- |
 | `bass` | `!~0964&v0C01` | 8 | Velocity `64` (100), one Tick. |
 | `accent` | `!~097F&v0701` | 11 | Velocity `7F` (127). From `78` up a Note is accented: louder, its filter opened further, and its sweep at its shortest. |
-| `slide` | `!~0964&v0202` | 14 | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice glides to it without striking it afresh. |
+| `slide` | `!~0964&v0202` | 14 | Velocity `64`, two Ticks. The Note still sounds when the next step's Note starts, so the voice slides to it without striking it afresh. |
 
 Move a Note from one column to another, keeping its row, to change how it
 plays. A slide to the same Note strikes it again, because Playback stops a
@@ -143,7 +143,7 @@ Each effect sweeps at its own rate, so the effects peak at different times:
 | `08` | `R2`, large reverb | `~.0840` | `00` to `3F`, a step every 8 Ticks |
 
 Every value starts at `00`, so for the first second after you start Playback
-`LN` and `EQ` glide up from below their sweeps: the sounds start short and dark.
+`LN` and `EQ` ramp up from below their sweeps: the sounds start short and dark.
 
 The patch is made for the Built-in Synth. On another MIDI output, channel `09`
 is just a channel: most synths read `47`, `4A` and `4B` as resonance, cutoff and
@@ -154,7 +154,7 @@ on most devices.
 
 ## Learn Orca
 
-Learn Orca's knobs patch sends eight Control Changes whose values glide to one
+Learn Orca's knobs patch sends eight Control Changes whose values ramp to one
 of six presets chosen by hand, beside a tracker that makes the sound. This
 example keeps its idea, knobs that move the sound and the effects, with a Clock
 in place of the presets so the knobs move on their own, and its own bassline to

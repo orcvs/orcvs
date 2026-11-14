@@ -159,13 +159,12 @@ impl Interpreter {
             Function::ConvertToNumber => {
                 Interpretation::Cell(numeric_conversion::to_number(&mut ctx)?)
             }
-            Function::Every => tick::every(&mut ctx)?,
             Function::Divide => Interpretation::Cell(math::divide(&mut ctx)?),
             Function::Down => Interpretation::Cell(pitch::down(&mut ctx)?),
             Function::Equality => math::equality(&mut ctx)?,
             Function::Euclidean => tick::euclidean(&mut ctx)?,
+            Function::Every => tick::every(&mut ctx)?,
             Function::Increment => Interpretation::Cell(tick::increment(&mut ctx)?),
-            Function::Slew => Interpretation::Cell(tick::slew(&mut ctx)?),
             Function::CopyEast | Function::CopyNorth | Function::CopySouth | Function::CopyWest => {
                 functions::copy::copy(&mut ctx, function)?
             }
@@ -199,6 +198,7 @@ impl Interpreter {
             Function::Minimum => Interpretation::Cell(math::minimum(&mut ctx)?),
             Function::Modulo => Interpretation::Cell(math::modulo(&mut ctx)?),
             Function::Multiply => Interpretation::Cell(math::multiply(&mut ctx)?),
+            Function::Slew => Interpretation::Cell(tick::slew(&mut ctx)?),
             Function::Stack => Interpretation::Cell(functions::pitch::stack(&mut ctx)?),
             Function::Subtract => Interpretation::Cell(math::subtract(&mut ctx)?),
             Function::ControlChange => Interpretation::Play(functions::control_change(&mut ctx)?),
@@ -937,8 +937,8 @@ mod test {
         }
         let expected: BTreeSet<String> = [
             Function::Equality,
-            Function::Every,
             Function::Euclidean,
+            Function::Every,
             Function::CopyEast,
             Function::CopyNorth,
             Function::CopySouth,

@@ -1338,7 +1338,6 @@ define_functions! {
     CopyNorth => ("=^", "Copy North", "copies the pair south of it to the pair north of it", Value, Intrinsic, May, []),
     CopySouth => ("=v", "Copy South", "copies the pair north of it to the pair south of it", Value, Intrinsic, May, []),
     CopyWest => ("=<", "Copy West", "copies the pair after it to the pair before it", Value, Intrinsic, May, []),
-    Every => ("~*", "Every", "answers a Bang every division * steps Ticks, else a Clear", Value, Intrinsic, May, [division: Number, steps: Number]),
     DirectionalBangEast => ("*>", "Bang East", "emits >> after it when a Bang reaches it", BangEast, Bang, Never, []),
     DirectionalBangNorth => ("*^", "Bang North", "emits ^^ one row north when a Bang reaches it", BangNorth, Bang, Never, []),
     DirectionalBangSouth => ("*v", "Bang South", "emits vv one row south when a Bang reaches it", BangSouth, Bang, Never, []),
@@ -1347,9 +1346,9 @@ define_functions! {
     Down => ("#-", "Down", "answers note lowered by semitones", Value, Intrinsic, Never, [note: Note, semitones: Number]),
     Equality => (".=", "Equality", "answers a Bang when left equals right, else a Clear", Value, Intrinsic, May, [left: Number, right: Number]),
     Euclidean => ("~%", "Euclidean", "answers a Bang on hits of every steps Ticks, else a Clear", Value, Intrinsic, May, [hits: Number, steps: Number]),
+    Every => ("~*", "Every", "answers a Bang every division * steps Ticks, else a Clear", Value, Intrinsic, May, [division: Number, steps: Number]),
     Halt => ("*!", "Halt", "locks the root south of it when a Bang reaches it", Halt, Bang, Never, []),
     Increment => ("~+", "Increment", "answers previous value + amount, wrapped at modulus", Value, Intrinsic, Never, [amount: Number, modulus: Number], portal: "previous value": Number),
-    Slew => ("~>", "Slew", "answers previous value moved toward target by at most amount", Value, Intrinsic, Never, [amount: Number, target: Number], portal: "previous value": Number),
     Maximum => (".>", "Maximum", "answers the larger of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Minimum => (".<", "Minimum", "answers the smaller of left and right", Value, Intrinsic, Never, [left: Number, right: Number]),
     Modulo => (".%", "Modulo", "answers the remainder of left / right", Value, Intrinsic, Never, [left: Number, right: Number]),
@@ -1370,6 +1369,7 @@ define_functions! {
     SelfBangingNorth => ("^^", "Move North", "moves itself one row north each Tick", SelfBangNorth, Intrinsic, Never, []),
     SelfBangingSouth => ("vv", "Move South", "moves itself one row south each Tick", SelfBangSouth, Intrinsic, Never, []),
     SelfBangingWest => ("<<", "Move West", "moves itself one Cell west each Tick", SelfBangWest, Intrinsic, Never, []),
+    Slew => ("~>", "Slew", "answers previous value moved toward target by at most amount", Value, Intrinsic, Never, [amount: Number, target: Number], portal: "previous value": Number),
     Stack => ("#s", "Stack", "answers the chord of size tones from position index of set", Value, Intrinsic, Never, [set: IntervalSet, index: Number, size: Number]),
     Subtract => (".-", "Subtract", "answers left - right", Value, Intrinsic, Never, [left: Number, right: Number]),
     TimedChordPlay => ("!#", "Timed Chord Play", "sends a chord, each tone stopped after length Ticks", TerminalOutput, Bang, Never, [channel: MidiChannel, velocity: Velocity, root: Note, set: IntervalSet, voicing: Voicing, inversion: Number, length: Length]),
@@ -2220,9 +2220,9 @@ mod test {
                 Function::CopyNorth,
                 Function::CopySouth,
                 Function::CopyWest,
-                Function::Every,
                 Function::Equality,
                 Function::Euclidean,
+                Function::Every,
                 Function::Push,
                 Function::ReadEast,
                 Function::ReadNorth,
@@ -2953,13 +2953,12 @@ mod test {
                 | Function::Clock
                 | Function::ConvertToNote
                 | Function::ConvertToNumber
-                | Function::Every
                 | Function::Divide
                 | Function::Down
                 | Function::Equality
                 | Function::Euclidean
+                | Function::Every
                 | Function::Increment
-                | Function::Slew
                 | Function::CopyEast
                 | Function::CopyNorth
                 | Function::CopySouth
@@ -2974,6 +2973,7 @@ mod test {
                 | Function::ReadNorth
                 | Function::ReadSouth
                 | Function::ReadWest
+                | Function::Slew
                 | Function::Stack
                 | Function::Subtract
                 | Function::Track

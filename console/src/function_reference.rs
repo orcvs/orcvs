@@ -65,7 +65,7 @@
 //!   is either fully occupied or not there yet, never partly one and partly
 //!   the other, so an already-active Halt several rows north locks it the
 //!   moment it arrives, with room to spare for the Directional Bang's own
-//!   one-shot Every well away from Halt's own neighbourhood.
+//!   `~*` that Bangs once in the run, well away from Halt's own neighbourhood.
 //! - **West and East**, placed at rest from the outset (`<<`, `>>`), are
 //!   walled the same way — Halt is active before the mover ever exists, so
 //!   its own driving Equality has the whole neighbourhood to itself. Real
@@ -81,8 +81,8 @@
 //!   immediately south of its own Halt from Tick 0, the one Cell Halt can
 //!   reach without ever touching it.
 //! - **The Directional Bang South, West, and East Functions cannot be
-//!   walled at all**, in flight or at rest. Each needs its own one-shot
-//!   Every touching it to emit exactly once, and that Every's four-digit
+//!   walled at all**, in flight or at rest. Each needs its own `~*` that
+//!   Bangs once in the run touching it to emit exactly once, and that `~*`'s four-digit
 //!   operand always reaches into the same one or two Cells a second,
 //!   permanently active Bang source would need in order to keep the
 //!   mover's own Halt lit — every placement that avoids one collision runs

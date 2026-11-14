@@ -3,7 +3,7 @@
 //!
 //! Every Tick the bassline plays its next step on the Built-in Synth's acid
 //! channel, and each knob sends one Control Change: three to the acid voice
-//! and eight to the synth's effects. A knob's value glides by at most
+//! and eight to the synth's effects. A knob's value slews by at most
 //! [`RATE`] a Tick toward its Clock plus a floor, and the Clock sweeps up a
 //! step at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
@@ -127,7 +127,7 @@ fn knob_change(channel: u8, controller: u8, value: u8) -> OutputCommand {
 }
 
 /// `value` moved toward `target` by at most [`RATE`], never past it.
-fn glide(value: u8, target: u8) -> u8 {
+fn slew(value: u8, target: u8) -> u8 {
     if value < target {
         target.min(value + RATE)
     } else {
@@ -154,7 +154,7 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
     let mut sounding: Vec<(u8, u64)> = Vec::new();
 
     // Long enough for the slowest Clock, `R2`'s, to wrap at Tick `200` and
-    // its value to glide back down.
+    // its value to ramp back down.
     for tick in 0..0x210 {
         let plan = run.run_tick(tick);
         // The two bassline rows not holding the step read a blank note, which
@@ -178,7 +178,7 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
         delivery.push(note_on(ACID, touch.velocity(), note));
         sounding.push((note, tick + touch.length()));
         for (value, knob) in values.iter_mut().zip(&KNOBS) {
-            *value = glide(*value, knob.target(tick));
+            *value = slew(*value, knob.target(tick));
             delivery.push(knob_change(knob.channel, knob.controller, *value));
         }
         assert_eq!(
