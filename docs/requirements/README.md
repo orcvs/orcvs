@@ -20,7 +20,8 @@ This is the one statement of the order; every other document points here.
    and tested.
 4. The ADRs newer than that requirement's snapshot marker, and the ADRs its marker names as behind.
    Where one differs from the requirement, the ADR binds. An ADR is newer when its number is above
-   the marker's "through" number, or when its Status paragraph or an `## Amendment, <date>` heading
+   the marker's "through" number (a new ADR never refills a numbering gap; see
+   [Numbering](../adr/README.md#numbering)), or when its Status paragraph or an `## Amendment, <date>` heading
    carries a date after the marker's date. Open the full set in [`docs/adr/`](../adr/) only for an
    ADR's argument, its rejected alternatives or its history.
 
