@@ -95,8 +95,8 @@
 //!
 //! # MIDI activation needs no area, only a Bang source
 //!
-//! A Terminal Output Function answers no value and writes no Cell (LANG-180,
-//! PLAY-340), so nothing about a `!`-spelled Expression itself ever changes
+//! A Terminal Output Function answers no value and writes no Cell (the
+//! Terminal Output Function entry in `CONTEXT.md`), so nothing about a `!`-spelled Expression itself ever changes
 //! once checked in, and no row is set aside south of it the way a
 //! value-answering group sets one aside for its result.
 //! What changes is each example's own Bang source: a Euclidean, `~%0104`
@@ -979,7 +979,7 @@ mod tests {
     /// not among them), each gated by its own Euclidean Bang source, `~%0104`.
     ///
     /// Every Terminal Output Function answers no value and writes no Cell
-    /// (LANG-180, PLAY-340), so no row is set aside south of any of these
+    /// (the Terminal Output Function entry in `CONTEXT.md`), so no row is set aside south of any of these
     /// nine Expressions — unlike every value-answering group's own result
     /// row — and the only Cells that ever change while ticking this group are
     /// the Euclidean sources' own Bang Cells, [`midi_bang_result_areas`],

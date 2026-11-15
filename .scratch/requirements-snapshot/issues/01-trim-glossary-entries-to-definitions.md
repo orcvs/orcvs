@@ -50,6 +50,16 @@ above its own `**` "takes its Turn inert", as EVAL-053 implies, and Terminal Out
 gates evaluation itself". Settle in `docs/requirements/evaluation.md` whether an unactivated root
 takes a Turn before trimming those entries.
 
+Two citations need care before an entry is trimmed. A comment that quotes an entry's wording, such
+as `orcvs/src/source/encoding.rs:3` quoting Spatial Output, goes stale when the sentence is reworded,
+even though the term survives. A requirement that names an entry as the statement of its rule, such
+as `docs/requirements/playback.md`'s Note Off encoding citing Play Command and Output Command, loses
+its rule if the entry is trimmed first; move that rule into the requirement before trimming. The
+same holds for "a Terminal Output Function writes no Cell": only the Terminal Output Function entry
+states it, and `console/src/function_reference.rs` cites that entry.
+
 **Done when:** no `CONTEXT.md` entry states a rule that a requirement or `docs/functions.md` states,
 checked against every entry rather than only the seed list; every code citation of `CONTEXT.md`
-still names a term the glossary defines; and `docs/requirements/` is unchanged in meaning.
+still names a term the glossary defines and quotes no wording the entry no longer has; no
+requirement cites a `CONTEXT.md` entry for a rule the entry no longer states; and
+`docs/requirements/` is unchanged in meaning.
