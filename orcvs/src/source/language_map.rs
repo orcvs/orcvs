@@ -2006,10 +2006,10 @@ mod tests {
 /// Live Editing puts every revision between two keystrokes through this path:
 /// half-typed Functions, operands with one Cell written, a `|` that is not yet
 /// a Comment. Deriving one has to answer for all of them rather than panic,
-/// and the answer has to keep the rules `CONTEXT.md` states — a row is
-/// partitioned left to right into non-overlapping complete Language Units, an
-/// unmatched character diagnoses without participating in an overlapping unit,
-/// and incomplete or invalid Source contributes no runtime Atoms.
+/// and the answer has to keep LANG-060 (`docs/requirements/language.md`) — a
+/// row is partitioned left to right into non-overlapping complete Language
+/// Units, an unmatched character diagnoses without participating in an
+/// overlapping unit, and incomplete or invalid Source contributes no runtime Atoms.
 ///
 /// The Source is generated as raw text rather than as Expressions. What makes
 /// this path worth a property is exactly the input a grammar-shaped generator
@@ -2228,7 +2228,7 @@ mod property {
     proptest! {
         ///
         /// Deriving a Language Map from any Source answers, and answers with
-        /// the partition `CONTEXT.md` describes: each row left to right into
+        /// the partition LANG-060 states: each row left to right into
         /// non-overlapping units of two Cells unless Comment, with an
         /// unmatched character diagnosed on its own Cell and the walk resuming
         /// one Cell later.
@@ -2698,7 +2698,7 @@ mod property {
                 }
                 // A `|` with no `|` beside it in its own row: incomplete Source
                 // rather than the introducer, which is the distinction
-                // CONTEXT.md draws.
+                // LANG-080 draws.
                 if bytes.chunks_exact(cols).any(|row| {
                     row.iter().enumerate().any(|(column, byte)| {
                         *byte == b'|'

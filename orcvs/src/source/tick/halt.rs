@@ -88,10 +88,10 @@ fn halt_locks_nested_computations_before_they_can_diagnose() {
 
 #[test]
 fn an_active_halt_locks_the_complete_root_one_row_south() {
-    // CONTEXT.md: when Halt is active it "establishes a dependency that
-    // locks the Expression root directly south before that root can
-    // execute." Equality Bangs every Tick; its result sits two columns west
-    // of `*!`, which is the horizontal activation geometry. The Add
+    // EVAL-053: an active Halt locks the root one row south before that
+    // root's Turn, and its lock is an Effect of its own Turn. Equality
+    // Bangs every Tick; its result sits two columns west of `*!`, which is
+    // the horizontal activation geometry. The Add
     // one row south of Halt is intrinsically active, so the lock is the
     // only reason it contributes no `07` and its Source is unchanged.
     let (plans, grids, source) = tick_by_tick(

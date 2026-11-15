@@ -2,24 +2,48 @@
 
 **Status:** needs-triage
 
-**What to do:** Many `CONTEXT.md` entries still carry operational policy that the requirements now
-own: Pending, Defaulted Operand, Return, Comment (LANG); Tick, Turn, Dependency, Reservation,
-Contact, Effect, Function Replacement, Source Bundle, Halt, Self-Banging and Bang Functions, Tick
-Portals, Live Editing, and the Clock, Every, Euclidean, Increment and Slew entries (EVAL); Playback
-Engine, Monophonic Play, Timed Play, Output Command, Tick Grid, Overrun, Rewind, Run Clock and
-Omitted Diagnostics (PLAY); Theme, Paint, Cursor and Sector Seam (CONS). Trim each to its
-definition, distinctions and `_Avoid_` line, leaving behaviour to the owning requirement.
+**What to do:** Trim every `CONTEXT.md` entry to its definition, its distinctions and its `_Avoid_`
+line. Move what it states beyond that to where it belongs:
 
-**Why not in the snapshot change:** Rust comments cite several entries by name, and trimming them
-needs those citations kept resolvable or repointed:
+- A rule about what the product does goes to the owning requirement in `docs/requirements/`, or is
+  dropped where that requirement already states it.
+- A per-Function spelling, operand list or worked example (such as `&t0103C4D4E4` reads `D4`, or
+  `#pC4MD05` answers A5) goes to `docs/functions.md`, or is dropped where it is already there.
+- A rule-ID pointer such as "(PLAY-180)" goes with the clause it supports.
 
-- `console/src/function_reference.rs:56`, `:98`, `:982` cite the Halt and Terminal Output Function
-  entries.
-- `orcvs/src/source/tick/execution.rs:630` cites Function Replacement's four-fact sentence.
-- `orcvs/src/source/encoding.rs:3` cites Spatial Output.
+The scope is every entry. These carry the most behaviour and are a seed list, not the boundary:
 
-The snapshot change trimmed only the Built-in Synth entry, which no code cites, and corrected the
-Function, Clear, Pan, Operand Literal and Playback Engine (refused submission) entries.
+- Language: Interval Set, Defaulted Operand, Return, Comment, Clear, Arithmetic Function, Pitch
+  Function, Pick, Stack, Random Function, Copy Function, Read Function, Track Function.
+- Evaluation: Tick, Turn, Dependency, Reservation, Contact, Effect, Output Portal, Input Portal,
+  Function Replacement, Source Bundle, Bang, Missed Bang (it quotes a diagnostic string), Halt,
+  Self-Banging Function, Bang Function, Tick Portals, Live Editing, Clock, Every, Euclidean,
+  Increment and Slew.
+- Playback and outputs: Playback Engine, Tick Grid, Overrun, Rewind, Run Clock, Omitted
+  Diagnostics, Output Command, Terminal Output Function, Raw Play, Timed Play, Monophonic Play,
+  Raw Chord Play, Timed Chord Play, Control Change, Pitch Bend, Application Command, UDP, OSC,
+  Payload.
+- Console: Theme, Paint, Cursor, Sector Seam, Info.
+- Site: Sound Module.
 
-**Done when:** each listed entry holds no rule a requirement states, every code citation still
-resolves, and `docs/requirements/` is unchanged in meaning.
+**Code citations:** every Rust comment that cites `CONTEXT.md` now cites it for a term, not a rule,
+so trimming an entry leaves each one resolving. Recheck with
+`grep -rn "CONTEXT.md" --include=*.rs lang orcvs console`.
+
+- Repointed to the rule ID that owns the rule (done):
+  - `orcvs/src/source/language_map.rs:2009`, `:2231` → LANG-060; `:2701` → LANG-080.
+  - `lang/src/parser.rs:2015` → LANG-080.
+  - `orcvs/src/grid.rs:986` → LANG-020, LANG-030.
+  - `orcvs/src/source/portal.rs:15` → EVAL-030; `:63` → EVAL-053, EVAL-054.
+  - `orcvs/src/source/tick/halt.rs:91` → EVAL-053.
+  - `orcvs/src/source/tick/execution.rs:630` and `lang/src/atom.rs:1440` → EVAL-040.
+  - `console/src/function_reference.rs:56` → EVAL-053; `:98`, `:982` → LANG-180, PLAY-340.
+- Kept, because they cite a term's definition:
+  - `orcvs/src/source/language_map.rs:2032`, `orcvs/src/grid.rs:1028`, `lang/src/parser.rs:1542`
+    (Cell).
+  - `lang/src/atom.rs:502` (Effect).
+  - `orcvs/src/source/encoding.rs:3` (Spatial Output).
+
+**Done when:** no `CONTEXT.md` entry states a rule that a requirement or `docs/functions.md` states,
+checked against every entry rather than only the seed list; every code citation of `CONTEXT.md`
+still names a term the glossary defines; and `docs/requirements/` is unchanged in meaning.

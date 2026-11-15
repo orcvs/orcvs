@@ -7,3 +7,8 @@ Refusal, Portal Error, Input and Output Span, Declared and Selected, Current and
 0077), Optional Operand, and safety action. Settle each through `/domain-modeling`.
 
 **Done when:** each has an entry, or the requirements use an existing term instead.
+
+## Comments
+
+- 2026-11-15: safety action now has an entry, as do Root, Slot, Claim, Activation and Absolute
+  Tick, which the requirements also use without one.

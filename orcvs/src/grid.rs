@@ -983,17 +983,17 @@ mod test {
 }
 
 ///
-/// The Grid laws CONTEXT.md states, over shapes and Positions no example names.
+/// The Grid laws LANG-020 and LANG-030 state, over shapes and Positions no
+/// example names.
 ///
-/// "A Position can be obtained only from the Grid that contains it, so a
-/// Position outside its Grid does not exist; the Grid converts between a
-/// Position and the index the Source addresses Cells by." Every property below
-/// is one clause of that sentence, or of the Grid entry's own "A Grid has at
-/// least one column and one row, and a position outside it does not exist".
+/// "A Position is obtained only from the Grid that contains it, and the Grid
+/// alone converts between a Position and the Cell index the Source addresses"
+/// (LANG-030), and "a position outside it does not exist" (LANG-020). Every
+/// property below is one clause of those two rules.
 ///
 /// The generated value is the shape alone, and each case then sweeps every
 /// Position inside it. That split is the point rather than an economy: the
-/// glossary quantifies over *every* Position a Grid mints, so drawing one
+/// rule quantifies over *every* Position a Grid mints, so drawing one
 /// Position per case would leave the quantifier itself unchecked.
 ///
 /// An exhaustive loop is preferred where the domain is small enough for one,
