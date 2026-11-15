@@ -748,7 +748,7 @@ While a framing page announces a Built-in Synth, it is offered after every MIDI 
 any destination. Automatic selection picks it only when no port exists; while MIDI access is
 pending, automatic selection picks the first destination listed until discovery settles, after
 which the first destination replaces it; a destination the performer chose stays chosen. The page
-messages and the Linked console's pick are in [site.md](site.md) (SITE-040, SITE-041); an
+messages and the Linked Console's pick are in [site.md](site.md) (SITE-040, SITE-041); an
 unavailable synth in SITE-046; a console no page frames in SITE-048. How the list is drawn is in
 [console.md](console.md).
 

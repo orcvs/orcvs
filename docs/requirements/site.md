@@ -14,8 +14,9 @@ Settings keys, the top bar and the Panel belong to [console.md](console.md). The
 belongs to [language.md](language.md), and Ticks to [evaluation.md](evaluation.md). Terms are defined in
 [CONTEXT.md](../../CONTEXT.md), and decisions are argued in [the ADRs](../adr/).
 
-Here a console is **Linked** when its URL opens it by `?example=`, `#source=` or `?small`, whether
-or not that link could be read. The **small console** is the Linked console at `/play/?small`.
+A Linked Console and the Small Console are as `CONTEXT.md` defines them. Here a Linked Console is
+one whose address uses `?example=`, `#source=` or `?small`, and the Small Console opens at
+`/play/?small`.
 
 ## Opening a Source by link
 
@@ -31,11 +32,11 @@ console's messages.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md) (Consequences), [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md).
 Evidence: `console/src/linked_source.rs` `opening`, `source_from`, `percent_decoded`; `console/src/console.rs` `Console::start_at`; tests `console/src/linked_source.rs` `an_example_name_opens_that_example`, `source_text_opens_as_a_source_file`, `a_plus_is_a_plus_not_a_space`, `every_byte_round_trips_through_the_source_file_writer` (assertions inspected).
 
-### SITE-021 A Linked console opens stopped and never reads or writes saved work
+### SITE-021 A Linked Console opens stopped and never reads or writes saved work
 
-A Linked console opens with Playback stopped, so a link cannot start Playback by itself. It
+A Linked Console opens with Playback stopped, so a link cannot start Playback by itself. It
 neither restores the stored Source nor stores its own, so a link never replaces saved work, and
-plain `orcvs.com` opens that work again. Edits in a Linked console are not saved.
+plain `orcvs.com` opens that work again. Edits in a Linked Console are not saved.
 
 Reason: a link someone sends must not play by itself or overwrite the reader's own Source.
 Sources: [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md), [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
@@ -62,9 +63,9 @@ Not: a page per example on the site.
 Sources: [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md).
 Evidence: `console/src/examples.rs` `Example::link_name`; test `console/src/examples.rs` `each_example_links_by_its_name`.
 
-## The small console
+## The Small Console
 
-### SITE-010 The small console opens empty, stopped and keeps nothing
+### SITE-010 The Small Console opens empty, stopped and keeps nothing
 
 `/play/?small` opens Linked on an empty Source with Playback stopped. It shows the Grid and the
 Panel without the menu bar. It has no File menu and cannot save, so its Source lasts as long as
@@ -75,9 +76,9 @@ reader's work.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md), [ADR 0089](../adr/0089-the-panel-plays-and-rewinds.md) (every console shows the Panel).
 Evidence: `console/src/linked_source.rs` `opening` (`Opening::Small`); `console/src/console.rs` `Console::new`; tests `console/src/linked_source.rs` `small_opens_the_small_console`, `console/src/console/kittest_tests.rs` `a_small_console_shows_no_menu_bar` (assertions inspected).
 
-### SITE-011 The small console shows a notice bar only while it has notices
+### SITE-011 The Small Console shows a notice bar only while it has notices
 
-While the small console has notices, it shows a bar holding only those notices.
+While the Small Console has notices, it shows a bar holding only those notices.
 
 Reason: a refused Source has to say why the open one stayed.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
@@ -123,9 +124,9 @@ Reason: the console listens only once its WASM runs, so anything posted earlier 
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md) (Consequences).
 Evidence: `console/src/web_startup.rs` `listen_to_page`; `site/src/console/small.ts` `start`, `fail`; test `site/tests/reference.spec.ts` "a console that does not start says so, and the next press starts another" (assertions inspected).
 
-### SITE-016 A page that shows examples holds one small console
+### SITE-016 A page that shows examples holds one Small Console
 
-A page with examples holds one small console and sends it each example by message.
+A page with examples holds one Small Console and sends it each example by message.
 
 Reason: a console per example pays a WASM start for each one.
 Not: a console per example, or opening examples in a new tab or window.
@@ -138,7 +139,7 @@ Evidence: `site/src/console/small.ts`; test `site/tests/lesson.spec.ts` "pressin
 
 `/` frames `/play/`, passing on its whole query and fragment, inside the page that holds the
 Built-in Synth and the Sound Module. So `orcvs.com/?example=<link-name>` opens what
-`/play/?example=<link-name>` opens, and `/?small` opens the small console. The address is read
+`/play/?example=<link-name>` opens, and `/?small` opens the Small Console. The address is read
 once, when the page loads. Editing the fragment of an open page changes nothing until a reload.
 
 Reason: a link to the site has to name an example and still play through the page's synth.
@@ -159,7 +160,7 @@ Evidence: `site/src/pages/index.astro`; test `site/tests/smoke.spec.ts` "/ is th
 
 Site pages render the repository's own docs, `docs/first-result.md` and `docs/functions.md`, and add
 no prose written for the site. Each Source block is drawn as a Grid of Cells, and pressing it sends
-that Source to the page's small console (SITE-016). Nothing on the site opens a new tab or window.
+that Source to the page's Small Console (SITE-016). Nothing on the site opens a new tab or window.
 
 Reason: "I do not want your copy", "Function source code references should use a grid", "Launching
 examples in a new window is bad".
@@ -184,7 +185,7 @@ wide with two spacer Cells between columns. Each column holds three rows:
 - a name: two Cells in the Function role's colours
 
 The columns run in controller order: `MD`, `EQ`, `LN`, `OF`, `R1`, `R2`, `CH`, `DL`. Hovering a Cell
-names its effect and controller. The Sound Module appears on `/` only. A page with the small console
+names its effect and controller. The Sound Module appears on `/` only. A page with the Small Console
 plays the effects a Source sets but shows no Sound Module.
 
 Reason: it reads as part of the console rather than a control panel beside it.
@@ -273,9 +274,9 @@ Reason: the console has no audio code. It learns from the page that a synth is t
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
 Evidence: `synth/web/synth-host.js` (ready handler, `tell`); `console/src/built_in_synth.rs` `receive`; test `console/src/built_in_synth.rs` `the_synth_is_listed_after_the_ports_only_while_a_page_announces_it`.
 
-### SITE-041 A Linked console picks the Built-in Synth once it is announced
+### SITE-041 A Linked Console picks the Built-in Synth once it is announced
 
-When the page announces the synth, a Linked console, the small console included, picks it as its
+When the page announces the synth, a Linked Console, the Small Console included, picks it as its
 destination even if a MIDI port exists.
 
 Reason: an example someone opens from a link or a page should be heard without any setup.
@@ -581,7 +582,7 @@ decision or an implementation choice, so it is decided through the ADR process.
   the empty Source with a notice. Sources: `.scratch/orcvs-site/spec.md` (Loading a Source) and
   `.scratch/orcvs-site/issues/01-open-a-source-from-the-url-stopped.md` (the value and the
   both-parameters refusal were chosen in the ticket).
-- SITE-023 (proposed): a Linked console, and the small console, register no service worker, while
+- SITE-023 (proposed): a Linked Console, and the Small Console, register no service worker, while
   `/play/` keeps it, scoped to `/play/`. Source: `.scratch/orcvs-site/spec.md` (Service worker).
 - SITE-082 (proposed): a deploy replaces the console a returning reader's service worker has cached.
   Sources: `.scratch/orcvs-site/spec.md` (Service worker) and

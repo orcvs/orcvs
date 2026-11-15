@@ -7,7 +7,7 @@
 > 0045, 0046, 0047, 0048, 0051, 0052, 0053, 0054 (console clauses), 0055 (console clause), 0058,
 > 0059 (console clause), 0061 (paint clause), 0063 (no Sequence value), 0069 (paint clause),
 > 0076 (Panel clauses), 0077 (paint clauses), 0078, 0079, 0080, 0081, 0082, 0083, 0084,
-> 0085 (paint clause), 0086 (small console shows the Panel), 0088 (console Theme key), 0089,
+> 0085 (paint clause), 0086 (Small Console shows the Panel), 0088 (console Theme key), 0089,
 > 0091 (settings keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause).
 > Reviewed, not applicable or wholly superseded: 0050.
 
@@ -91,11 +91,11 @@ Evidence: `console/src/paint.rs` `Paint`, `FramePaint`; tests `console/src/paint
 
 ### CONS-023 A Paint covers only the Positions the console draws
 
-A Paint covers the `VisiblePositions` the viewport answers: two column and row ranges clamped to the
+A Paint covers the `VisiblePositions` the Source View answers: two column and row ranges clamped to the
 Grid. Each Cell's paint reads only its own Cell, so the cull saves work and never changes an
 answer. A Paint answers the Cursor as `Option<Position>`, and `None` means the Cursor is not drawn.
 
-Reason: the cost of drawing a Render Frame follows the viewport, not the 256 by 256 Grid.
+Reason: the cost of drawing a Render Frame follows the Source View, not the 256 by 256 Grid.
 Sources: [ADR 0040](../adr/0040-the-console-paints-from-a-value.md).
 Evidence: `console/src/grid_viewport.rs` `visible_positions`; tests `console/src/console/tests.rs` `the_draw_loop_paints_the_visible_range_rather_than_the_whole_source`, `console/src/grid_viewport.rs` `the_visible_range_is_the_shown_positions_and_one_cell_more_each_way`.
 
@@ -226,7 +226,7 @@ Evidence: tests `console/src/config.rs` `the_removed_glitch_keys_are_unknown`, `
 An edge between two Positions, or between a Position and the Grid's outside, shows exactly one
 line. The facts rank, highest first:
 
-1. The selection outline: the Cursor's Cell when no Region spans more than one Cell, or a spanning
+1. The Cursor or Region outline: the Cursor's Cell when no Region spans more than one Cell, or a spanning
    Region's perimeter.
 2. The Cursor's own Cell inside a spanning Region.
 3. A Bang's role border.
@@ -241,7 +241,7 @@ above the Portals, so it is framed on all four sides.
 
 A width of zero withdraws a fact from the edge rather than hiding the edge. The winning line's
 colour is composited once over the facts below it. A Sector Seam composites over its edge's line,
-except on the selection outline. The Paint decides each edge's fact, colour and width, and
+except on the Cursor or Region outline. The Paint decides each edge's fact, colour and width, and
 coalesces them into runs.
 
 Reason: Cells that each stroke their own border draw every shared edge twice, at twice the Theme's width, and composite a translucent edge twice.
@@ -297,7 +297,7 @@ These gestures Pan:
 - A press or drag on the Minimap ([CONS-090](#cons-090-the-minimap-is-a-pan-gesture)).
 - A finger's drag ([CONS-110](#cons-110-a-finger-pans-taps-and-long-presses)).
 
-A primary click or drag with no modifier belongs to Region selection. No Pan moves the Cursor or
+A primary click or drag with no modifier belongs to making a Region. No Pan moves the Cursor or
 changes the Region.
 
 Reason: Space toggles Playback, so it cannot be the drag modifier. The plain primary drag is the one gesture a Region has.
@@ -322,7 +322,7 @@ Alt-drag or a middle-drag is Panning. A middle-drag shows no hover state before 
 wheel Pan shows no hand.
 
 Reason: a modifier gesture has to announce itself before the drag begins.
-Sources: [ADR 0047](../adr/0047-the-source-view-has-a-margin.md).
+Sources: [ADR 0047](../adr/0047-the-source-view-has-a-margin.md), as amended by [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
 Evidence: tests `console/src/console/kittest_tests.rs` `the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_pans`, `the_pointer_shows_no_grab_hand_where_alt_offers_no_pan`.
 
 ### CONS-035 The default window is fixed in points
@@ -330,7 +330,7 @@ Evidence: tests `console/src/console/kittest_tests.rs` `the_pointer_shows_a_grab
 The default window gives the Source 1024 by 640 points.
 
 Reason: the window's size is stated in points, never as a count of Cells.
-Sources: [ADR 0047](../adr/0047-the-source-view-has-a-margin.md).
+Sources: [ADR 0047](../adr/0047-the-source-view-has-a-margin.md), as amended by [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
 Evidence: `console/src/main.rs`; test `console/src/console/tests.rs` `the_default_window_is_a_fixed_size_in_points`.
 
 ### CONS-040 The console has one zoom, egui's whole-UI zoom
@@ -726,7 +726,7 @@ Evidence: enforced by review; gates `console/src/contrast.rs` `shipped_theme_gat
 ### CONS-080 The native splash is the console's own window
 
 `main` opens the root window borderless, splash-sized and centred, showing the Orcvs logo. When
-the splash ends (by itself, or on a key or click, which reaches nothing else), viewport commands
+the splash ends (by itself, or on a key or click, which reaches nothing else), Source View commands
 give the same window its decorations and size. The logo then fades over the running Grid.
 
 Reason: eframe has no splash API, and a hidden root window may get no frames on some platforms.
@@ -881,7 +881,7 @@ The Panel's row opens with two Cells, `P` and then `R`, one Cell apart and befor
 Source Cell on the window's Cell columns. Both draw in the Theme's `button` role, and `P` draws in
 `button.pressed` while Playback plays. `P` does what Space does, and `R` rewinds. On native,
 Command Shift R (Ctrl outside macOS) also rewinds, and a held chord rewinds once. The web binds no
-Rewind chord, and there is no Playback menu. Every console shows the Panel, the small console
+Rewind chord, and there is no Playback menu. Every console shows the Panel, the Small Console
 included.
 
 Reason: a phone has no Space key, and the browser reserves Command Shift R. A Cell is as easy to tap as to type into.

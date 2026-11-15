@@ -164,10 +164,9 @@ Triage uses the five default canonical label strings. See `docs/agents/triage-la
 
 ### Domain docs
 
-Domain documentation uses a single-context layout. See `docs/agents/domain.md`. Before changing
-behaviour, read `CONTEXT.md` for terms, then the owning requirement in `docs/requirements/`, then the
-ADRs. Accepting or amending an ADR, including a Status change, updates the owning requirement and its snapshot marker in the same change,
-or marks that topic's snapshot as behind.
+Domain documentation uses a single-context layout. See `docs/agents/domain.md` for the reading
+order. A change to `docs/adr/` updates the owning requirement in the same change, as
+`docs/requirements/README.md` states under "Keeping the snapshot current".
 
 ### Syntax prototypes
 

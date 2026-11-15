@@ -233,6 +233,8 @@ Test assertions marked (i) were read; others are inferred from the test name.
 ## Conflicts and open questions
 
 **O1. Proposed ADRs 0078 and 0079 are built and already written into accepted sources.**
+**Resolved 2026-11-15:** Toby accepted both (decisions D6); their rows below now bind, and the
+"proposed" marks in this trace record the state when it was drafted.
 ADR 0078 and 0079 say "Status: proposed". Yet accepted ADRs carry inline amendments citing them
 (0038 "amended by ADR 0079: a Cell is a width and a height"; 0047 "shows about 85 by 35 of the
 default 12 by 18 point Cells"; 0053 "Cells are configurable rectangles, 12 by 18 points by
