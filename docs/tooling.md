@@ -575,8 +575,9 @@ is task-level env.
 
 Counterexample files are committed like source. proptest writes them to a `proptest-regressions`
 directory beside each crate's `src`, one file per module, and no ignore rule excludes them. The
-contract script lists a path per property and asks `git check-ignore` about each rather than reading
-`.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule. A
+contract script asks `git check-ignore` about a fixed sample of counterexample paths rather than
+reading `.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule;
+the sample is not one path per property or per tracked file. A
 counterexample that CI can see and a developer cannot reproduce is worse than no property at all, so
 the shrunk input travels with the repository and the next run replays it before generating anything
 new. `git ls-files '*proptest-regressions*'` lists the counterexamples tracked today.
