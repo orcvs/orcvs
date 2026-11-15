@@ -17,7 +17,7 @@ and semantics changes as active language design, not public-API breakage.
 
 ## Before editing
 
-- Read this file, the affected manifests, and analogous code and tests.
+- Read the affected manifests and analogous code and tests.
 - Preserve the native and WASM targets and each declared feature combination.
 - Classify public-API, unsafe, concurrency, dependency, feature, and performance risk.
 - Use the focused skill whose routing description matches the work.
@@ -28,12 +28,8 @@ and semantics changes as active language design, not public-API breakage.
 - Prefer safe Rust. Keep each unsafe scope minimal and state its safety invariants.
 - Propagate or handle fallible results intentionally; use assertions for proven invariants.
 - Keep lint suppressions narrow and explain why the lint is inapplicable.
-- A comment carries what the code does, why, and the invariant it keeps, not its lineage. What the
-  code replaced, retired or "used to" do, and any alternative it rejected, go in the commit message,
-  an ADR or a ticket; if the history guarded an invariant, keep the invariant as a present-tense
-  constraint. Keep an ADR or `.scratch/` citation only where it names a constraint the code cannot
-  show. `SAFETY:` comments, doctests and intra-doc links are read by gates, so shorten them without
-  removing what the gate reads. See `docs/agents/comments.md`.
+- Comments state what the code does, why, and the invariant it keeps; lineage goes in the commit
+  message. When a comment holds history, a citation, `SAFETY:` or a doctest: `docs/agents/comments.md`.
 - Keep test-only inputs out of shipped code: no shipped function takes a parameter, or reaches a
   branch, that only a test populates. When a test needs an input production cannot construct, it
   builds that input itself — below the shipped entry point, in a test-only item beside the shipped
@@ -44,12 +40,8 @@ and semantics changes as active language design, not public-API breakage.
 
 ## Verification
 
-Local gates are scoped to what the change can reach. CI is the authority across its two tiers:
-the pull-request tier runs both feature sets on Linux, the rustdoc gates, and compiles the WASM target. The merge
-queue repeats those checks and adds macOS, the headless browser suite, and
-proptest at full case count. The benchmarks run on pull requests and pushes to `main` with path
-filters. `docs/tooling.md` records what each covers. Re-deriving any of it locally spends minutes
-and gigabytes on an answer CI gives anyway.
+Local gates cover what the change can reach; CI runs every feature set and target, and
+`docs/tooling.md` records which tier runs what.
 
 Run this for every change, on the crate you edited and the crates that depend on it — `lang`
 means `lang` and `orcvs`, `orcvs` means `orcvs` and `console`:
@@ -60,10 +52,7 @@ cargo clippy --package <crate> --all-targets --locked -- -D warnings
 cargo nextest run --package <crate> --locked
 ```
 
-`cargo check` is deliberately absent: clippy performs the same compilation and adds the lints,
-which is why `.scratch/ci-tiers/issues/02-remove-the-redundant-check-pass.md` removed the workspace
-check pass from `mise.toml`'s `check` task. Asking for both here would have restored the pass that
-issue deleted.
+Clippy is the compile pass; run it in place of `cargo check`.
 
 Once, before opening a pull request, so the crate-scoped runs above are not repeated per crate:
 
@@ -75,12 +64,10 @@ cargo test --workspace --doc --locked
 
 Then run only the gates whose inputs the change actually touched:
 
-- `mise.toml`, `.github/workflows/`, or `scripts/`: `bash scripts/check-tooling-contract.sh`,
-  `actionlint`, and `zizmor --offline .github/workflows`
-- `docs/requirements/`, `docs/adr/`, or a renamed or deleted source file: `node scripts/check-requirements.ts`,
-  and `node --test scripts/tests/check-requirements.test.ts` when the script changes
-- `scripts/roadmap.ts` or `.scratch/`: `node --test scripts/tests/roadmap.test.ts` and
-  `node scripts/roadmap.ts > /dev/null`
+- `mise.toml`, `.github/workflows/`, or `scripts/`: `mise run check_docs`, `actionlint`, and
+  `zizmor --offline .github/workflows`
+- `docs/adr/`, `docs/requirements/`, `.scratch/`, or a renamed or deleted source file:
+  `mise run check_docs`
 - persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
   `console` enables `persistence` by default, so the ordinary run already covers the feature-on
   path and `--features persistence` adds nothing; the arm worth running per change is the one
@@ -100,19 +87,20 @@ Then run only the gates whose inputs the change actually touched:
   with `CONSOLE_WEB=../target/console-web`.
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
   `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, and focused
-  tests on every affected target and platform. Miri is the tool this gate would prefer and it
-  ships on nightly only, so it is a path you take on purpose rather than a check a change owes:
-  `mise run miri` interprets the Source model tests locally, and the `Miri` workflow runs the same
-  task on manual dispatch. Neither is a required status context, and no tier calls the task. Reach
-  for it when an `unsafe` block enters shipped code (none does today), or when the copy-on-write
-  Cell write `Source::set_source` makes through `SourceBuffer::write`, or the Grid indexing that
-  mints the index it takes, changes — it installs a nightly toolchain and interprets at roughly a
-  hundred times native cost, which is why it is not on the list above.
-- public API: doctests, examples, rustdoc warnings, and human API review
-- concurrency: cancellation, shutdown, ownership, backpressure, ordering, and race-sensitive tests
-- parser/protocol boundary: boundary or property tests; fuzz when exposure warrants it
+  tests on every affected target and platform. When to add the optional Miri run: the
+  `rust-unsafe` skill.
+
+Each risk the change carries owes these tests, and is done when its bound holds:
+
+- public API: a doctest or example on every changed public item, a clean
+  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, and the changed API named
+  for human review on the `Risks` line.
+- concurrency: a test for each of cancellation, shutdown, ownership, backpressure and ordering
+  that the change touches, plus a race-sensitive test for any new shared state.
+- parser/protocol boundary: boundary or property tests over every input form the change accepts;
+  where that input is untrusted, state on the `Risks` line whether it warrants fuzzing.
 - performance: a benchmark for any path whose cost the change claims to move. Adding the
-  benchmark is local work; running the comparison is not — see below.
+  benchmark is local work; running the comparison is deferred to CI.
 
 ### Deferred to CI
 
@@ -170,14 +158,9 @@ changing one's Status or amendments: update the requirements in the same change,
 
 ### Syntax prototypes
 
-Syntax and evaluation prototypes use Tick-by-Tick Orcvs Source Grids with diagnostic context. See `docs/agents/syntax-prototypes.md`.
+Building or reviewing a syntax or evaluation prototype (`lang/*-prototype.html`):
+`docs/agents/syntax-prototypes.md`.
 
 ### Skills
 
-The repository's skills live in `.agents/skills/` and are exposed to Claude Code through tracked
-symlinks in `.claude/skills/`. See `docs/agents/skills.md`.
-
-`rust-change`, `rust-review`, `rust-unsafe` and `rust-dependency-change` route by the risk in the
-change. `egui` routes by the crate, not the risk. It carries the pinned versions
-and the upstream references, so read it rather than restating it here. `website` routes by the
-`site/` directory and carries the site's embed and link contracts.
+Adding or editing a skill: `docs/agents/skills.md`.
