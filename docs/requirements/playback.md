@@ -1,13 +1,5 @@
 # Playback and outputs requirements
 
-> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> A newer ADR binds where it differs until this document is updated; the
-> [reading order](README.md#reading-order) says which ADRs are newer.
-> Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090, 0099,
-> 0103, 0108. Reviewed, not applicable or wholly superseded: none wholly superseded; 0087's page protocol
-> and timing are stated in [site.md](site.md), 0088's Sound Module is owned by the Site topic, and
-> 0103's Chord building is stated in [language.md](language.md).
-
 This document owns the Playback Engine: its lifecycle, requests, musical time, diagnostics, stop and
 Rewind; the MIDI, UDP and OSC outputs and the policy each destination keeps; MIDI destination
 selection; and the Built-in Synth's sound. It does not own Function spellings, operand binding or
@@ -15,6 +7,12 @@ blank operands ([language.md](language.md)), how a Tick is planned and committed
 ([evaluation.md](evaluation.md)), how the console draws Playback state or failures
 ([console.md](console.md)), or the site's page messages and Sound Module ([site.md](site.md)).
 Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
+
+> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> A newer ADR binds where it differs until this document is updated; the
+> [reading order](README.md#reading-order) says which ADRs are newer.
+> Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090,
+> 0099, 0103, 0108.
 
 ## The seam between interpretation and Playback
 
@@ -187,34 +185,6 @@ Evidence: `orcvs/src/playback.rs` `PlaybackEngine::start`; test `an_engine_whose
 
 ## Musical time: the Tick Grid, stop and Rewind
 
-### PLAY-180 Each run's Ticks are due on its Tick Grid, which a stall does not move
-
-Every Tick of a run is due at a whole multiple of the Tick period from the deadline the run began
-on, until the run ends or is retuned. A deadline the clock cannot reach in time is skipped, the
-deadlines passed behind it are not manufactured, and the run resumes at the first deadline still
-ahead of the instant the clock woke; a deadline exactly at that instant goes with the stall.
-Retuning begins a new grid without a new run, anchored on the deadline the last executed Tick was
-due at, never on when the retune arrived or that Tick was seen. Both targets compute deadlines with
-one shared function; only how to wait until an instant differs per target.
-
-Reason: the grid is what a sequencer cannot give up.
-Not: replaying the backlog, or restarting the period from the wake, which moves the grid for good.
-Sources: [ADR 0037](../adr/0037-a-late-tick-loses-its-turn.md),
-[ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md).
-Evidence: `orcvs/src/playback.rs` `next_scheduled_at`; test `a_missed_deadline_does_not_move_the_grid` in the same file.
-
-### PLAY-190 A Tick observed a whole period late is declined as one Overrun
-
-A Tick observed a whole Tick period or more past its deadline is declined with one Overrun diagnostic
-naming that deadline; a Tick late by less is executed. An Overrun consumes no absolute Tick and is
-reported once per stall, not once per deadline the stall covered. The engine, not the clock, decides
-whether a Tick it was handed is still worth executing.
-
-Reason: the count reports the event, not the clock's arithmetic, and an ordinary slow Tick costs
-nothing.
-Sources: [ADR 0037](../adr/0037-a-late-tick-loses-its-turn.md).
-Evidence: `orcvs/src/playback.rs` `is_overrun`; test `a_deadline_reached_one_whole_period_late_is_missed` in the same file.
-
 ### PLAY-150 A stop holds the absolute Tick
 
 Stopping ends the run, sends the safety action and discards the Note Off schedule; the absolute Tick
@@ -250,6 +220,34 @@ resumes, and is zero after a Rewind, together with a published Tick of `0`.
 
 Sources: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md).
 Evidence: `orcvs/src/playback.rs` `PlaybackObservation::run_clock`; test `stopping_freezes_the_published_tick_and_run_clock` in the same file.
+
+### PLAY-180 Each run's Ticks are due on its Tick Grid, which a stall does not move
+
+Every Tick of a run is due at a whole multiple of the Tick period from the deadline the run began
+on, until the run ends or is retuned. A deadline the clock cannot reach in time is skipped, the
+deadlines passed behind it are not manufactured, and the run resumes at the first deadline still
+ahead of the instant the clock woke; a deadline exactly at that instant goes with the stall.
+Retuning begins a new grid without a new run, anchored on the deadline the last executed Tick was
+due at, never on when the retune arrived or that Tick was seen. Both targets compute deadlines with
+one shared function; only how to wait until an instant differs per target.
+
+Reason: the grid is what a sequencer cannot give up.
+Not: replaying the backlog, or restarting the period from the wake, which moves the grid for good.
+Sources: [ADR 0037](../adr/0037-a-late-tick-loses-its-turn.md),
+[ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md).
+Evidence: `orcvs/src/playback.rs` `next_scheduled_at`; test `a_missed_deadline_does_not_move_the_grid` in the same file.
+
+### PLAY-190 A Tick observed a whole period late is declined as one Overrun
+
+A Tick observed a whole Tick period or more past its deadline is declined with one Overrun diagnostic
+naming that deadline; a Tick late by less is executed. An Overrun consumes no absolute Tick and is
+reported once per stall, not once per deadline the stall covered. The engine, not the clock, decides
+whether a Tick it was handed is still worth executing.
+
+Reason: the count reports the event, not the clock's arithmetic, and an ordinary slow Tick costs
+nothing.
+Sources: [ADR 0037](../adr/0037-a-late-tick-loses-its-turn.md).
+Evidence: `orcvs/src/playback.rs` `is_overrun`; test `a_deadline_reached_one_whole_period_late_is_missed` in the same file.
 
 ## Diagnostics
 
@@ -306,7 +304,7 @@ Channel is a Number `00`–`0F`; velocity, controller, value, LSB and MSB are Nu
 note is a Note; length is a Number `00`–`FF`. Values are sent as written, with no base-36 scaling,
 wrapping or clamping, and no Number is taken as a Note without `.^`. An operand out of its domain or
 of the wrong type diagnoses and emits no MIDI. Which operands may be blank, and what blank binds to,
-is in [language.md](language.md); the per-Function table is in
+is in [LANG-300](language.md#lang-300-an-optional-operand-binds-a-slot-holding-no-value-to-no-value-a-plays-note-is-optional) and [LANG-320](language.md#lang-320-a-defaulted-operand-binds-a-slot-holding-no-value-as-its-fixed-number); the per-Function table is in
 [docs/functions.md](../functions.md#midi-output).
 
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
@@ -338,7 +336,7 @@ Evidence: `orcvs/src/playback/schedule.rs`; test `a_timed_play_starts_in_tick_pl
 
 Every Monophonic Play that emits a Play Command replaces the channel's Mono-owned claim, whatever
 note it held. A Monophonic Play whose note is blank emits none, so the voice sounds on to its own
-Note Off ([language.md](language.md), ADR 0108). Velocity `00`
+Note Off ([LANG-300](language.md#lang-300-an-optional-operand-binds-a-slot-holding-no-value-to-no-value-a-plays-note-is-optional)). Velocity `00`
 or length `00` starts nothing, replacing the voice with silence (unlike Timed Play's length `00`).
 Otherwise the replacement starts and its Note Off is scheduled at executed Tick `T + length`.
 Channels are independent; the last command in a Tick owns the channel. Retriggered replacement and
@@ -412,6 +410,33 @@ Evidence: `orcvs/src/playback/outputs.rs` `Outputs::release`, `disconnect`, `beg
 
 ## Outputs and the network
 
+### PLAY-350 The console keeps the network destination, never Source
+
+UDP and OSC go to one host with a UDP port and an OSC port. The console stores them itself, apart
+from the settings file it only reads (CONS-130), and never in Source; defaults are `127.0.0.1`,
+`49161` and `49162`. A new destination applies from the next send. The Output list edits it
+(CONS-104).
+
+Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
+Evidence: `orcvs/src/network.rs` `NetworkDestination`; test `the_default_destination_is_orcas` in the same file.
+
+### PLAY-360 The web build diagnoses every activated UDP or OSC Function
+
+A browser cannot open a UDP socket, so in the web build every activated `!u` or `!o` diagnoses that
+the build cannot send UDP or OSC, unlatched, and Playback goes on. Both builds parse a Source alike.
+
+Reason: there each send is the performer's evidence that nothing left.
+Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md),
+[ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
+Evidence: `orcvs/src/network.rs` web adapter; test `orcvs/src/playback/outputs.rs` `the_web_build_reports_every_refused_send`.
+
+### PLAY-370 Orcvs only sends UDP and OSC
+
+Orcvs does not receive UDP or OSC.
+
+Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
+Evidence: no receive path exists in `orcvs/src/network.rs`.
+
 ### PLAY-380 One Outputs module owns every destination and its policy
 
 Within the Playback Engine, one Outputs module takes each Tick Plan and delivers it. It alone holds
@@ -463,33 +488,6 @@ one datagram with a pure encoder; the web adapter refuses without encoding.
 Not: a seam taking raw datagrams, which would make the web encode OSC only to refuse it.
 Sources: [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
 Evidence: `orcvs/src/network.rs` `NetworkAdapter`; test `a_refused_send_names_where_it_went` in the same file.
-
-### PLAY-350 The console keeps the network destination, never Source
-
-UDP and OSC go to one host with a UDP port and an OSC port. The console stores them itself, apart
-from the settings file it only reads (CONS-130), and never in Source; defaults are `127.0.0.1`,
-`49161` and `49162`. A new destination applies from the next send. The Output list edits it
-(CONS-104).
-
-Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `orcvs/src/network.rs` `NetworkDestination`; test `the_default_destination_is_orcas` in the same file.
-
-### PLAY-360 The web build diagnoses every activated UDP or OSC Function
-
-A browser cannot open a UDP socket, so in the web build every activated `!u` or `!o` diagnoses that
-the build cannot send UDP or OSC, unlatched, and Playback goes on. Both builds parse a Source alike.
-
-Reason: there each send is the performer's evidence that nothing left.
-Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md),
-[ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
-Evidence: `orcvs/src/network.rs` web adapter; test `orcvs/src/playback/outputs.rs` `the_web_build_reports_every_refused_send`.
-
-### PLAY-370 Orcvs only sends UDP and OSC
-
-Orcvs does not receive UDP or OSC.
-
-Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: no receive path exists in `orcvs/src/network.rs`.
 
 ## UDP and OSC Functions and the Payload
 
@@ -644,7 +642,7 @@ pending, automatic selection picks the first destination listed until discovery 
 which the first destination replaces it; a destination the performer chose stays chosen. The page
 messages and the Linked Console's pick are in [site.md](site.md) (SITE-040, SITE-041); an
 unavailable synth in SITE-046; a console no page frames in SITE-048. How the list is drawn is in
-[console.md](console.md).
+[CONS-104](console.md#cons-104-the-output-list-has-one-labelled-section-per-output-type).
 
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md),
 [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md)
@@ -762,21 +760,26 @@ Evidence: `synth/src/controller.rs` `RESET`; test `synth/src/lib.rs` `reset_all_
   after a refused delivery ends that ownership. With the MIDI adapter nothing is delivered until a destination change
   clears the schedule; an adapter that survives a refusal sees the retry. Ruling without ADR:
   [midi-output-family/02](../../.scratch/midi-output-family/issues/02-schedule-timed-play-note-off.md)
-  (resolved); no open tracking issue found.
+  (resolved). Until an ADR or an amendment to ADR 0016 decides between them, PLAY-260 stands as
+  written. Tracked in [requirements-snapshot/05](../../.scratch/requirements-snapshot/issues/05-decide-teardown-after-a-refused-delivery.md).
 - PLAY-120: the code adds a network-failure class, ranked just above Overrun and counted in Omitted
-  Diagnostics, which ADR 0055 does not name. No tracking issue found.
-- PLAY-550: native has no Built-in Synth.
+  Diagnostics, which ADR 0055 does not name. Tracked in
+  [requirements-snapshot/11](../../.scratch/requirements-snapshot/issues/11-record-the-network-failure-diagnostic-class.md).
+- PLAY-550: native has no Built-in Synth. Tracked in
   [orcvs-site/14](../../.scratch/orcvs-site/issues/14-give-native-the-built-in-synth.md).
 
 ## Open decisions
 
-None of these is binding.
+### Built, awaiting a record
 
-- Whether the retry-after-refusal rule above should replace ADR 0016's teardown clause needs an ADR
-  or an amendment to ADR 0016; until then PLAY-260 stands as written.
-- The network destination reaches the engine on its own newest-wins channel, outside the slots ADR
-  0056 lists; ADR 0056 predates network output and does not say whether it is a slot. For the ADR
-  process.
+Preserve this as built until an ADR records it or changes it.
+
+- The network destination reaches the engine on its own newest-wins channel, outside the request
+  slots ADR 0056 lists (PLAY-350). Tracked in
+  [requirements-snapshot/06](../../.scratch/requirements-snapshot/issues/06-decide-the-network-destination-path.md).
+
+### Undecided
+
 - Whether a Tick must still land on time while a MIDI destination change is installed (the outgoing
   connection's safety action runs in the Tick-owning task). Being triaged in
   [midi-port-ownership/08](../../.scratch/midi-port-ownership/issues/08-a-tick-still-lands-while-a-destination-change-is-processed.md).

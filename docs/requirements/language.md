@@ -1,14 +1,5 @@
 # Language requirements
 
-> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> A newer ADR binds where it differs until this document is updated; the
-> [reading order](README.md#reading-order) says which ADRs are newer.
-> Source ADRs: 0008, 0010, 0011, 0013, 0015, 0017, 0018, 0019, 0021, 0023, 0024, 0028, 0033, 0035, 0043, 0049, 0054,
-> 0061, 0063, 0067, 0069, 0070, 0071, 0072, 0073, 0074, 0103, 0105, 0108, 0109, 0110. Reviewed, not
-> applicable or wholly superseded: 0005 (partly superseded by 0049; the `&` prefix and directional
-> Address Functions its Status line keeps are reassigned by 0070, see LANG-190), 0007, 0025, 0026, 0029, 0030, 0039, 0062,
-> 0075, 0104, 0107.
-
 This document states what Source text means: the Grid and its Positions, how a row is parsed into
 Language Units and Expressions, the literal types, operand binding (blank, optional, defaulted), the
 Function families and the rules shared across them, nesting and Returns, and Chord building. It
@@ -17,6 +8,13 @@ does not state when Turns run, how Portals are ordered or how a Tick commits
 console shows Source ([console.md](console.md)), or the site ([site.md](site.md)). Per-Function
 spellings, operands, domains and examples are in [the Function reference](../functions.md). Terms
 are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
+
+> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> A newer ADR binds where it differs until this document is updated; the
+> [reading order](README.md#reading-order) says which ADRs are newer.
+> Source ADRs: 0008, 0010, 0011, 0013, 0015, 0017, 0018, 0019, 0021, 0023, 0024, 0028, 0033, 0035,
+> 0043, 0049, 0054, 0061, 0063, 0067, 0069, 0070, 0071, 0072, 0073, 0074, 0103, 0105, 0108, 0109,
+> 0110.
 
 ## Source, Grid and Position
 
@@ -34,7 +32,7 @@ Evidence: `orcvs/src/source/file.rs` `read`; test `orcvs/src/source/file.rs` `re
 
 The Grid is part of the language and has one shape. Every pair `00 00`–`FF FF` names a Position;
 there is an outside, and it is not a Position. What happens when a Function reaches the outside is
-stated in [evaluation.md](evaluation.md).
+stated in [EVAL-031](evaluation.md#eval-031-a-write-validates-its-whole-destination-before-any-cell-of-it-is-emitted).
 
 Reason: a row is the whole horizontal extent there is, and a single shape means no edit to a Source
 File can change the Grid it opens on.
@@ -98,7 +96,7 @@ nested Function fills the slot it stands in and extends the claim by its own ope
 claim an empty Cell is a character, so `.+01 02` is refused at its second operand. No claim crosses
 a row edge: an operand slot running past it, or a spelling with one Cell left, is refused. A long
 Expression stays one Expression; there is no record limit. The bound on the Operand Stack is stated
-in [evaluation.md](evaluation.md).
+in [EVAL-081](evaluation.md#eval-081-an-operand-stacks-depth-is-bounded-by-the-widest-signature-in-the-function-table).
 
 Reason: arity is the boundary, so spacing is taste between Expressions and meaning inside one.
 Sources: [ADR 0028](../adr/0028-specify-the-orcvs-evaluation-machine.md), [ADR 0033](../adr/0033-partition-a-row-by-parse.md), [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md).
@@ -123,7 +121,7 @@ A Comment records a Token and no Atom: it answers no value, performs no effect a
 scheduled. Only its two delimiters are its occupied Cells. Its text is never parsed and is ordinary
 Cells to every Function: a Read, Track or Copy selecting a pair of it reads it as a pair no unit
 covers; a pair touching a delimiter is partial input; a Write writes the text; a Halt aimed at the
-text locks nothing; a mover is refused there only by what the Cells hold. A write that overwrites a
+text does what [EVAL-053](evaluation.md#eval-053-an-active-halt-locks-the-root-one-row-south-before-that-roots-turn) states; a mover is refused there only by what the Cells hold. A write that overwrites a
 closer obscures those Cells until the next Snapshot re-parses the row.
 
 Reason: the text is data, so the tracker idiom of reading a commented pattern works.
@@ -274,7 +272,7 @@ answers that Function. A Number, Note, Interval Set or Voicing answers that Atom
 whatever receives it. Anything else, such as a partial pair, a Comment delimiter or Cells straddling
 two Language Units, is diagnosed as partial or invalid input and nothing is written. A Function that
 passes a Bang through writes `**` over its complete destination. No reader has rules of its own.
-When each reader's Turn comes is stated in [evaluation.md](evaluation.md).
+When each reader's Turn comes is stated in [EVAL-022](evaluation.md#eval-022-a-value-input-waits-for-every-potential-writer-whose-reservation-covers-it) and [EVAL-027](evaluation.md#eval-027-a-dynamic-input-portals-writers-are-found-at-its-turn).
 
 Reason: Reads and Writes pass a pair through with the least ceremony possible.
 Sources: [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md), [ADR 0069](../adr/0069-an-unwritten-operand-is-invalid-input.md), [ADR 0070](../adr/0070-read-write-and-copy-are-separate-families.md), [ADR 0071](../adr/0071-a-bang-travels-as-its-glyph.md), [ADR 0073](../adr/0073-a-function-with-nothing-to-write-answers-nothing.md), [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
@@ -295,7 +293,8 @@ Evidence: `lang/src/atom.rs` `Untyped`; test `lang/src/parser.rs` `a_writes_valu
 ### LANG-240 `**` is the Bang Function where an Expression starts, the Bang value in an untyped operand, and invalid in a typed one
 
 A standalone `**` is the Bang Function: no operands, root only, intrinsically active, able to emit a
-Bang. What its Turn does is stated in [evaluation.md](evaluation.md).
+Bang. What its Turn does is stated in [EVAL-057](evaluation.md#eval-057-the-bang-functions-turn-activates-its-aligned-roots-and-clears-its-two-cells). In an untyped operand `**` is the
+Bang value ([LANG-230](#lang-230-a-writes-or-pushs-value-takes-no-type-and-carries-its-pair-unchanged)), and in a typed one it is invalid input ([LANG-050](#lang-050-the-language-map-is-derived-from-each-source-revision-by-the-parser)).
 
 Reason: a standalone Bang follows the rules every Function follows, so Source alone decides whether
 it fires.
@@ -389,6 +388,41 @@ Evidence: `lang/src/operand.rs` `Defaulted`; `lang/src/atom.rs` `legato: Default
 
 ## Answers, nesting and Returns
 
+### LANG-250 Only a Function that answers a value can be nested, and the Parser refuses any other from Source alone
+
+Each Function declares whether it answers a value or performs an effect ([EVAL-082](evaluation.md#eval-082-the-instruction-set-is-declared-once-and-dispatch-is-exhaustive)
+states the declaration). A Function that answers no value has no Return, so the Parser refuses it in
+an operand slot, whatever its operands hold. The Bang Function is the one effect Function no slot
+reads as a Function: there `**` is the Bang value (LANG-240).
+
+Reason: the refusal reads the declaration, not a spelling or family prefix, so the Language Map
+marks it from any revision.
+Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0028](../adr/0028-specify-the-orcvs-evaluation-machine.md).
+Evidence: `lang/src/parser.rs` `SyntaxError::NestedEffectFunction`; `lang/src/atom.rs` `answers_value`; test `lang/src/parser.rs` `a_nested_function_that_answers_no_value_is_refused_from_source_alone`.
+
+### LANG-260 A nested Function's Return is its two-Cell encoding, decoded by the receiving operand's type
+
+The receiving slot decodes a Return exactly as it decodes Cells a Portal wrote there, so the child's
+Atom type does not cross: a Note `C5` returned into an Addition operand is the Number `C5`, and
+`.+.+010102` behaves as if `02` were written into the outer first operand.
+
+Reason: nesting and spatial composition deliver Source encoding one way.
+Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md).
+Evidence: `orcvs/src/source/encoding.rs`; test `orcvs/src/source/tick/nesting.rs` `a_return_and_a_portal_decode_the_same_characters_the_same_way`.
+
+### LANG-270 A nested Function also writes through its own Output Portal
+
+The Return is an additional delivery, not a redirection, so the row below a nested Expression traces
+every step and feedback Functions keep their state when nested. A refused Output Portal write does
+not withdraw the Return, and a parent's failure does not undo the child's write. A nested Function
+that answers a Bang writes `**` through its own Output Portal, activating as a root's would, and its
+Return is `**`. How nested writes are ordered and reserved is stated in [EVAL-023](evaluation.md#eval-023-a-reservation-orders-turns-the-admitted-write-decides-what-happened) and
+[EVAL-028](evaluation.md#eval-028-a-dynamic-writer-takes-its-turn-as-early-as-its-inputs-allow-its-write-onto-a-completed-turn-is-next-tick-feedback).
+
+Reason: Source is the only place a feedback Function can keep its previous value.
+Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md).
+Evidence: `orcvs/src/source/tick/execution.rs`; test `orcvs/src/source/tick/nesting.rs` `nested_feedback_functions_keep_their_state_in_their_own_output_portals`.
+
 ### LANG-330 A value Function answers a Language Unit or a Clear, and a Clear writes two spaces
 
 A Clear writes two spaces at the Output Portal, root or nested, and is not an Atom: no operand holds
@@ -421,40 +455,6 @@ Reason: a Return is one two-Cell encoding, and a pattern the performer edits sho
 Sources: [ADR 0063](../adr/0063-a-list-is-cells-in-a-claim-not-a-value.md), [ADR 0103](../adr/0103-one-chord-play-sounds-every-tone-of-its-chord.md).
 Evidence: test `lang/src/parser.rs` `no_function_is_spelled_in_the_colon_family`.
 
-### LANG-250 Only a Function that answers a value can be nested, and the Parser refuses any other from Source alone
-
-Each Function declares whether it answers a value or performs an effect ([evaluation.md](evaluation.md)
-states the declaration). A Function that answers no value has no Return, so the Parser refuses it in
-an operand slot, whatever its operands hold. The Bang Function is the one effect Function no slot
-reads as a Function: there `**` is the Bang value (LANG-240).
-
-Reason: the refusal reads the declaration, not a spelling or family prefix, so the Language Map
-marks it from any revision.
-Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0028](../adr/0028-specify-the-orcvs-evaluation-machine.md).
-Evidence: `lang/src/parser.rs` `SyntaxError::NestedEffectFunction`; `lang/src/atom.rs` `answers_value`; test `lang/src/parser.rs` `a_nested_function_that_answers_no_value_is_refused_from_source_alone`.
-
-### LANG-260 A nested Function's Return is its two-Cell encoding, decoded by the receiving operand's type
-
-The receiving slot decodes a Return exactly as it decodes Cells a Portal wrote there, so the child's
-Atom type does not cross: a Note `C5` returned into an Addition operand is the Number `C5`, and
-`.+.+010102` behaves as if `02` were written into the outer first operand.
-
-Reason: nesting and spatial composition deliver Source encoding one way.
-Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md).
-Evidence: `orcvs/src/source/encoding.rs`; test `orcvs/src/source/tick/nesting.rs` `a_return_and_a_portal_decode_the_same_characters_the_same_way`.
-
-### LANG-270 A nested Function also writes through its own Output Portal
-
-The Return is an additional delivery, not a redirection, so the row below a nested Expression traces
-every step and feedback Functions keep their state when nested. A refused Output Portal write does
-not withdraw the Return, and a parent's failure does not undo the child's write. A nested Function
-that answers a Bang writes `**` through its own Output Portal, activating as a root's would, and its
-Return is `**`. How nested writes are ordered and reserved is stated in [evaluation.md](evaluation.md).
-
-Reason: Source is the only place a feedback Function can keep its previous value.
-Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md).
-Evidence: `orcvs/src/source/tick/execution.rs`; test `orcvs/src/source/tick/nesting.rs` `nested_feedback_functions_keep_their_state_in_their_own_output_portals`.
-
 ## Numeric, pitch and random Functions
 
 ### LANG-360 General arithmetic takes Numbers and wraps over the byte
@@ -480,21 +480,6 @@ Reason: movement between Number and Note is always explicit.
 Sources: [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md), [ADR 0023](../adr/0023-use-distinct-range-functions-and-two-cell-comments.md) (its conversion paragraph as amended), [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md).
 Evidence: `lang/src/functions/numeric_conversion.rs`; test `conversion_to_note_refuses_every_number_above_the_range` in the same file.
 
-### LANG-450 Pitch Functions derive Notes and Interval Sets, and a Note answer never wraps or clamps
-
-The `#` family holds the stateless value Functions that derive a Note or an Interval Set: Up `#+`,
-Down `#-`, Pick `#p` and Stack `#s`; `.` stays numeric. They take a Turn every Tick at the root (EVAL-050) and with their root when nested, and
-write their answer through their Output Portal as every value Function does. A Note answer outside
-`00`–`7F` diagnoses, naming the Function and the semitone it would reach, and writes nothing. Pick
-answers `root + set[index % n] + 12 * floor(index / n)`. Stack answers the Interval Set its tones
-form and diagnoses when no name holds exactly those semitones. Operands and examples are in
-[the Function reference](../functions.md#pitch).
-
-Reason: a Function deriving pitches belongs to a family whose prefix says so, and a wrapped pitch
-would sound the wrong note.
-Sources: ruled 2026-11-10, no ADR (`.scratch/chords-and-pitch/spec.md`); activation by [ADR 0110](../adr/0110-a-value-root-takes-a-turn-every-tick.md); Stack named by [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
-Evidence: `lang/src/functions/pitch.rs`; test `up_diagnoses_an_answer_above_the_note_range_rather_than_wrapping` in the same file.
-
 ### LANG-380 Random is determined by its seed, the absolute Tick and its own Position
 
 `~? seed minimum maximum` answers a Number between its bounds inclusive; reversed bounds describe the
@@ -511,6 +496,21 @@ Not: `StdRng`, activation history.
 Sources: [ADR 0013](../adr/0013-random-is-deterministic-per-position.md).
 Evidence: `lang/src/functions/tick.rs` `random`, `chacha_word`; dependency in `lang/Cargo.toml`; test `lang/src/functions/tick.rs` `random_golden_vectors_pin_the_adr_seed_chacha8_word_and_range_mapping`.
 
+### LANG-450 Pitch Functions derive Notes and Interval Sets, and a Note answer never wraps or clamps
+
+The `#` family holds the stateless value Functions that derive a Note or an Interval Set: Up `#+`,
+Down `#-`, Pick `#p` and Stack `#s`; `.` stays numeric. They take a Turn every Tick at the root (EVAL-050) and with their root when nested, and
+write their answer through their Output Portal as every value Function does. A Note answer outside
+`00`–`7F` diagnoses, naming the Function and the semitone it would reach, and writes nothing. Pick
+answers `root + set[index % n] + 12 * floor(index / n)`. Stack answers the Interval Set its tones
+form and diagnoses when no name holds exactly those semitones. Operands and examples are in
+[the Function reference](../functions.md#pitch).
+
+Reason: a Function deriving pitches belongs to a family whose prefix says so, and a wrapped pitch
+would sound the wrong note.
+Sources: ruled 2026-11-10, no ADR (`.scratch/chords-and-pitch/spec.md`); activation by [ADR 0110](../adr/0110-a-value-root-takes-a-turn-every-tick.md); Stack named by [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
+Evidence: `lang/src/functions/pitch.rs`; test `up_diagnoses_an_answer_above_the_note_range_rather_than_wrapping` in the same file.
+
 ## Chords
 
 ### LANG-390 A Chord is a root Note and an Interval Set written as two operands, and is not a value
@@ -525,7 +525,7 @@ Evidence: `lang/src/atom.rs` rows `RawChordPlay`, `TimedChordPlay`; test `lang/s
 ### LANG-400 Chord Play is Raw `!:` and Timed `!#`, each with its own fixed arity
 
 Neither overloads Raw or Timed Play. There is no Monophonic Chord Play: a voice per channel cannot
-hold several tones. What each Chord Play sounds is stated in [playback.md](playback.md).
+hold several tones. What each Chord Play sounds is stated in [PLAY-290](playback.md#play-290-a-chord-plays-tones-are-ordinary-play-commands).
 
 Reason: arity is fixed at parse and a chord's signature differs from a note's.
 Sources: [ADR 0103](../adr/0103-one-chord-play-sounds-every-tone-of-its-chord.md).
@@ -570,11 +570,12 @@ Evidence: test `orcvs/src/source/model.rs` `test_retired_id_receives_the_unknown
 ## Accepted but not built, or built differently
 
 - LANG-460: Application Command `!$` is not in the Function table, so `!$` diagnoses as an unknown
-  spelling. ADR 0008 itself defers its encoding. No tracking issue found.
+  spelling. ADR 0008 itself defers its encoding. Tracked in
+  [requirements-snapshot/09](../../.scratch/requirements-snapshot/issues/09-decide-and-build-the-application-command.md).
 
 ## Open decisions
 
-These are not binding.
+### Undecided
 
 - **Standalone Operand Literals.** A 2026-10-16 ruling would stop diagnosing a Number or Note pair
   where an Expression could start (amending LANG-130 and ADR 0021). It needs an ADR, tracked by

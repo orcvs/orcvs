@@ -363,3 +363,7 @@ Every retained row keeps its provisional ID as its final rule ID. There are no m
     `region_fallback_only_reaches_a_fully_transparent_role_background` is in `contrast.rs`;
     `only_a_toml_file_is_a_theme_file` is in `theme_registry.rs`.
   - O1 is resolved by acceptance.
+
+## Reviewed, not applicable or wholly superseded at the 0110 snapshot
+
+Moved from the topic document's header: 0050.

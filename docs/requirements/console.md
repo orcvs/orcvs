@@ -1,16 +1,5 @@
 # Console requirements
 
-> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> A newer ADR binds where it differs until this document is updated; the
-> [reading order](README.md#reading-order) says which ADRs are newer.
-> Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0043 (presentation clause), 0044,
-> 0045, 0046, 0047, 0048, 0051, 0052, 0053, 0054 (console clauses), 0055 (console clause), 0058,
-> 0059 (console clause), 0061 (paint clause), 0063 (no Sequence value), 0069 (paint clause),
-> 0076 (Panel clauses), 0077 (paint clauses), 0078, 0079, 0080, 0081, 0082, 0083, 0084,
-> 0085 (paint clause), 0086 (Small Console shows the Panel), 0088 (console Theme key), 0089,
-> 0091 (settings keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause).
-> Reviewed, not applicable or wholly superseded: 0050.
-
 This document owns the console: the boundary between `orcvs` and the UI toolkit, how the Source
 Grid is drawn, the Source View, Pan and Zoom, the Region and keyboard routing, Themes, the window,
 the Minimap, the Panel, its Toasts and Info, and touch input. It does not own what the language
@@ -18,6 +7,16 @@ means ([language.md](language.md)), how a Tick runs ([evaluation.md](evaluation.
 outputs ([playback.md](playback.md)), or the site and its page settings ([site.md](site.md)). Terms
 are defined in [CONTEXT.md](../../CONTEXT.md). The decisions and the arguments for them are in
 [the ADRs](../adr/).
+
+> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> A newer ADR binds where it differs until this document is updated; the
+> [reading order](README.md#reading-order) says which ADRs are newer.
+> Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0043 (presentation clause),
+> 0044, 0045, 0046, 0047, 0048, 0051, 0052, 0053, 0054 (console clauses), 0055 (console clause),
+> 0058, 0059 (console clause), 0061 (paint clause), 0063 (no Sequence value), 0069 (paint clause),
+> 0076 (Panel clauses), 0077 (paint clauses), 0078, 0079, 0080, 0081, 0082, 0083, 0084, 0085 (paint
+> clause), 0086 (Small Console shows the Panel), 0088 (console Theme key), 0089, 0091 (settings
+> keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause).
 
 ## Crate boundary
 
@@ -82,8 +81,7 @@ The console decides how drawn Cells look as a value. `Paint::derive_with_theme` 
 `FramePaint` (a Render Frame paired with drawn ranges minted for that Frame's Grid) and a Theme, and
 nothing else: no `Orcvs` and no `egui::Context`. A Paint carries no `Rect`. Where a Cell sits
 belongs to `GridViewport`, and a separate step builds the Shapes. `RenderFrame::derive` stays
-crate-private, and drawing the Source answers only the Cell it clicked: no test-only seam is cut
-into a shipped function. A test that asserts a Cell's colour builds no `Context`. A cost claim on
+crate-private, and drawing the Source answers only the Cell it clicked. A test that asserts a Cell's colour builds no `Context`. A cost claim on
 this path is asserted by counting Cells and Shapes, not by timing.
 
 Reason: the console paints the Grid as one surface with no per-Cell widgets, so a colour can be tested only as a value.
@@ -160,7 +158,7 @@ of an Output Portal Reservation. Each Expression whose leading Cells parse as a 
 whether or not its operands bind. Its root reserves, and so does every nested Function that answers
 a value. An effect Function, a Bang Function, a Terminal Output Function, Halt and a Source Bundle
 reserve nothing, and the row edge clips a Reservation. Which Cells a Reservation covers is the rule
-the schedule reserves an answer write by ([evaluation.md](evaluation.md)). The highlight is never
+the schedule reserves an answer write by ([EVAL-023](evaluation.md#eval-023-a-reservation-orders-turns-the-admitted-write-decides-what-happened)). The highlight is never
 part of a Claim, and it paints beside the Tick Portal roles ([CONS-029](#cons-029-a-cells-tick-portal-roles-combine-and-one-is-painted)).
 
 Reason: a Function shows where its answer lands from the Source alone, so a Function whose Turn wrote nothing still shows its own.
@@ -495,7 +493,7 @@ Evidence: `console/src/style.rs` `style`; test `console/src/console/kittest_test
 ### CONS-062 Settings select a dark and a light Theme by identity, and hold no Theme values
 
 On native, the `[theme]` table of `~/.orcvs/config.toml` names a `dark` and a `light` Theme by
-identity. The console reads the file once, at startup, and never writes either selection. An absent
+identity; the file is read as [CONS-130](#cons-130-settings-are-read-once-at-startup-with-no-settings-ui) states. An absent
 key selects `grayscale-dark` or `grayscale-light`. No menu offers a Theme setting or picker, and
 the console has no Theme editor.
 
@@ -669,16 +667,6 @@ Reason: text contrast cannot tell whether two Token colours are distinguishable.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendments 2026-10-10, 2026-10-25).
 Evidence: `console/src/contrast/colour_vision.rs`; test `shipped_theme_colour_vision_gate` in the same file.
 
-### CONS-079 The console's Theme format has no Sound Module key
-
-The console draws no Sound Module, so its Theme format has no `sound.magnitude` key. A console
-Theme document that sets it is refused as an unknown key, as [CONS-068](#cons-068-a-theme-document-is-strict-toml) states. The colour
-itself belongs to the site's Sound Module ([SITE-038](site.md#site-038-the-sound-module-takes-one-theme-colour-soundmagnitude)).
-
-Reason: the console's Theme format gains the key only when the console draws the Sound Module.
-Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md).
-Evidence: `console/src/theme_document.rs` (no `sound.*` key); test `console/src/theme_document.rs` `an_unknown_or_wrong_case_style_property_is_refused`.
-
 ### CONS-075 Two built-in Themes ship
 
 The built-ins are `grayscale-dark` and `grayscale-light`, and each is its appearance's default and
@@ -724,6 +712,16 @@ Not: a lint or grep gate (role, not spelling, separates allowed uses).
 Sources: [ADR 0082](../adr/0082-nothing-depends-on-a-particular-theme.md).
 Evidence: enforced by review; gates `console/src/contrast.rs` `shipped_theme_gate`, `console/src/style.rs` `every_built_in_chrome_matches_its_record`.
 
+### CONS-079 The console's Theme format has no Sound Module key
+
+The console draws no Sound Module, so its Theme format has no `sound.magnitude` key. A console
+Theme document that sets it is refused as an unknown key, as [CONS-068](#cons-068-a-theme-document-is-strict-toml) states. The colour
+itself belongs to the site's Sound Module ([SITE-038](site.md#site-038-the-sound-module-takes-one-theme-colour-soundmagnitude)).
+
+Reason: the console's Theme format gains the key only when the console draws the Sound Module.
+Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md).
+Evidence: `console/src/theme_document.rs` (no `sound.*` key); test `console/src/theme_document.rs` `an_unknown_or_wrong_case_style_property_is_refused`.
+
 ## Window, settings and files
 
 ### CONS-080 The native splash is the console's own window
@@ -751,7 +749,7 @@ Evidence: `console/src/window_geometry.rs`, `console/src/main.rs`; test `console
 ### CONS-130 Settings are read once at startup, with no settings UI
 
 On native the console reads `~/.orcvs/config.toml` once, at startup. On the web it reads the same
-text from its page instead ([site.md](site.md)). No menu offers a setting, nothing reloads the
+text from its page instead ([SITE-050](site.md#site-050-the-web-console-reads-configtoml-text-from-its-page-once-at-startup)). No menu offers a setting, nothing reloads the
 file, and the console never writes it. The network destination is not a setting: the console
 stores it itself, and the Output list edits it (PLAY-350).
 
@@ -877,7 +875,7 @@ as a Readout in the accessibility tree. A stopped Playback shows the rest marker
 the held Run Clock. After a Rewind it shows Tick `0` and a Run Clock of zero.
 
 Reason: the Panel is the performer's telemetry; what the Run Clock counts belongs to Playback.
-Sources: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md); CONTEXT "Panel", "Readout", "BPM", "Run Clock" (see [playback.md](playback.md)).
+Sources: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md); CONTEXT "Panel", "Readout", "BPM", "Run Clock" (see [PLAY-170](playback.md#play-170-the-run-clock-is-held-while-stopped)).
 Evidence: `console/src/console/panel.rs`; test `console/src/console/kittest_tests/panel_readouts.rs` `the_tick_run_clock_and_beat_marker_readouts_are_in_the_accessibility_tree`.
 
 ### CONS-100 The Panel opens with Play and Rewind Cells
@@ -1048,19 +1046,20 @@ Evidence: `console/src/console/input.rs`, `console/src/web_startup.rs`, `console
 ## Accepted but not built, or built differently
 
 - CONS-011: `orcvs` still carries presentation configuration with no reader:
-  `orcvs/src/opts.rs` `CursorBloomRadius` and `RenderFrame::cursor_bloom_radius`. No tracking
-  issue found.
+  `orcvs/src/opts.rs` `CursorBloomRadius` and `RenderFrame::cursor_bloom_radius`. Tracked in
+  [requirements-snapshot/10](../../.scratch/requirements-snapshot/issues/10-move-the-cursor-bloom-radius-out-of-orcvs.md).
 - CONS-122: the Theme key `cell.selection.border.width` is still accepted and does nothing,
   although a Cell's border width no longer hides anything. Tracked in
   [cell-edges/07](../../.scratch/cell-edges/issues/07-retire-the-cell-selection-border-width.md).
 
 ## Open decisions
 
-None of these is binding.
+### Built, awaiting a record
 
-- The native document model and per-key settings fallback. `.scratch/menu-structure/spec.md`
-  (undated, with no recorded maintainer ruling) proposes the following, and the code does it
-  (`console/src/console/files.rs`, `console/src/config.rs`):
+Preserve these as built until an ADR or a dated ruling records them or changes them.
+
+- The native document model and per-key settings fallback, which `console/src/console/files.rs`
+  and `console/src/config.rs` build from the undated `.scratch/menu-structure/spec.md` ([decisions D3](../../.scratch/requirements-snapshot/decisions.md#d3-rulings-recorded-only-in-scratch--proposed)):
   - The window title names the open Source File and marks unsaved changes.
   - New, Open, the Function reference, an example, Quit and closing the window ask before
     discarding unsaved changes.
@@ -1068,7 +1067,9 @@ None of these is binding.
   - A malformed file, an unknown key, or a mistyped or out-of-range value raises a notice, and
     only the affected keys take their defaults.
 
-  Recording these as binding needs an ADR or a dated ruling (run decision D3).
+  Tracked in [requirements-snapshot/13](../../.scratch/requirements-snapshot/issues/13-ground-the-native-document-model.md).
+
+### Undecided
 
 - Web Theme import. ADR 0053 keeps "Web Themes are imported as files" as the design for when
   import returns, and v1 disables it ([CONS-077](#cons-077-the-web-console-runs-on-the-built-in-themes)).
@@ -1076,6 +1077,3 @@ None of these is binding.
 - Source undo with Command Z and Command Shift Z. Proposed in
   [source-undo](../../.scratch/source-undo/spec.md) (needs-triage). Until it is decided, Orcvs has
   no undo, which [CONS-053](#cons-053-a-region-is-written-as-a-block) relies on.
-- ADR 0053's Status line does not name its 2026-10-31 amendment, which ends the follow-the-OS
-  choice once the toggle is pressed. The snapshot follows the amendment. A Status-line edit is
-  for the ADR process (run decision D7).

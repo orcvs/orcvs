@@ -1,11 +1,13 @@
 # Evaluation requirements
 
+This document states how one Tick turns a Source Snapshot into a committed Tick Plan: Turns, Dependencies, Reservations, Portals and their writes, activation, placement, the Tick-family time and feedback inputs, error containment, the commit, and the Tick Portals record. It does not state Function spellings, operand types or what each Function reads ([language](language.md)), the Playback clock, the Tick period and Overrun (PLAY-180 Tick Grid and PLAY-190 Overrun in [playback](playback.md)), or output delivery ([playback](playback.md)), how the console paints Portals ([console](console.md)), or the site ([site](site.md)). Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
+
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
 > A newer ADR binds where it differs until this document is updated; the
 > [reading order](README.md#reading-order) says which ADRs are newer.
-> Source ADRs: 0001, 0002, 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0032, 0034, 0036, 0057, 0060, 0061, 0063, 0065, 0067 (scheduling amendments), 0068, 0071, 0072, 0073, 0076 (Tick count only), 0077, 0110. Reviewed, not applicable or wholly superseded: 0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](playback.md)).
-
-This document states how one Tick turns a Source Snapshot into a committed Tick Plan: Turns, Dependencies, Reservations, Portals and their writes, activation, placement, the Tick-family time and feedback inputs, error containment, the commit, and the Tick Portals record. It does not state Function spellings, operand types or what each Function reads ([language](language.md)), the Playback clock, the Tick period and Overrun (PLAY-180 Tick Grid and PLAY-190 Overrun in [playback](playback.md)), or output delivery ([playback](playback.md)), how the console paints Portals ([console](console.md)), or the site ([site](site.md)). Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
+> Source ADRs: 0001, 0002, 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0032, 0034, 0036, 0057,
+> 0060, 0061, 0063, 0065, 0067 (scheduling amendments), 0068, 0071, 0072, 0073, 0076 (Tick count
+> only), 0077, 0110.
 
 ## State and determinism
 
@@ -208,7 +210,7 @@ Evidence: `lang/src/atom.rs` `ActivationSource`, `Function::is_intrinsically_act
 
 ### EVAL-051 A Bang activates the complete roots aligned with its Span in the Tick it is produced
 
-For a Bang anchored at `(x, y)`, the aligned root anchors are `(x, y-1)`, `(x, y+1)`, `(x-2, y)` and `(x+2, y)`; only a complete root anchored there is activated, and it takes its Turn later in the same Tick. A `**` touching an operand activates nothing, nor does a `**` rejected in a typed operand. What a Bang is, and how pair-passing Functions carry `**`, is stated in [language](language.md).
+For a Bang anchored at `(x, y)`, the aligned root anchors are `(x, y-1)`, `(x, y+1)`, `(x-2, y)` and `(x+2, y)`; only a complete root anchored there is activated, and it takes its Turn later in the same Tick. A `**` touching an operand activates nothing, nor does a `**` rejected in a typed operand. [LANG-240](language.md#lang-240--is-the-bang-function-where-an-expression-starts-the-bang-value-in-an-untyped-operand-and-invalid-in-a-typed-one) states what a Bang is, and [LANG-220](language.md#lang-220-every-copy-read-and-track-reads-its-pair-by-one-set-of-rules) how pair-passing Functions carry `**`.
 
 Reason: a Note and a Bang supplied in Tick T must sound in T.
 Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md), [ADR 0071](../adr/0071-a-bang-travels-as-its-glyph.md).
@@ -469,7 +471,7 @@ Evidence: test `orcvs/src/source/planning.rs` `a_refused_plan_publishes_no_tick_
 
 ### EVAL-106 A Source revision answers the last record as Current or Retained
 
-The record is `Current` for the revision its commit left and `Retained` for a revision an edit made since; a revision keeps the record and the set of Cells edited since the commit as it was read. Stopping Playback keeps the record; a newly opened or loaded Source has none until its first Tick; the record is never persisted. Edited Cells are one bit per Cell, marked by every write except a Tick commit, cleared by each commit and shared copy-on-write with revisions. Which entries a `Retained` record paints is stated in [console](console.md).
+The record is `Current` for the revision its commit left and `Retained` for a revision an edit made since; a revision keeps the record and the set of Cells edited since the commit as it was read. Stopping Playback keeps the record; a newly opened or loaded Source has none until its first Tick; the record is never persisted. Edited Cells are one bit per Cell, marked by every write except a Tick commit, cleared by each commit and shared copy-on-write with revisions. Which entries a `Retained` record paints is stated in [CONS-029](console.md#cons-029-a-cells-tick-portal-roles-combine-and-one-is-painted).
 
 Reason: a paused tracker keeps showing what its last Tick read.
 Not: dropping the record at the first edit.
@@ -478,9 +480,11 @@ Evidence: `orcvs/src/source/mod.rs` `freshness`, `tick_portals`; test `a_source_
 
 ## Accepted but not built, or built differently
 
-- None found against a binding rule here. EVAL-063's test sweeps every pattern to 32 steps and samples above; ADR 0012 covers 01–FF (coverage, not behaviour).
+None.
 
 ## Open decisions
 
+### Undecided
+
 - Emission/activation cycles through operand Reservations: whether an emission whose destination reserves its Bang supplier's operand should form a cycle. Not binding beyond EVAL-071. Investigated in [`.scratch/placement-semantics/issues/04`](../../.scratch/placement-semantics/issues/04-investigate-emission-activation-operand-cycles.md).
-- Function-valued output, replacements that change activation or output kind, and changed destinations introducing Dependencies are deferred by ADR 0034 and decide nothing here.
+- Function-valued output, replacements that change activation or output kind, and changed destinations introducing Dependencies: ADR 0034 defers them, and EVAL-012 and EVAL-040 keep them out of the Tick.

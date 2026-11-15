@@ -1,10 +1,5 @@
 # Site requirements
 
-> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> A newer ADR binds where it differs until this document is updated; the
-> [reading order](README.md#reading-order) says which ADRs are newer.
-> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102. Reviewed, not applicable or wholly superseded: none wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](console.md)).
-
 This document owns the web console's life on a page: opening a Source by link or by message, the
 messages between a console and the page that frames it, the page's audio and the timing of its
 Built-in Synth, the Sound Module, the web settings
@@ -18,6 +13,11 @@ A Linked Console and the Small Console are as `CONTEXT.md` defines them. Here a 
 one whose address uses `?example=`, `#source=` or `?small`, and the Small Console opens at
 `/play/?small`.
 
+> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> A newer ADR binds where it differs until this document is updated; the
+> [reading order](README.md#reading-order) says which ADRs are newer.
+> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102.
+
 ## Opening a Source by link
 
 ### SITE-020 A console's URL opens a shipped example or Source File text, read once at startup
@@ -27,8 +27,8 @@ opens percent-encoded Source File text. In that text `+` stays `+`, and `%` must
 hex digits. The console reads its URL once, at startup. A URL that names neither form opens the
 stored Source.
 
-Reason: a link is how a reader is sent one Source, and `/play/` keeps both forms beside the small
-console's messages.
+Reason: a link is how a reader is sent one Source, and `/play/` keeps both forms beside the Small
+Console's messages.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md) (Consequences), [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md).
 Evidence: `console/src/linked_source.rs` `opening`, `source_from`, `percent_decoded`; `console/src/console.rs` `Console::start_at`; test `console/src/linked_source.rs` `an_example_name_opens_that_example`.
 
@@ -170,7 +170,7 @@ Evidence: `site/src/console/docs.ts`, `site/src/console/grid.ts`; test `site/tes
 ## The Sound Module
 
 What each effect does to the sound, and how the synth answers each controller, are in
-[playback.md](playback.md). The controller numbers and load values are in
+[PLAY-600](playback.md#play-600-each-channel-has-its-own-eight-effects-on-standard-controllers), [PLAY-610](playback.md#play-610-channel-08-plays-one-303-style-voice) and [PLAY-620](playback.md#play-620-reset-all-controllers-clears-only-a-channels-modulation). The controller numbers and load values are in
 [docs/functions.md § Built-in Synth](../functions.md#built-in-synth). This section states what the
 Sound Module shows and sends.
 
@@ -268,7 +268,7 @@ Evidence: `site/src/styles/orcvs.css` `--orcvs-sound-magnitude`; `site/src/conso
 
 A page that holds the Built-in Synth answers a console's `orcvs.ready` with
 `{ type: "orcvs.synth", available }`. Listing and choosing the synth as a destination are stated in
-[playback.md](playback.md).
+[PLAY-520](playback.md#play-520-the-built-in-synth-is-a-destination-listed-after-every-midi-port).
 
 Reason: the console has no audio code. It learns from the page that a synth is there.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
@@ -300,7 +300,7 @@ Evidence: `console/src/built_in_synth.rs` `BrowserPage::post`; test `site/tests/
 The console recovers `time` from how late Playback says each message's Tick is (PLAY-540). The
 page plays each `orcvs.midi` a fixed delay after its `time`. The delay is set within a 50 ms
 target. A message whose time has passed by more than the delay sounds at once. The page passes
-each message on to the synth core, which [playback.md](playback.md) describes.
+each message on to the synth core, which [PLAY-550](playback.md#play-550-one-rust-synth-core-renders-the-built-in-synth) describes.
 
 Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
 
@@ -377,7 +377,7 @@ web console reads its text with native's settings reader, using the same keys, b
 A `data-media` attribute holds a CSS media query, and the element applies only if the page matches
 it when the console starts. Without the attribute, the element always applies. With no element, or
 one whose media does not match, the console runs on the defaults. The keys themselves are stated in
-[console.md](console.md).
+[CONS-131](console.md#cons-131-the-settings-open-views-and-time-toasts).
 
 Reason: the page that runs the console is what a deployment controls, and settings are needed
 before the first frame.
@@ -472,21 +472,25 @@ Evidence: `site/scripts/console.sh`.
 - SITE-043: `synth/web/synth-host.js` drops messages that arrived while the audio context was
   starting and are more than 500 ms past their planned instant. The rule says they sound at once.
   The drop is described only in [orcvs-site/16](../../.scratch/orcvs-site/issues/16-wake-the-synth-before-the-first-note.md)
-  (resolved). No tracking issue found.
+  (resolved). Tracked in [requirements-snapshot/12](../../.scratch/requirements-snapshot/issues/12-decide-late-messages-during-audio-start.md).
 
 ## Open decisions
 
-None of these is binding. Each is built as described but rests only on an undated `.scratch/` spec
-decision or an implementation choice, so it is decided through the ADR process.
+### Built, awaiting a record
 
-- SITE-022 detail: the limit is 16 KiB of text after `source=`, checked before decoding. A link that
+Each is built as described but rests only on an undated `.scratch/` spec decision or an
+implementation choice ([decisions D3](../../.scratch/requirements-snapshot/decisions.md#d3-rulings-recorded-only-in-scratch--proposed)). Preserve each as built until an ADR or a dated ruling records it or
+changes it. Tracked in
+[requirements-snapshot/07](../../.scratch/requirements-snapshot/issues/07-ground-the-site-details-from-undated-spec-text.md).
+
+- The link limit (SITE-022) is 16 KiB of text after `source=`, checked before decoding. A link that
   names an unknown example, carries unreadable text, or names both `?example=` and `#source=` opens
   the empty Source with a notice. Sources: `.scratch/orcvs-site/spec.md` (Loading a Source) and
   `.scratch/orcvs-site/issues/01-open-a-source-from-the-url-stopped.md` (the value and the
   both-parameters refusal were chosen in the ticket).
-- SITE-023 (proposed): a Linked Console, and the Small Console, register no service worker, while
+- Service workers: a Linked Console, and the Small Console, register no service worker, while
   `/play/` keeps it, scoped to `/play/`. Source: `.scratch/orcvs-site/spec.md` (Service worker).
-- SITE-082 (proposed): a deploy replaces the console a returning reader's service worker has cached.
-  Sources: `.scratch/orcvs-site/spec.md` (Service worker) and
+- A deploy replaces the console a returning reader's service worker has cached. Sources:
+  `.scratch/orcvs-site/spec.md` (Service worker) and
   `.scratch/orcvs-site/issues/05-deploy-to-cloudflare-with-previews.md`, whose preview-URL item is
   still ready-for-human.

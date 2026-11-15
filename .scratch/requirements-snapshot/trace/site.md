@@ -274,3 +274,7 @@ Document: `docs/requirements/site.md`. Each retained row above lands in the rule
 - Redirected to PLAY: what each effect does to the sound and how the synth answers each controller (0088's Consequences, the amendment's first two bullets).
 - ADR 0088 and 0099 are added to the marker.
 - F4: SITE-043 now links to PLAY-540 for how late each Tick is. SITE-043, SITE-046 and SITE-048 already state the delay, the unavailable synth and the unframed console in full, so PLAY can link to them.
+
+## Reviewed, not applicable or wholly superseded at the 0110 snapshot
+
+Moved from the topic document's header: none wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](../../../docs/requirements/console.md)).

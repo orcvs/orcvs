@@ -401,3 +401,7 @@ In the document, rules are ordered by heading rather than by ID: LANG-440 and LA
 "Function families", LANG-250–270 under "Answers, nesting and Returns", LANG-360–380 and LANG-450
 under "Numeric, pitch and random Functions", LANG-390–410 under "Chords", and LANG-420–430 under
 "Scope of the vocabulary".
+
+## Reviewed, not applicable or wholly superseded at the 0110 snapshot
+
+Moved from the topic document's header: 0005 (partly superseded by 0049; the `&` prefix and directional Address Functions its Status line keeps are reassigned by 0070, see LANG-190), 0007, 0025, 0026, 0029, 0030, 0039, 0062, 0075, 0104, 0107.
