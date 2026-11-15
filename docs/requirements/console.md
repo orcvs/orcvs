@@ -9,7 +9,6 @@ are defined in [CONTEXT.md](../../CONTEXT.md). The decisions and the arguments f
 [the ADRs](../adr/).
 
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> Behind: ADRs 0111, 0112 and 0113, which are proposed and bind nothing until accepted.
 > A newer ADR binds where it differs until this document is updated; the
 > [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0043 (presentation clause),

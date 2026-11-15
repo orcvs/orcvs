@@ -82,8 +82,10 @@ Where the code and the `.scratch/` sources differ, this record states the code.
   A fragment with `source=` after another pair, such as `#a&source=..`, opens Linked, yet registers
   the worker. No test covers either.
 - `sw.js` serves every other file it has cached, `logo-splash.png` among them, from its cache
-  first, so a deploy that changes such a file reaches a returning reader only when the cache name
-  changes. The deploy test covers the page and `console.js`.
+  first. Its `install` handler refills the cache, and the browser reinstalls the worker only when
+  `sw.js` is byte-different, so a deploy that changes such a file reaches a returning reader only
+  when `sw.js` itself changes in any way; changing the cache name is one way to change it. The
+  deploy test covers the page and `console.js`.
 - Nothing asserts the worker's scope; it follows from where `sw.js` is served.
 - The `#dev` exception is in no spec.
 - Ticket 05's preview-URL item is still ready-for-human; it is outside this record.

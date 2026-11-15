@@ -45,19 +45,22 @@ function anchorsOf(text: string): Set<string> {
  * Each ADR in `docs/adr/` with its number and the latest date its Status
  * paragraph or an `## Amendment, <date>` heading carries. A marker's date is
  * compared by day, so a change dated the marker's own day counts as included.
+ * A proposed ADR decides nothing until accepted, so it is left out; accepting
+ * it dates its Status paragraph, which makes it newer than the markers.
  */
 function adrsUnder(root: string): { number: number; latest: string }[] {
   const adrDir = join(root, 'docs/adr');
   return readdirSync(adrDir)
     .filter((name) => /^\d{4}-.*\.md$/.test(name))
-    .map((name) => {
+    .flatMap((name) => {
       const text = readFileSync(join(adrDir, name), 'utf8');
       const status = /^Status:[\s\S]*?(?:\n\n|(?![\s\S]))/m.exec(text)?.[0] ?? '';
+      if (/^Status: proposed\b/.test(status)) return [];
       const amendments = [...text.matchAll(/^## Amendment, (\d{4}-\d\d-\d\d)/gm)].map((m) => m[1]);
       const dates = [...(status.match(DATE) ?? []), ...amendments].sort();
       // '' stands for "no dated change": it sorts before every ISO date, so an
       // ADR without one is never newer than a marker's date.
-      return { number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '' };
+      return [{ number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '' }];
     });
 }
 

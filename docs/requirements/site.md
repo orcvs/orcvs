@@ -14,7 +14,6 @@ one whose address uses `?example=`, `#source=` or `?small`, and the Small Consol
 `/play/?small`.
 
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> Behind: ADRs 0111, 0112 and 0113, which are proposed and bind nothing until accepted.
 > A newer ADR binds where it differs until this document is updated; the
 > [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102, 0113 (proposed;

@@ -33,7 +33,9 @@ constants in `console/src/console/files.rs`). Save and Save As discard nothing a
 
 **Save writes the file; autosave is session recovery.** Save writes the open file, or runs Save As
 when none is open. Save As offers the open file's name, or `Untitled.orcvs`, in its folder, and
-appends the `.orcvs` extension when the picked name has none; it refuses, with a notice, to replace
+appends the `.orcvs` extension unless the picked name already ends in it, in any case, so
+`loop.txt` is saved as `loop.txt.orcvs` and `loop-v1.2` as `loop-v1.2.orcvs`
+(`with_source_file_extension` in `console/src/source_file.rs`); it refuses, with a notice, to replace
 an existing file at the appended name, because the dialog confirmed a different one. A write goes
 beside the file and is renamed over it, so a failed save never truncates it and raises a notice.
 Separately, with the `persistence` feature, eframe's periodic and closing save stores the running
@@ -55,7 +57,9 @@ reader (`parse`):
 - A file that cannot be read, is over 64 KiB, or is not UTF-8, and text that is not valid TOML, is
   the defaults with one notice naming the file.
 - A known section that is not a table leaves its keys at their defaults, with a notice.
-- An unknown section or key is ignored, with a notice; the known keys still apply.
+- An unknown top-level value that is not a table, and each unknown key in any table, is ignored
+  with a notice naming it; the known keys still apply. An unknown table with no keys, such as a
+  bare `[glitch]` header, is ignored without a notice.
 - A value of the wrong type or out of its range falls back alone, with a notice naming the key; the
   other keys stand.
 - A Theme identity no Theme answers to falls back as CONS-067 states.
@@ -66,7 +70,7 @@ The notices go to the settings notice channel that Theme file problems use (`The
 
 - **Open on the web without Save.** The spec rejected it as half a feature: `rfd` picks a file on
   wasm32 but cannot save one there (0.17.2), and a download through `web-sys` or the Chromium-only
-  File System Access API is its own work. The web keeps autosave and the defaults.
+  File System Access API is its own work. The web keeps autosave and, since ADR 0091, its page's settings.
 - **Discard the whole settings file on any fault.** No source records it as considered; it is named
   here only because the per-key rule is the choice ADR 0079 already made for `[cell]`.
 

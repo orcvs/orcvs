@@ -56,7 +56,11 @@ Engineering workflow, tooling and CI are not product behaviour and have no requi
 Every topic's marker reads "incorporates ADRs through NNNN and ADR changes dated through
 YYYY-MM-DD": the document has been reconciled against every ADR up to that number and every ADR
 change dated up to that day. A marker that is not yet reconciled with a newer ADR adds a line such as
-`> Behind: ADR 0111; ADR 0016's 2026-12-01 amendment.`, and readers check those ADRs.
+`> Behind: ADR 0123; ADR 0016's 2026-12-01 amendment.`, and readers check those ADRs.
+
+A proposed ADR, one whose Status paragraph starts `Status: proposed`, decides nothing yet: it is
+neither newer than a marker nor behind one, binds nothing in the reading order, and needs no Behind
+line. Accepting it is the Status change that makes it newer, by its acceptance date.
 
 Any change to what an ADR decides updates the requirements in the same change: a new ADR, a dated
 amendment, or a Status change such as accepting a proposed ADR or marking one superseded.

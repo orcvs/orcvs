@@ -92,6 +92,15 @@ test('an ADR numbered or dated past the marker is reported unless a Behind line 
   assert.deepEqual(problems({ 'a.md': behind }, extra), []);
 });
 
+test('a proposed ADR is not newer than the marker until it is accepted', () => {
+  const proposed = { 'docs/adr/0003-c.md': '# C\n\nStatus: proposed on 2026-11-16.\n' };
+  assert.deepEqual(problems({ 'a.md': MARKER }, proposed), []);
+  const accepted = { 'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-17.\n' };
+  assert.deepEqual(problems({ 'a.md': MARKER }, accepted), [
+    'a.md: ADR 0003 is newer than the marker, which neither incorporates it nor names it in a Behind line',
+  ]);
+});
+
 test('a marker that incorporates an ADR number no file holds is reported', () => {
   const text = MARKER.replace('through 0002', 'through 0003');
   assert.deepEqual(problems({ 'a.md': text }), ['a.md: the marker incorporates ADRs through 0003, above the highest ADR']);

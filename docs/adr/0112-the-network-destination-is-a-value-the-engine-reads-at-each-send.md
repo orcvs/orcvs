@@ -64,9 +64,13 @@ file holds no destination, and the console never writes that file.
 - A destination set while no Tick sends anything waits, unread, for the next Tick that does.
 - `docs/requirements/playback.md` can state the path as a rule once this is accepted, replacing its
   "Built, awaiting a record" item.
-- Tests: `console/src/network.rs` `a_stored_destination_is_read_back`,
-  `an_invalid_value_is_reported_and_changes_nothing`; `orcvs/src/network.rs`
-  `the_default_destination_is_orcas`.
+- Tests: `orcvs/src/playback/outputs.rs` `sends_keep_their_order_and_go_to_the_latest_destination`
+  and `a_new_destination_and_a_new_run_each_report_the_failure_again` hold the read at each sending
+  Tick, newest wins, and the cleared failure latch; `console/src/console/storage_tests.rs`
+  `the_network_destination_round_trips_through_the_console_save` holds the storage through the
+  console's save. `console/src/network.rs` `a_stored_destination_is_read_back` and
+  `an_invalid_value_is_reported_and_changes_nothing`, and `orcvs/src/network.rs`
+  `the_default_destination_is_orcas`, cover the stored value, its validation and the default ports.
 
 ## Open questions
 
