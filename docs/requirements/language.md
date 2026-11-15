@@ -1,10 +1,12 @@
 # Language requirements
 
-> Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
-> ADRs accepted after 0109 bind where they differ, until this document is updated.
-> Source ADRs: 0008, 0010, 0011, 0013, 0015, 0018, 0019, 0021, 0024, 0033, 0035, 0043, 0049, 0054,
-> 0061, 0063, 0067, 0069, 0070, 0071, 0072, 0073, 0074, 0103, 0105, 0108, 0109. Reviewed, not
-> applicable or wholly superseded: 0005, 0007, 0017, 0023, 0025, 0026, 0029, 0030, 0039, 0062,
+> Snapshot: checked against `c8cc197` (2026-11-15); incorporates ADRs through 0110.
+> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
+> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Source ADRs: 0008, 0010, 0011, 0013, 0015, 0017, 0018, 0019, 0021, 0023, 0024, 0028, 0033, 0035, 0043, 0049, 0054,
+> 0061, 0063, 0067, 0069, 0070, 0071, 0072, 0073, 0074, 0103, 0105, 0108, 0109, 0110. Reviewed, not
+> applicable or wholly superseded: 0005 (partly superseded by 0049; the `&` prefix and directional
+> Address Functions its Status line keeps are reassigned by 0070, see LANG-190), 0007, 0025, 0026, 0029, 0030, 0039, 0062,
 > 0075, 0104, 0107.
 
 This document states what Source text means: the Grid and its Positions, how a row is parsed into
@@ -25,7 +27,7 @@ names use standard ASCII. The Source is the only persistent program state; every
 derived from it.
 
 Reason: one byte per Cell keeps editing a character Grid; Unicode is deferred.
-Sources: [ADR 0008](../adr/0008-preserve-symbolic-arithmetic-functions.md), [ADR 0018](../adr/0018-derive-language-map-from-character-source.md).
+Sources: [ADR 0008](../adr/0008-preserve-symbolic-arithmetic-functions.md), [ADR 0017](../adr/0017-sequences-and-portals-replace-cell-batch-operators.md) (Source holds all persistent language state), [ADR 0018](../adr/0018-derive-language-map-from-character-source.md).
 Evidence: `orcvs/src/source/file.rs` `read`; test `orcvs/src/source/file.rs` `reading_refuses_every_byte_that_is_not_printable_ascii_or_space`; test `lang/src/parser.rs` `source_that_is_not_ascii_is_refused_rather_than_panicking`.
 
 ### LANG-020 Every Grid is 256 columns by 256 rows, and a position outside it does not exist
@@ -277,7 +279,7 @@ When each reader's Turn comes is stated in [evaluation.md](evaluation.md).
 
 Reason: Reads and Writes pass a pair through with the least ceremony possible.
 Sources: [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md), [ADR 0069](../adr/0069-an-unwritten-operand-is-invalid-input.md), [ADR 0070](../adr/0070-read-write-and-copy-are-separate-families.md), [ADR 0071](../adr/0071-a-bang-travels-as-its-glyph.md), [ADR 0073](../adr/0073-a-function-with-nothing-to-write-answers-nothing.md), [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
-Evidence: `lang/src/functions/copy.rs`, `read.rs`, `track.rs`; tests `orcvs/src/source/tick/read.rs` `a_read_answers_what_a_copy_answers_for_the_cells_it_reads`; `orcvs/src/source/tick/carried_names.rs` `a_read_answers_each_name_unchanged`, `a_read_or_track_diagnoses_a_half_written_name_and_writes_nothing`; `orcvs/src/source/tick/track.rs` `all_empty_pairs_clear_the_output_portal_without_a_diagnostic`.
+Evidence: `lang/src/functions/copy.rs`, `lang/src/functions/read.rs`, `lang/src/functions/track.rs`; tests `orcvs/src/source/tick/read.rs` `a_read_answers_what_a_copy_answers_for_the_cells_it_reads`; `orcvs/src/source/tick/carried_names.rs` `a_read_answers_each_name_unchanged`, `a_read_or_track_diagnoses_a_half_written_name_and_writes_nothing`; `orcvs/src/source/tick/track.rs` `all_empty_pairs_clear_the_output_portal_without_a_diagnostic`.
 
 ### LANG-230 A Write's or Push's `value` takes no type and carries its pair unchanged
 
@@ -477,13 +479,13 @@ Evidence: `lang/src/functions/math.rs`; tests `lang/src/interpreter.rs` `general
 its result type.
 
 Reason: movement between Number and Note is always explicit.
-Sources: [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md), [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md).
+Sources: [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md), [ADR 0023](../adr/0023-use-distinct-range-functions-and-two-cell-comments.md) (its conversion paragraph as amended), [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md).
 Evidence: `lang/src/functions/numeric_conversion.rs`; tests `conversion_to_note_refuses_every_number_above_the_range`, `each_conversion_refuses_a_value_of_the_type_it_answers`; `orcvs/src/source/tick/nesting.rs` `a_return_and_a_portal_decode_the_same_characters_the_same_way` (assertions inspected).
 
 ### LANG-450 Pitch Functions derive Notes and Interval Sets, and a Note answer never wraps or clamps
 
 The `#` family holds the stateless value Functions that derive a Note or an Interval Set: Up `#+`,
-Down `#-`, Pick `#p` and Stack `#s`; `.` stays numeric. They run every Tick, root or nested, and
+Down `#-`, Pick `#p` and Stack `#s`; `.` stays numeric. They take a Turn every Tick at the root (EVAL-050) and with their root when nested, and
 write their answer through their Output Portal as every value Function does. A Note answer outside
 `00`–`7F` diagnoses, naming the Function and the semitone it would reach, and writes nothing. Pick
 answers `root + set[index % n] + 12 * floor(index / n)`. Stack answers the Interval Set its tones
@@ -492,7 +494,7 @@ form and diagnoses when no name holds exactly those semitones. Operands and exam
 
 Reason: a Function deriving pitches belongs to a family whose prefix says so, and a wrapped pitch
 would sound the wrong note.
-Sources: ruled 2026-11-10, no ADR (`.scratch/chords-and-pitch/spec.md`); Stack named by [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
+Sources: ruled 2026-11-10, no ADR (`.scratch/chords-and-pitch/spec.md`); activation by [ADR 0110](../adr/0110-a-value-root-takes-a-turn-every-tick.md); Stack named by [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
 Evidence: `lang/src/functions/pitch.rs`; tests `up_diagnoses_an_answer_above_the_note_range_rather_than_wrapping`, `pick_wraps_an_index_past_the_end_of_the_set_up_an_octave`, `stack_diagnoses_when_no_name_fits_rather_than_answering_a_near_one`, `pick_and_stack_nest_and_compose`.
 
 ### LANG-380 Random is determined by its seed, the absolute Tick and its own Position

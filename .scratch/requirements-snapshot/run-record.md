@@ -137,9 +137,10 @@ README).
 
 ## Validation log
 
-- `python3 -I check-requirements.py .` (the script below) — passed: 288 rules in 6 documents,
-  snapshot markers present, no duplicate or undefined rule IDs, no broken relative links in the
-  requirements, `docs/adr/README.md` or `docs/agents/domain.md`.
+- `node scripts/check-requirements.ts` — passed (it replaced the earlier Python validator): snapshot
+  markers present and listing every cited ADR, no duplicate or undefined rule IDs, no broken
+  relative links or anchors in the requirements, every Evidence file present and holding its symbols.
+- `node --test scripts/tests/check-requirements.test.ts` — passed (7/7).
 - `node --test scripts/tests/roadmap.test.ts` — passed (10/10).
 - `node scripts/roadmap.ts > /dev/null` — passed; the effort lists issues 01–04.
 - `cargo fmt --all -- --check` — passed (no Rust changed).
@@ -149,42 +150,16 @@ README).
   `docs/first-result.md` or `docs/functions.md`. Everything else in `AGENTS.md`'s list is deferred to
   CI or untouched.
 
-```python
-# Validates docs/requirements: snapshot markers, unique rule IDs, rule references, relative links.
-import re, os, sys, glob
-root = sys.argv[1] if len(sys.argv) > 1 else '.'
-req = os.path.join(root, 'docs/requirements')
-docs = sorted(glob.glob(os.path.join(req, '*.md')))
-errors = []; defined = {}
-for d in docs:
-    t = open(d).read(); name = os.path.basename(d)
-    if name != 'README.md' and not re.search(r'^> Snapshot: checked against `[0-9a-f]{7,40}` \(\d{4}-\d\d-\d\d\); incorporates ADRs through \d{4}\.', t, re.M):
-        errors.append(f'{name}: missing snapshot marker')
-    for m in re.finditer(r'^### ([A-Z]+-\d{3})\b', t, re.M):
-        if m.group(1) in defined: errors.append(f'{name}: {m.group(1)} also defined in {defined[m.group(1)]}')
-        defined[m.group(1)] = name
-for d in docs:
-    t = open(d).read(); name = os.path.basename(d)
-    for rid in set(re.findall(r'\b((?:LANG|EVAL|PLAY|CONS|SITE)-\d{3})\b', t)):
-        if rid not in defined and not re.search(re.escape(rid) + r'.{0,80}(reserved|merged|Open decision|\(proposed\))', t, re.I | re.S):
-            errors.append(f'{name}: references undefined {rid}')
-    for link in re.findall(r'\]\(([^)#\s]+)(?:#[^)]*)?\)', t):
-        if re.match(r'[a-z]+:', link): continue
-        if not os.path.exists(os.path.normpath(os.path.join(req, link))): errors.append(f'{name}: broken link {link}')
-for extra in ['docs/adr/README.md', 'docs/agents/domain.md']:
-    p = os.path.join(root, extra); base = os.path.dirname(p)
-    for link in re.findall(r'\]\(([^)#\s]+)(?:#[^)]*)?\)', open(p).read()):
-        if re.match(r'[a-z]+:', link): continue
-        if not os.path.exists(os.path.normpath(os.path.join(base, link))): errors.append(f'{extra}: broken link {link}')
-print(f'{len(defined)} rules in {len(docs)} documents')
-print('\n'.join(errors) or 'no errors'); sys.exit(1 if errors else 0)
-```
+The validator is now `scripts/check-requirements.ts`, run by `mise run check_docs` with its suite
+`scripts/tests/check-requirements.test.ts`; it also checks anchors, marker ADR lists and Evidence
+symbols.
 
 ## Open items
 
 - D5 ruled 2026-11-15: ADR 0110 records that value roots take a Turn every Tick; EVAL-050 binds it
   and `evaluation.md`'s marker is at ADR 0110.
-- D6 (accepting ADRs 0078 and 0079) awaits Toby; listed as open in `console.md` and `issues/04`.
+- D6 ruled 2026-11-15: ADRs 0078 and 0079 accepted; their rules are binding in `console.md`.
+- PR #399 review (nine comments) addressed 2026-11-15; see the PR threads.
 - Follow-ups: `issues/01` (trim glossary entries), `issues/02` (stale code citations), `issues/03`
   (ADR status-line forward pointers), `issues/04` (open decisions and missing glossary terms).
 

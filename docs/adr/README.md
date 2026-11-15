@@ -32,13 +32,14 @@ a day, and left 78 bare citations outside this directory resolving to either of 
 [`docs/requirements/`](../requirements/README.md) restates the accepted ADRs in current words, one
 rule in one place, as a snapshot at the revision each document names. The ADRs stay binding: a
 requirement that disagrees with an accepted ADR is a defect in the requirement. Accepting an ADR
-updates the owning requirement and its snapshot marker in the same change, as the requirements
-index describes, or marks that topic's snapshot as behind; an ADR that changes nothing a requirement states says so in its pull request.
+or amending one, including a Status change, updates the owning requirement and its snapshot
+marker in the same change, as the requirements index describes, or marks that topic's snapshot
+as behind; an ADR that changes nothing a requirement states says so in its pull request.
 
 The topic that owns each ADR, superseded ADRs included so a reader can see where their surviving
 clauses went. An ADR with clauses in several topics is listed under each owner, with the part it
 owns; a topic that only restates a neighbouring clause names that ADR in its own snapshot marker,
-which is the complete list of what the document restates.
+which lists every ADR the document's rules cite.
 
 | Requirement | ADRs |
 | --- | --- |

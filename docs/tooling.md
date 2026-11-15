@@ -7,7 +7,7 @@ CI, so the same checkout executes the same gates.
 Verification has two trigger tiers:
 
 - `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the two
-  workflow linters, the roadmap planner's test suite, the dependency audit, formatting, clippy with
+  workflow linters, the roadmap planner's and requirements check's test suites, the dependency audit, formatting, clippy with
   and without the default features, a Windows-target lint of the shipped crates, the native tests and
   doctests under both, and the rustdoc gates under both feature sets.
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
@@ -21,7 +21,7 @@ Verification has two trigger tiers:
 A pull request whose diff is Markdown and `site/` alone does not compile. The `changes` job asks
 `scripts/ci-compile-needed.sh`, which answers `false` only for a pull request whose every changed
 path ends in `.md` or lies under `site/`, counting both sides of a rename; the Linux job then runs `mise run check_docs` —
-the tooling contract and the roadmap planner, the only gates that read Markdown — and the WASM job
+the tooling contract, the roadmap planner and the requirements check, the only gates that read Markdown — and the WASM job
 is skipped. `check_pull_request` runs `check_docs` as its first step, so a Markdown-reading gate is
 added in one place and both tiers run it.
 `scripts/check-ci-results.sh` accepts that skip only on a pull request. No crate compiles or reads a
@@ -567,6 +567,12 @@ anything compiles them.
   drift — a dangling `Blocked by:`, a dependency cycle, an untagged release blocker — are reached
   only by running the planner against the real tree. `package.json` declares the floor the type
   stripping needs and `mise.toml` pins the version the gate runs.
+- `node` also runs `scripts/check-requirements.ts` and its suite. The script holds
+  `docs/requirements/` to its snapshot contract: a marker on every topic, unique rule IDs, every
+  cited rule defined, relative links and anchors resolving, every ADR a rule cites listed in its
+  marker, and every Evidence file present and holding the symbols named after it. Because Evidence
+  reads source files, a rename in code can fail it; such a change is not Markdown-only, so it meets
+  the check through `check_pull_request`.
 
 `AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests;
 fuzz when exposure warrants it", and the parser is the widest input surface in the workspace because

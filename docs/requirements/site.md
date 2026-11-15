@@ -1,8 +1,9 @@
 # Site requirements
 
 > Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
-> ADRs accepted after 0109 bind where they differ, until this document is updated.
-> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102. Reviewed, not applicable or wholly superseded: none wholly superseded; 0079 (proposed, owned by [console.md](console.md)).
+> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
+> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102. Reviewed, not applicable or wholly superseded: none wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](console.md)).
 
 This document owns the web console's life on a page: opening a Source by link or by message, the
 messages between a console and the page that frames it, the page's audio and the timing of its
@@ -163,7 +164,7 @@ that Source to the page's small console (SITE-016). Nothing on the site opens a 
 Reason: "I do not want your copy", "Function source code references should use a grid", "Launching
 examples in a new window is bad".
 Sources: ruled 2026-10-26, no ADR (`.scratch/site-as-console/spec.md`).
-Evidence: `site/src/console/docs.ts`, `grid.ts`; tests `site/tests/lesson.spec.ts` "the lesson is docs/first-result.md, heading for heading", `site/tests/reference.spec.ts` "every example is a Grid, and every starting Source opens in the console", `site/tests/smoke.spec.ts` "nothing on the site opens a new tab or window" (assertions inspected).
+Evidence: `site/src/console/docs.ts`, `site/src/console/grid.ts`; tests `site/tests/lesson.spec.ts` "the lesson is docs/first-result.md, heading for heading", `site/tests/reference.spec.ts` "every example is a Grid, and every starting Source opens in the console", `site/tests/smoke.spec.ts` "nothing on the site opens a new tab or window" (assertions inspected).
 
 ## The Sound Module
 
@@ -434,7 +435,7 @@ than copied as a link that would not open.
 
 Reason: a link that would not open is worse than none.
 Sources: [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md).
-Evidence: `console/src/linked_source.rs` `link`; `console/src/console/files.rs` `copy_link`; test `a_source_whose_link_is_over_the_limit_is_refused` (assertions inspected).
+Evidence: `console/src/linked_source.rs` `link`; `console/src/console/files.rs` `copy_link`; test `console/src/linked_source.rs` `a_source_whose_link_is_over_the_limit_is_refused` (assertions inspected).
 
 ## Console publication
 
@@ -556,12 +557,6 @@ Reason: the site build and the console build are separate, and Cloudflare builds
 Not: building the console inside the site build.
 Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md).
 Evidence: `site/scripts/console.sh`.
-
-## Proposed, built
-
-This document owns no proposed ADR. The `[cell]` keys SITE-052 sets come from proposed
-[ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md). [console.md](console.md) lists
-them under its own "Proposed, built".
 
 ## Accepted but not built, or built differently
 

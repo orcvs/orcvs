@@ -1,12 +1,15 @@
 # Console requirements
 
-> Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
-> ADRs accepted after 0109 bind where they differ, until this document is updated.
-> Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0044, 0045, 0046, 0047, 0048, 0051,
-> 0052, 0053, 0054 (console clauses), 0055 (console clause), 0058, 0059 (console clause), 0061 (paint clause),
-> 0069 (paint clause), 0076 (Panel clauses), 0077 (paint clauses), 0080, 0081, 0082, 0083, 0084,
-> 0085 (paint clause), 0088 (console Theme key), 0089, 0091 (settings keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause);
-> proposed, built: 0078, 0079. Reviewed, not applicable or wholly superseded: 0050.
+> Snapshot: checked against `c8cc197` (2026-11-15); incorporates ADRs through 0109.
+> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
+> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0043 (presentation clause), 0044,
+> 0045, 0046, 0047, 0048, 0051, 0052, 0053, 0054 (console clauses), 0055 (console clause), 0058,
+> 0059 (console clause), 0061 (paint clause), 0063 (no Sequence value), 0069 (paint clause),
+> 0076 (Panel clauses), 0077 (paint clauses), 0078, 0079, 0080, 0081, 0082, 0083, 0084,
+> 0085 (paint clause), 0086 (small console shows the Panel), 0088 (console Theme key), 0089,
+> 0091 (settings keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause).
+> Reviewed, not applicable or wholly superseded: 0050.
 
 This document owns the console: the boundary between `orcvs` and the UI toolkit, how the Source
 Grid is drawn, the Source View, Pan and Zoom, the Region and keyboard routing, Themes, the window,
@@ -190,6 +193,74 @@ parts paint nothing.
 Reason: a Cell both read and written shows the write, as Orca draws a port over a locked Cell.
 Sources: [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md).
 Evidence: `orcvs/src/render_frame.rs`; tests `console/src/style.rs` `output_portal_wins_over_input_portal_on_every_channel`, `a_read_or_a_write_paints_a_locked_cell_as_an_unlocked_one`, `console/src/console/kittest_tests.rs` `editing_one_voice_of_a_paused_tracker_keeps_the_other_voices_read_lit`.
+
+## Cell geometry and edges
+
+### CONS-120 Source Cells are configurable rectangles
+
+A Source Cell is 12 points wide and 18 tall by default. Its width and height are set under `[cell]`
+in the config file, within 8 to 64 points each, and each key falls back on its own. Each axis snaps
+to whole physical pixels on its own, at least one pixel. A Cell's rectangle is its column times the
+snapped width and its row times the snapped height, from the presented Grid's corner. The Glyph's
+size is the smaller of three quarters of the snapped height and the snapped width divided by 0.62
+(Monaspace Neon's advance). The default window of 1024 by 640 points shows about 85 by 35 Cells.
+A Sector is a block of Cells, not a square.
+
+Reason: Orca's 2:3 shape reads as a row of text, and 12 by 18 stays whole at 1×, 1.5× and 2×. The Glyph's width term stops a narrow Cell overlapping its neighbours.
+Not: one constant size.
+Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
+Evidence: `console/src/grid_viewport.rs` `CELL_SIZE`, `glyph_size`; tests `console/src/grid_viewport.rs` `the_source_cell_is_twelve_by_eighteen_points`, `a_glyph_is_three_quarters_of_its_cells_height_or_what_its_width_fits`, `every_cell_is_a_whole_number_of_physical_pixels`.
+
+### CONS-121 The Cursor and Region show a still outline
+
+The Cursor and a Region show a still outline in `cursor.border` and `region.border` at their
+widths. Nothing a Theme styles is animated. `[cursor_effects]` keys get the unknown-key notice, and a Theme that
+sets `cursor.area` is refused.
+
+Reason: the animated glitch around the Cursor distracted from reading the Grid.
+Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
+Evidence: tests `console/src/config.rs` `the_removed_glitch_keys_are_unknown`, `console/src/console/tests.rs` `the_cursor_outline_is_one_box_the_same_on_all_four_sides`.
+
+### CONS-122 Each Cell edge shows one line, the highest-ranked fact either side
+
+An edge between two Positions, or between a Position and the Grid's outside, shows exactly one
+line. The facts rank, highest first:
+
+1. The selection outline: the Cursor's Cell when no Region spans more than one Cell, or a spanning
+   Region's perimeter.
+2. The Cursor's own Cell inside a spanning Region.
+3. A Bang's role border.
+4. The Portal and Locked borders.
+5. Diagnostic.
+6. A claimed Cell's role border.
+7. The Grid line.
+
+Among the Portal and Locked borders, the order is ADR 0077's: Output Portal over Input Portal over
+Locked ([CONS-029](#cons-029-a-cells-tick-portal-roles-combine-and-one-is-painted)). A Bang ranks
+above the Portals, so it is framed on all four sides.
+
+A width of zero withdraws a fact from the edge rather than hiding the edge. The winning line's
+colour is composited once over the facts below it. A Sector Seam composites over its edge's line,
+except on the selection outline. The Paint decides each edge's fact, colour and width, and
+coalesces them into runs.
+
+Reason: Cells that each stroke their own border draw every shared edge twice, at twice the Theme's width, and composite a translucent edge twice.
+Not: a lattice of full-length lines with outlines painted over it.
+Sources: [ADR 0078](../adr/0078-each-cell-edge-is-drawn-once.md).
+Evidence: `console/src/paint.rs` `EdgeRank`, `EdgeLine`, `Edges`; tests `console/src/console/tests.rs` `an_empty_grid_draws_each_grid_line_once`, `neighbouring_diagnostic_cells_share_one_line_composited_once`, `console/src/paint.rs` `a_spanning_regions_outline_owns_its_perimeter_and_its_cursor_cell_ranks_next`, `console/src/style.rs` `a_zero_width_border_falls_to_the_fact_below_it`.
+
+### CONS-123 Edge lines sit on whole physical pixels as one Mesh
+
+A line w physical pixels wide on boundary pixel b covers b − ⌊w/2⌋ to b − ⌊w/2⌋ + w. A line
+thinner than one pixel covers one pixel, at its alpha scaled by its width. Junctions are their own
+pieces: as wide as the widest vertical line there and as tall as the widest horizontal one, with
+the highest-ranked lines keeping their own widths through the junction. No two pieces overlap. All
+the pieces are one `Shape::Mesh` of axis-aligned quads. The shapes step has a benchmark,
+`paint_shapes`.
+
+Reason: epaint rounds thin rectangles and segment ends inward, which leaves holes at crossings and notches at corners. Whole-pixel quads have no edge to anti-alias.
+Sources: [ADR 0078](../adr/0078-each-cell-edge-is-drawn-once.md).
+Evidence: `console/src/console/shapes.rs`, `console/benches/paint.rs`; tests `console/src/console/tests.rs` `a_one_pixel_crossing_is_drawn`, `a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction`, `a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width`.
 
 ## Source View, Pan and Zoom
 
@@ -502,7 +573,7 @@ The complete property catalogue is `.scratch/theming/schema.md`, held to the cod
 Reason: TOML is typed, always has a table root and refuses repeated keys, so the derived type is strict on its own.
 Not: JSON or YAML documents.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: `console/src/theme_document.rs`; tests `the_format_marker_must_be_orcvs_theme`, `an_unknown_style_property_lists_the_valid_names`, `only_a_toml_file_is_a_theme_file` (`theme_registry.rs`), `color_key_names_match_the_schema_catalogue`.
+Evidence: `console/src/theme_document.rs`; tests `console/src/theme_document.rs` `the_format_marker_must_be_orcvs_theme`, `an_unknown_style_property_lists_the_valid_names`, `color_key_names_match_the_schema_catalogue`, `console/src/theme_registry.rs` `only_a_toml_file_is_a_theme_file`.
 
 ### CONS-069 Theme widths are bounded display points
 
@@ -567,7 +638,7 @@ A Theme chooses colours and cannot reorder facts:
 
 Reason: this keeps the decided appearance while channels gain alpha compositing.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-22).
-Evidence: tests `console/src/style.rs` `a_bang_keeps_its_own_paint_inside_every_portal_role`, `a_bound_function_spelling_wins_over_output_portal`, `region_fallback_only_reaches_a_fully_transparent_role_background`.
+Evidence: tests `console/src/style.rs` `a_bang_keeps_its_own_paint_inside_every_portal_role`, `a_bound_function_spelling_wins_over_output_portal`, `console/src/contrast.rs` `region_fallback_only_reaches_a_fully_transparent_role_background`.
 
 ### CONS-073 Every painted text state clears 4.5:1, except Comment
 
@@ -969,86 +1040,14 @@ Reason: a keyboard must not rewrite Cells already written.
 Sources: [ADR 0102](../adr/0102-a-finger-pans-the-source-and-asks-for-the-keyboard.md).
 Evidence: `console/src/console/input.rs`, `console/src/web_startup.rs`, `console/index.html`; test `console/src/console/tests.rs` `a_phone_keyboard_writes_a_cell_per_character_and_deletes_by_backspace`.
 
-## Proposed, built
-
-ADRs 0078 and 0079 are **proposed, not accepted**. Accepted ADRs 0038, 0047, 0053, 0058 and 0091
-carry inline notes citing their amendments, and the code builds them. What follows describes the
-built behaviour and is not binding until the ADR process accepts them. See
-[Open decisions](#open-decisions).
-
-### CONS-120 Source Cells are configurable rectangles (ADR 0079, proposed)
-
-A Source Cell is 12 points wide and 18 tall by default. Its width and height are set under `[cell]`
-in the config file, within 8 to 64 points each, and each key falls back on its own. Each axis snaps
-to whole physical pixels on its own, at least one pixel. A Cell's rectangle is its column times the
-snapped width and its row times the snapped height, from the presented Grid's corner. The Glyph's
-size is the smaller of three quarters of the snapped height and the snapped width divided by 0.62
-(Monaspace Neon's advance). The default window of 1024 by 640 points shows about 85 by 35 Cells.
-A Sector is a block of Cells, not a square.
-
-Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
-Evidence: `console/src/grid_viewport.rs` `CELL_SIZE`, `glyph_size`; tests `console/src/grid_viewport.rs` `the_source_cell_is_twelve_by_eighteen_points`, `a_glyph_is_three_quarters_of_its_cells_height_or_what_its_width_fits`, `every_cell_is_a_whole_number_of_physical_pixels`.
-
-### CONS-121 The Cursor and Region show a still outline (ADR 0079, proposed)
-
-The Cursor and a Region show a still outline in `cursor.border` and `region.border` at their
-widths. Nothing a Theme styles is animated. `[cursor_effects]` keys get the unknown-key notice, and a Theme that
-sets `cursor.area` is refused.
-
-Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
-Evidence: tests `console/src/config.rs` `the_removed_glitch_keys_are_unknown`, `console/src/console/tests.rs` `the_cursor_outline_is_one_box_the_same_on_all_four_sides`.
-
-### CONS-122 Each Cell edge shows one line, the highest-ranked fact either side (ADR 0078, proposed)
-
-An edge between two Positions, or between a Position and the Grid's outside, shows exactly one
-line. The facts rank, highest first:
-
-1. The selection outline: the Cursor's Cell when no Region spans more than one Cell, or a spanning
-   Region's perimeter.
-2. The Cursor's own Cell inside a spanning Region.
-3. A Bang's role border.
-4. The Portal and Locked borders.
-5. Diagnostic.
-6. A claimed Cell's role border.
-7. The Grid line.
-
-Among the Portal and Locked borders, ADR 0078 defers to ADR 0077's order. The code observes Output
-Portal over Input Portal over Locked (`console/src/paint.rs` `EdgeRank`), the same order ADR 0077
-paints those roles in ([CONS-029](#cons-029-a-cells-tick-portal-roles-combine-and-one-is-painted)).
-
-A width of zero withdraws a fact from the edge rather than hiding the edge. The winning line's
-colour is composited once over the facts below it. A Sector Seam composites over its edge's line,
-except on the selection outline. The Paint decides each edge's fact, colour and width, and
-coalesces them into runs.
-
-Sources: [ADR 0078](../adr/0078-each-cell-edge-is-drawn-once.md).
-Evidence: `console/src/paint.rs` `EdgeRank`, `EdgeLine`, `Edges`; tests `console/src/console/tests.rs` `an_empty_grid_draws_each_grid_line_once`, `neighbouring_diagnostic_cells_share_one_line_composited_once`, `console/src/paint.rs` `a_spanning_regions_outline_owns_its_perimeter_and_its_cursor_cell_ranks_next`, `console/src/style.rs` `a_zero_width_border_falls_to_the_fact_below_it`.
-
-### CONS-123 Edge lines sit on whole physical pixels as one Mesh (ADR 0078, proposed)
-
-A line w physical pixels wide on boundary pixel b covers b − ⌊w/2⌋ to b − ⌊w/2⌋ + w. A line
-thinner than one pixel covers one pixel, at its alpha scaled by its width. Junctions are their own
-pieces: as wide as the widest vertical line there and as tall as the widest horizontal one, with
-the highest-ranked lines keeping their own widths through the junction. No two pieces overlap. All
-the pieces are one `Shape::Mesh` of axis-aligned quads. The shapes step has a benchmark,
-`paint_shapes`.
-
-Sources: [ADR 0078](../adr/0078-each-cell-edge-is-drawn-once.md).
-Evidence: `console/src/console/shapes.rs`, `console/benches/paint.rs`; tests `console/src/console/tests.rs` `a_one_pixel_crossing_is_drawn`, `a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction`, `a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width`.
-
-Observed difference from ADR 0078: the Theme key `cell.selection.border.width` is still accepted
-and does nothing, although 0078 says a Cell's border width no longer hides anything. Tracked in
-[cell-edges/07](../../.scratch/cell-edges/issues/07-retire-the-cell-selection-border-width.md).
-
 ## Accepted but not built, or built differently
 
 - CONS-011: `orcvs` still carries presentation configuration with no reader:
   `orcvs/src/opts.rs` `CursorBloomRadius` and `RenderFrame::cursor_bloom_radius`. No tracking
   issue found.
-- CONS-076 / ADR 0053: the accepted clause "Animated strokes vary around the nominal width ...
-  0.45–1.25 times that width" is not built. The code removed every animation under proposed ADR
-  0079 ([CONS-121](#cons-121-the-cursor-and-region-show-a-still-outline-adr-0079-proposed)). No
-  tracking issue found; acceptance of 0079 would settle it (D6).
+- CONS-122: the Theme key `cell.selection.border.width` is still accepted and does nothing,
+  although a Cell's border width no longer hides anything. Tracked in
+  [cell-edges/07](../../.scratch/cell-edges/issues/07-retire-the-cell-selection-border-width.md).
 
 ## Open decisions
 
@@ -1066,8 +1065,6 @@ None of these is binding.
 
   Recording these as binding needs an ADR or a dated ruling (run decision D3).
 
-- Whether ADRs 0078 and 0079 are accepted. Until they are, [Proposed, built](#proposed-built) is
-  observed behaviour, not a rule. This is decided through the ADR process (run decision D6).
 - Web Theme import. ADR 0053 keeps "Web Themes are imported as files" as the design for when
   import returns, and v1 disables it ([CONS-077](#cons-077-the-web-console-runs-on-the-built-in-themes)).
   Tracked in `.scratch/menu-structure/`.

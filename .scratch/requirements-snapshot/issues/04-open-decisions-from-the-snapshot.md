@@ -4,8 +4,6 @@
 
 Each is listed under "Open decisions" in its requirement and is not binding there.
 
-- Accepting ADRs 0078 and 0079, which are built (D6, `docs/requirements/console.md`). Asked of
-  Toby on 2026-11-14.
 - Standalone operand literals: a 2026-10-16 ruling reverses ADR 0021 for Number and Note pairs and
   needs an ADR (D4, `docs/requirements/language.md`).
 - ADR 0016's teardown after a refused delivery against the code's retry (D9,

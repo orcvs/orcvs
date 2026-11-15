@@ -6,8 +6,8 @@
 - Workspace, edition, Rust version, features, dependencies, and lints: root and crate `Cargo.toml` files.
 - Vocabulary: `CONTEXT.md`. Decisions: `docs/adr/`, which stay binding and append-only.
 - Current required behaviour: `docs/requirements/`, a snapshot restating the accepted ADRs as of
-  each document's marker. Read the owning requirement before the ADRs, then any ADR newer than its
-  marker; where they differ the ADR binds. `docs/requirements/README.md` routes by task.
+  each document's marker. Read the owning requirement before the ADRs, then any ADR added, amended or
+  accepted since its marker's commit; where they differ the ADR binds. `docs/requirements/README.md` routes by task.
 - CI is authoritative when local and CI behaviour differ.
 
 This is an internal application. Track current stable Rust deliberately; nightly is optional and
@@ -77,6 +77,8 @@ Then run only the gates whose inputs the change actually touched:
 
 - `mise.toml`, `.github/workflows/`, or `scripts/`: `bash scripts/check-tooling-contract.sh`,
   `actionlint`, and `zizmor --offline .github/workflows`
+- `docs/requirements/`, or code a requirement's Evidence line names: `node scripts/check-requirements.ts`,
+  and `node --test scripts/tests/check-requirements.test.ts` when the script changes
 - `scripts/roadmap.ts` or `.scratch/`: `node --test scripts/tests/roadmap.test.ts` and
   `node scripts/roadmap.ts > /dev/null`
 - persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
@@ -164,7 +166,7 @@ Triage uses the five default canonical label strings. See `docs/agents/triage-la
 
 Domain documentation uses a single-context layout. See `docs/agents/domain.md`. Before changing
 behaviour, read `CONTEXT.md` for terms, then the owning requirement in `docs/requirements/`, then the
-ADRs. Accepting an ADR updates the owning requirement and its snapshot marker in the same change,
+ADRs. Accepting or amending an ADR, including a Status change, updates the owning requirement and its snapshot marker in the same change,
 or marks that topic's snapshot as behind.
 
 ### Syntax prototypes
