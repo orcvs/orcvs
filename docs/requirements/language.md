@@ -182,7 +182,6 @@ pair is partial input. `MA` is the major triad and `io` (Ionian) the major scale
 wherever a chord name is.
 
 Reason: one type lets Pick and Stack serve chords and scales alike.
-Not: separate chord and scale types; half-blank names.
 Sources: [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
 Evidence: `lang/src/atom.rs` `define_interval_sets!`, `IntervalSet`; test `lang/src/atom.rs` `every_interval_set_name_decodes_to_its_semitones`.
 
@@ -400,7 +399,6 @@ diagnostic names the child (`nested computation at column X, row Y cleared its o
 optional slot binds no value, a defaulted slot its fixed Number.
 
 Reason: as Orca's bang ports write `.`, so a pulse erases its last `**`.
-Not: an Absence Marker value.
 Sources: [ADR 0073](../adr/0073-a-function-with-nothing-to-write-answers-nothing.md), [ADR 0071](../adr/0071-a-bang-travels-as-its-glyph.md), [ADR 0108](../adr/0108-a-plays-note-is-optional-by-type.md), [ADR 0109](../adr/0109-a-blank-operand-can-stand-for-a-fixed-value.md).
 Evidence: `orcvs/src/source/tick/execution.rs`; test `lang/src/interpreter.rs` `only_the_pulses_and_the_functions_that_copy_cells_answer_a_clear`.
 
@@ -442,7 +440,6 @@ Atom type does not cross: a Note `C5` returned into an Addition operand is the N
 `.+.+010102` behaves as if `02` were written into the outer first operand.
 
 Reason: nesting and spatial composition deliver Source encoding one way.
-Not: a typed nested result.
 Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0021](../adr/0021-convert-numbers-and-notes-explicitly.md).
 Evidence: `orcvs/src/source/encoding.rs`; test `orcvs/src/source/tick/nesting.rs` `a_return_and_a_portal_decode_the_same_characters_the_same_way`.
 
@@ -455,7 +452,6 @@ that answers a Bang writes `**` through its own Output Portal, activating as a r
 Return is `**`. How nested writes are ordered and reserved is stated in [evaluation.md](evaluation.md).
 
 Reason: Source is the only place a feedback Function can keep its previous value.
-Not: a Return that suppresses the nested write.
 Sources: [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md).
 Evidence: `orcvs/src/source/tick/execution.rs`; test `orcvs/src/source/tick/nesting.rs` `nested_feedback_functions_keep_their_state_in_their_own_output_portals`.
 

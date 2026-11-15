@@ -41,7 +41,7 @@ can be written as plain numbers.
 
 Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
 
-Reason: the compiler enforces only the dependency half, so presentation drifted into `orcvs`. Review enforces this half.
+Reason: the compiler enforces only the dependency half, so review enforces this half.
 Sources: [ADR 0042](../adr/0042-responsibility-is-not-freedom-from-the-toolkit.md).
 Evidence: enforced by review; no mechanical gate.
 
@@ -87,7 +87,7 @@ into a shipped function. A test that asserts a Cell's colour builds no `Context`
 this path is asserted by counting Cells and Shapes, not by timing.
 
 Reason: the console paints the Grid as one surface with no per-Cell widgets, so a colour can be tested only as a value.
-Not: screenshot tests (platform-sensitive; ruled out in `.scratch/console-testing/spec.md`).
+Not: screenshot tests, which are platform-sensitive.
 Sources: [ADR 0040](../adr/0040-the-console-paints-from-a-value.md).
 Evidence: `console/src/paint.rs` `Paint`, `FramePaint`; test `console/src/console/tests.rs` `the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry`.
 
@@ -117,7 +117,7 @@ the declared Token, the bound Atom or none, and `written`. `None` means no entry
 One Claim is shared by every Cell it covers. The Expression-local `parent` does not cross into the
 console. A Render Frame carries `Option<Token>`, never a separate per-Cell classification.
 
-Reason: scalar projections of the claim lost the difference between a blank operand and a wrong one, and six places rebuilt the claim from them.
+Reason: a scalar projection of the Claim loses the difference between a blank operand and a wrong one, and each reader that needs the Claim would rebuild it.
 Sources: [ADR 0044](../adr/0044-paint-reads-the-parsers-claim.md), [ADR 0052](../adr/0052-a-claim-answers-whether-its-slot-is-written.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md) (Render Frame amendment).
 Evidence: `orcvs/src/render_frame.rs` `RenderCell::claim`, `RenderCell::source_paint`; test `orcvs/src/render_frame.rs` `a_valid_function_with_unbound_operands_shares_each_parsers_claim`.
 
@@ -130,7 +130,7 @@ holds only parser Claims: no Source bytes and no whole-Grid Paint view. Paint ma
 Span walk and no pointer-keyed lookup.
 
 Reason: the Claim's construction is the one place that holds both its Cell range and the revision's bytes. Every later place pays for a map or a side table.
-Not: caching finished Paint facts on the Language Map, which moved work into every revision rebuild.
+Not: caching finished Paint facts on the Language Map, which puts Paint work into every revision rebuild.
 Sources: [ADR 0052](../adr/0052-a-claim-answers-whether-its-slot-is-written.md).
 Evidence: `orcvs/src/source/language_map.rs` `LanguageMap::claims_by_cell`, `Claim::written`; test `orcvs/src/render_frame.rs` `every_cell_of_a_claim_reads_the_written_answer_its_claim_was_built_with`.
 
@@ -209,7 +209,6 @@ size is the smaller of three quarters of the snapped height and the snapped widt
 A Sector is a block of Cells, not a square.
 
 Reason: Orca's 2:3 shape reads as a row of text, and 12 by 18 stays whole at 1×, 1.5× and 2×. The Glyph's width term stops a narrow Cell overlapping its neighbours.
-Not: one constant size.
 Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
 Evidence: `console/src/grid_viewport.rs` `CELL_SIZE`, `glyph_size`; test `console/src/grid_viewport.rs` `the_source_cell_is_twelve_by_eighteen_points`.
 
@@ -219,7 +218,7 @@ The Cursor and a Region show a still outline in `cursor.border` and `region.bord
 widths. Nothing a Theme styles is animated. `[cursor_effects]` keys get the unknown-key notice, and a Theme that
 sets `cursor.area` is refused.
 
-Reason: the animated glitch around the Cursor distracted from reading the Grid.
+Reason: motion around the Cursor distracts from reading the Grid.
 Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
 Evidence: test `console/src/config.rs` `the_removed_glitch_keys_are_unknown`.
 
@@ -445,7 +444,7 @@ The Source gets every key while no control holds egui's keyboard focus and no po
 ComboBox list) is open. It gets none while one does. The answer is latched once every widget has
 run, and read on the next frame. No control is named.
 
-Reason: a named list of controls leaked keys from every control added later. Latching keeps the Escape that leaves a field from also collapsing the Region.
+Reason: a named list of controls leaks keys to every control added later. Latching keeps the Escape that leaves a field from also collapsing the Region.
 Not: the Grid as a focusable widget, which would leave keys going nowhere at startup.
 Sources: [ADR 0048](../adr/0048-the-source-takes-the-keys-no-control-holds.md).
 Evidence: `console/src/console/input.rs` `latch_keyboard_owner`; test `console/src/console/kittest_tests.rs` `a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source`.
@@ -454,7 +453,7 @@ Evidence: `console/src/console/input.rs` `latch_keyboard_owner`; test `console/s
 
 When command Enter has armed a fill and the next key goes to a control, the fill is disarmed.
 
-Reason: those keys were the next event, even though the Source never saw them.
+Reason: a key a control takes is the next event, even though the Source never sees it.
 Sources: [ADR 0048](../adr/0048-the-source-takes-the-keys-no-control-holds.md).
 Evidence: test `console/src/console/tests.rs` `keys_the_bpm_field_took_disarm_a_fill_armed_before_it`.
 
@@ -511,7 +510,7 @@ press holds the other appearance as egui's `ThemePreference`, which egui's memor
 the first press the preference is `System`, so the console follows the OS. No control returns it to
 `System`. The toggle names itself for accessibility.
 
-Reason: the maintainer found a three-button control confusing (2026-10-31).
+Reason: one toggle that shows the current appearance is the plainest mode control; three buttons confuse.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-31).
 Evidence: `console/src/console/menu_bar.rs`; test `console/src/console/kittest_tests.rs` `the_mode_toggle_flips_the_appearance`.
 
@@ -654,7 +653,7 @@ Every role except Comment is held to 4.5:1; Comment is measured and reported, an
 Theme has an accepted-exception list. Every built-in passes the gate. A loaded Theme below the
 floor still loads, and the console shows its report as a notice.
 
-Reason: a faint Comment is the point of the role, and per-Theme exceptions hid failures. WCAG 1.4.3 does not exempt de-emphasised text.
+Reason: a faint Comment is the point of the role, and per-Theme exceptions would hide failures. WCAG 1.4.3 does not exempt de-emphasised text.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendments 2026-10-01, 2026-10-23, 2026-10-25).
 Evidence: `console/src/contrast.rs`; test `shipped_theme_gate` in the same file.
 
@@ -687,7 +686,7 @@ fallback. An identity the registry does not hold is missing: a selection naming 
 is kept, and a document inheriting one is refused with a notice. `console/src/theme.md` records
 each built-in's values.
 
-Reason: the maintainer retired the coloured built-ins on 2026-10-25.
+Reason: the grayscale pair is the chosen default appearance, and nothing depends on a particular Theme, so no other built-in is needed.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-25).
 Evidence: `console/src/theme_registry.rs`; test `console/src/theme_selection.rs` `a_selection_of_a_retired_built_in_falls_back_to_the_default_and_is_kept`.
 
@@ -771,7 +770,7 @@ These settings exist on native and the web:
 - `[toasts] seconds`.
 - The Theme selection ([CONS-062](#cons-062-settings-select-a-dark-and-a-light-theme-by-identity-and-hold-no-theme-values)).
 
-The View menu still toggles the Minimap, Diagnostics and Info, and a menu change is not saved.
+The View menu toggles the Minimap, Diagnostics and Info, and a menu change is not saved.
 `console/src/config.rs` owns the key list, the defaults and the ranges. An unusable Theme selection
 falls back as [CONS-067](#cons-067-an-unavailable-selected-theme-falls-back-without-losing-the-selection)
 states. How other faulty keys fall back is an [open decision](#open-decisions).
@@ -844,7 +843,7 @@ never over the bottom panel or docked Diagnostics, and opening it leaves the Sou
 unchanged. Its layer is exactly the bordered picture, so a press outside the picture reaches the
 Source. It is one labelled node, "Source minimap", that Tab never focuses.
 
-Reason: docked, it took the Source's width. In the window's corner, it covered the Panel.
+Reason: docked, it would take the Source's width; in the window's corner, it would cover the Panel.
 Sources: [ADR 0081](../adr/0081-the-minimap-floats-over-the-windows-corner.md), [ADR 0096](../adr/0096-the-minimap-sits-in-the-sources-corner-at-one-pixel-per-cell.md), [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md).
 Evidence: test `console/src/console/kittest_tests.rs` `the_minimap_starts_pinned_in_the_sources_bottom_right_corner_and_the_view_menu_toggles_it`.
 
@@ -903,7 +902,7 @@ network setting keeps only the value it refused. An Overrun or an Omitted summar
 raises no message. A MIDI output failure stands until the observation reports a delivery succeeded
 or a destination was installed.
 
-Reason: when failures were routed by call order, an engine failure read as a MIDI failure.
+Reason: one place decides where a failure belongs, so an engine failure never reads as a MIDI failure.
 Sources: [ADR 0092](../adr/0092-the-panel-routes-playback-failures-in-one-place.md), [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md), [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
 Evidence: `console/src/playback_status.rs`; test `each_output_failure_goes_to_its_own_destination` in the same file.
 
@@ -961,7 +960,7 @@ A Toast names its output (`MIDI`, `UDP/OSC` or `ENGINE`), carries the message an
 button, and fades after `[toasts] seconds`. A dismissed Toast returns only after its reporter has
 cleared and failed again. Toasts are `egui::Area`s, with no added dependency.
 
-Reason: a status line that grew and shrank with the messages moved the Source's bottom edge.
+Reason: a status line that grows and shrinks with its messages would move the Source's bottom edge.
 Sources: [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md).
 Evidence: `console/src/console/toasts.rs`; test `console/src/console/kittest_tests/toasts.rs` `a_failure_floats_as_a_toast_in_the_top_right_corner`.
 

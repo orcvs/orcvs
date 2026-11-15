@@ -82,7 +82,6 @@ Evidence: `orcvs/src/source/tick/dependencies.rs` `refusal`; test `orcvs/src/sou
 An Advance or Emit reads working Source at its Turn, after every earlier admitted effect. It does not wait for an occupant to leave or for a contesting placement, and a refused placement is not retried. Occupancy alone adds no Dependency, and neither does overlap between an overwrite's and a placement's destinations: an earlier non-empty overwrite blocks the placement, a later overwrite replaces what was placed. Value-input, activation, Halt and ordinary overwrite Dependencies still apply, and a placement covering an operand is a potential writer under EVAL-022.
 
 Reason: same-Tick value propagation with local placement refusal under one execution order.
-Not: Snapshot-only admission; simultaneous vacancy solving.
 Sources: [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md); ruled 2026-10-13, no ADR (`.scratch/bang-function/issues/08-decide-whether-a-mover-still-precedes-the-root-it-contacts.md`) for a moving bundle ordering no Contacts.
 Evidence: `orcvs/src/source/tick/execution.rs` `deliver_source_effect`; test `orcvs/src/source/tick/movers.rs` `an_emission_waits_for_no_occupant_to_leave`.
 
@@ -441,7 +440,6 @@ Evidence: `orcvs/src/render_frame.rs` `RenderFrame::derive`; test `orcvs/src/ren
 Execution is the record's only writer and records unconditionally: there is no recorder a caller installs and no switch, so the record a test reads is the record Playback commits. The record travels beside the Tick Plan, not in it, and the Playback Engine's input is unchanged. A Tick reserves room for one access per computation.
 
 Reason: only execution knows which Cells a dynamic read selected; the console can paint only what a revision carries.
-Not: an installable recorder; folding the record into the Tick Plan.
 Sources: [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md).
 Evidence: `orcvs/src/source/tick/execution.rs` `record`; test `orcvs/src/source/tick/halt.rs` `a_lock_is_recorded_with_its_site_and_what_it_did_there`.
 
