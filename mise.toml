@@ -357,8 +357,8 @@ run = '''
 case "${ORCVS_MERGE_COMPONENT:-all}" in
   native) mise run check_merge_native ;;
   # What is merge-only on the WASM side is the browser run. The compile-and-build
-  # half is `check_wasm`, which the WASM job runs as its own step on every event,
-  # so this component narrows to what the step before it did not do. `all` below
+  # half is `check_wasm`, which the WASM job runs as its own step on every event
+  # but `merge_group`, so this component narrows to the browser run. `all` below
   # still runs both, which is the path a local `mise run check` takes.
   wasm) mise run test_wasm ;;
   all)
