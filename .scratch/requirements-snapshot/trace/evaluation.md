@@ -2,7 +2,7 @@
 
 Pinned source: `c8cc197c32cfd7414f617cbc8fc5e4a846a44af4`. Inventory only; rule IDs are provisional.
 Owned ADRs: 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0031, 0032, 0034, 0036, 0037, 0057,
-0060, 0065, 0066, 0068, 0077. Paths are repository-relative. "ss" = source-stated, "pr" = proposed.
+0060, 0065, 0066, 0068, 0077, 0110. Paths are repository-relative. "ss" = source-stated, "pr" = proposed.
 
 ## Source disposition
 
@@ -35,12 +35,18 @@ Owned ADRs: 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0031, 0032, 0034, 00
 | 0004 ¶3 | Source-reading Functions may nest; Source-writing and external-output Functions are root-only | redirected | LANG (nesting / root-only by declared kind, 0016, 0028) | pr |
 | 0004 ¶1 | Timing / ordering / Bang-lifetime clauses | superseded | by 0032 | ss (0004 header) |
 
+### ADR 0110 — A value root takes a Turn every Tick
+
+| Source | Clause | Status | Destination | Evidence |
+|---|---|---|---|---|
+| 0110 ¶ Decision | A value root takes a Turn every Tick; Terminal Output, Directional Bang and Halt roots wait for a Bang; a nested Function takes its Turn from its root; activation is declared per Function | retained | EVAL-050 | ss (ruled by Toby 2026-11-15, decisions D5) |
+
 ### ADR 0006 — Bang activation includes Self-Banging Functions
 
 | Source at c8cc197 | Claim | Disposition | Owner / reason | Basis |
 | --- | --- | --- | --- | --- |
 | 0006 ¶3 | Bang is `**`; one canonical spelling per Function | redirected | LANG (spellings, Bang value 0071/0072) | pr |
-| 0006 ¶3 | Ordinary root inert until Bang activation; Self-Banging is intrinsically activated | retained (conflict) | EVAL-050 Activation source — see Conflict C1 | ss / conflict |
+| 0006 ¶3 | Ordinary root inert until Bang activation; Self-Banging is intrinsically activated | retained, amended | EVAL-050 Activation source, as amended by ADR 0110 (C1, resolved) | ss |
 | 0006 ¶4 | Aligned cardinal anchors N (x,y-1), S (x,y+1), W (x-2,y), E (x+2,y); only a complete root activates | retained | EVAL-051 Bang activation geometry | ss |
 | 0006 ¶4 | A Portal may deliver Bang directly to a root without overwriting it | superseded | by 0071 (Bang travels as `**`, overwrites, activates aligned roots); see C3 | pr |
 | 0006 ¶4 | Activation recursively includes nested Functions | retained | EVAL-042 | ss |
@@ -352,7 +358,9 @@ value Function is `Intrinsic`; effect Functions are `Bang` except movers and `**
 "Runs": "Most Functions take a Turn every Tick. Some are inert until a Bang reaches them." CONTEXT
 Directional Bang: "Like every ordinary Function it is inert" (ambiguous). Every later ADR (0065
 "activation can reach", 0072 "intrinsically active writer") assumes intrinsic value roots. No ADR
-retires 0006's wider gating. Recommendation: state EVAL-050 as built (value roots and Self-Banging
+retired 0006's wider gating when this was drafted. **Resolved 2026-11-15:** Toby chose to record the
+built behaviour, and ADR 0110 amends ADR 0006 so a value root takes a Turn every Tick; EVAL-050
+binds it. The rest of this entry is the conflict as drafted. Recommendation: state EVAL-050 as built (value roots and Self-Banging
 and Bang Functions intrinsic; effect roots inert) citing 0032 ¶9, and record 0006's universal gating
 as not adopted pending an ADR; consequence: the requirement would read the 0032 interim policy as
 current, which needs an owner ruling or a short ADR to close.
@@ -431,9 +439,9 @@ Every retained row above carries a provisional ID; it lands in the final rule of
 `docs/requirements/evaluation.md`, except:
 
 - Merged: EVAL-103 (order) into EVAL-102; EVAL-104 (private Span constructors) into EVAL-101.
-- Narrowed per decisions.md D5: EVAL-050 states only that effect roots are inert except Self-Banging
-  and Bang Functions; whether value roots are inert is listed under "Open decisions" with the built
-  behaviour as observation (C1).
+- EVAL-050 binds ADR 0110 (decisions D5, ruled 2026-11-15): value roots take a Turn every Tick, and
+  effect roots other than Self-Banging and Bang Functions wait for a Bang. It was narrowed while D5
+  was open; the ruling closed the open decision (C1).
 - Added per decisions.md D2: EVAL-027 (dynamic Input Portal writers found at the Turn) and EVAL-028
   (dynamic writers first; write onto a completed Turn is next-Tick feedback; own-Expression dynamic
   write diagnosed; missed transient effects). These take the ADR 0067 scheduling rows and the CONTEXT

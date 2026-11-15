@@ -36,7 +36,7 @@ and the highest ADR it incorporates.
 | [Evaluation](evaluation.md) | Ticks, Turns and their order, Portals, placement and movers, activation and Bangs, cycles and errors, time and feedback Functions, committing a Tick against live edits | `c8cc197`, 2026-11-15, ADRs through 0110 |
 | [Playback and outputs](playback.md) | The Playback Engine's lifecycle, Stop and Rewind and what they do to the absolute Tick, the Tick Grid, diagnostics, MIDI, UDP and OSC sends, the Built-in Synth's voices | `c8cc197`, 2026-11-14, ADRs through 0109 |
 | [Console](console.md) | The console window, Source View, Pan, Zoom, Region and keys, touch, Paint and Themes, the Minimap, the Panel, Toasts, the Output list, settings | `c8cc197`, 2026-11-15, ADRs through 0109 |
-| [Site](site.md) | The site, the small console and its page messages, links into the console, Copy Link, page settings, the console's web build and deploy | `c8cc197`, 2026-11-14, ADRs through 0109 |
+| [Site](site.md) | The site, the Small Console and its page messages, links into the console, Copy Link, page settings, the console's web build and deploy | `c8cc197`, 2026-11-14, ADRs through 0109 |
 
 Engineering workflow, tooling and CI are not product behaviour and have no requirement here:
 [`AGENTS.md`](../../AGENTS.md) and [`docs/tooling.md`](../tooling.md) own them.
@@ -48,7 +48,8 @@ dated amendment to an existing one, or a Status change such as accepting a propo
 one superseded. Restate the new or changed rule, and advance that document's snapshot marker to the
 commit the change is based on and, for a new ADR, its number. A change that cannot update the
 requirement says so in the marker (for example "behind: ADR 0016's 2026-12-01 amendment not yet
-restated"), so readers know to check the ADR. A link fix or rewording does not
+restated"), so readers know to check the ADR. An ADR change that alters nothing a requirement
+states says so in its pull request. A link fix or rewording does not
 advance a marker; only reconciling the topic against a newer revision does.
 
 A requirement never overrides an accepted ADR. A requirement that disagrees with one is a defect in

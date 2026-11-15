@@ -102,7 +102,7 @@ answered all 30 questions through the existing reading path (`AGENTS.md`, `CONTE
 ## Draft (done 2026-11-14)
 
 `docs/requirements/{language,evaluation,playback,console,site}.md` hold 288 rules under one snapshot
-marker each (`c8cc197`, ADRs through 0109), with "Accepted but not built, or built differently" and
+marker each (`c8cc197`, ADRs through 0109; `evaluation.md` later advanced to 0110 for decisions D5), with "Accepted but not built, or built differently" and
 "Open decisions" sections. `docs/requirements/README.md` is the index and the workflow guide: the
 reading order, the topic list with markers, and same-change maintenance (decisions D1). Each trace
 maps every retained row to its final rule ID and records merges.
@@ -111,8 +111,8 @@ Routing edits: `AGENTS.md` (sources of truth, Domain docs), `docs/agents/domain.
 conflict rule, recording decisions and terms), `docs/adr/README.md` (ADR-to-topic table, older
 vocabulary). `CONTEXT.md`: Linked Console and Small Console added; Function, Clear, Pan, Operand
 Literal corrected against the ADRs; Built-in Synth and Playback Engine behaviour moved to the
-requirements. No ADR file changed (`git diff --stat c8cc197..HEAD -- docs/adr` lists only the
-README).
+requirements. At the draft no ADR file but the README changed. The rulings since added ADR 0110, an
+amendment pointer in ADR 0006, and the accepted Status lines of ADRs 0078 and 0079.
 
 ## Audit (done 2026-11-14)
 
@@ -161,11 +161,12 @@ symbols.
 - D6 ruled 2026-11-15: ADRs 0078 and 0079 accepted; their rules are binding in `console.md`.
 - PR #399 review (nine comments) addressed 2026-11-15; see the PR threads.
 - Follow-ups: `issues/01` (trim glossary entries), `issues/02` (stale code citations), `issues/03`
-  (ADR status-line forward pointers), `issues/04` (open decisions and missing glossary terms).
+  (ADR status-line forward pointers), `issues/04`–`07` (one open decision each), `issues/08`
+  (missing glossary terms).
 
 ## Next action
 
-On a D5 or D6 answer: apply it to `evaluation.md` or `console.md` (and the ADR status lines for D6,
-or a new ADR for D5), move the item out of "Open decisions", and re-run the validator. Before merge,
-re-fetch `main`; if it moved, classify `git diff --name-status c8cc197..origin/main` by topic and
+D5 and D6 are ruled and applied. Await review of PR #399 and act on its comments; keep
+`node scripts/check-requirements.ts` passing. Before merge, re-fetch `main`; if it moved, classify
+`git diff --name-status c8cc197..origin/main` by topic and
 reconcile affected topics, advancing only their markers.

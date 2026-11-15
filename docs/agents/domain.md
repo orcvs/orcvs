@@ -53,10 +53,13 @@ ignore the ADR. Code that lacks a rule does not retire it: the requirement lists
 
 ## Recording a decision or a term
 
-`/domain-modeling` still decides when an ADR is warranted and what it holds. Accepting or amending an
-ADR, including a Status change, also updates the owning requirement and its snapshot marker in the same change, or marks that topic's
-snapshot as behind; [`docs/requirements/README.md`](../requirements/README.md) states how.
+`/domain-modeling` still decides when an ADR is warranted and what it holds. A new ADR, an amendment
+or a Status change also updates the owning requirement in the same change, as
+[`docs/requirements/README.md`](../requirements/README.md#keeping-the-snapshot-current) states.
 
 Terms still go into `CONTEXT.md` the moment they settle. A renamed term is applied to the
 requirements that use it in the same change. `CONTEXT.md` keeps definitions, distinctions and
-`_Avoid_` lines; a rule about what the product does belongs in the owning requirement.
+`_Avoid_` lines; a rule about what the product does belongs in the owning requirement. Some entries
+still carry behaviour, and `.scratch/requirements-snapshot/issues/01-trim-glossary-entries-to-definitions.md`
+tracks moving it out. Until then, correct such a sentence where it contradicts an ADR, but do not add new
+behaviour to an entry.
