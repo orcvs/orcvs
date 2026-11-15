@@ -30,8 +30,7 @@ Reason: deterministic interpretation and testing, with musical interpretation an
 kept out of the Source module.
 Sources: [ADR 0001](../adr/0001-separate-source-interpretation-from-playback-engine.md),
 [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
-Evidence: `orcvs/src/playback.rs` `PlaybackInner::execute_tick`; test `orcvs/src/playback.rs`
-`a_tick_commits_source_before_submitting_play_commands`, `repeated_commands_are_dispatched_as_exact_tick_lists`.
+Evidence: `orcvs/src/playback.rs` `PlaybackInner::execute_tick`; test `orcvs/src/playback.rs` `a_tick_commits_source_before_submitting_play_commands`.
 
 ### PLAY-280 A Play Command says what Source asked; an Output Command says what is delivered
 
@@ -49,10 +48,7 @@ Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md),
 [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md); the Note Off
 encoding and role types are stated by `CONTEXT.md` (Play Command, Output Command), no ADR
 (`.scratch/midi-output-family/issues/07-send-note-off-for-every-stop.md`).
-Evidence: `orcvs/src/playback.rs` `OutputCommand`; test `orcvs/src/midi.rs`
-`submits_note_off_as_its_wire_bytes`, `submits_control_change_and_pitch_bend_as_their_wire_bytes`;
-`orcvs/src/playback/schedule.rs` `control_change_and_pitch_bend_are_delivered_unresolved_and_in_tick_plan_order`;
-`lang/src/functions/mod.rs` `control_change_carries_each_operand_into_the_role_its_signature_names`.
+Evidence: `orcvs/src/playback.rs` `OutputCommand`; test `orcvs/src/midi.rs` `submits_note_off_as_its_wire_bytes`.
 
 ### PLAY-290 A Chord Play's tones are ordinary Play Commands
 
@@ -63,10 +59,7 @@ tones and a Monophonic Play on the same channel keep separate ownership.
 
 Reason: one chord drives as one thing without giving the engine a second rule.
 Sources: [ADR 0103](../adr/0103-one-chord-play-sounds-every-tone-of-its-chord.md).
-Evidence: `orcvs/src/source/tick/chord_play.rs`; test `orcvs/src/playback/tests/chord_play.rs`
-`a_repeated_chord_replaces_the_tones_it_repeats_and_retires_their_expiries`,
-`every_lifecycle_action_that_silences_output_clears_a_sounding_chord`,
-`a_chord_and_a_monophonic_play_on_one_channel_keep_separate_ownership`.
+Evidence: `orcvs/src/source/tick/chord_play.rs`; test `orcvs/src/playback/tests/chord_play.rs` `a_repeated_chord_replaces_the_tones_it_repeats_and_retires_their_expiries`.
 
 ## Engine lifecycle and requests
 
@@ -81,7 +74,7 @@ test surface.
 Sources: [ADR 0002](../adr/0002-playback-engine-owns-lifecycle-concurrency.md),
 [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md),
 [ADR 0056](../adr/0056-playback-requests-wait-in-slots-not-a-queue.md).
-Evidence: `orcvs/src/playback.rs` `PlaybackEngine`; test `start_is_idempotent_and_draining_takes_the_diagnostics`.
+Evidence: `orcvs/src/playback.rs` `PlaybackEngine`; test `start_is_idempotent_and_draining_takes_the_diagnostics` in the same file.
 
 ### PLAY-030 No Tick is admitted once `stop` returns
 
@@ -94,9 +87,7 @@ Reason: sending a message does not by itself prevent a Tick the task may already
 Sources: [ADR 0002](../adr/0002-playback-engine-owns-lifecycle-concurrency.md),
 [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md),
 [ADR 0056](../adr/0056-playback-requests-wait-in-slots-not-a-queue.md).
-Evidence: `orcvs/src/playback/gate.rs`; test `orcvs/src/playback/gate.rs` (9 tests);
-`orcvs/src/playback.rs` `a_requested_stop_prevents_a_tick_before_the_message_arrives`,
-`a_deadline_that_overtakes_a_pending_stop_meets_a_shut_gate`.
+Evidence: `orcvs/src/playback/gate.rs`; test `orcvs/src/playback.rs` `a_requested_stop_prevents_a_tick_before_the_message_arrives`.
 
 ### PLAY-040 A run begins with an immediate Tick, and no failure rolls back Source or stops it
 
@@ -107,10 +98,7 @@ writes or stop later Ticks.
 Reason: a performance survives a failing device or a late clock.
 Sources: [ADR 0002](../adr/0002-playback-engine-owns-lifecycle-concurrency.md),
 [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md).
-Evidence: `orcvs/src/playback.rs` `run_engine`; test
-`playback_begins_at_the_first_tick_and_advances_one_per_executed_tick`,
-`adapter_failure_does_not_roll_back_source_or_stop_playback`,
-`a_zero_tick_period_is_refused_and_reported_without_changing_state`.
+Evidence: `orcvs/src/playback.rs` `run_engine`; test `playback_begins_at_the_first_tick_and_advances_one_per_executed_tick` in the same file.
 
 ### PLAY-050 One task owns the engine's state and publishes what callers observe
 
@@ -122,9 +110,7 @@ without blocking. No caller observation waits on the task.
 Reason: the browser main thread cannot block, and owning the state removes the mechanisms sharing it
 required.
 Sources: [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md).
-Evidence: `orcvs/src/playback.rs` `run_engine`, `PlaybackEngine::observation_watch`; test
-`beginning_a_run_publishes_tick_zero_playing_and_a_run_origin`,
-`clock_failure_remains_observable_after_output_panics`.
+Evidence: `orcvs/src/playback.rs` `run_engine`, `PlaybackEngine::observation_watch`; test `beginning_a_run_publishes_tick_zero_playing_and_a_run_origin` in the same file.
 
 ### PLAY-060 MIDI selection is a capability of MIDI construction only
 
@@ -140,9 +126,7 @@ Choosing an output device is console configuration, not part of a running Orcvs.
 Reason: general Playback does not speak MIDI, and frame reads stay nonblocking.
 Sources: [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md),
 [ADR 0056](../adr/0056-playback-requests-wait-in-slots-not-a-queue.md).
-Evidence: `orcvs/src/playback.rs` `PlaybackEngine::new`, `with_midi_output_adapter`;
-`orcvs/src/midi/selection.rs` `MidiSelectionHandle`; test `orcvs/tests/midi_selection_handle.rs`
-`selection_handle_cannot_outlive_the_running_orcvs`, `selection_requests_fail_when_the_engine_task_has_ended`.
+Evidence: `orcvs/src/playback.rs` `PlaybackEngine::new`, `with_midi_output_adapter`; `orcvs/src/midi/selection.rs` `MidiSelectionHandle`; test `orcvs/tests/midi_selection_handle.rs` `selection_handle_cannot_outlive_the_running_orcvs`.
 
 ### PLAY-070 Requests wait in bounded slots and apply in a fixed order
 
@@ -158,10 +142,7 @@ Reason: memory is bounded by shape rather than by rate, with no request refused 
 Not: a bounded channel, which would make a full queue a failure that `stop` cannot wait out.
 Sources: [ADR 0056](../adr/0056-playback-requests-wait-in-slots-not-a-queue.md),
 [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md).
-Evidence: `orcvs/src/playback/mailbox.rs` `Backlog`; test `orcvs/src/playback/mailbox.rs`
-`a_rewind_survives_a_stop_on_either_side_and_leaves_the_tempo`,
-`a_newer_destination_releases_the_one_it_replaces_at_once`,
-`a_gone_task_refuses_requests_and_releases_the_connection`.
+Evidence: `orcvs/src/playback/mailbox.rs` `Backlog`; test `orcvs/src/playback/mailbox.rs` `a_rewind_survives_a_stop_on_either_side_and_leaves_the_tempo`.
 
 ### PLAY-080 A backlog leaves the engine as the requests made in order would, with stated exceptions
 
@@ -178,10 +159,7 @@ Reason: only the newest request of each kind matters, and no Tick runs between t
 backlog for order to show in.
 Sources: [ADR 0056](../adr/0056-playback-requests-wait-in-slots-not-a-queue.md),
 [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md).
-Evidence: `orcvs/src/playback/mailbox.rs`; test `repeated_starts_keep_the_newest_period`,
-`a_retune_after_a_pending_start_sets_the_period_that_run_begins_at`,
-`a_stop_empties_the_tempo_asked_before_it_and_keeps_what_follows`;
-`orcvs/src/playback.rs` `starts_made_while_the_task_is_stalled_begin_one_run_at_the_newest_period`.
+Evidence: `orcvs/src/playback/mailbox.rs`; test `repeated_starts_keep_the_newest_period` in the same file.
 
 ### PLAY-090 A run's first Tick follows exactly the backlog that began it, and the clock always progresses
 
@@ -192,11 +170,7 @@ backlogs since its last Tick, a reached deadline is taken ahead of a pending bac
 
 Reason: a caller that keeps making requests cannot defer the first Tick or starve the clock.
 Sources: [ADR 0056](../adr/0056-playback-requests-wait-in-slots-not-a-queue.md).
-Evidence: `orcvs/src/playback.rs` `next_playback_event`, `BACKLOGS_BEFORE_A_DEADLINE`; test
-`a_run_s_first_tick_follows_exactly_the_backlog_pending_when_it_began`,
-`a_first_tick_due_on_arrival_does_not_wait_for_pending_requests`,
-`a_run_keeps_ticking_while_messages_keep_arriving`,
-`dropping_the_last_handle_with_a_start_pending_executes_no_tick`.
+Evidence: `orcvs/src/playback.rs` `next_playback_event`, `BACKLOGS_BEFORE_A_DEADLINE`; test `a_run_s_first_tick_follows_exactly_the_backlog_pending_when_it_began` in the same file.
 
 ### PLAY-100 No call waits on the task, and only a gone task is refused
 
@@ -209,10 +183,7 @@ shuts the engine down.
 
 Reason: the browser main thread cannot wait, and slots never fill.
 Sources: [ADR 0056](../adr/0056-playback-requests-wait-in-slots-not-a-queue.md).
-Evidence: `orcvs/src/playback.rs` `PlaybackEngine::start`; test
-`an_engine_whose_task_died_refuses_a_later_start`,
-`dropping_the_last_handle_applies_what_was_pending_and_shuts_down`,
-`dropping_the_final_handle_stops_playback_safely`.
+Evidence: `orcvs/src/playback.rs` `PlaybackEngine::start`; test `an_engine_whose_task_died_refuses_a_later_start` in the same file.
 
 ## Musical time: the Tick Grid, stop and Rewind
 
@@ -230,11 +201,7 @@ Reason: the grid is what a sequencer cannot give up.
 Not: replaying the backlog, or restarting the period from the wake, which moves the grid for good.
 Sources: [ADR 0037](../adr/0037-a-late-tick-loses-its-turn.md),
 [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md).
-Evidence: `orcvs/src/playback.rs` `next_scheduled_at`; test `a_missed_deadline_does_not_move_the_grid`,
-`a_retuned_grid_is_anchored_on_a_deadline_not_on_a_wait`,
-`the_native_retuned_clock_holds_the_shared_deadline_rule`,
-`retuning_anchors_on_the_deadline_a_late_tick_was_due_at`; `console/tests/wasm.rs`
-`web_retune_keeps_the_deadline_grid_through_a_stall`.
+Evidence: `orcvs/src/playback.rs` `next_scheduled_at`; test `a_missed_deadline_does_not_move_the_grid` in the same file.
 
 ### PLAY-190 A Tick observed a whole period late is declined as one Overrun
 
@@ -246,10 +213,7 @@ whether a Tick it was handed is still worth executing.
 Reason: the count reports the event, not the clock's arithmetic, and an ordinary slow Tick costs
 nothing.
 Sources: [ADR 0037](../adr/0037-a-late-tick-loses-its-turn.md).
-Evidence: `orcvs/src/playback.rs` `is_overrun`; test
-`a_deadline_reached_one_whole_period_late_is_missed`, `an_overrun_consumes_no_absolute_tick`,
-`a_late_tick_loses_its_turn_and_the_run_resumes_on_the_grid`,
-`an_overrun_does_not_move_the_published_tick_or_invent_run_clock_time`.
+Evidence: `orcvs/src/playback.rs` `is_overrun`; test `a_deadline_reached_one_whole_period_late_is_missed` in the same file.
 
 ### PLAY-150 A stop holds the absolute Tick
 
@@ -263,9 +227,7 @@ Reason: every voice of a tracker resumes on the step it stopped on, as in Orca.
 Not: a Paused state beside Stopped.
 Sources: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md) (amends ADR 0012's first-Tick
 clause).
-Evidence: `orcvs/src/playback.rs` `PlaybackInner::begin_run`; test
-`a_run_begun_after_a_stop_resumes_at_the_next_tick` (assertions inspected),
-`a_clock_resumes_at_the_step_it_stopped_on`.
+Evidence: `orcvs/src/playback.rs` `PlaybackInner::begin_run`; test `a_run_begun_after_a_stop_resumes_at_the_next_tick` in the same file.
 
 ### PLAY-160 A Rewind makes Tick `0` the next Tick
 
@@ -279,10 +241,7 @@ Reason: every scheduled Note Off is due at an absolute Tick, so silencing reuses
 follows.
 Not: rebasing the schedule across a live Rewind.
 Sources: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md).
-Evidence: `orcvs/src/playback.rs` `PlaybackEngine::rewind`; test
-`a_rewind_makes_tick_zero_the_next_tick_of_a_stopped_engine`,
-`a_rewind_of_a_live_run_silences_it_and_begins_again_at_tick_zero`,
-`a_rewind_whose_silence_panics_leaves_the_engine_stopped`.
+Evidence: `orcvs/src/playback.rs` `PlaybackEngine::rewind`; test `a_rewind_makes_tick_zero_the_next_tick_of_a_stopped_engine` in the same file.
 
 ### PLAY-170 The Run Clock is held while stopped
 
@@ -290,10 +249,7 @@ The published Run Clock is held while Playback is stopped, counts on from the he
 resumes, and is zero after a Rewind, together with a published Tick of `0`.
 
 Sources: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md).
-Evidence: `orcvs/src/playback.rs` `PlaybackObservation::run_clock`; test
-`stopping_freezes_the_published_tick_and_run_clock`,
-`resuming_holds_the_published_tick_and_counts_the_run_clock_on`,
-`a_rewind_zeroes_the_published_tick_and_run_clock`.
+Evidence: `orcvs/src/playback.rs` `PlaybackObservation::run_clock`; test `stopping_freezes_the_published_tick_and_run_clock` in the same file.
 
 ## Diagnostics
 
@@ -304,9 +260,7 @@ character boundary and marked `…`, in an allocation made once when the engine 
 
 Reason: an engine nobody drains must not grow with what its run does.
 Sources: [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md).
-Evidence: `orcvs/src/playback/diagnostics.rs` `MAX_RETAINED_DIAGNOSTICS`,
-`MAX_DIAGNOSTIC_MESSAGE_BYTES`; test `a_long_message_is_cut_on_a_character_boundary_within_the_bound`;
-`orcvs/src/playback.rs` `undrained_overruns_hold_bounded_memory_and_keep_their_count`.
+Evidence: `orcvs/src/playback/diagnostics.rs` `MAX_RETAINED_DIAGNOSTICS`, `MAX_DIAGNOSTIC_MESSAGE_BYTES`; test `a_long_message_is_cut_on_a_character_boundary_within_the_bound` in the same file.
 
 ### PLAY-120 A full log evicts by class, least serious first
 
@@ -321,8 +275,7 @@ Built differently; see [Accepted but not built](#accepted-but-not-built-or-built
 Reason: a flood of one class never displaces a more serious diagnostic.
 Not: dropping the newest, or the oldest regardless of class.
 Sources: [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md).
-Evidence: `orcvs/src/playback/diagnostics.rs` `Class`; test
-`a_higher_class_evicts_the_oldest_of_the_lowest_class_present`, `a_log_full_of_clock_failures_keeps_the_newest`.
+Evidence: `orcvs/src/playback/diagnostics.rs` `Class`; test `a_higher_class_evicts_the_oldest_of_the_lowest_class_present` in the same file.
 
 ### PLAY-130 Nothing is omitted silently
 
@@ -332,9 +285,7 @@ the log never retains a summary. Each count saturates and is then a lower bound.
 the last drain are those the drain answers plus the omitted Overrun count.
 
 Sources: [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md).
-Evidence: `orcvs/src/playback/diagnostics.rs` `OmittedDiagnostics`; test
-`an_omission_count_saturates_and_says_so`,
-`overruns_behind_a_log_of_higher_classes_are_counted_but_none_is_named`.
+Evidence: `orcvs/src/playback/diagnostics.rs` `OmittedDiagnostics`; test `an_omission_count_saturates_and_says_so` in the same file.
 
 ### PLAY-140 Diagnostics drain in recorded order, each at most once
 
@@ -345,8 +296,7 @@ both writers.
 Reason: one shared value keeps two writers' diagnostics in one order.
 Sources: [ADR 0002](../adr/0002-playback-engine-owns-lifecycle-concurrency.md),
 [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md).
-Evidence: `orcvs/src/playback/diagnostics.rs` `DiagnosticLog`; test `orcvs/src/playback.rs`
-`diagnostics_drain_in_order_and_exactly_once`, `a_task_recorded_diagnostic_drains_before_a_handle_recorded_one`.
+Evidence: `orcvs/src/playback/diagnostics.rs` `DiagnosticLog`; test `orcvs/src/playback.rs` `diagnostics_drain_in_order_and_exactly_once`.
 
 ## MIDI commands, note ownership and the safety action
 
@@ -360,11 +310,7 @@ is in [language.md](language.md); the per-Function table is in
 [docs/functions.md](../functions.md#midi-output).
 
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
-Evidence: `lang/src/functions/mod.rs`; test `lang/src/functions/mod.rs`
-`play_rejects_channels_outside_the_midi_range`, `play_rejects_velocities_outside_the_midi_data_byte_range`,
-`timed_play_takes_the_same_midi_domains_as_raw_play_and_a_whole_byte_of_length`,
-`control_change_and_pitch_bend_take_a_midi_channel_and_two_data_bytes`,
-`play_rejects_implicit_number_note_conversions`.
+Evidence: `lang/src/functions/mod.rs`; test `lang/src/functions/mod.rs` `play_rejects_channels_outside_the_midi_range`.
 
 ### PLAY-210 A Raw Play at velocity `00` is a Note Off, and Raw notes are never owned
 
@@ -372,8 +318,7 @@ Raw Play leaves Note Off to Source: velocity `00` delivers a Note Off for its no
 neither Timed nor Mono ownership.
 
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
-Evidence: `orcvs/src/playback/schedule.rs` `OwnedNotes`; test
-`a_raw_play_at_velocity_00_is_delivered_as_a_note_off`, `raw_play_notes_never_enter_timed_ownership`.
+Evidence: `orcvs/src/playback/schedule.rs` `OwnedNotes`; test `a_raw_play_at_velocity_00_is_delivered_as_a_note_off` in the same file.
 
 ### PLAY-220 A Timed Play owns its note by channel and note until its expiry
 
@@ -387,12 +332,7 @@ Several Timed Plays for one channel and note in one Tick leave the last owning i
 Reason: the Tick Plan carries the note's whole lifetime, so the engine schedules without inferring
 intent.
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
-Evidence: `orcvs/src/playback/schedule.rs`; test
-`a_timed_play_starts_in_tick_plan_order_and_stops_at_the_tick_its_length_names`,
-`a_timed_play_with_velocity_zero_stops_the_note_and_schedules_nothing`,
-`a_timed_play_with_no_length_emits_nothing_and_leaves_the_note_it_finds_standing`,
-`a_stop_due_this_tick_is_delivered_before_the_play_commands_that_tick_plans`,
-`a_scheduled_stop_is_due_at_an_absolute_tick_rather_than_at_a_clock_tick` (`playback.rs`).
+Evidence: `orcvs/src/playback/schedule.rs`; test `a_timed_play_starts_in_tick_plan_order_and_stops_at_the_tick_its_length_names` in the same file.
 
 ### PLAY-230 A Monophonic Play owns one voice per channel
 
@@ -406,11 +346,7 @@ legato replacement differ only in message order (PLAY-240).
 
 Reason: the voice is the channel, so Source need not remember what it last put there.
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
-Evidence: `orcvs/src/playback/schedule.rs`; test `a_monophonic_play_stops_whatever_note_its_channel_was_sounding`,
-`a_monophonic_play_with_velocity_zero_replaces_the_voice_with_silence`,
-`a_monophonic_play_with_no_length_replaces_the_voice_with_silence`,
-`a_mono_voice_is_owned_per_channel_and_channels_do_not_steal_from_one_another`;
-`orcvs/src/playback.rs` `a_monophonic_play_whose_note_goes_blank_leaves_its_voice_sounding`.
+Evidence: `orcvs/src/playback/schedule.rs`; test `a_monophonic_play_stops_whatever_note_its_channel_was_sounding` in the same file.
 
 ### PLAY-240 `legato` sets the order of a Monophonic replacement's messages
 
@@ -428,12 +364,7 @@ Reason: a mono synth hears a key still held and slides; a line whose lengths equ
 slides.
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md) (2026-11-14
 amendment), [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md).
-Evidence: `orcvs/src/playback/schedule.rs`; test
-`a_legato_monophonic_play_starts_its_note_before_it_stops_the_one_it_replaces` (assertions inspected),
-`a_legato_monophonic_play_on_the_tick_the_held_note_ends_slides_into_it`,
-`a_legato_monophonic_play_at_the_pitch_sounding_restrikes_it_with_no_note_off`,
-`a_legato_monophonic_play_on_a_silent_channel_starts_its_note`,
-`a_legato_monophonic_play_that_starts_nothing_still_stops_the_voice`.
+Evidence: `orcvs/src/playback/schedule.rs`; test `a_legato_monophonic_play_starts_its_note_before_it_stops_the_one_it_replaces` in the same file.
 
 ### PLAY-250 Timed and Mono claims share one schedule and differ only in key
 
@@ -444,9 +375,7 @@ the engine's: a Note Off carries only channel and note, so notes of different sp
 on one channel alias at the receiver.
 
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
-Evidence: `orcvs/src/playback/schedule.rs`; test `a_stale_expiry_cannot_stop_the_note_claimed_after_it`,
-`a_stale_mono_expiry_cannot_stop_the_voice_claimed_after_it`,
-`timed_and_mono_own_separately_and_neither_owns_a_raw_note`.
+Evidence: `orcvs/src/playback/schedule.rs`; test `a_stale_expiry_cannot_stop_the_note_claimed_after_it` in the same file.
 
 ### PLAY-260 One safety action returns every MIDI channel to silence and its defaults
 
@@ -467,11 +396,7 @@ Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md),
 [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md),
 [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md); the
 remaining-channels clause: no ADR (`.scratch/midi-output-family/issues/06-clear-controllers-and-bend-in-the-safety-action.md`).
-Evidence: `orcvs/src/midi.rs` `safety_reset_messages`, `MidiOutputAdapter::safety_reset`; test
-`the_safety_action_clears_notes_controllers_and_bend_on_every_channel` (assertions inspected),
-`a_refused_safety_message_reports_the_first_error_and_attempts_the_rest`,
-`delivery_failure_attempts_the_safety_action_and_reselection_reconnects` (assertions inspected),
-`a_destination_change_sends_the_safety_action_to_the_destination_it_leaves`.
+Evidence: `orcvs/src/midi.rs` `safety_reset_messages`, `MidiOutputAdapter::safety_reset`; test `the_safety_action_clears_notes_controllers_and_bend_on_every_channel` in the same file.
 
 ### PLAY-270 Lifecycle actions discard the schedule rather than play it out
 
@@ -483,8 +408,7 @@ while MIDI is disconnected.
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md),
 [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md),
 [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md).
-Evidence: `orcvs/src/playback/outputs.rs` `Outputs::release`, `disconnect`, `begin_run`; test
-`orcvs/src/playback.rs` `every_lifecycle_action_that_silences_output_clears_the_note_schedule`.
+Evidence: `orcvs/src/playback/outputs.rs` `Outputs::release`, `disconnect`, `begin_run`; test `orcvs/src/playback.rs` `every_lifecycle_action_that_silences_output_clears_the_note_schedule`.
 
 ## Outputs and the network
 
@@ -496,7 +420,7 @@ the network output. A further destination is one more entry in it.
 
 Reason: destination rules otherwise spread across engine, schedule and network output.
 Sources: [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
-Evidence: `orcvs/src/playback/outputs.rs` `Outputs`; test `orcvs/src/playback/outputs.rs` (9 tests).
+Evidence: `orcvs/src/playback/outputs.rs` `Outputs`; test `orcvs/src/playback/outputs.rs` `a_ticks_midi_is_delivered_before_its_network_sends`.
 
 ### PLAY-390 Network Sends travel beside Play Commands, and a Tick's MIDI goes first
 
@@ -506,8 +430,7 @@ Source order.
 
 Reason: interleaving would split one MIDI submission for no audible difference.
 Sources: [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
-Evidence: `orcvs/src/playback/outputs.rs` `Outputs::deliver`; test
-`a_ticks_midi_is_delivered_before_its_network_sends`, `sends_keep_their_order_and_go_to_the_latest_destination`.
+Evidence: `orcvs/src/playback/outputs.rs` `Outputs::deliver`; test `a_ticks_midi_is_delivered_before_its_network_sends` in the same file.
 
 ### PLAY-400 The network ignores MIDI's connection and lifecycle
 
@@ -517,8 +440,7 @@ the safety action send nothing on UDP or OSC, which hold no receiver state Orcvs
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md),
 [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md),
 [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md) (2026-10-26 amendment).
-Evidence: `orcvs/src/playback/outputs.rs`; test `network_sends_go_on_while_midi_is_disconnected`,
-`stopping_and_disconnecting_send_the_network_nothing`.
+Evidence: `orcvs/src/playback/outputs.rs`; test `network_sends_go_on_while_midi_is_disconnected` in the same file.
 
 ### PLAY-410 A failing destination is reported once until its failure changes
 
@@ -531,11 +453,7 @@ from a send reports an earlier datagram, so it is ignored; every other failed se
 Reason: a refusing host otherwise floods the log and gives no sign of recovery.
 Sources: [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md),
 [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `orcvs/src/playback/outputs.rs` `record_midi_failure`, `record_network_failure`; test
-`a_native_network_failure_is_reported_once_until_it_changes`, `a_send_that_leaves_clears_the_network_failure`,
-`a_new_destination_and_a_new_run_each_report_the_failure_again`;
-`orcvs/src/playback.rs` `the_observation_says_whether_the_last_midi_delivery_failed`;
-`orcvs/src/network.rs` `only_connection_reset_goes_unreported`.
+Evidence: `orcvs/src/playback/outputs.rs` `record_midi_failure`, `record_network_failure`; test `a_native_network_failure_is_reported_once_until_it_changes` in the same file.
 
 ### PLAY-420 The network sits behind a seam that takes a Network Send
 
@@ -544,8 +462,7 @@ one datagram with a pure encoder; the web adapter refuses without encoding.
 
 Not: a seam taking raw datagrams, which would make the web encode OSC only to refuse it.
 Sources: [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
-Evidence: `orcvs/src/network.rs` `NetworkAdapter`; test `a_refused_send_names_where_it_went`;
-`orcvs/tests/network_loopback.rs`.
+Evidence: `orcvs/src/network.rs` `NetworkAdapter`; test `a_refused_send_names_where_it_went` in the same file.
 
 ### PLAY-350 The console keeps the network destination, never Source
 
@@ -555,8 +472,7 @@ from the settings file it only reads (CONS-130), and never in Source; defaults a
 (CONS-104).
 
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `orcvs/src/network.rs` `NetworkDestination`; test `the_default_destination_is_orcas`;
-`console/src/network.rs` `a_stored_destination_is_read_back`.
+Evidence: `orcvs/src/network.rs` `NetworkDestination`; test `the_default_destination_is_orcas` in the same file.
 
 ### PLAY-360 The web build diagnoses every activated UDP or OSC Function
 
@@ -566,9 +482,7 @@ the build cannot send UDP or OSC, unlatched, and Playback goes on. Both builds p
 Reason: there each send is the performer's evidence that nothing left.
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md),
 [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
-Evidence: `orcvs/src/network.rs` web adapter; test `orcvs/src/playback/outputs.rs`
-`the_web_build_reports_every_refused_send`; `console/tests/wasm.rs`
-`web_playback_diagnoses_each_udp_send_it_cannot_make_and_plays_on`.
+Evidence: `orcvs/src/network.rs` web adapter; test `orcvs/src/playback/outputs.rs` `the_web_build_reports_every_refused_send`.
 
 ### PLAY-370 Orcvs only sends UDP and OSC
 
@@ -588,9 +502,7 @@ are ordinary Source.
 
 Not: Orca's first-empty-Cell end, which would bar spaces and move with every edit after it.
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `lang/src/parser.rs`; test `lang/src/parser.rs`
-`a_payload_claims_through_the_next_bang_or_the_end_of_the_source`;
-`orcvs/src/source/tick/payload.rs` `the_cells_after_an_early_closer_are_source_again`.
+Evidence: `lang/src/parser.rs`; test `lang/src/parser.rs` `a_payload_claims_through_the_next_bang_or_the_end_of_the_source`.
 
 ### PLAY-310 A Payload's Cells are ordinary Cells, read at its Function's Turn
 
@@ -600,10 +512,7 @@ lands in the same Tick. The extent holds for the whole Tick: a `!` written insid
 character, and a written or removed closer changes the extent from the next parse.
 
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `orcvs/src/source/portal.rs` `read_payload`; test `orcvs/src/source/tick/payload.rs`
-`a_write_into_a_payload_lands_in_the_same_tick`,
-`a_closer_a_write_puts_in_a_payload_is_sent_and_closes_it_from_the_next_parse`,
-`a_write_over_the_closer_moves_it_from_the_next_parse`.
+Evidence: `orcvs/src/source/portal.rs` `read_payload`; test `orcvs/src/source/tick/payload.rs` `a_write_into_a_payload_lands_in_the_same_tick`.
 
 ### PLAY-320 `!u` sends its Payload as one datagram, one byte per Cell
 
@@ -611,8 +520,7 @@ Each Cell sends its byte and an empty Cell a space, as one UDP datagram with no 
 empty Payload sends nothing.
 
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `lang/src/functions/network.rs`; test `udp_sends_each_cell_as_one_byte_and_an_empty_payload_rests`;
-`orcvs/src/network.rs` `a_udp_send_arrives_as_its_exact_bytes`.
+Evidence: `lang/src/functions/network.rs`; test `udp_sends_each_cell_as_one_byte_and_an_empty_payload_rests` in the same file.
 
 ### PLAY-330 `!o` sends an address, an optional type string and typed arguments
 
@@ -626,9 +534,7 @@ exact forms are tabled in [docs/functions.md](../functions.md#network-output).
 
 Reason: receivers dispatch on OSC type, and hex is what a Number is everywhere else in the Grid.
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `lang/src/functions/network.rs`; test `osc_guesses_each_argument_from_its_shape`,
-`a_type_string_decides_each_argument`, `a_malformed_osc_payload_diagnoses_and_names_the_word`;
-`orcvs/src/network.rs` `encodes_the_osc_specifications_first_example`.
+Evidence: `lang/src/functions/network.rs`; test `osc_guesses_each_argument_from_its_shape` in the same file.
 
 ### PLAY-340 Each activation sends one plain message in Tick Plan order
 
@@ -637,9 +543,7 @@ and no timetag. Like every Terminal Output Function, each performs only when act
 where a value is required, and writes no Cell.
 
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: test `orcvs/src/source/tick/payload.rs` `an_unbanged_payload_function_sends_nothing`,
-`a_payload_function_is_invalid_where_a_value_is_required`; `orcvs/src/playback.rs`
-`a_banged_udp_function_sends_its_payload_to_the_destination`.
+Evidence: test `orcvs/src/source/tick/payload.rs` `an_unbanged_payload_function_sends_nothing`.
 
 ## MIDI destinations and browser MIDI access
 
@@ -655,10 +559,7 @@ that is neither native nor browser lists nothing and refuses every connect.
 Reason: the console's MIDI calls return to the frame that made them, and the browser main thread
 cannot block.
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/web_midi.rs`; test `a_pending_request_answers_that_access_is_awaited`,
-`a_browser_without_midi_access_offers_an_empty_list_rather_than_an_error`,
-`granted_access_lists_the_connected_outputs`; `console/tests/wasm.rs`
-`web_midi_answers_discovery_and_connect_without_waiting`.
+Evidence: `console/src/web_midi.rs`; test `a_pending_request_answers_that_access_is_awaited` in the same file.
 
 ### PLAY-440 The access answer wakes the Panel, and a pending discovery is retried each frame
 
@@ -668,8 +569,7 @@ granted page selects its first output without a Scan. Any other discovery failur
 performer Scans.
 
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/web_midi.rs`, `console/src/midi.rs`; test
-`the_frame_after_the_browser_answers_catches_up_without_a_scan`, `a_failed_discovery_is_not_repeated_by_later_frames`.
+Evidence: `console/src/web_midi.rs`, `console/src/midi.rs`; test `console/src/web_midi.rs` `the_frame_after_the_browser_answers_catches_up_without_a_scan`.
 
 ### PLAY-450 The web console waits at most 250 ms for the access answer before starting
 
@@ -679,8 +579,7 @@ The web entry point sends the access request and starts the console when the ans
 Reason: a remembered permission answers well inside the bound, while a first-visit prompt must not
 gate a console that is useful without MIDI.
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/main.rs` `MIDI_ACCESS_WAIT`; test `console/tests/wasm.rs`
-`the_midi_access_wait_ends_whether_or_not_the_browser_answers`.
+Evidence: `console/src/main.rs` `MIDI_ACCESS_WAIT`; test `console/tests/wasm.rs` `the_midi_access_wait_ends_whether_or_not_the_browser_answers`.
 
 ### PLAY-460 Connect returns an owned request and installs nothing until the port opens
 
@@ -690,8 +589,7 @@ repeating connect. A failed open is reported while the installed destination kee
 receives no safety action.
 
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/web_midi.rs` `MidiConnectionRequest`; test
-`an_output_that_fails_to_open_leaves_the_playing_destination`, `the_frame_after_an_output_opens_installs_it`.
+Evidence: `console/src/web_midi.rs` `MidiConnectionRequest`; test `an_output_that_fails_to_open_leaves_the_playing_destination` in the same file.
 
 ### PLAY-470 Browser ports are owned at page scope
 
@@ -704,10 +602,7 @@ These transitions live in the shared lifecycle module, which tests drive through
 Reason: a new backend is built before the outgoing Playback task has shut down, so backend-local
 counts cannot describe a page-wide port.
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/web_midi/ports.rs`; tests `console/src/web_midi.rs` `an_abandoned_open_releases_its_output`,
-`a_new_selection_reuses_an_abandoned_open_before_it_completes`,
-`a_new_claim_waits_for_an_in_flight_close_before_reopening`,
-`replacing_a_source_does_not_close_the_new_backends_connection`.
+Evidence: `console/src/web_midi/ports.rs`; test `console/src/web_midi.rs` `an_abandoned_open_releases_its_output`.
 
 ### PLAY-480 A browser connection names its output by id and requests no sysex
 
@@ -717,8 +612,7 @@ next send. Playback drops a connection after its safety action. MIDI access is r
 system exclusive.
 
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/web_midi.rs` (`thread_local!`, `request_midi_access`); test
-`a_connect_to_a_gone_or_disconnected_output_is_refused`.
+Evidence: `console/src/web_midi.rs` (`thread_local!`, `request_midi_access`); test `a_connect_to_a_gone_or_disconnected_output_is_refused` in the same file.
 
 ### PLAY-500 An explicit destination choice decides both pending and installed state
 
@@ -729,10 +623,7 @@ request; after a failed open, a fresh choice retries. A native choice handed ove
 published is not reconnected by choosing it again.
 
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/midi.rs`, `console/src/web_midi.rs`; test
-`choosing_the_installed_output_cancels_without_safety_messages`,
-`choosing_the_pending_output_keeps_its_completed_request`,
-`choosing_an_unpublished_ready_destination_again_does_not_reconnect_it`.
+Evidence: `console/src/midi.rs`, `console/src/web_midi.rs`; test `choosing_the_installed_output_cancels_without_safety_messages` in the same file.
 
 ### PLAY-510 A Scan asks the browser again while access is unanswered
 
@@ -743,9 +634,7 @@ not asked again.
 Reason: a browser can leave a request unanswered for good, and Scan is the performer's explicit ask.
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md)
 (2026-11-01 amendment).
-Evidence: `console/src/web_midi/requests.rs`; test `a_stale_refusal_leaves_the_latest_request_pending`,
-`a_grant_from_any_request_wins_whenever_it_arrives`, `a_settled_answer_is_not_asked_again`;
-`console/src/web_midi.rs` `a_scan_asks_the_browser_again_only_while_access_is_unanswered`.
+Evidence: `console/src/web_midi/requests.rs`; test `a_stale_refusal_leaves_the_latest_request_pending` in the same file.
 
 ### PLAY-520 The Built-in Synth is a destination listed after every MIDI port
 
@@ -760,11 +649,7 @@ unavailable synth in SITE-046; a console no page frames in SITE-048. How the lis
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md),
 [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md)
 (2026-11-01 amendment).
-Evidence: `console/src/built_in_synth.rs`; test
-`the_synth_is_listed_after_the_ports_only_while_a_page_announces_it`,
-`an_unlinked_console_picks_the_synth_only_without_a_port`,
-`pending_midi_access_plays_through_the_synth_until_a_port_is_granted`,
-`a_synth_the_performer_picked_while_pending_stays_picked`.
+Evidence: `console/src/built_in_synth.rs`; test `the_synth_is_listed_after_the_ports_only_while_a_page_announces_it` in the same file.
 
 ### PLAY-540 Each message carries its Tick's planned time
 
@@ -774,9 +659,7 @@ and its handling of late messages are in [site.md](site.md) (SITE-042, SITE-043)
 
 Reason: a note sounds on its Tick, not when it arrives.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `orcvs/src/playback/outputs.rs` `Outputs::deliver`; test `orcvs/src/midi.rs`
-`a_submission_hands_each_message_how_late_its_tick_was`; `console/src/built_in_synth.rs`
-`each_message_is_posted_with_how_late_its_tick_was`.
+Evidence: `orcvs/src/playback/outputs.rs` `Outputs::deliver`; test `orcvs/src/midi.rs` `a_submission_hands_each_message_how_late_its_tick_was`.
 
 ## The Built-in Synth's sound
 
@@ -791,8 +674,7 @@ The native path is not built; see [Accepted but not built](#accepted-but-not-bui
 Reason: neither page work nor console frames can starve the audio, and native can reuse the core.
 Not: a synth on the page's main thread, which snaps notes to buffer edges.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `synth/src/lib.rs` `Synth`; `synth/src/web.rs`; `synth/web/synth-worklet.js`; test
-`synth/src/lib.rs` `a_message_sounds_from_the_frame_it_is_scheduled_at`.
+Evidence: `synth/src/lib.rs` `Synth`; `synth/src/web.rs`; `synth/web/synth-worklet.js`; test `synth/src/lib.rs` `a_message_sounds_from_the_frame_it_is_scheduled_at`.
 
 ### PLAY-570 Channels `00`–`07` play tones, `08` the acid voice, `09`–`0F` the kit
 
@@ -804,10 +686,7 @@ channel can sound a chord. The channel table is in [docs/functions.md](../functi
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md),
 [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md) (2026-11-13
 amendment).
-Evidence: `synth/src/tone.rs`, `synth/src/lib.rs`; test
-`channels_zero_to_seven_play_tones_eight_the_acid_voice_and_nine_to_fifteen_the_kit`,
-`each_tone_channel_sounds_and_each_differs_from_the_others`,
-`a_tone_releases_over_150_ms_after_its_note_off`, `a_channel_plays_a_chord`.
+Evidence: `synth/src/tone.rs`, `synth/src/lib.rs`; test `channels_zero_to_seven_play_tones_eight_the_acid_voice_and_nine_to_fifteen_the_kit` in the same file.
 
 ### PLAY-580 The kit answers General MIDI drum keys
 
@@ -818,9 +697,7 @@ or pedal hat chokes an open hat on its channel. The key table is in
 
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md)
 (2026-11-13 amendment).
-Evidence: `synth/src/drum.rs`; test `synth/src/lib.rs` `the_keys_of_a_family_sound_alike`,
-`a_key_outside_the_kit_is_silent`, `a_closed_or_pedal_hat_chokes_an_open_hat_on_its_channel_only`,
-`every_drum_sounds_ignores_note_off_and_falls_silent`.
+Evidence: `synth/src/drum.rs`; test `synth/src/lib.rs` `the_keys_of_a_family_sound_alike`.
 
 ### PLAY-590 Velocity is a channel's only level, and sixteen voices sound at once
 
@@ -832,10 +709,7 @@ Control Changes in PLAY-600, PLAY-610 and PLAY-620, and ignores Pitch Bend and e
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md),
 [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md),
 [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md).
-Evidence: `synth/src/lib.rs` `VOICES`; test `velocity_sets_loudness`,
-`a_seventeenth_note_takes_the_oldest_voice`,
-`all_notes_off_releases_tones_and_leaves_drums_ringing` (assertions inspected),
-`all_notes_off_silences_the_acid_voice`, `other_messages_change_nothing`.
+Evidence: `synth/src/lib.rs` `VOICES`; test `velocity_sets_loudness` in the same file.
 
 ### PLAY-600 Each channel has its own eight effects on standard controllers
 
@@ -852,9 +726,7 @@ Reason: one channel's controllers never change another channel, as on a musician
 Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)
 (2026-11-14 amendment), [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md)
 (first 2026-11-14 amendment).
-Evidence: `synth/src/controller.rs`; test `synth/src/lib.rs` `each_effect_changes_the_channel_it_is_set_on`,
-`an_effect_set_on_one_channel_leaves_another_alone`, `a_send_returns_only_what_its_own_channel_plays`,
-`controllers_74_and_75_on_the_acid_channel_set_its_cutoff_and_decay`.
+Evidence: `synth/src/controller.rs`; test `synth/src/lib.rs` `each_effect_changes_the_channel_it_is_set_on`.
 
 ### PLAY-610 Channel `08` plays one 303-style voice
 
@@ -869,10 +741,7 @@ filter opened further, shortest decay. On that channel only, CC 70 (waveform), 7
 Reason: acid basslines are what a reader expects a sequencer to make, and velocity and note overlap
 already say accent and slide.
 Sources: [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md).
-Evidence: `synth/src/acid.rs`; test `synth/src/lib.rs` `the_acid_channel_holds_one_note_at_its_pitch`,
-`a_note_struck_while_the_last_is_held_slides_to_its_pitch`,
-`a_late_note_off_for_the_note_slid_from_changes_nothing`,
-`velocity_from_78_accents_the_note_louder_and_brighter`, `the_acid_voice_takes_one_of_the_sixteen_voices`.
+Evidence: `synth/src/acid.rs`; test `synth/src/lib.rs` `the_acid_channel_holds_one_note_at_its_pitch`.
 
 ### PLAY-620 Reset All Controllers clears only a channel's Modulation
 
@@ -882,9 +751,7 @@ every channel's vibrato and keeps the sound a Source set up.
 
 Sources: [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md) (second
 2026-11-14 amendment).
-Evidence: `synth/src/controller.rs` `RESET`; tests `synth/src/lib.rs` `reset_all_controllers_leaves_the_acid_voices_sound_alone`,
-`reset_all_controllers_leaves_every_effect_but_modulation_alone`,
-`reset_all_controllers_clears_modulation_on_its_channel_only`.
+Evidence: `synth/src/controller.rs` `RESET`; test `synth/src/lib.rs` `reset_all_controllers_leaves_the_acid_voices_sound_alone`.
 
 ## Accepted but not built, or built differently
 

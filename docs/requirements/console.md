@@ -65,7 +65,7 @@ console uses no `egui::Scene`. The Source View holds a translation and no scale 
 Reason: a layer transform deep-clones every Cell's galley on every Render Frame, resamples Glyphs, and leaves glyph positions stale.
 Not: drawing glyph quads into a hand-built Mesh under a transform.
 Sources: [ADR 0038](../adr/0038-the-console-owns-the-source-grid-transform.md), [ADR 0058](../adr/0058-zoom-is-eguis-whole-ui-zoom.md).
-Evidence: `console/src/console/source_view.rs` `show_source_scene`, `console/src/grid_viewport.rs`; test `console/src/console/tests.rs` `no_layer_carrying_the_source_grid_is_transformed` (assertions inspected).
+Evidence: `console/src/console/source_view.rs` `show_source_scene`, `console/src/grid_viewport.rs`; test `console/src/console/tests.rs` `no_layer_carrying_the_source_grid_is_transformed`.
 
 ### CONS-021 Each Cell lays out its own Glyph at the size it is drawn
 
@@ -89,7 +89,7 @@ this path is asserted by counting Cells and Shapes, not by timing.
 Reason: the console paints the Grid as one surface with no per-Cell widgets, so a colour can be tested only as a value.
 Not: screenshot tests (platform-sensitive; ruled out in `.scratch/console-testing/spec.md`).
 Sources: [ADR 0040](../adr/0040-the-console-paints-from-a-value.md).
-Evidence: `console/src/paint.rs` `Paint`, `FramePaint`; tests `console/src/paint.rs` (no `Context`), `console/src/console/tests.rs` `the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry`.
+Evidence: `console/src/paint.rs` `Paint`, `FramePaint`; test `console/src/console/tests.rs` `the_cursor_reaches_the_paint_of_a_cell_and_never_its_geometry`.
 
 ### CONS-023 A Paint covers only the Positions the console draws
 
@@ -99,7 +99,7 @@ answer. A Paint answers the Cursor as `Option<Position>`, and `None` means the C
 
 Reason: the cost of drawing a Render Frame follows the Source View, not the 256 by 256 Grid.
 Sources: [ADR 0040](../adr/0040-the-console-paints-from-a-value.md).
-Evidence: `console/src/grid_viewport.rs` `visible_positions`; tests `console/src/console/tests.rs` `the_draw_loop_paints_the_visible_range_rather_than_the_whole_source`, `console/src/grid_viewport.rs` `the_visible_range_is_the_shown_positions_and_one_cell_more_each_way`.
+Evidence: `console/src/grid_viewport.rs` `visible_positions`; test `console/src/console/tests.rs` `the_draw_loop_paints_the_visible_range_rather_than_the_whole_source`.
 
 ### CONS-024 Cell backgrounds coalesce into runs drawn as ordinary rectangles
 
@@ -151,7 +151,7 @@ A Cell shows its own character, or a space.
 
 Reason: choosing how a fact looks is the console's decision. Fixing the fact is the language's.
 Sources: [ADR 0044](../adr/0044-paint-reads-the-parsers-claim.md), [ADR 0042](../adr/0042-responsibility-is-not-freedom-from-the-toolkit.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0069](../adr/0069-an-unwritten-operand-is-invalid-input.md), [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md), [ADR 0105](../adr/0105-interval-set-and-voicing-are-literal-types.md).
-Evidence: `console/src/style.rs`, `console/src/paint.rs`; tests `console/src/style.rs` `a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic`, `console/src/paint.rs` `an_empty_claimed_number_or_note_operand_shows_tint_and_no_character`.
+Evidence: `console/src/style.rs`, `console/src/paint.rs`; test `console/src/style.rs` `a_pending_operand_keeps_its_declared_colour_rather_than_diagnostic`.
 
 ### CONS-028 The static Output Portal highlight is each value answer's Output Portal Reservation
 
@@ -165,7 +165,7 @@ part of a Claim, and it paints beside the Tick Portal roles ([CONS-029](#cons-02
 
 Reason: a Function shows where its answer lands from the Source alone, so a Function whose Turn wrote nothing still shows its own.
 Sources: [ADR 0052](../adr/0052-a-claim-answers-whether-its-slot-is-written.md), [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md), [ADR 0063](../adr/0063-a-list-is-cells-in-a-claim-not-a-value.md).
-Evidence: `orcvs/src/source/language_map.rs` `LanguageMap::output_portal_highlight`, `output_portal_reservations`; `orcvs/src/source/mod.rs` `SourceRevision::output_portal_highlight`; tests `orcvs/src/source/language_map.rs` `output_portal` module (`a_scalar_root_covers_the_cell_pair_south_of_its_output_portal`, `a_nested_value_function_reserves_its_own_output_portal`, `a_bang_function_reserves_no_output_portal`, `a_terminal_output_function_is_never_covered`, `halt_is_never_covered`), `orcvs/src/source/mod.rs` `output_portal_highlight` module (`a_root_keeps_its_cell_pair`).
+Evidence: `orcvs/src/source/language_map.rs` `LanguageMap::output_portal_highlight`, `output_portal_reservations`; `orcvs/src/source/mod.rs` `SourceRevision::output_portal_highlight`; test `orcvs/src/source/language_map.rs` `a_scalar_root_covers_the_cell_pair_south_of_its_output_portal`.
 
 ### CONS-029 A Cell's Tick Portal roles combine, and one is painted
 
@@ -194,7 +194,7 @@ parts paint nothing.
 
 Reason: a Cell both read and written shows the write, as Orca draws a port over a locked Cell.
 Sources: [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md).
-Evidence: `orcvs/src/render_frame.rs`; tests `console/src/style.rs` `output_portal_wins_over_input_portal_on_every_channel`, `a_read_or_a_write_paints_a_locked_cell_as_an_unlocked_one`, `console/src/console/kittest_tests.rs` `editing_one_voice_of_a_paused_tracker_keeps_the_other_voices_read_lit`.
+Evidence: `orcvs/src/render_frame.rs`; test `console/src/style.rs` `output_portal_wins_over_input_portal_on_every_channel`.
 
 ## Cell geometry and edges
 
@@ -211,7 +211,7 @@ A Sector is a block of Cells, not a square.
 Reason: Orca's 2:3 shape reads as a row of text, and 12 by 18 stays whole at 1×, 1.5× and 2×. The Glyph's width term stops a narrow Cell overlapping its neighbours.
 Not: one constant size.
 Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
-Evidence: `console/src/grid_viewport.rs` `CELL_SIZE`, `glyph_size`; tests `console/src/grid_viewport.rs` `the_source_cell_is_twelve_by_eighteen_points`, `a_glyph_is_three_quarters_of_its_cells_height_or_what_its_width_fits`, `every_cell_is_a_whole_number_of_physical_pixels`.
+Evidence: `console/src/grid_viewport.rs` `CELL_SIZE`, `glyph_size`; test `console/src/grid_viewport.rs` `the_source_cell_is_twelve_by_eighteen_points`.
 
 ### CONS-121 The Cursor and Region show a still outline
 
@@ -221,7 +221,7 @@ sets `cursor.area` is refused.
 
 Reason: the animated glitch around the Cursor distracted from reading the Grid.
 Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
-Evidence: tests `console/src/config.rs` `the_removed_glitch_keys_are_unknown`, `console/src/console/tests.rs` `the_cursor_outline_is_one_box_the_same_on_all_four_sides`.
+Evidence: test `console/src/config.rs` `the_removed_glitch_keys_are_unknown`.
 
 ### CONS-122 Each Cell edge shows one line, the highest-ranked fact either side
 
@@ -251,7 +251,7 @@ Built differently; see [Accepted but not built](#accepted-but-not-built-or-built
 Reason: Cells that each stroke their own border draw every shared edge twice, at twice the Theme's width, and composite a translucent edge twice.
 Not: a lattice of full-length lines with outlines painted over it.
 Sources: [ADR 0078](../adr/0078-each-cell-edge-is-drawn-once.md).
-Evidence: `console/src/paint.rs` `EdgeRank`, `EdgeLine`, `Edges`; tests `console/src/console/tests.rs` `an_empty_grid_draws_each_grid_line_once`, `neighbouring_diagnostic_cells_share_one_line_composited_once`, `console/src/paint.rs` `a_spanning_regions_outline_owns_its_perimeter_and_its_cursor_cell_ranks_next`, `console/src/style.rs` `a_zero_width_border_falls_to_the_fact_below_it`.
+Evidence: `console/src/paint.rs` `EdgeRank`, `EdgeLine`, `Edges`; test `console/src/console/tests.rs` `an_empty_grid_draws_each_grid_line_once`.
 
 ### CONS-123 Edge lines sit on whole physical pixels as one Mesh
 
@@ -264,7 +264,7 @@ the pieces are one `Shape::Mesh` of axis-aligned quads. The shapes step has a be
 
 Reason: epaint rounds thin rectangles and segment ends inward, which leaves holes at crossings and notches at corners. Whole-pixel quads have no edge to anti-alias.
 Sources: [ADR 0078](../adr/0078-each-cell-edge-is-drawn-once.md).
-Evidence: `console/src/console/shapes.rs`, `console/benches/paint.rs`; tests `console/src/console/tests.rs` `a_one_pixel_crossing_is_drawn`, `a_narrow_border_keeps_its_width_through_a_wider_grid_lines_junction`, `a_grid_line_under_one_pixel_covers_one_pixel_faded_by_its_width`.
+Evidence: `console/src/console/shapes.rs`, `console/benches/paint.rs`; test `console/src/console/tests.rs` `a_one_pixel_crossing_is_drawn`.
 
 ## Source View, Pan and Zoom
 
@@ -289,7 +289,7 @@ alone.
 
 Reason: the Grid is bounded, so its presentation is too; anything outside it is not a Position.
 Sources: [ADR 0045](../adr/0045-the-source-view-is-a-bounded-space.md), [ADR 0084](../adr/0084-the-source-view-has-no-margin.md), [ADR 0058](../adr/0058-zoom-is-eguis-whole-ui-zoom.md).
-Evidence: `console/src/console/source_view.rs`; tests `console/src/console/tests.rs` `clamp_pan_pins_a_smaller_source_at_the_origin_and_a_larger_one_to_its_edges`, `the_extent_is_exactly_the_grid`.
+Evidence: `console/src/console/source_view.rs`; test `console/src/console/tests.rs` `clamp_pan_pins_a_smaller_source_at_the_origin_and_a_larger_one_to_its_edges`.
 
 ### CONS-032 The Pan gestures, none of which moves the Cursor or the Region
 
@@ -306,7 +306,7 @@ changes the Region.
 
 Reason: Space toggles Playback, so it cannot be the drag modifier. The plain primary drag is the one gesture a Region has.
 Sources: [ADR 0045](../adr/0045-the-source-view-is-a-bounded-space.md), [ADR 0046](../adr/0046-the-primary-drag-selects-a-region.md), [ADR 0080](../adr/0080-the-minimap-pans-over-a-cached-picture.md), [ADR 0102](../adr/0102-a-finger-pans-the-source-and-asks-for-the-keyboard.md).
-Evidence: `console/src/console/source_view.rs`; tests `console/src/console/tests.rs` `wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere`, `alt_held_with_a_primary_drag_pans_by_exactly_what_the_pointer_moved`, `an_alt_drag_and_a_middle_drag_leave_the_region`.
+Evidence: `console/src/console/source_view.rs`; test `console/src/console/tests.rs` `wheel_pans_a_larger_source_to_its_edges_and_a_smaller_one_nowhere`.
 
 ### CONS-033 The Source View follows the Cursor just far enough
 
@@ -317,7 +317,7 @@ Cursor, and a resize or zoom after the viewer has Panned the Cursor out of view 
 
 Reason: the next keystroke writes at the Cursor, so the viewer must be able to see it, without taking away a deliberate Pan.
 Sources: [ADR 0045](../adr/0045-the-source-view-is-a-bounded-space.md), [ADR 0058](../adr/0058-zoom-is-eguis-whole-ui-zoom.md), [ADR 0084](../adr/0084-the-source-view-has-no-margin.md).
-Evidence: `console/src/console/source_view.rs`; tests `console/src/console/source_view.rs` `a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it`, `a_resize_after_a_pan_away_from_the_cursor_keeps_the_pan`.
+Evidence: `console/src/console/source_view.rs`; test `console/src/console/source_view.rs` `a_cursor_move_that_would_leave_it_outside_the_view_pans_to_show_it`.
 
 ### CONS-034 The pointer shows a drag Pan
 
@@ -327,7 +327,7 @@ wheel Pan shows no hand.
 
 Reason: a modifier gesture has to announce itself before the drag begins.
 Sources: [ADR 0047](../adr/0047-the-source-view-has-a-margin.md), as amended by [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
-Evidence: tests `console/src/console/kittest_tests.rs` `the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_pans`, `the_pointer_shows_no_grab_hand_where_alt_offers_no_pan`.
+Evidence: test `console/src/console/kittest_tests.rs` `the_pointer_shows_a_grab_hand_for_alt_and_a_grabbing_hand_while_a_drag_pans`.
 
 ### CONS-035 The default window is fixed in points
 
@@ -346,7 +346,7 @@ together. Theme widths stay in display points at every zoom.
 
 Reason: two zooms would mean two transforms, two meanings of one word, and chords that work differently from every other egui app.
 Sources: [ADR 0058](../adr/0058-zoom-is-eguis-whole-ui-zoom.md).
-Evidence: `console/src/console/menu_bar.rs`; tests `console/src/console/kittest_tests.rs` `command_zoom_chords_change_egui_zoom_and_never_the_source`, `the_view_menu_zooms_egui_as_its_chords_do`.
+Evidence: `console/src/console/menu_bar.rs`; test `console/src/console/kittest_tests.rs` `command_zoom_chords_change_egui_zoom_and_never_the_source`.
 
 ### CONS-041 Zoom persists in egui's memory
 
@@ -373,7 +373,7 @@ command-wheel do not zoom; plain scroll Pans.
 
 Reason: these characters are Source. egui matches command `+` regardless of Shift.
 Sources: [ADR 0058](../adr/0058-zoom-is-eguis-whole-ui-zoom.md).
-Evidence: tests `console/src/console/tests.rs` `pinch_and_command_wheel_do_not_zoom`.
+Evidence: test `console/src/console/tests.rs` `pinch_and_command_wheel_do_not_zoom`.
 
 ## Region and keys
 
@@ -398,7 +398,7 @@ Evidence: `orcvs/src/region.rs`, `orcvs/src/app.rs`; test `orcvs/src/app.rs` `a_
 
 Reason: this is how spreadsheets and Tiled split the primary drag.
 Sources: [ADR 0046](../adr/0046-the-primary-drag-selects-a-region.md).
-Evidence: tests `console/src/console/tests.rs` `a_primary_drag_spans_a_region_that_release_keeps`, `a_click_collapses_the_region_and_a_shift_click_extends_it`, `a_drag_past_the_edge_scrolls_faster_the_further_out_and_stops_at_the_grid`.
+Evidence: test `console/src/console/tests.rs` `a_primary_drag_spans_a_region_that_release_keeps`.
 
 ### CONS-052 The keyboard edits a Region as a spreadsheet does
 
@@ -412,7 +412,7 @@ Moving the live end past the anchor flips the rectangle.
 
 Reason: every spreadsheet leaves the active Cell, and the view with it, where it was.
 Sources: [ADR 0046](../adr/0046-the-primary-drag-selects-a-region.md).
-Evidence: tests `orcvs/src/app.rs` `shift_arrows_extend_the_region_and_a_bare_arrow_collapses_it`, `select_all_spans_the_grid_and_collapse_returns_to_the_cursor`, `a_shift_arrow_after_select_all_moves_the_live_corner`.
+Evidence: test `orcvs/src/app.rs` `shift_arrows_extend_the_region_and_a_bare_arrow_collapses_it`.
 
 ### CONS-053 A Region is written as a block
 
@@ -428,7 +428,7 @@ Evidence: tests `orcvs/src/app.rs` `shift_arrows_extend_the_region_and_a_bare_ar
 Reason: Orcvs has no undo, so the fill sits behind an explicit chord.
 Not: typing fills the Region.
 Sources: [ADR 0046](../adr/0046-the-primary-drag-selects-a-region.md).
-Evidence: tests `orcvs/src/app.rs` `command_enter_then_a_character_fills_the_region`, `copy_puts_the_regions_rows_on_the_clipboard_with_trailing_spaces`, `paste_writes_from_the_top_left_clipped_and_spans_what_landed`, `a_pasted_character_that_cannot_be_a_cell_lands_empty`.
+Evidence: test `orcvs/src/app.rs` `command_enter_then_a_character_fills_the_region`.
 
 ### CONS-054 A Region is not stored with the Source
 
@@ -448,7 +448,7 @@ run, and read on the next frame. No control is named.
 Reason: a named list of controls leaked keys from every control added later. Latching keeps the Escape that leaves a field from also collapsing the Region.
 Not: the Grid as a focusable widget, which would leave keys going nowhere at startup.
 Sources: [ADR 0048](../adr/0048-the-source-takes-the-keys-no-control-holds.md).
-Evidence: `console/src/console/input.rs` `latch_keyboard_owner`; tests `console/src/console/kittest_tests.rs` `a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source`, `typing_with_a_menu_open_leaves_the_source_unwritten`, `escape_with_a_menu_open_closes_it_and_keeps_the_region`.
+Evidence: `console/src/console/input.rs` `latch_keyboard_owner`; test `console/src/console/kittest_tests.rs` `a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source`.
 
 ### CONS-056 Keys a control took disarm a fill
 
@@ -456,7 +456,7 @@ When command Enter has armed a fill and the next key goes to a control, the fill
 
 Reason: those keys were the next event, even though the Source never saw them.
 Sources: [ADR 0048](../adr/0048-the-source-takes-the-keys-no-control-holds.md).
-Evidence: tests `console/src/console/tests.rs` `keys_the_bpm_field_took_disarm_a_fill_armed_before_it`, `orcvs/src/app.rs` `a_fill_disarmed_for_input_elsewhere_types_the_next_character`.
+Evidence: test `console/src/console/tests.rs` `keys_the_bpm_field_took_disarm_a_fill_armed_before_it`.
 
 ### CONS-057 The console area never takes focus, and Tab steps by Sector
 
@@ -466,7 +466,7 @@ both moves egui's focus and steps the Cursor.
 
 Reason: a focusable rectangle would count as a control holding the keys and lock the Source out.
 Sources: [ADR 0048](../adr/0048-the-source-takes-the-keys-no-control-holds.md); Sector navigation ruled, no ADR (`.scratch/sector-navigation/issues/01-tab-steps-the-cursor-by-sector.md`); CONTEXT "Sector".
-Evidence: tests `console/src/console/kittest_tests.rs` `tab_never_focuses_the_console_area_the_source_is_shown_in`, `tab_with_a_menu_open_moves_focus_and_not_the_cursor`, `tab_and_shift_tab_move_the_cursor_by_sector_through_the_source_input_path`.
+Evidence: test `console/src/console/kittest_tests.rs` `tab_never_focuses_the_console_area_the_source_is_shown_in`.
 
 ## Themes
 
@@ -480,7 +480,7 @@ the Token's colour on that channel, so a transparent channel leaves the Token sh
 
 Reason: a mapping written as control flow cannot be restated by a Theme.
 Sources: [ADR 0051](../adr/0051-a-theme-maps-facts-to-channels.md), [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: `console/src/style.rs`; tests `console/src/style.rs` `an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint`, `a_transparent_diagnostic_foreground_reveals_the_declared_role`.
+Evidence: `console/src/style.rs`; test `console/src/style.rs` `an_invalid_operand_draws_diagnostic_but_keeps_its_declared_tint`.
 
 ### CONS-061 One Theme styles the whole console
 
@@ -491,7 +491,7 @@ Theme to both at once.
 
 Reason: a separate Source scheme and chrome theme would need a contrast review for every pairing.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: `console/src/style.rs` `style`; tests `console/src/console/kittest_tests.rs` `the_mode_switches_source_and_chrome_together`, `an_os_appearance_change_switches_source_and_chrome_together`.
+Evidence: `console/src/style.rs` `style`; test `console/src/console/kittest_tests.rs` `the_mode_switches_source_and_chrome_together`.
 
 ### CONS-062 Settings select a dark and a light Theme by identity, and hold no Theme values
 
@@ -502,7 +502,7 @@ the console has no Theme editor.
 
 Reason: a Theme is its own document, and a stored value would stop a moved default from reaching an install.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendments 2026-10-10 and 2026-10-25).
-Evidence: `console/src/config.rs`, `console/src/theme_selection.rs`; tests `console/src/theme_selection.rs` `a_default_selection_presents_each_appearances_built_in_and_raises_no_notice`, `console/src/console/kittest_tests.rs` `no_menu_offers_a_setting`.
+Evidence: `console/src/config.rs`, `console/src/theme_selection.rs`; test `console/src/theme_selection.rs` `a_default_selection_presents_each_appearances_built_in_and_raises_no_notice`.
 
 ### CONS-063 The appearance mode is one toggle
 
@@ -513,7 +513,7 @@ the first press the preference is `System`, so the console follows the OS. No co
 
 Reason: the maintainer found a three-button control confusing (2026-10-31).
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-31).
-Evidence: `console/src/console/menu_bar.rs`; tests `console/src/console/kittest_tests.rs` `the_mode_toggle_flips_the_appearance`, `console/src/console/tests.rs` `console_new_leaves_a_fresh_context_on_the_system_preference`.
+Evidence: `console/src/console/menu_bar.rs`; test `console/src/console/kittest_tests.rs` `the_mode_toggle_flips_the_appearance`.
 
 ### CONS-064 A custom Theme inherits exactly one built-in and states only its changes
 
@@ -525,7 +525,7 @@ Theme's values. Built-in and custom Themes are the same type.
 
 Reason: one answer to what a colour is. An override would be a second answer.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: `console/src/theme_document.rs`; tests `console/src/theme_document.rs` `a_custom_theme_cannot_chain_from_another_custom_theme`, `appearance_mismatch_is_rejected`, `omitted_properties_inherit_from_the_parent`.
+Evidence: `console/src/theme_document.rs`; test `console/src/theme_document.rs` `a_custom_theme_cannot_chain_from_another_custom_theme`.
 
 ### CONS-065 Native Theme files are read from one directory at startup
 
@@ -534,7 +534,7 @@ is searched. Edits take effect on the next launch: there is no watcher and no re
 
 Reason: one location needs no precedence rules, and the files stay authoritative.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: `console/src/theme_registry.rs`; tests `console/src/theme_registry.rs` `only_direct_children_with_a_theme_suffix_load_and_other_files_are_ignored`, `a_missing_directory_means_no_custom_themes_and_nothing_to_report`.
+Evidence: `console/src/theme_registry.rs`; test `console/src/theme_registry.rs` `only_direct_children_with_a_theme_suffix_load_and_other_files_are_ignored`.
 
 ### CONS-066 A Theme file's identity is its filename stem
 
@@ -546,7 +546,7 @@ extension matches case-insensitively.
 
 Reason: directory order never chooses a winner.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: tests `console/src/theme_registry.rs` `duplicate_identities_conflict_whatever_the_enumeration_order`, `a_reserved_identity_is_refused_and_never_replaces_the_built_in`, `stems_that_differ_only_in_case_are_two_identities`.
+Evidence: test `console/src/theme_registry.rs` `duplicate_identities_conflict_whatever_the_enumeration_order`.
 
 ### CONS-067 An unavailable selected Theme falls back without losing the selection
 
@@ -557,7 +557,7 @@ file restores it on the next launch.
 
 Reason: a broken Theme file must never cost a performer the console or the choice they made.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: tests `console/src/theme_registry.rs` `a_refused_selected_file_falls_back_and_is_restored_by_its_repair`, `a_selected_conflicted_identity_falls_back_and_recovers`, `console/src/theme_selection.rs` `an_unavailable_or_wrong_appearance_selection_falls_back_and_is_kept`.
+Evidence: test `console/src/theme_registry.rs` `a_refused_selected_file_falls_back_and_is_restored_by_its_repair`.
 
 ### CONS-068 A Theme document is strict TOML
 
@@ -577,7 +577,7 @@ The complete property catalogue is `.scratch/theming/schema.md`, held to the cod
 Reason: TOML is typed, always has a table root and refuses repeated keys, so the derived type is strict on its own.
 Not: JSON or YAML documents.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: `console/src/theme_document.rs`; tests `console/src/theme_document.rs` `the_format_marker_must_be_orcvs_theme`, `an_unknown_style_property_lists_the_valid_names`, `color_key_names_match_the_schema_catalogue`, `console/src/theme_registry.rs` `only_a_toml_file_is_a_theme_file`.
+Evidence: `console/src/theme_document.rs`; test `console/src/theme_document.rs` `the_format_marker_must_be_orcvs_theme`.
 
 ### CONS-069 Theme widths are bounded display points
 
@@ -592,7 +592,7 @@ Fonts, sizes, spacing, corner radii, shadows and gradients are outside a Theme.
 
 Reason: a line has to read the same at every zoom. A separate opacity key would be a second answer.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md), [ADR 0058](../adr/0058-zoom-is-eguis-whole-ui-zoom.md).
-Evidence: tests `console/src/theme_document.rs` `widths_accept_integers_and_floats_within_their_bounds`, `console/src/console/tests.rs` `grid_and_sector_widths_stay_fixed_display_points_across_device_scales`.
+Evidence: test `console/src/theme_document.rs` `widths_accept_integers_and_floats_within_their_bounds`.
 
 ### CONS-070 Theme layers composite over an opaque backdrop
 
@@ -610,7 +610,7 @@ Changing a role's foreground never recalculates its background. Individual Cells
 
 Reason: painting and contrast validation have to use the same composite.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md).
-Evidence: tests `console/src/theme_document.rs` `resolve_rejects_a_nonopaque_window_background`, `foreground_change_leaves_inherited_background_unchanged`, `console/src/style.rs` `explicit_background_alpha_composites_over_the_cell_base`.
+Evidence: test `console/src/theme_document.rs` `resolve_rejects_a_nonopaque_window_background`.
 
 ### CONS-071 The Cursor's colours can be omitted, cleared or transparent
 
@@ -628,7 +628,7 @@ No other key takes `none`.
 
 Reason: absence and transparency mean different things for these four properties alone.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-20).
-Evidence: tests `console/src/theme_document.rs` `optional_colours_are_omitted_cleared_or_a_supplied_transparent_colour`, `none_is_refused_for_every_other_colour`.
+Evidence: test `console/src/theme_document.rs` `optional_colours_are_omitted_cleared_or_a_supplied_transparent_colour`.
 
 ### CONS-072 Painting precedence is fixed, never a Theme property
 
@@ -642,7 +642,7 @@ A Theme chooses colours and cannot reorder facts:
 
 Reason: this keeps the decided appearance while channels gain alpha compositing.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-22).
-Evidence: tests `console/src/style.rs` `a_bang_keeps_its_own_paint_inside_every_portal_role`, `a_bound_function_spelling_wins_over_output_portal`, `console/src/contrast.rs` `region_fallback_only_reaches_a_fully_transparent_role_background`.
+Evidence: test `console/src/style.rs` `a_bang_keeps_its_own_paint_inside_every_portal_role`.
 
 ### CONS-073 Every painted text state clears 4.5:1, except Comment
 
@@ -656,7 +656,7 @@ floor still loads, and the console shows its report as a notice.
 
 Reason: a faint Comment is the point of the role, and per-Theme exceptions hid failures. WCAG 1.4.3 does not exempt de-emphasised text.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendments 2026-10-01, 2026-10-23, 2026-10-25).
-Evidence: `console/src/contrast.rs`; tests `shipped_theme_gate`, `a_comment_below_the_floor_is_reported_and_does_not_fail`, `a_hidden_cursor_glyph_is_not_measured`, `console/src/theme_registry.rs` `a_theme_below_the_contrast_floor_is_loaded_and_its_report_shown`.
+Evidence: `console/src/contrast.rs`; test `shipped_theme_gate` in the same file.
 
 ### CONS-074 The built-ins pass a colour-vision gate
 
@@ -668,7 +668,7 @@ Tritanopia is measured and not gated. Loaded Themes are not measured.
 
 Reason: text contrast cannot tell whether two Token colours are distinguishable.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendments 2026-10-10, 2026-10-25).
-Evidence: `console/src/contrast/colour_vision.rs`; tests `shipped_theme_colour_vision_gate`, `simulation_leaves_neutrals_alone`, `the_colour_difference_matches_the_published_test_vectors`.
+Evidence: `console/src/contrast/colour_vision.rs`; test `shipped_theme_colour_vision_gate` in the same file.
 
 ### CONS-079 The console's Theme format has no Sound Module key
 
@@ -689,7 +689,7 @@ each built-in's values.
 
 Reason: the maintainer retired the coloured built-ins on 2026-10-25.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-25).
-Evidence: `console/src/theme_registry.rs`; tests `console/src/theme_selection.rs` `a_selection_of_a_retired_built_in_falls_back_to_the_default_and_is_kept`, `console/src/theme_registry.rs` `a_theme_file_inheriting_a_retired_built_in_is_refused`.
+Evidence: `console/src/theme_registry.rs`; test `console/src/theme_selection.rs` `a_selection_of_a_retired_built_in_falls_back_to_the_default_and_is_kept`.
 
 ### CONS-076 A Theme decides how things look, never how much they move
 
@@ -735,7 +735,7 @@ give the same window its decorations and size. The logo then fades over the runn
 
 Reason: eframe has no splash API, and a hidden root window may get no frames on some platforms.
 Sources: [ADR 0083](../adr/0083-the-console-opens-through-its-own-window-as-a-splash.md).
-Evidence: `console/src/console/splash.rs`; tests `console/src/console/kittest_tests/splash.rs` `the_hold_ends_by_itself_and_grows_the_window_to_the_default_console`, `a_key_press_ends_the_splash_and_reaches_nothing_else`.
+Evidence: `console/src/console/splash.rs`; test `console/src/console/kittest_tests/splash.rs` `the_hold_ends_by_itself_and_grows_the_window_to_the_default_console`.
 
 ### CONS-081 The console stores and restores its own window geometry
 
@@ -747,7 +747,7 @@ splash's.
 
 Reason: eframe restoring the window would show a console-sized frame before every splash.
 Sources: [ADR 0083](../adr/0083-the-console-opens-through-its-own-window-as-a-splash.md).
-Evidence: `console/src/window_geometry.rs`, `console/src/main.rs`; tests `console/src/console/kittest_tests/splash.rs` `a_save_during_the_hold_stores_the_consoles_geometry`, `console/src/window_geometry.rs` `the_size_fits_between_the_minimum_and_the_monitor`.
+Evidence: `console/src/window_geometry.rs`, `console/src/main.rs`; test `console/src/console/kittest_tests/splash.rs` `a_save_during_the_hold_stores_the_consoles_geometry`.
 
 ### CONS-130 Settings are read once at startup, with no settings UI
 
@@ -758,7 +758,7 @@ stores it itself, and the Output list edits it (PLAY-350).
 
 Reason: a setting has one owner, the file, and the console never stores a second answer.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-10), [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md).
-Evidence: `console/src/config.rs`; tests `console/src/console/kittest_tests.rs` `no_menu_offers_a_setting`, `console/src/persistence.rs` `a_save_writes_the_source_and_no_settings`.
+Evidence: `console/src/config.rs`; test `console/src/console/kittest_tests.rs` `no_menu_offers_a_setting`.
 
 ### CONS-131 The settings open views and time Toasts
 
@@ -778,7 +778,7 @@ states. How other faulty keys fall back is an [open decision](#open-decisions).
 
 Reason: the views a console opens with, including on a phone, are configuration rather than code.
 Sources: [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md), [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md), [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md).
-Evidence: tests `console/src/config.rs` `the_minimap_and_the_diagnostics_open_as_the_file_says`, `the_info_is_hidden_as_the_file_says`, `a_toast_lasts_the_seconds_the_file_says`.
+Evidence: test `console/src/config.rs` `the_minimap_and_the_diagnostics_open_as_the_file_says`.
 
 ### CONS-132 A stored Source of another shape is discarded, not migrated
 
@@ -788,7 +788,7 @@ Source on the one Grid.
 
 Reason: Orcvs is pre-release, and every stored Source is an autosave.
 Sources: [ADR 0054](../adr/0054-a-grid-is-always-256-by-256.md).
-Evidence: `console/src/persistence.rs`; tests `console/src/persistence.rs` `a_source_stored_at_a_previous_default_grid_is_discarded_rather_than_migrated`, `console/src/console/kittest_tests.rs` `file_new_opens_an_empty_source_on_the_256_by_256_grid`.
+Evidence: `console/src/persistence.rs`; test `console/src/persistence.rs` `a_source_stored_at_a_previous_default_grid_is_discarded_rather_than_migrated`.
 
 ### CONS-133 The Help menu reaches the site's Learn and Reference pages
 
@@ -797,7 +797,7 @@ examples, and About.
 
 Reason: the site's documentation is reached from the console.
 Sources: ruled 2026-10-26, no ADR ([orcvs-site/13](../../.scratch/orcvs-site/issues/13-link-learn-and-reference-from-the-help-menu.md)).
-Evidence: tests `console/src/console/kittest_tests.rs` `the_help_menu_offers_the_sites_learn_and_reference_pages`, `the_help_menu_opens_every_shipped_example`.
+Evidence: test `console/src/console/kittest_tests.rs` `the_help_menu_offers_the_sites_learn_and_reference_pages`.
 
 ## Minimap
 
@@ -811,7 +811,7 @@ grabbing hand while held.
 
 Reason: a 256 by 256 Grid needs a way to jump across it.
 Sources: [ADR 0080](../adr/0080-the-minimap-pans-over-a-cached-picture.md), [ADR 0045](../adr/0045-the-source-view-is-a-bounded-space.md) (amendment 2026-10-23).
-Evidence: `console/src/console/minimap.rs`; tests `console/src/console/kittest_tests.rs` `a_press_outside_the_outline_centres_the_source_view_there_and_it_stays`, `a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_without_a_jump`, `a_drag_from_the_minimap_past_the_grid_stops_at_its_far_corner`.
+Evidence: `console/src/console/minimap.rs`; test `console/src/console/kittest_tests.rs` `a_press_outside_the_outline_centres_the_source_view_there_and_it_stays`.
 
 ### CONS-091 The Minimap's picture is a console cache, rebuilt only when its key changes
 
@@ -824,7 +824,7 @@ Frame, so a racing Tick costs a rebuild, never a stale picture. Nothing about th
 Reason: per-Cell Shapes would upload 65,536 quads every frame, and a Language Map cache would put whole-Grid work into every revision.
 Not: a paint callback (backend-specific `unsafe` GL).
 Sources: [ADR 0080](../adr/0080-the-minimap-pans-over-a-cached-picture.md).
-Evidence: `console/src/console/minimap.rs`, `console/benches/minimap.rs` `paint_minimap`; tests `console/src/console/tests.rs` `the_minimap_uploads_its_picture_only_when_the_source_or_appearance_changes`, `console/src/console/minimap.rs` `another_theme_draws_another_picture`.
+Evidence: `console/src/console/minimap.rs`, `console/benches/minimap.rs` `paint_minimap`; test `console/src/console/tests.rs` `the_minimap_uploads_its_picture_only_when_the_source_or_appearance_changes`.
 
 ### CONS-092 The Minimap draws the Source View as an outline in its own Theme key
 
@@ -834,7 +834,7 @@ reuse their own keys.
 
 Reason: borrowing the Cursor's or the Region's border would make one channel show two facts.
 Sources: [ADR 0080](../adr/0080-the-minimap-pans-over-a-cached-picture.md), [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md).
-Evidence: tests `console/src/console/tests.rs` `the_minimap_outlines_the_source_view_where_a_pan_leaves_it`, `the_minimap_marks_the_region_and_the_cursor_between_the_picture_and_the_outline`.
+Evidence: test `console/src/console/tests.rs` `the_minimap_outlines_the_source_view_where_a_pan_leaves_it`.
 
 ### CONS-093 The Minimap floats in the Source's bottom-right corner
 
@@ -846,7 +846,7 @@ Source. It is one labelled node, "Source minimap", that Tab never focuses.
 
 Reason: docked, it took the Source's width. In the window's corner, it covered the Panel.
 Sources: [ADR 0081](../adr/0081-the-minimap-floats-over-the-windows-corner.md), [ADR 0096](../adr/0096-the-minimap-sits-in-the-sources-corner-at-one-pixel-per-cell.md), [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md).
-Evidence: tests `console/src/console/kittest_tests.rs` `the_minimap_starts_pinned_in_the_sources_bottom_right_corner_and_the_view_menu_toggles_it`, `the_minimap_is_one_labelled_node_that_tab_never_focuses`.
+Evidence: test `console/src/console/kittest_tests.rs` `the_minimap_starts_pinned_in_the_sources_bottom_right_corner_and_the_view_menu_toggles_it`.
 
 ### CONS-094 The Minimap is one physical pixel per Cell, or hidden
 
@@ -857,7 +857,7 @@ returns once it fits.
 
 Reason: clipping would leave Cells out of reach of a press, and fractional scaling would drop rows and columns unevenly.
 Sources: [ADR 0081](../adr/0081-the-minimap-floats-over-the-windows-corner.md), [ADR 0096](../adr/0096-the-minimap-sits-in-the-sources-corner-at-one-pixel-per-cell.md).
-Evidence: tests `console/src/console/minimap.rs` `the_minimap_hides_where_one_pixel_per_texel_does_not_fit_in_the_source`, `console/src/console/tests.rs` `a_hidden_minimap_returns_at_its_usual_size_once_the_window_holds_it`.
+Evidence: test `console/src/console/minimap.rs` `the_minimap_hides_where_one_pixel_per_texel_does_not_fit_in_the_source`.
 
 ### CONS-095 The console uses the Minimap's names alone
 
@@ -879,7 +879,7 @@ the held Run Clock. After a Rewind it shows Tick `0` and a Run Clock of zero.
 
 Reason: the Panel is the performer's telemetry; what the Run Clock counts belongs to Playback.
 Sources: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md); CONTEXT "Panel", "Readout", "BPM", "Run Clock" (see [playback.md](playback.md)).
-Evidence: `console/src/console/panel.rs`; tests `console/src/console/kittest_tests/panel_readouts.rs` `the_tick_run_clock_and_beat_marker_readouts_are_in_the_accessibility_tree`, `console/src/console/tests.rs` `the_bottom_panel_shows_tick_zero_and_run_clock_before_the_first_run`.
+Evidence: `console/src/console/panel.rs`; test `console/src/console/kittest_tests/panel_readouts.rs` `the_tick_run_clock_and_beat_marker_readouts_are_in_the_accessibility_tree`.
 
 ### CONS-100 The Panel opens with Play and Rewind Cells
 
@@ -892,7 +892,7 @@ included.
 
 Reason: a phone has no Space key, and the browser reserves Command Shift R. A Cell is as easy to tap as to type into.
 Sources: [ADR 0089](../adr/0089-the-panel-plays-and-rewinds.md), [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md), [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
-Evidence: tests `console/src/console/kittest_tests.rs` `play_and_rewind_are_source_cells_one_cell_apart`, `the_play_cell_plays_and_stops_playback_as_space_does`, `the_rewind_cell_rewinds_a_paused_playback_to_tick_zero`, `space_pauses_and_resumes_playback_and_command_shift_r_rewinds_it`.
+Evidence: test `console/src/console/kittest_tests.rs` `play_and_rewind_are_source_cells_one_cell_apart`.
 
 ### CONS-101 One Playback status routes every failure
 
@@ -905,7 +905,7 @@ or a destination was installed.
 
 Reason: when failures were routed by call order, an engine failure read as a MIDI failure.
 Sources: [ADR 0092](../adr/0092-the-panel-routes-playback-failures-in-one-place.md), [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md), [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/playback_status.rs`; tests `each_output_failure_goes_to_its_own_destination`, `an_overrun_or_an_omission_summary_is_no_failure`, `a_midi_failure_is_shown_until_the_observation_clears_it`.
+Evidence: `console/src/playback_status.rs`; test `each_output_failure_goes_to_its_own_destination` in the same file.
 
 ### CONS-102 An engine failure stands until the next run begins
 
@@ -915,7 +915,7 @@ begins a new run.
 
 Reason: a clock failure is not a MIDI fault.
 Sources: [ADR 0092](../adr/0092-the-panel-routes-playback-failures-in-one-place.md).
-Evidence: tests `console/src/playback_status.rs` `an_engine_failure_is_shown_until_the_next_run_begins`, `a_rewind_while_playing_begins_a_new_run`.
+Evidence: test `console/src/playback_status.rs` `an_engine_failure_is_shown_until_the_next_run_begins`.
 
 ### CONS-103 No build branches on whether it has MIDI
 
@@ -935,7 +935,7 @@ backend has no MIDI section.
 
 Reason: **O** is Output, not MIDI.
 Sources: [ADR 0095](../adr/0095-the-output-list-shows-every-output-type.md).
-Evidence: `console/src/console/panel.rs`; test `console/src/console/kittest_tests/panel_readouts.rs` `the_output_list_has_a_section_for_each_output_type` (assertions inspected).
+Evidence: `console/src/console/panel.rs`; test `console/src/console/kittest_tests/panel_readouts.rs` `the_output_list_has_a_section_for_each_output_type`.
 
 ### CONS-105 The closed Output field names every live output
 
@@ -944,7 +944,7 @@ nothing live it reads `None`. A failure never appears in the field.
 
 Reason: the field shows what is live, and failures have Toasts.
 Sources: [ADR 0095](../adr/0095-the-output-list-shows-every-output-type.md).
-Evidence: test `console/src/console/kittest_tests/panel_readouts.rs` `the_output_list_has_a_section_for_each_output_type` (assertions inspected: `First · 127.0.0.1`).
+Evidence: test `console/src/console/kittest_tests/panel_readouts.rs` `the_output_list_has_a_section_for_each_output_type`.
 
 ### CONS-106 Each standing failure is a Toast
 
@@ -963,7 +963,7 @@ cleared and failed again. Toasts are `egui::Area`s, with no added dependency.
 
 Reason: a status line that grew and shrank with the messages moved the Source's bottom edge.
 Sources: [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md).
-Evidence: `console/src/console/toasts.rs`; tests `console/src/console/kittest_tests/toasts.rs` `a_failure_floats_as_a_toast_in_the_top_right_corner`, `a_toast_lasts_the_configured_seconds`, `a_dismissed_toast_stays_gone_until_its_reporter_clears`.
+Evidence: `console/src/console/toasts.rs`; test `console/src/console/kittest_tests/toasts.rs` `a_failure_floats_as_a_toast_in_the_top_right_corner`.
 
 ### CONS-107 O shows a failure that outlives its Toast
 
@@ -989,7 +989,7 @@ a Cell column. The answer's Position is not shown.
 Reason: editing is driven by the keyboard and the Cursor, and painting the Cells ties Info to the Cursor.
 Not: a floating tooltip.
 Sources: [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md) (amendment 2026-11-12).
-Evidence: `console/src/info.rs`; tests `console/src/console/kittest_tests/info.rs` `info_describes_the_function_under_the_cursor`, `info_entries_start_on_cell_columns_two_cells_apart`, `console/src/info.rs` `an_operand_cell_describes_the_function_that_owns_it`.
+Evidence: `console/src/info.rs`; test `console/src/console/kittest_tests/info.rs` `info_describes_the_function_under_the_cursor`.
 
 ### CONS-109 The Panel is laid on Cell rows, and Info keeps its rows while shown
 
@@ -1007,7 +1007,7 @@ Readouts add their own height when opened.
 
 Reason: the Source's bottom edge moves only when the viewer chooses.
 Sources: [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md) (amendment 2026-11-12).
-Evidence: tests `console/src/console/kittest_tests/info.rs` `the_panel_lays_its_rows_on_the_grids_cells`, `hiding_info_gives_its_rows_back_to_the_source`, `console/src/console/kittest_tests/toasts.rs` `the_panel_keeps_its_height_whatever_the_messages`, `console/src/console/input.rs` `only_a_fresh_command_i_toggles_info`.
+Evidence: test `console/src/console/kittest_tests/info.rs` `the_panel_lays_its_rows_on_the_grids_cells`.
 
 ## Touch
 
@@ -1022,7 +1022,7 @@ the Cell nearest the finger, for as long as it stays down. A mouse and a pen kee
 Reason: a phone's viewer tries one finger first.
 Not: two fingers to Pan with one finger selecting.
 Sources: [ADR 0102](../adr/0102-a-finger-pans-the-source-and-asks-for-the-keyboard.md).
-Evidence: `console/src/console/source_view.rs` `touch_pressed`; tests `console/src/console/tests.rs` `a_finger_drag_pans_the_source_and_leaves_the_region`, `a_finger_held_then_dragged_spans_a_region_without_panning`, `a_finger_tap_selects_the_cell_under_it`.
+Evidence: `console/src/console/source_view.rs` `touch_pressed`; test `console/src/console/tests.rs` `a_finger_drag_pans_the_source_and_leaves_the_region`.
 
 ### CONS-111 A finger's press asks for the on-screen keyboard
 
@@ -1033,7 +1033,7 @@ position, or none.
 
 Reason: asking on every platform would route desktop keys through eframe's text input.
 Sources: [ADR 0102](../adr/0102-a-finger-pans-the-source-and-asks-for-the-keyboard.md).
-Evidence: `console/src/console/input.rs` `ask_for_touch_keyboard`; tests `console/src/console/tests.rs` `a_finger_tap_asks_for_the_keyboard_and_a_mouse_click_does_not`, `a_finger_tap_outside_the_source_does_not_ask_for_the_keyboard`.
+Evidence: `console/src/console/input.rs` `ask_for_touch_keyboard`; test `console/src/console/tests.rs` `a_finger_tap_asks_for_the_keyboard_and_a_mouse_click_does_not`.
 
 ### CONS-112 A phone keyboard's text and IME events are Source input
 

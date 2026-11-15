@@ -15,7 +15,7 @@ Every Tick starts from a Source Snapshot that is a complete executable program a
 
 Reason: Source stays live-inspectable and self-modifying in the tracker style; nothing about a Bang is remembered outside Source.
 Sources: [ADR 0003](../adr/0003-source-snapshot-is-complete-language-state.md), [ADR 0028](../adr/0028-specify-the-orcvs-evaluation-machine.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md).
-Evidence: `lang/src/stack.rs` `Stack`; test `orcvs/src/source/tick/bang_function.rs` `identical_snapshots_at_the_same_tick_plan_the_same_tick` (assertions inspected).
+Evidence: `lang/src/stack.rs` `Stack`; test `orcvs/src/source/tick/bang_function.rs` `identical_snapshots_at_the_same_tick_plan_the_same_tick`.
 
 ### EVAL-011 Identical Source Snapshots at the same absolute Tick plan the same Tick
 
@@ -23,7 +23,7 @@ The Tick Plan — activation routing, Source writes, ordered Play Commands, orde
 
 Reason: reproducibility is what makes planning from a snapshot equal to planning in place (EVAL-090) and lets a performer predict the Grid.
 Sources: [ADR 0003](../adr/0003-source-snapshot-is-complete-language-state.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md), [ADR 0057](../adr/0057-a-tick-commits-only-the-revision-it-planned.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `execute`; tests `orcvs/src/source/tick/bang_function.rs` `identical_snapshots_at_the_same_tick_plan_the_same_tick`, `orcvs/src/source/planning.rs` `a_tick_planned_from_a_snapshot_is_the_tick_planned_under_the_lock`, `orcvs/src/source/tick/tick_functions.rs` `moving_a_random_changes_its_stream_and_identical_inputs_reproduce_it`.
+Evidence: `orcvs/src/source/tick/execution.rs` `execute`; test `orcvs/src/source/tick/bang_function.rs` `identical_snapshots_at_the_same_tick_plan_the_same_tick`.
 
 ### EVAL-012 Newly written Function code first takes a Turn from the next Source Snapshot
 
@@ -32,7 +32,7 @@ Only Functions the Parser found in the starting Source Snapshot take Turns. A Fu
 Reason: a schedule fixed from the Snapshot cannot order code that did not exist when it was built.
 Not: executing newly anchored or Function-valued output in the same Tick; ADR 0034 defers it.
 Sources: [ADR 0003](../adr/0003-source-snapshot-is-complete-language-state.md), [ADR 0004](../adr/0004-source-functions-plan-spatial-effects.md), [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0014](../adr/0014-spatial-functions-preserve-performative-behaviour.md), [ADR 0020](../adr/0020-order-tick-effects-by-source-position.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md).
-Evidence: test `orcvs/src/source/tick/movers.rs` `an_emitted_self_banging_function_first_moves_on_the_following_tick`; test `orcvs/src/source/tick/replacement.rs` `live_replacement_checks_retained_arity_and_never_runs_new_anchors`.
+Evidence: test `orcvs/src/source/tick/movers.rs` `an_emitted_self_banging_function_first_moves_on_the_following_tick`.
 
 ## Scheduling a Tick
 
@@ -43,7 +43,7 @@ At Tick T: parse the Source Snapshot, establish data, activation, lock and overw
 Reason: a Note and a Bang supplied to a Play during T must sound in T wherever their producers stand.
 Not: one row-major pass; reading a frozen Snapshot.
 Sources: [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0020](../adr/0020-order-tick-effects-by-source-position.md), [ADR 0004](../adr/0004-source-functions-plan-spatial-effects.md), [ADR 0014](../adr/0014-spatial-functions-preserve-performative-behaviour.md).
-Evidence: `orcvs/src/source/tick/ordering.rs` `Progress`; tests `orcvs/src/source/tick/ordering.rs` `a_dependency_goes_before_grid_order`, `orcvs/src/source/tick/live_editing.rs` `live_cross_boundary_chain_uses_lower_producers`, `orcvs/src/source/tick/halt.rs` `halt_is_interpreted_once_per_tick`.
+Evidence: `orcvs/src/source/tick/ordering.rs` `Progress`; test `orcvs/src/source/tick/ordering.rs` `a_dependency_goes_before_grid_order`.
 
 ### EVAL-021 Source Position breaks ties between ready Turns and overrides no Dependency
 
@@ -59,7 +59,7 @@ Before a computation takes its Turn, every writer whose Reservation covers one o
 
 Reason: the consumer must see every same-Tick write that can reach it.
 Sources: [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md).
-Evidence: `orcvs/src/source/tick/dependencies.rs`; tests `orcvs/src/source/tick/live_editing.rs` `partial_writers_settle_before_consumption`, `live_pending_note_decodes_only_after_all_writers_settle`, `orcvs/src/source/tick/movers.rs` `a_mover_supplies_a_claimed_operand_before_its_consumer`.
+Evidence: `orcvs/src/source/tick/dependencies.rs`; test `orcvs/src/source/tick/live_editing.rs` `partial_writers_settle_before_consumption`.
 
 ### EVAL-023 A Reservation orders Turns; the admitted write decides what happened
 
@@ -67,7 +67,7 @@ Every value Function, root or nested, reserves the two-Cell pair at each of its 
 
 Reason: the schedule is fixed before evaluation, so it must know every Cell a write can reach.
 Sources: [ADR 0036](../adr/0036-reserve-result-cells-before-their-width-exists.md), [ADR 0061](../adr/0061-a-nested-function-returns-to-the-slot-it-occupies.md), [ADR 0063](../adr/0063-a-list-is-cells-in-a-claim-not-a-value.md).
-Evidence: `orcvs/src/source/tick/dependencies.rs`; tests `orcvs/src/source/tick/conflicts.rs` `write_claims_answer_overlapping_reservations`, `orcvs/src/source/tick/nesting.rs` `a_nested_output_portal_orders_an_earlier_consumer_after_its_writer`.
+Evidence: `orcvs/src/source/tick/dependencies.rs`; test `orcvs/src/source/tick/conflicts.rs` `write_claims_answer_overlapping_reservations`.
 
 ### EVAL-024 A static writer covering a Snapshot computation goes before it; a late write or lock refuses only that Turn's effect
 
@@ -75,7 +75,7 @@ When a static writer's Reservation covers a computation from the Source Snapshot
 
 Reason: an ordering defect costs one Turn, never the performance.
 Sources: [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md), [ADR 0065](../adr/0065-an-error-never-stops-the-performance.md).
-Evidence: `orcvs/src/source/tick/dependencies.rs` `refusal`; tests `orcvs/src/source/tick/live_editing.rs` `a_late_spatial_write_is_refused_and_the_tick_continues_even_when_the_earlier_turn_failed`, `orcvs/src/source/tick/halt.rs` `a_late_halt_lock_is_refused_and_the_tick_continues`.
+Evidence: `orcvs/src/source/tick/dependencies.rs` `refusal`; test `orcvs/src/source/tick/live_editing.rs` `a_late_spatial_write_is_refused_and_the_tick_continues_even_when_the_earlier_turn_failed`.
 
 ### EVAL-025 Placement tests occupancy in working Source at its Turn and creates no Dependency
 
@@ -84,7 +84,7 @@ An Advance or Emit reads working Source at its Turn, after every earlier admitte
 Reason: same-Tick value propagation with local placement refusal under one execution order.
 Not: Snapshot-only admission; simultaneous vacancy solving.
 Sources: [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md); ruled 2026-10-13, no ADR (`.scratch/bang-function/issues/08-decide-whether-a-mover-still-precedes-the-root-it-contacts.md`) for a moving bundle ordering no Contacts.
-Evidence: `orcvs/src/source/tick/execution.rs` `deliver_source_effect`; tests `orcvs/src/source/tick/movers.rs` `an_emission_waits_for_no_occupant_to_leave`, `a_mover_is_blocked_by_an_earlier_overwrite`.
+Evidence: `orcvs/src/source/tick/execution.rs` `deliver_source_effect`; test `orcvs/src/source/tick/movers.rs` `an_emission_waits_for_no_occupant_to_leave`.
 
 ### EVAL-026 A placement into vacated Cells overwrites no computation
 
@@ -92,7 +92,7 @@ A Snapshot computation does not keep its Cells after it moves: a placement into 
 
 Reason: a follower may move into space its leader has vacated, but cannot demand the leader go first.
 Sources: [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md).
-Evidence: test `orcvs/src/source/tick/movers.rs` `an_emission_enters_cells_a_mover_vacated_earlier_in_the_tick`, `a_movers_new_cells_can_be_overwritten_after_its_turn`.
+Evidence: test `orcvs/src/source/tick/movers.rs` `an_emission_enters_cells_a_mover_vacated_earlier_in_the_tick`.
 
 ### EVAL-027 A dynamic Input Portal's writers are found at its Turn
 
@@ -101,7 +101,7 @@ Once a Function's operands settle, its dynamic Input Portal is known, and every 
 Reason: a reader sees writers east or south of it in the same Tick without reserving every Cell it might read.
 Not: ordering a reader after every writer to the row edge, which manufactures cycles.
 Sources: [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md).
-Evidence: `orcvs/src/source/tick/ordering.rs` `continue_ordering`, `join`; tests `orcvs/src/source/tick/ordering.rs` `a_turn_that_waits_is_taken_again_after_its_writers`, `a_root_that_joins_brings_its_dependencies_into_the_rest_of_the_tick`.
+Evidence: `orcvs/src/source/tick/ordering.rs` `continue_ordering`, `join`; test `orcvs/src/source/tick/ordering.rs` `a_turn_that_waits_is_taken_again_after_its_writers`.
 
 ### EVAL-028 A dynamic writer takes its Turn as early as its inputs allow; its write onto a completed Turn is next-Tick feedback
 
@@ -110,7 +110,7 @@ Dynamic writers are ordered among themselves by what feeds them, Position breaki
 Reason: readers anywhere in the Grid see a Write's value in the same Tick, and no Turn is taken twice.
 Not: re-taking a reader's Turn after a later write.
 Sources: [ADR 0067](../adr/0067-track-reads-a-portal-as-jump-does.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md).
-Evidence: `orcvs/src/source/tick/ordering.rs` `writers_first`; tests `orcvs/src/source/tick/ordering.rs` `a_dynamic_writer_goes_before_what_does_not_feed_it`, `orcvs/src/source/tick/write.rs` `a_reader_that_feeds_the_write_sees_it_on_the_next_tick`, `a_write_onto_a_function_that_has_taken_its_turn_is_seen_next_tick`.
+Evidence: `orcvs/src/source/tick/ordering.rs` `writers_first`; test `orcvs/src/source/tick/ordering.rs` `a_dynamic_writer_goes_before_what_does_not_feed_it`.
 
 ## Portals and writes
 
@@ -128,7 +128,7 @@ A Portal whose site falls outside the Grid resolves no Cells: a read there diagn
 
 Reason: a partial write would leave Cells no Reservation described.
 Sources: [ADR 0004](../adr/0004-source-functions-plan-spatial-effects.md), [ADR 0009](../adr/0009-portals-resolve-tick-plan-destinations.md), [ADR 0020](../adr/0020-order-tick-effects-by-source-position.md), [ADR 0036](../adr/0036-reserve-result-cells-before-their-width-exists.md).
-Evidence: `orcvs/src/source/portal.rs` `Portal::admit`; tests `orcvs/src/source/tick/conflicts.rs` `test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write`, `orcvs/src/source/tick/live_editing.rs` `live_rejected_complete_write_changes_no_cell`, `orcvs/src/source/tick/outputs.rs` `a_destination_at_the_row_edge_costs_one_expression_its_turn_not_the_tick`.
+Evidence: `orcvs/src/source/portal.rs` `Portal::admit`; test `orcvs/src/source/tick/conflicts.rs` `test_a_write_whose_destination_leaves_the_grid_emits_no_partial_write`.
 
 ### EVAL-032 Admitted writes resolve Cell by Cell in execution order, then emission order
 
@@ -136,7 +136,7 @@ Effects follow execution order (EVAL-020, EVAL-021), then the order their Produc
 
 Reason: overlapping writes are deterministic without intermediate decoding.
 Sources: [ADR 0004](../adr/0004-source-functions-plan-spatial-effects.md), [ADR 0020](../adr/0020-order-tick-effects-by-source-position.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `write`; tests `orcvs/src/source/tick/conflicts.rs` `test_later_effects_win_cell_conflicts_independently`, `the_cells_of_two_overlapping_writes_are_contested_one_by_one`, `test_play_commands_and_diagnostics_keep_producer_and_emission_order`; property `orcvs/src/source/tick/live_editing.rs` `live_writes_agree_with_an_independent_cell_overlay`.
+Evidence: `orcvs/src/source/tick/execution.rs` `write`; test `orcvs/src/source/tick/conflicts.rs` `test_later_effects_win_cell_conflicts_independently`.
 
 ### EVAL-033 A Source Bundle is validated whole and writes its own Span first
 
@@ -144,7 +144,7 @@ A Source-writing Function validates every destination of its Source Bundle befor
 
 Reason: a move is one atomic effect with no half-applied state.
 Sources: [ADR 0004](../adr/0004-source-functions-plan-spatial-effects.md), [ADR 0009](../adr/0009-portals-resolve-tick-plan-destinations.md), [ADR 0020](../adr/0020-order-tick-effects-by-source-position.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `deliver_source_effect`, `fire`; tests `orcvs/src/source/tick/movers.rs` `a_self_banging_function_advances_its_whole_span_by_one_cell`, `a_move_that_leaves_the_grid_replaces_its_own_span_with_bang`.
+Evidence: `orcvs/src/source/tick/execution.rs` `deliver_source_effect`, `fire`; test `orcvs/src/source/tick/movers.rs` `a_self_banging_function_advances_its_whole_span_by_one_cell`.
 
 ### EVAL-034 A spatially written operand stays a Pending Operand Encoding until its Function takes its Turn
 
@@ -152,7 +152,7 @@ Writes into an operand are not decoded as they land and raise no intermediate de
 
 Reason: identical final characters mean the same thing however they arrived.
 Sources: [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md).
-Evidence: `orcvs/src/source/tick/inputs.rs`; tests `orcvs/src/source/tick/live_editing.rs` `live_pending_note_decodes_only_after_all_writers_settle`, `orcvs/src/source/tick/nesting.rs` `a_return_and_a_portal_decode_the_same_characters_the_same_way`.
+Evidence: `orcvs/src/source/tick/inputs.rs`; test `orcvs/src/source/tick/live_editing.rs` `live_pending_note_decodes_only_after_all_writers_settle`.
 
 ### EVAL-035 A failure in one delivery leaves the others standing
 
@@ -160,7 +160,7 @@ A refused spatial write keeps the Function's answer for its parent's Return. A p
 
 Reason: an error costs the computation it occurs in, not its neighbours.
 Sources: [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0065](../adr/0065-an-error-never-stops-the-performance.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `deliver_value`, `project_value`; tests `orcvs/src/source/tick/live_editing.rs` `live_child_write_survives_parent_failure_and_rejected_portal_keeps_its_return`, `live_failed_suppliers_preserve_spatial_data_but_not_nested_answers`, `orcvs/src/source/tick/outputs.rs` `an_activated_consumer_uses_surviving_cells_after_supplier_failure`.
+Evidence: `orcvs/src/source/tick/execution.rs` `deliver_value`, `project_value`; test `orcvs/src/source/tick/live_editing.rs` `live_child_write_survives_parent_failure_and_rejected_portal_keeps_its_return`.
 
 ### EVAL-036 A result writes only its own encoding
 
@@ -168,7 +168,7 @@ A result never clears Cells outside the pair it writes.
 
 Reason: what stands beside a result is Source the result does not own.
 Sources: [ADR 0009](../adr/0009-portals-resolve-tick-plan-destinations.md).
-Evidence: test `orcvs/src/source/tick/tick_functions.rs` `increment_writes_its_current_encoding_and_leaves_a_stale_tail` (assertions inspected).
+Evidence: test `orcvs/src/source/tick/tick_functions.rs` `increment_writes_its_current_encoding_and_leaves_a_stale_tail`.
 
 ## Replacement and suppression
 
@@ -179,7 +179,7 @@ A write that lands a Function Atom on the anchor of a computation still to take 
 Reason: the schedule was derived from those four facts, so a replacement that changes one would run on edges that no longer describe it.
 Not: replacements that change activation or output kind, newly anchored code, or changed destinations; ADR 0034 defers them.
 Sources: [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md), [ADR 0036](../adr/0036-reserve-result-cells-before-their-width-exists.md).
-Evidence: `orcvs/src/source/tick/dependencies.rs` `Refusal::Replacement`; `lang/src/atom.rs`; tests `orcvs/src/source/tick/replacement.rs` `a_replacement_that_changes_only_the_activation_source_is_refused`, `live_the_second_replacement_at_one_anchor_replaces_the_first`, `live_function_replacement_keeps_nesting_and_reinterprets_only_literals`, `original_anchor_function_replacement_retains_inputs`.
+Evidence: `orcvs/src/source/tick/dependencies.rs` `Refusal::Replacement`; `lang/src/atom.rs`; test `orcvs/src/source/tick/replacement.rs` `a_replacement_that_changes_only_the_activation_source_is_refused`.
 
 ### EVAL-041 A value written over a computation replaces it as an input or suppresses its Turn
 
@@ -195,7 +195,7 @@ Activation of a root includes its nested Functions. A nested Function's Output P
 
 Reason: a nested Function belongs to its Expression.
 Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md).
-Evidence: tests `orcvs/src/source/tick/live_editing.rs` `live_inactive_ownership_and_silent_terminal_output_are_independent`, `orcvs/src/source/tick/replacement.rs` `live_deep_and_top_level_replacement_suppress_descendant_portals`.
+Evidence: test `orcvs/src/source/tick/live_editing.rs` `live_inactive_ownership_and_silent_terminal_output_are_independent`.
 
 ## Activation, Halt and placement
 
@@ -213,7 +213,7 @@ For a Bang anchored at `(x, y)`, the aligned root anchors are `(x, y-1)`, `(x, y
 
 Reason: a Note and a Bang supplied in Tick T must sound in T.
 Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md), [ADR 0071](../adr/0071-a-bang-travels-as-its-glyph.md).
-Evidence: `orcvs/src/source/tick/dependencies.rs` `bang_root`; tests `orcvs/src/source/tick/bang_activation.rs` `a_bang_activates_its_aligned_neighbours_and_no_further_root`, `a_bang_rejected_in_a_typed_operand_never_activates`.
+Evidence: `orcvs/src/source/tick/dependencies.rs` `bang_root`; test `orcvs/src/source/tick/bang_activation.rs` `a_bang_activates_its_aligned_neighbours_and_no_further_root`.
 
 ### EVAL-052 Several Bangs give a root one Turn, and a Turn already taken is not revisited
 
@@ -229,7 +229,7 @@ A Halt's lock is an Effect of its Turn, ordered before its target's Turn, and ho
 
 Reason: Halt acts on activation itself rather than moving a value.
 Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md), [ADR 0014](../adr/0014-spatial-functions-preserve-performative-behaviour.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `lock_portal`; tests `orcvs/src/source/tick/halt.rs` `an_active_halt_locks_the_complete_root_one_row_south`, `an_empty_halt_target_is_a_noop`, `an_occupied_non_root_halt_target_diagnoses`, `a_halt_aimed_at_comment_text_locks_nothing_and_does_not_diagnose`, `an_active_halt_locks_a_bang_function`, `a_suppressed_halt_does_not_lock_its_own_target`.
+Evidence: `orcvs/src/source/tick/execution.rs` `lock_portal`; test `orcvs/src/source/tick/halt.rs` `an_active_halt_locks_the_complete_root_one_row_south`.
 
 ### EVAL-054 A Self-Banging Function advances one Cell into empty Cells or leaves `**`
 
@@ -237,7 +237,7 @@ At its Turn a Self-Banging Function tests only the Cells newly entered by a one-
 
 Reason: direction and all cross-Tick state stay visible in Source.
 Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0014](../adr/0014-spatial-functions-preserve-performative-behaviour.md), [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md), [ADR 0020](../adr/0020-order-tick-effects-by-source-position.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `deliver_source_effect`; tests `orcvs/src/source/tick/movers.rs` `a_mover_diagnoses_partial_contact_with_a_blocked_movers_bang`, `orcvs/src/source/tick/bang_function.rs` `a_blocked_mover_activates_nothing_and_its_bang_plays_on_the_next_tick`.
+Evidence: `orcvs/src/source/tick/execution.rs` `deliver_source_effect`; test `orcvs/src/source/tick/movers.rs` `a_mover_diagnoses_partial_contact_with_a_blocked_movers_bang`.
 
 ### EVAL-055 A Directional Bang Function emits only into a complete, empty, in-Grid destination
 
@@ -245,7 +245,7 @@ When activated, a Directional Bang Function at `(x, y)` writes its Self-Banging 
 
 Reason: a producer that stays standing has no Cells of its own to show a refusal.
 Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md).
-Evidence: tests `orcvs/src/source/tick/movers.rs` `an_active_directional_bang_function_emits_its_self_banging_function`, `a_refused_emission_diagnoses_and_writes_no_cell`.
+Evidence: test `orcvs/src/source/tick/movers.rs` `an_active_directional_bang_function_emits_its_self_banging_function`.
 
 ### EVAL-056 Collisions are decided by Turn order alone
 
@@ -253,7 +253,7 @@ Contending placements each take their own refusal; whoever's Turn comes first fi
 
 Reason: no rule beyond the evaluation machine; mutual consumption would need Turns that depend on each other.
 Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md).
-Evidence: tests `orcvs/src/source/tick/movers.rs` `an_odd_gap_leaves_the_earlier_mover_the_cell_and_the_later_one_bangs`, `converging_movers_resolve_pairwise_in_source_order`, `a_mover_flush_against_a_directional_bang_function_bangs_rather_than_costing_the_tick`, `an_emission_contest_follows_the_order_its_activation_imposes`.
+Evidence: test `orcvs/src/source/tick/movers.rs` `an_odd_gap_leaves_the_earlier_mover_the_cell_and_the_later_one_bangs`.
 
 ### EVAL-057 The Bang Function's Turn activates its aligned roots and clears its two Cells
 
@@ -261,7 +261,7 @@ A standalone `**` takes its Turn like any intrinsically active Producer: it acti
 
 Reason: whether a `**` fires depends only on the Source Snapshot and the absolute Tick.
 Sources: [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md), [ADR 0073](../adr/0073-a-function-with-nothing-to-write-answers-nothing.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `fire`; tests `orcvs/src/source/tick/bang_function.rs` `a_typed_bang_plays_once_on_the_next_tick_and_is_cleared`, `identical_snapshots_at_the_same_tick_plan_the_same_tick`, `orcvs/src/source/tick/halt.rs` `an_active_halt_locks_a_bang_function`, `orcvs/src/source/tick/movers.rs` `a_copy_reads_a_dynamic_write_over_cells_a_fired_bang_cleared`.
+Evidence: `orcvs/src/source/tick/execution.rs` `fire`; test `orcvs/src/source/tick/bang_function.rs` `a_typed_bang_plays_once_on_the_next_tick_and_is_cleared`.
 
 ## Time and feedback inputs
 
@@ -271,7 +271,7 @@ Each Tick is planned at an unsigned absolute Tick supplied by Playback; each exe
 
 Reason: the same Snapshot at the same Tick answers the same step.
 Sources: [ADR 0012](../adr/0012-time-and-feedback-are-explicit-tick-inputs.md), [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md).
-Evidence: `lang/src/tick.rs` `Tick`, `TickInputs`; tests `orcvs/src/source/tick/tick_functions.rs` `the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor`, `the_tick_functions_answer_about_the_absolute_tick_they_are_planned_at` (assertions inspected).
+Evidence: `lang/src/tick.rs` `Tick`, `TickInputs`; test `orcvs/src/source/tick/tick_functions.rs` `the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor`.
 
 ### EVAL-061 Clock answers `floor(Tick / division) % steps`
 
@@ -279,7 +279,7 @@ Arithmetic is in an integer wider than a byte. A zero `division` or `steps` diag
 
 Reason: the cycle is `division * steps` Ticks; a higher division is slower, as on a clock divider.
 Sources: [ADR 0012](../adr/0012-time-and-feedback-are-explicit-tick-inputs.md).
-Evidence: `lang/src/functions/tick.rs`; tests in the same file `clock_counts_one_step_per_division_ticks_and_wraps_at_its_steps`, `clock_counts_a_cycle_of_more_ticks_than_a_byte_holds`, `clock_diagnoses_a_zero_division_before_zero_steps`.
+Evidence: `lang/src/functions/tick.rs`; test `clock_counts_one_step_per_division_ticks_and_wraps_at_its_steps` in the same file.
 
 ### EVAL-062 Every Bangs exactly when `Tick % (division * steps) == 0`, Tick 0 included
 
@@ -287,7 +287,7 @@ On every other Tick it answers a Clear. The product is taken in a wider integer;
 
 Reason: `steps` of `01` is one Bang per `division` Ticks, not one every Tick.
 Sources: [ADR 0012](../adr/0012-time-and-feedback-are-explicit-tick-inputs.md), [ADR 0073](../adr/0073-a-function-with-nothing-to-write-answers-nothing.md).
-Evidence: `lang/src/functions/tick.rs`; tests `every_bangs_once_per_cycle_beginning_at_the_first_tick`, `every_with_one_step_bangs_once_per_division_ticks_rather_than_every_tick`, `every_counts_a_cycle_product_wider_than_a_byte`.
+Evidence: `lang/src/functions/tick.rs`; test `every_bangs_once_per_cycle_beginning_at_the_first_tick` in the same file.
 
 ### EVAL-063 Euclidean Bangs where Tidal's `bjorklund (hits, steps)` places an onset at `Tick % steps`
 
@@ -296,7 +296,7 @@ This holds for every `steps` `01`–`FF` and `hits` `00`–`steps`; every patter
 Reason: a pattern copied from Tidal sounds the same in Orcvs.
 Not: Orca's `U` rotation.
 Sources: [ADR 0012](../adr/0012-time-and-feedback-are-explicit-tick-inputs.md).
-Evidence: `lang/src/functions/tick.rs`; tests `euclidean_matches_tidals_bjorklund_for_every_pattern_up_to_32_steps` (assertions inspected), `euclidean_matches_tidals_bjorklund_up_to_a_byte_of_steps`, `orcvs/src/source/tick/tick_functions.rs` `a_tick_function_with_no_cycle_diagnoses_and_writes_nothing`.
+Evidence: `lang/src/functions/tick.rs`; test `euclidean_matches_tidals_bjorklund_for_every_pattern_up_to_32_steps` in the same file.
 
 ### EVAL-064 Increment and Slew keep their state in Source at one Portal
 
@@ -304,7 +304,7 @@ Their Input and Output Portal are the same site, one row south. The previous val
 
 Reason: the complete cross-Tick state stays visible as one Atom.
 Sources: [ADR 0012](../adr/0012-time-and-feedback-are-explicit-tick-inputs.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md).
-Evidence: `lang/src/functions/tick.rs`; tests `orcvs/src/source/tick/tick_functions.rs` `an_empty_portal_initialises_increment_and_slew_as_zero`, `feedback_reads_a_portal_write_from_an_earlier_turn`, `a_previous_that_is_not_a_number_diagnoses_and_writes_nothing` (assertions inspected), `lang/src/functions/tick.rs` `cell_operand_faults_precede_an_invalid_portal_input`.
+Evidence: `lang/src/functions/tick.rs`; test `orcvs/src/source/tick/tick_functions.rs` `an_empty_portal_initialises_increment_and_slew_as_zero`.
 
 ### EVAL-065 Increment answers `(previous + amount) % modulus` in a wider integer
 
@@ -312,7 +312,7 @@ A zero `modulus` diagnoses.
 
 Reason: `FF + 02` cannot wrap before the modulus applies.
 Sources: [ADR 0012](../adr/0012-time-and-feedback-are-explicit-tick-inputs.md).
-Evidence: `lang/src/functions/tick.rs`; tests `increment_adds_in_a_wider_integer_before_the_modulus`, `increment_diagnoses_a_zero_modulus`.
+Evidence: `lang/src/functions/tick.rs`; test `increment_adds_in_a_wider_integer_before_the_modulus` in the same file.
 
 ### EVAL-066 Slew moves toward `target` by at most `amount` and never overshoots
 
@@ -320,7 +320,7 @@ Below the target it steps up by `amount` or lands on it; above, down the same wa
 
 Reason: a jump in the target becomes a ramp without underflow.
 Sources: [ADR 0012](../adr/0012-time-and-feedback-are-explicit-tick-inputs.md).
-Evidence: `lang/src/functions/tick.rs`; tests `slew_moves_toward_target_without_overshoot`, `slew_holds_when_its_amount_is_zero`.
+Evidence: `lang/src/functions/tick.rs`; test `slew_moves_toward_target_without_overshoot` in the same file.
 
 ## Errors and cycles
 
@@ -330,7 +330,7 @@ Every Tick publishes the effects of every Expression that does not depend on a f
 
 Reason: Orcvs is played live and a performer makes mistakes while it plays.
 Sources: [ADR 0065](../adr/0065-an-error-never-stops-the-performance.md).
-Evidence: tests `orcvs/src/source/tick/outputs.rs` `a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing`, `orcvs/src/source/tick/movers.rs` `a_blocked_pair_of_moves_leaves_the_rest_of_the_grid_running`.
+Evidence: test `orcvs/src/source/tick/outputs.rs` `a_row_edge_fragment_diagnoses_its_own_expression_and_leaves_the_tick_playing`.
 
 ### EVAL-071 A same-Tick cycle stops the Expressions on it and those that depend on them
 
@@ -339,7 +339,7 @@ An Expression depends on a stopped one when any of its computations reads Cells 
 Reason: one mistake must not silence the Grid, and no part of a cycle runs in an order the Source does not determine.
 Not: breaking the cycle at an arbitrary edge; delaying it a Tick.
 Sources: [ADR 0065](../adr/0065-an-error-never-stops-the-performance.md), [ADR 0034](../adr/0034-execute-against-live-typed-expressions.md), [ADR 0060](../adr/0060-value-inputs-wait-placement-tests-occupancy.md), [ADR 0014](../adr/0014-spatial-functions-preserve-performative-behaviour.md).
-Evidence: `orcvs/src/source/tick/ordering.rs` `cycle_closure`, `stall`; tests `orcvs/src/source/tick/cycles.rs` `a_cycle_leaves_an_independent_expression_publishing`, `live_cycles_stop_only_the_expressions_they_reach` (assertions inspected).
+Evidence: `orcvs/src/source/tick/ordering.rs` `cycle_closure`, `stall`; test `orcvs/src/source/tick/cycles.rs` `a_cycle_leaves_an_independent_expression_publishing`.
 
 ### EVAL-072 Each cycle is diagnosed once, and each Expression it starves is diagnosed at its root
 
@@ -347,7 +347,7 @@ A cycle is diagnosed ("same-Tick dependency cycle") at the first computation on 
 
 Reason: a performer can tell a cycle from what it starved.
 Sources: [ADR 0065](../adr/0065-an-error-never-stops-the-performance.md).
-Evidence: tests `orcvs/src/source/tick/cycles.rs` `each_separate_cycle_is_diagnosed_once`, `an_expression_a_cycle_stops_is_diagnosed_at_its_root_as_waiting`, `an_inactive_root_a_cycle_writes_over_is_not_reported_as_waiting` (assertions inspected).
+Evidence: test `orcvs/src/source/tick/cycles.rs` `each_separate_cycle_is_diagnosed_once`.
 
 ### EVAL-073 A cycle found at a Turn keeps every completed Turn's Effects
 
@@ -355,7 +355,7 @@ When a Dependency found at a Turn (EVAL-027) closes a cycle, every remaining com
 
 Reason: discarding one write would leave its consequences standing; rolling back all of them would need replanning.
 Sources: [ADR 0068](../adr/0068-a-discovered-cycle-preserves-completed-turns.md).
-Evidence: tests `orcvs/src/source/tick/track.rs` `a_cycle_discovered_by_a_nested_track_stops_its_sibling` (assertions inspected), `a_late_cycle_preserves_a_completed_nested_operands_write`.
+Evidence: test `orcvs/src/source/tick/track.rs` `a_cycle_discovered_by_a_nested_track_stops_its_sibling`.
 
 ## The Evaluator
 
@@ -373,7 +373,7 @@ An operand list whose length differs from the signature is refused before the st
 
 Reason: the bound follows the declaration, not the program.
 Sources: [ADR 0028](../adr/0028-specify-the-orcvs-evaluation-machine.md).
-Evidence: `lang/src/stack.rs` `Stack::new`, `push`; tests `no_function_declares_more_operands_than_the_inline_storage_holds`, `an_exhausted_operand_stack_diagnoses_rather_than_panicking`, `orcvs/src/source/tick/nesting.rs` `a_tick_over_a_chain_deeper_than_any_signature_interprets_every_link`.
+Evidence: `lang/src/stack.rs` `Stack::new`, `push`; test `no_function_declares_more_operands_than_the_inline_storage_holds` in the same file.
 
 ### EVAL-082 The instruction set is declared once and dispatch is exhaustive
 
@@ -389,7 +389,7 @@ A complete transposition of two Role declarations compiles; only a test whose op
 
 Reason: nothing derived from the single declaration can carry that guarantee.
 Sources: [ADR 0028](../adr/0028-specify-the-orcvs-evaluation-machine.md).
-Evidence: tests `lang/src/functions/math.rs` `the_non_commutative_functions_read_left_and_right_in_signature_order`, `lang/src/functions/mod.rs` `play_carries_each_operand_into_the_role_its_signature_names` (and the Timed, Monophonic, Control Change and Pitch Bend counterparts), `lang/src/functions/chord.rs` `each_operand_reaches_the_role_its_signature_names`.
+Evidence: test `lang/src/functions/math.rs` `the_non_commutative_functions_read_left_and_right_in_signature_order`.
 
 ## Commit
 
@@ -399,7 +399,7 @@ Planning takes one revision's Grid, Cells (shared copy-on-write), Language Map a
 
 Reason: editing and rendering do not wait for planning, and EVAL-011 makes snapshot planning equal to planning in place.
 Sources: [ADR 0057](../adr/0057-a-tick-commits-only-the-revision-it-planned.md).
-Evidence: `orcvs/src/source/planning.rs` `PlannedTick::commit`; tests `a_captured_snapshot_holds_no_source_lock`, `an_edit_between_plan_and_commit_is_never_overwritten` (assertions inspected).
+Evidence: `orcvs/src/source/planning.rs` `PlannedTick::commit`; test `a_captured_snapshot_holds_no_source_lock` in the same file.
 
 ### EVAL-091 A refused plan publishes nothing and the Tick is planned again at the same absolute Tick
 
@@ -408,7 +408,7 @@ A plan whose revision no longer matches is dropped whole: its Cell writes, Play 
 Reason: an edit made while a Tick plans is never overwritten (Live Editing).
 Not: merging a plan onto a new revision; skipping the Tick.
 Sources: [ADR 0057](../adr/0057-a-tick-commits-only-the-revision-it-planned.md).
-Evidence: tests `orcvs/src/source/planning.rs` `a_refused_plan_carrying_play_commands_delivers_none_of_them`, `consecutive_accepted_ticks_apply_in_order_across_refused_plans`.
+Evidence: test `orcvs/src/source/planning.rs` `a_refused_plan_carrying_play_commands_delivers_none_of_them`.
 
 ### EVAL-092 After three refused attempts a Tick is planned and committed under one write guard
 
@@ -416,7 +416,7 @@ That attempt cannot be refused, so a Tick ends in one committed plan after at mo
 
 Reason: unbounded optimism would let a continuous writer stall Playback.
 Sources: [ADR 0057](../adr/0057-a-tick-commits-only-the-revision-it-planned.md).
-Evidence: `orcvs/src/source/mod.rs` `OPTIMISTIC_TICK_ATTEMPTS`; tests `orcvs/src/source/planning.rs` `a_tick_conflicting_on_every_optimistic_attempt_commits_once_under_the_lock`, `ticks_under_continuous_editing_terminate_and_count_once`.
+Evidence: `orcvs/src/source/mod.rs` `OPTIMISTIC_TICK_ATTEMPTS`; test `orcvs/src/source/planning.rs` `a_tick_conflicting_on_every_optimistic_attempt_commits_once_under_the_lock`.
 
 ### EVAL-093 An uncontended Tick copies no Cells
 
@@ -424,7 +424,7 @@ A planning snapshot shares the Source's Cells; they are copied once, by an edit 
 
 Reason: snapshot planning costs a reference count, not a Grid copy.
 Sources: [ADR 0057](../adr/0057-a-tick-commits-only-the-revision-it-planned.md).
-Evidence: `orcvs/src/source/buffer.rs`; tests `orcvs/src/source/planning.rs` `a_snapshot_shares_the_cells_rather_than_copying_them`, `orcvs/tests/allocation.rs` `a_playback_tick_allocates_no_more_than_the_locked_tick`.
+Evidence: `orcvs/src/source/buffer.rs`; test `orcvs/src/source/planning.rs` `a_snapshot_shares_the_cells_rather_than_copying_them`.
 
 ### EVAL-094 A Render Frame reads a Source revision and never advances Playback
 
@@ -432,7 +432,7 @@ A Render Frame is not a Tick: deriving one reads a captured Source revision, wit
 
 Reason: Render Frames run at the UI's rate, independently of musical time; the Playback Engine alone owns musical time and the Tick count.
 Sources: [ADR 0002](../adr/0002-playback-engine-owns-lifecycle-concurrency.md), [ADR 0001](../adr/0001-separate-source-interpretation-from-playback-engine.md), [ADR 0057](../adr/0057-a-tick-commits-only-the-revision-it-planned.md); CONTEXT.md Render Frame.
-Evidence: `orcvs/src/render_frame.rs` `RenderFrame::derive`; test `orcvs/src/render_frame.rs` `concurrent_ticks_cannot_mix_source_revisions_within_a_render_frame` (assertions inspected: a frame reads one revision while Ticks run elsewhere).
+Evidence: `orcvs/src/render_frame.rs` `RenderFrame::derive`; test `orcvs/src/render_frame.rs` `concurrent_ticks_cannot_mix_source_revisions_within_a_render_frame`.
 
 ## Tick Portals
 
@@ -459,7 +459,7 @@ A read (Declared or Selected) is recorded once its Turn passes the writer wait, 
 
 Reason: the record says what each Turn did, including refusals.
 Sources: [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md).
-Evidence: `orcvs/src/source/tick/execution.rs` `record_read`, `record_write`, `record_bundle`; tests `orcvs/src/source/tick/replacement.rs` `a_refused_replacement_keeps_its_reason_in_the_record_and_paints_nothing`, `orcvs/src/source/tick/halt.rs` `a_missed_lock_is_recorded_with_the_root_it_missed`.
+Evidence: `orcvs/src/source/tick/execution.rs` `record_read`, `record_write`, `record_bundle`; test `orcvs/src/source/tick/replacement.rs` `a_refused_replacement_keeps_its_reason_in_the_record_and_paints_nothing`.
 
 ### EVAL-105 The record commits through the one commit path and every committed Tick replaces it
 
@@ -467,7 +467,7 @@ The optimistic and locked attempts hand the same commit one executed Tick holdin
 
 Reason: no record can be committed beside a plan it does not observe.
 Sources: [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md).
-Evidence: tests `orcvs/src/source/planning.rs` `a_refused_plan_publishes_no_tick_portals_and_the_locked_attempt_does`, `orcvs/src/source/mod.rs` `a_committed_tick_that_reads_nothing_replaces_the_record_with_an_empty_one`.
+Evidence: test `orcvs/src/source/planning.rs` `a_refused_plan_publishes_no_tick_portals_and_the_locked_attempt_does`.
 
 ### EVAL-106 A Source revision answers the last record as Current or Retained
 
@@ -476,7 +476,7 @@ The record is `Current` for the revision its commit left and `Retained` for a re
 Reason: a paused tracker keeps showing what its last Tick read.
 Not: dropping the record at the first edit.
 Sources: [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md).
-Evidence: `orcvs/src/source/mod.rs` `freshness`, `tick_portals`; tests `a_source_answers_no_tick_portals_before_its_first_tick`, `a_revision_an_edit_made_after_the_commit_answers_the_record_as_retained`, `an_older_revision_keeps_the_record_it_was_read_with` in the same file.
+Evidence: `orcvs/src/source/mod.rs` `freshness`, `tick_portals`; test `a_source_answers_no_tick_portals_before_its_first_tick` in the same file.
 
 ## Accepted but not built, or built differently
 

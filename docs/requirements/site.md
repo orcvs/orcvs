@@ -30,7 +30,7 @@ stored Source.
 Reason: a link is how a reader is sent one Source, and `/play/` keeps both forms beside the small
 console's messages.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md) (Consequences), [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md).
-Evidence: `console/src/linked_source.rs` `opening`, `source_from`, `percent_decoded`; `console/src/console.rs` `Console::start_at`; tests `console/src/linked_source.rs` `an_example_name_opens_that_example`, `source_text_opens_as_a_source_file`, `a_plus_is_a_plus_not_a_space`, `every_byte_round_trips_through_the_source_file_writer` (assertions inspected).
+Evidence: `console/src/linked_source.rs` `opening`, `source_from`, `percent_decoded`; `console/src/console.rs` `Console::start_at`; test `console/src/linked_source.rs` `an_example_name_opens_that_example`.
 
 ### SITE-021 A Linked Console opens stopped and never reads or writes saved work
 
@@ -40,7 +40,7 @@ plain `orcvs.com` opens that work again. Edits in a Linked Console are not saved
 
 Reason: a link someone sends must not play by itself or overwrite the reader's own Source.
 Sources: [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md), [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
-Evidence: `console/src/console.rs` `Console::new` (`stores_source`), `Console::save`; tests `console/src/console/storage_tests.rs` `a_linked_console_neither_restores_nor_stores_the_source`, `console/src/console/tests.rs` `a_linked_source_opens_stopped_and_frames_never_start_it` (assertions inspected).
+Evidence: `console/src/console.rs` `Console::new` (`stores_source`), `Console::save`; test `console/src/console/storage_tests.rs` `a_linked_console_neither_restores_nor_stores_the_source`.
 
 ### SITE-022 A link's text, a sent Source and a copied link share one byte limit
 
@@ -51,7 +51,7 @@ link.
 Reason: one limit means a link the console copies always opens, and a message can carry no more
 than a link.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md), [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md).
-Evidence: `console/src/linked_source.rs` `source_from`, `source_message`, `link`; tests `text_over_the_limit_is_refused_before_decoding`, `a_message_over_the_limit_or_not_a_source_file_is_refused`, `a_source_whose_link_is_over_the_limit_is_refused` (assertions inspected).
+Evidence: `console/src/linked_source.rs` `source_from`, `source_message`, `link`; test `text_over_the_limit_is_refused_before_decoding` in the same file.
 
 ### SITE-024 Link names are the console's, and are public
 
@@ -74,7 +74,7 @@ the page.
 Reason: a page shows many examples beside one running console, and none of them may touch the
 reader's work.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md), [ADR 0089](../adr/0089-the-panel-plays-and-rewinds.md) (every console shows the Panel).
-Evidence: `console/src/linked_source.rs` `opening` (`Opening::Small`); `console/src/console.rs` `Console::new`; tests `console/src/linked_source.rs` `small_opens_the_small_console`, `console/src/console/kittest_tests.rs` `a_small_console_shows_no_menu_bar` (assertions inspected).
+Evidence: `console/src/linked_source.rs` `opening` (`Opening::Small`); `console/src/console.rs` `Console::new`; test `console/src/linked_source.rs` `small_opens_the_small_console`.
 
 ### SITE-011 The Small Console shows a notice bar only while it has notices
 
@@ -82,7 +82,7 @@ While the Small Console has notices, it shows a bar holding only those notices.
 
 Reason: a refused Source has to say why the open one stayed.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
-Evidence: `console/src/console/menu_bar.rs` `show_notice_bar`; test `console/src/console/kittest_tests.rs` `a_small_console_shows_a_refused_source_s_notice` (assertions inspected).
+Evidence: `console/src/console/menu_bar.rs` `show_notice_bar`; test `console/src/console/kittest_tests.rs` `a_small_console_shows_a_refused_source_s_notice`.
 
 ### SITE-012 The console opens only `orcvs.open` messages from its framing page and origin
 
@@ -93,7 +93,7 @@ origin, a message of another type, and a message without a string `source`.
 Reason: otherwise any page that frames the console could replace its Source.
 Not: accepting messages from any origin.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
-Evidence: `console/src/web_startup.rs` `listen_to_page`; test `site/tests/reference.spec.ts` "pressing an example opens it in the page's small console" (happy path only).
+Evidence: `console/src/web_startup.rs` `listen_to_page`; test `site/tests/reference.spec.ts` "pressing an example opens it in the page's small console".
 
 ### SITE-013 A sent Source opens stopped, or is refused with a notice
 
@@ -104,7 +104,7 @@ cannot start Playback.
 
 Reason: a message is a link without a reload, and keeps a link's guarantees.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
-Evidence: `console/src/linked_source.rs` `source_message`; `console/src/console/files.rs` `open_sent_source`; tests `console/src/console/tests.rs` `a_small_console_opens_each_message_it_is_sent_stopped`, `a_small_console_keeps_its_source_when_a_message_is_refused`, `site/tests/lesson.spec.ts` "pressing two Grids opens each in the one small console, stopped" (assertions inspected).
+Evidence: `console/src/linked_source.rs` `source_message`; `console/src/console/files.rs` `open_sent_source`; test `console/src/console/tests.rs` `a_small_console_opens_each_message_it_is_sent_stopped`.
 
 ### SITE-014 Only the latest message waiting for a frame opens
 
@@ -122,7 +122,7 @@ job.
 
 Reason: the console listens only once its WASM runs, so anything posted earlier would be lost.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md) (Consequences).
-Evidence: `console/src/web_startup.rs` `listen_to_page`; `site/src/console/small.ts` `start`, `fail`; test `site/tests/reference.spec.ts` "a console that does not start says so, and the next press starts another" (assertions inspected).
+Evidence: `console/src/web_startup.rs` `listen_to_page`; `site/src/console/small.ts` `start`, `fail`; test `site/tests/reference.spec.ts` "a console that does not start says so, and the next press starts another".
 
 ### SITE-016 A page that shows examples holds one Small Console
 
@@ -131,7 +131,7 @@ A page with examples holds one Small Console and sends it each example by messag
 Reason: a console per example pays a WASM start for each one.
 Not: a console per example, or opening examples in a new tab or window.
 Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md).
-Evidence: `site/src/console/small.ts`; test `site/tests/lesson.spec.ts` "pressing two Grids opens each in the one small console, stopped" (asserts one frame; assertions inspected).
+Evidence: `site/src/console/small.ts`; test `site/tests/lesson.spec.ts` "pressing two Grids opens each in the one small console, stopped".
 
 ## The site's pages
 
@@ -145,7 +145,7 @@ once, when the page loads. Editing the fragment of an open page changes nothing 
 Reason: a link to the site has to name an example and still play through the page's synth.
 Not: the console writing its link into the address bar, because a reload would drop the reader's edits.
 Sources: [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md).
-Evidence: `site/src/pages/index.astro`; tests `site/tests/smoke.spec.ts` "`/${link}` frames `/play/${link}`" (assertions inspected).
+Evidence: `site/src/pages/index.astro`; test `site/tests/smoke.spec.ts` "`/${link}` frames `/play/${link}`".
 
 ### SITE-031 The home page is the console
 
@@ -154,7 +154,7 @@ below it.
 
 Reason: "The site should be the console."
 Sources: ruled 2026-10-26, no ADR (`.scratch/site-as-console/spec.md`); [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md).
-Evidence: `site/src/pages/index.astro`; test `site/tests/smoke.spec.ts` "/ is the console, filling the window above the Sound Module" (assertions inspected).
+Evidence: `site/src/pages/index.astro`; test `site/tests/smoke.spec.ts` "/ is the console, filling the window above the Sound Module".
 
 ### SITE-032 Pages carry the repository's docs, draw each Source as a Grid, and open no new window
 
@@ -165,7 +165,7 @@ that Source to the page's Small Console (SITE-016). Nothing on the site opens a 
 Reason: "I do not want your copy", "Function source code references should use a grid", "Launching
 examples in a new window is bad".
 Sources: ruled 2026-10-26, no ADR (`.scratch/site-as-console/spec.md`).
-Evidence: `site/src/console/docs.ts`, `site/src/console/grid.ts`; tests `site/tests/lesson.spec.ts` "the lesson is docs/first-result.md, heading for heading", `site/tests/reference.spec.ts` "every example is a Grid, and every starting Source opens in the console", `site/tests/smoke.spec.ts` "nothing on the site opens a new tab or window" (assertions inspected).
+Evidence: `site/src/console/docs.ts`, `site/src/console/grid.ts`; test `site/tests/lesson.spec.ts` "the lesson is docs/first-result.md, heading for heading".
 
 ## The Sound Module
 
@@ -191,7 +191,7 @@ plays the effects a Source sets but shows no Sound Module.
 Reason: it reads as part of the console rather than a control panel beside it.
 Not: page HTML knobs and lights, or a bar of glyphs for the magnitude.
 Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) and its 2026-11-14 amendment.
-Evidence: `site/src/console/sound-module.ts` `soundModule`; `site/src/console/sound-module.css`; tests `site/tests/sound-module.spec.ts` "the Sound Module draws its lights and effects at their load values", "each effect's Cells name the effect and its Control Change on hover" (assertions inspected).
+Evidence: `site/src/console/sound-module.ts` `soundModule`; `site/src/console/sound-module.css`; test `site/tests/sound-module.spec.ts` "the Sound Module draws its lights and effects at their load values".
 
 ### SITE-034 A channel lights for 150 ms when a Note On sounds it, and shows no level
 
@@ -200,7 +200,7 @@ goes dim again 150 ms later. A channel shows no level.
 
 Reason: a light at velocity would read as one of the effects.
 Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md).
-Evidence: `site/src/console/sound-module.ts` `hear`, `SOUNDING_MS`; test `site/tests/sound-module.spec.ts` "a Note On from the console shows its channel as sounding, then idle" (assertions inspected).
+Evidence: `site/src/console/sound-module.ts` `hear`, `SOUNDING_MS`; test `site/tests/sound-module.spec.ts` "a Note On from the console shows its channel as sounding, then idle".
 
 ### SITE-035 The effects show the chosen channel's values, and follow the stream until the reader chooses
 
@@ -218,7 +218,7 @@ hears on its page, whoever sent them. Its effect columns show the chosen channel
 Reason: each channel has its own effects, and a musician's other gear never lets one channel's
 controller change another's.
 Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) (2026-11-14 amendment).
-Evidence: `site/src/console/sound-module.ts` `choose`, `pick`, `hear`; tests `site/tests/sound-module.spec.ts` "a Control Change from the console shows as its effect's value on its channel", "until the reader chooses a channel, the effects follow the channel a Control Change is on", "the keyboard chooses a channel", "Reset All Controllers moves no choice the effects followed" (assertions inspected).
+Evidence: `site/src/console/sound-module.ts` `choose`, `pick`, `hear`; test `site/tests/sound-module.spec.ts` "a Control Change from the console shows as its effect's value on its channel".
 
 ### SITE-036 The reader types values as on the Grid, and each change is sent as a Control Change on the chosen channel
 
@@ -235,7 +235,7 @@ hear one stream.
 
 Reason: typing matches the Grid and leaves dragging and scrolling to the page.
 Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) and its 2026-11-14 amendment.
-Evidence: `site/src/console/sound-module.ts` keydown handler, `send`, `place`; tests `site/tests/sound-module.spec.ts` "typing on a value writes it as the Grid does, and sends its Control Change", "typing on a value sends its Control Change on the chosen channel" (assertions inspected).
+Evidence: `site/src/console/sound-module.ts` keydown handler, `send`, `place`; test `site/tests/sound-module.spec.ts` "typing on a value writes it as the Grid does, and sends its Control Change".
 
 ### SITE-037 Values reset on every load, and the acid channel shows the acid voice's controls
 
@@ -249,7 +249,7 @@ other columns, `CU` and `DC` included, as they are, matching what the synth does
 Reason: a Source that sounded different on a second visit could not be shared.
 Not: keeping the reader's changes across loads.
 Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md) and its 2026-11-14 amendment; [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md).
-Evidence: `site/src/console/sound-module.ts` `EFFECTS`, `loads`, `labelOf`; tests `site/tests/sound-module.spec.ts` "the acid voice's channel shows its cutoff and decay where EQ and LN stand", "Reset All Controllers clears Modulation and leaves the other effects, as the synth does" (assertions inspected).
+Evidence: `site/src/console/sound-module.ts` `EFFECTS`, `loads`, `labelOf`; test `site/tests/sound-module.spec.ts` "the acid voice's channel shows its cutoff and decay where EQ and LN stand".
 
 ### SITE-038 The Sound Module takes one Theme colour, `sound.magnitude`
 
@@ -281,7 +281,7 @@ destination even if a MIDI port exists.
 
 Reason: an example someone opens from a link or a page should be heard without any setup.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `console/src/built_in_synth.rs` `SynthAnnouncements::observe`; tests `a_linked_console_picks_the_synth_over_a_port`, `pending_midi_access_still_lets_a_linked_console_pick_the_synth`.
+Evidence: `console/src/built_in_synth.rs` `SynthAnnouncements::observe`; test `a_linked_console_picks_the_synth_over_a_port` in the same file.
 
 ### SITE-042 Each message goes to the page as `orcvs.midi` stamped with its Tick's planned instant
 
@@ -293,7 +293,7 @@ action reaches the page the same way as any other message.
 
 Reason: a late timer or a slow frame must not move a note.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `console/src/built_in_synth.rs` `BrowserPage::post`; test `site/tests/synth.spec.ts` "a framed console plays the page's synth at a constant offset from its Ticks" (Ticks 125 ms apart within 2 ms; assertions inspected).
+Evidence: `console/src/built_in_synth.rs` `BrowserPage::post`; test `site/tests/synth.spec.ts` "a framed console plays the page's synth at a constant offset from its Ticks".
 
 ### SITE-043 The page plays a message a fixed delay after its planned instant
 
@@ -306,7 +306,7 @@ Built differently; see [Accepted but not built](#accepted-but-not-built-or-built
 
 Reason: no note moves until lateness exceeds the delay.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `synth/web/synth-host.js` `DELAY_MS`, `contextTime`; test `site/tests/synth.spec.ts` "a framed console plays the page's synth at a constant offset from its Ticks" (asserts sounding at planned + 50 ms within 2 ms; assertions inspected).
+Evidence: `synth/web/synth-host.js` `DELAY_MS`, `contextTime`; test `site/tests/synth.spec.ts` "a framed console plays the page's synth at a constant offset from its Ticks".
 
 ### SITE-044 The reader's gesture resumes the page's audio
 
@@ -319,7 +319,7 @@ it.
 Reason: Safari resumes audio only inside a gesture, and the console's first message arrives after
 the gesture that caused it.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md) as amended by [ADR 0089](../adr/0089-the-panel-plays-and-rewinds.md).
-Evidence: `synth/web/synth-host.js` `resume`, `resumeOnGestures`, `start`; `console/src/web_startup.rs` `wake_page_audio`; tests `site/tests/synth.spec.ts` "a click in the console starts the page's audio before Space", "on a phone › a tap in the console's frame starts the page's audio before any note" (assertions inspected).
+Evidence: `synth/web/synth-host.js` `resume`, `resumeOnGestures`, `start`; `console/src/web_startup.rs` `wake_page_audio`; test `site/tests/synth.spec.ts` "a click in the console starts the page's audio before Space".
 
 ### SITE-045 A start on the synth waits up to 500 ms for the page's audio
 
@@ -330,7 +330,7 @@ audio runs, for at most 500 ms.
 Reason: starting audio takes a device over 100 ms. Without the hold, Tick 0 would sound late and the
 Ticks after it on time.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `console/src/console/playback.rs` `PlaybackStart`, `AUDIO_WAIT`; `console/src/built_in_synth.rs` `SynthAnnouncements::start_is_early`; tests `console/src/console/playback.rs` `a_held_start_is_granted_once_it_has_waited_long_enough`, `site/tests/synth.spec.ts` "a first visit opens Knobs, and its first Tick sounds on time after …" (assertions inspected).
+Evidence: `console/src/console/playback.rs` `PlaybackStart`, `AUDIO_WAIT`; `console/src/built_in_synth.rs` `SynthAnnouncements::start_is_early`; test `console/src/console/playback.rs` `a_held_start_is_granted_once_it_has_waited_long_enough`.
 
 ### SITE-046 A page that cannot make sound still announces the synth, unavailable
 
@@ -339,7 +339,7 @@ synth. Choosing it answers the reason as a connect failure, and Playback runs on
 
 Reason: an unavailable synth should explain itself, the way a MIDI device that has gone does.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
-Evidence: `synth/web/synth-host.js` `announcement`; `console/src/built_in_synth.rs` `WithBuiltInSynth::connect`; tests `an_unavailable_synth_answers_its_reason_on_connect`, `a_linked_console_shows_why_an_unavailable_synth_cannot_play`.
+Evidence: `synth/web/synth-host.js` `announcement`; `console/src/built_in_synth.rs` `WithBuiltInSynth::connect`; test `an_unavailable_synth_answers_its_reason_on_connect` in the same file.
 
 ### SITE-047 Every console on a page plays through that page's one synth
 
@@ -384,7 +384,7 @@ before the first frame.
 Not: URL parameters per setting, a layout chosen inside the console by viewport, or settings sent
 by message.
 Sources: [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md).
-Evidence: `console/src/web_startup.rs` `page_settings`; `console/src/config.rs` `Config::start`, `Config::from_page`; test `console/src/config.rs` `the_page_settings_are_read_as_the_file_is_and_named_in_a_notice` (assertions inspected).
+Evidence: `console/src/web_startup.rs` `page_settings`; `console/src/config.rs` `Config::start`, `Config::from_page`; test `console/src/config.rs` `the_page_settings_are_read_as_the_file_is_and_named_in_a_notice`.
 
 ### SITE-051 Problems in the page's settings are reported in the settings notice, naming the page
 
@@ -393,7 +393,7 @@ the page's `orcvs_config` element rather than a file.
 
 Reason: the reader has to know where the bad value came from.
 Sources: [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md) (Consequences).
-Evidence: `console/src/config.rs` `Config::from_page`; test `the_page_settings_are_read_as_the_file_is_and_named_in_a_notice` (assertions inspected).
+Evidence: `console/src/config.rs` `Config::from_page`; test `the_page_settings_are_read_as_the_file_is_and_named_in_a_notice` in the same file.
 
 ### SITE-052 The shipped page holds a phone setting, and framing pages pass nothing
 
@@ -416,7 +416,7 @@ opens the running Source. It works on native and on the web.
 Reason: a reader otherwise has no way to get a link to send.
 Not: a share control on the site, because the site cannot see the running Source and native could not share.
 Sources: [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md).
-Evidence: `console/src/console/menu_bar.rs` `share_control`; `console/src/console/files.rs` `copy_link`; tests `console/src/console/kittest_tests.rs` `copy_link_puts_the_link_to_the_running_source_on_the_clipboard`, `the_top_bar_centres_its_menus_and_opens_them_below_itself` (assertions inspected).
+Evidence: `console/src/console/menu_bar.rs` `share_control`; `console/src/console/files.rs` `copy_link`; test `console/src/console/kittest_tests.rs` `copy_link_puts_the_link_to_the_running_source_on_the_clipboard`.
 
 ### SITE-061 A copied link names orcvs.com, by link name or as encoded text
 
@@ -429,7 +429,7 @@ a production link.
 
 Reason: the encoded text survives any address bar or chat client, and the link always plays.
 Sources: [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md).
-Evidence: `console/src/linked_source.rs` `link`, `percent_encoded`, `SITE`; tests `an_unchanged_example_links_by_its_name`, `any_other_source_links_as_text_that_opens_it_again` (assertions inspected).
+Evidence: `console/src/linked_source.rs` `link`, `percent_encoded`, `SITE`; test `an_unchanged_example_links_by_its_name` in the same file.
 
 ### SITE-062 A Source too large to link is refused with a notice
 
@@ -438,7 +438,7 @@ than copied as a link that would not open.
 
 Reason: a link that would not open is worse than none.
 Sources: [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md).
-Evidence: `console/src/linked_source.rs` `link`; `console/src/console/files.rs` `copy_link`; test `console/src/linked_source.rs` `a_source_whose_link_is_over_the_limit_is_refused` (assertions inspected).
+Evidence: `console/src/linked_source.rs` `link`; `console/src/console/files.rs` `copy_link`; test `console/src/linked_source.rs` `a_source_whose_link_is_over_the_limit_is_refused`.
 
 ## Which console the site deploys
 
@@ -456,7 +456,7 @@ take `main`'s current console instead.
 Reason: two builds start at once on a merge, and without the wait the site could ship the previous
 console without anything reporting it.
 Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md), [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md).
-Evidence: `site/scripts/console.sh`; test `site/scripts/tests/console.sh` (production and preview waits, failure names the key, local and Dependabot builds).
+Evidence: `site/scripts/console.sh`; test `site/scripts/tests/console.sh`.
 
 ### SITE-081 The site build never compiles the console
 
