@@ -76,8 +76,9 @@ file holds no destination, and the console never writes that file.
 
 ## Open questions
 
-- Whether the storage clause should amend ADR 0085 as written here, or the code should change to
-  meet ADR 0085, is Toby's to choose; the code is recorded.
+- Toby chose on 2026-11-15 to keep the storage clause in this record rather than split it out, so
+  it amends ADR 0085 as written; the loose ends it leaves are
+  `.scratch/requirements-snapshot/issues/14-follow-up-the-network-destination-storage.md`.
 - The web build reads `orcvs_network_destination` at startup when `persistence` is on, but nothing
   on the web writes it and the web Panel shows no network fields, since a browser cannot send UDP or
   OSC (PLAY-360). The read is inert there.

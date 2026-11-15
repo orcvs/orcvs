@@ -15,3 +15,6 @@ requirement or the code follows it.
 which records the built watch channel and amends ADR 0085's storage clause to the eframe Storage key
 `orcvs_network_destination`. Waiting on Toby to accept or change it, including whether to amend ADR
 0085 or change the code.
+
+2026-11-15: Toby kept ADR 0112 as one record, amending ADR 0085's storage clause. The storage loose
+ends moved to [issue 14](14-follow-up-the-network-destination-storage.md).
