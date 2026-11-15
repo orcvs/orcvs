@@ -92,9 +92,11 @@ test('an ADR numbered or dated past the marker is reported unless a Behind line 
   assert.deepEqual(problems({ 'a.md': behind }, extra), []);
 });
 
-test('a proposed ADR is not newer than the marker until it is accepted', () => {
+test('a proposed or rejected ADR is not newer than the marker; an accepted one is', () => {
   const proposed = { 'docs/adr/0003-c.md': '# C\n\nStatus: proposed on 2026-11-16.\n' };
   assert.deepEqual(problems({ 'a.md': MARKER }, proposed), []);
+  const rejected = { 'docs/adr/0003-c.md': '# C\n\nStatus: rejected by Toby on 2026-11-17.\n' };
+  assert.deepEqual(problems({ 'a.md': MARKER }, rejected), []);
   const accepted = { 'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-17.\n' };
   assert.deepEqual(problems({ 'a.md': MARKER }, accepted), [
     'a.md: ADR 0003 is newer than the marker, which neither incorporates it nor names it in a Behind line',
