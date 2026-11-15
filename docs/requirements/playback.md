@@ -1,8 +1,8 @@
 # Playback and outputs requirements
 
-> Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
-> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
-> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> A newer ADR binds where it differs until this document is updated; the
+> [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090, 0099,
 > 0103, 0108. Reviewed, not applicable or wholly superseded: none wholly superseded; 0087's page protocol
 > and timing are stated in [site.md](site.md), 0088's Sound Module is owned by the Site topic, and
@@ -316,6 +316,8 @@ class present, provided that class is no higher than its own; otherwise the new 
 omitted. Retained entries keep their recorded order, so the newest diagnostic of the most serious
 class since the last drain is always retained.
 
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+
 Reason: a flood of one class never displaces a more serious diagnostic.
 Not: dropping the newest, or the oldest regardless of class.
 Sources: [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md).
@@ -456,6 +458,8 @@ notes the engine knows it started. A channel whose message the destination refus
 action: the first refusal is reported and every remaining channel is still attempted. The action
 reaches MIDI alone.
 
+Built differently after a refused delivery; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+
 Reason: a Control Change can latch a pedal and a Pitch Bend deflect the wheel on a device Orcvs can
 no longer reach; the centred bend comes last so a device honouring CC 121 cannot move the wheel
 after it.
@@ -543,11 +547,12 @@ Sources: [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-
 Evidence: `orcvs/src/network.rs` `NetworkAdapter`; test `a_refused_send_names_where_it_went`;
 `orcvs/tests/network_loopback.rs`.
 
-### PLAY-350 The network destination is a console setting
+### PLAY-350 The console keeps the network destination, never Source
 
-UDP and OSC go to one host with a UDP port and an OSC port, held with the console's settings and
-never in Source; defaults are `127.0.0.1`, `49161` and `49162`. A new destination applies from the
-next send. How the setting is edited is in [console.md](console.md).
+UDP and OSC go to one host with a UDP port and an OSC port. The console stores them itself, apart
+from the settings file it only reads (CONS-130), and never in Source; defaults are `127.0.0.1`,
+`49161` and `49162`. A new destination applies from the next send. The Output list edits it
+(CONS-104).
 
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
 Evidence: `orcvs/src/network.rs` `NetworkDestination`; test `the_default_destination_is_orcas`;
@@ -780,6 +785,8 @@ Evidence: `orcvs/src/playback/outputs.rs` `Outputs::deliver`; test `orcvs/src/mi
 The synth core takes MIDI bytes and a time and fills a buffer, with no audio I/O. On the web it runs
 as its own WASM module in an AudioWorklet on the browser's audio thread. Native plays the same core
 through cpal. The console holds no audio code.
+
+The native path is not built; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
 
 Reason: neither page work nor console frames can starve the audio, and native can reuse the core.
 Not: a synth on the page's main thread, which snaps notes to buffer edges.

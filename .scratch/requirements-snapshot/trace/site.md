@@ -7,6 +7,10 @@ lifecycle and message timing, the web settings element, Copy Link, and the conso
 deploy chain. PLAY owns the Built-in Synth's voices, effects, core and destination selection in
 general; CONS owns settings keys, the top bar and the Panel.
 
+2026-11-15, after the draft: SITE-070 to SITE-074 and SITE-076 to SITE-080 are no longer rules.
+`docs/tooling.md` states the console publication chain they described, and SITE-075 took
+SITE-076's local and Dependabot builds. The rows below keep their original IDs.
+
 ## Source disposition
 
 | Source at c8cc197 | Claim | Disposition | Owner / reason | Basis |
