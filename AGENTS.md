@@ -77,8 +77,9 @@ Then run only the gates whose inputs the change actually touched:
 
 - `mise.toml`, `.github/workflows/`, or `scripts/`: `bash scripts/check-tooling-contract.sh`,
   `actionlint`, and `zizmor --offline .github/workflows`
-- `docs/requirements/`, `docs/adr/`, or a renamed or deleted source file: `node scripts/check-requirements.ts`,
-  and `node --test scripts/tests/check-requirements.test.ts` when the script changes
+- `docs/requirements/`, `docs/adr/`, or renaming or deleting a file, function or test that a
+  requirement's Evidence line names: `node scripts/check-requirements.ts`, and
+  `node --test scripts/tests/check-requirements.test.ts` when the script changes
 - `scripts/roadmap.ts` or `.scratch/`: `node --test scripts/tests/roadmap.test.ts` and
   `node scripts/roadmap.ts > /dev/null`
 - persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
