@@ -6,11 +6,13 @@
 use std::collections::VecDeque;
 
 mod acid;
+mod channel;
 mod chorus;
 mod controller;
 mod delay;
 mod drum;
 mod reverb;
+mod sends;
 mod smoothing;
 mod tilt;
 mod tone;
@@ -19,15 +21,13 @@ mod vibrato;
 mod web;
 
 use acid::{Acid, Controls};
+use channel::{Channel, Onset};
 use chorus::Chorus;
-use controller::{CH, DL, EQ, LN, MD, OF, R1, R2, RESET};
 use delay::Delay;
 use drum::{Drum, Instrument};
 use reverb::{Reverb, Room};
-use smoothing::Smoothing;
-use tilt::Tilt;
+use sends::{Mix, Sends};
 use tone::Tone;
-use vibrato::Vibrato;
 
 /// How many voices sound at once.
 pub const VOICES: usize = 16;
@@ -41,8 +41,6 @@ const TONE_LEVEL: f32 = 0.2;
 const DRUM_LEVEL: f32 = 0.35;
 const ACID_LEVEL: f32 = 0.3;
 
-/// How far into its course `OF` starts each new sound at `7F`, in seconds.
-const MAX_OFFSET: f32 = 0.1;
 /// `R1`'s room: about two thirds of a second to fall 60 dB.
 const SMALL: Room = Room {
     size: 0.6,
@@ -54,9 +52,6 @@ const LARGE: Room = Room {
     feedback: 0.92,
 };
 
-/// The share of its own length a sound keeps at `LN` `00`; `7F` keeps all of
-/// it.
-const SHORTEST: f32 = 0.02;
 /// How long an offset sound fades in over, in seconds, so a sound joined
 /// at full loudness does not click.
 const FADE: f32 = 0.005;
@@ -92,163 +87,6 @@ pub struct Synth {
     channels: [Channel; CHANNELS],
     effects: Sends<Chorus, Delay, Reverb>,
     acid: Controls,
-}
-
-/// One of something for each shared effect: the chorus, the delay, and the
-/// small and large reverbs. The processors differ in type, so each field may;
-/// every other use holds one type in all four.
-#[derive(Clone, Copy, Default)]
-struct Sends<C, D = C, S = C, L = S> {
-    chorus: C,
-    delay: D,
-    small: S,
-    large: L,
-}
-
-impl<T> Sends<T> {
-    /// Four values, each made by `make`.
-    fn from_fn(mut make: impl FnMut() -> T) -> Self {
-        Self {
-            chorus: make(),
-            delay: make(),
-            small: make(),
-            large: make(),
-        }
-    }
-
-    /// The one sent on `controller`, if it is a send's: `CH`, `DL`, `R1` or
-    /// `R2`.
-    fn on(&mut self, controller: u8) -> Option<&mut T> {
-        match controller {
-            CH => Some(&mut self.chorus),
-            DL => Some(&mut self.delay),
-            R1 => Some(&mut self.small),
-            R2 => Some(&mut self.large),
-            _ => None,
-        }
-    }
-
-    /// Whether `test` holds for all four.
-    fn all(&self, test: impl Fn(&T) -> bool) -> bool {
-        [&self.chorus, &self.delay, &self.small, &self.large]
-            .into_iter()
-            .all(test)
-    }
-}
-
-impl std::ops::AddAssign for Sends<f32> {
-    fn add_assign(&mut self, other: Self) {
-        self.chorus += other.chorus;
-        self.delay += other.delay;
-        self.small += other.small;
-        self.large += other.large;
-    }
-}
-
-impl Sends<Chorus, Delay, Reverb> {
-    /// `mix`'s dry signal with the shared effects side by side, each
-    /// returning only what the channels sent it.
-    fn process(&mut self, mix: Mix) -> f32 {
-        let sent = mix.sends;
-        mix.dry
-            + 0.5 * self.chorus.process(sent.chorus)
-            + self.delay.process(sent.delay)
-            + self.small.process(sent.small)
-            + self.large.process(sent.large)
-    }
-}
-
-/// One channel's effects: its vibrato and tilt on everything it plays, how
-/// each new sound on it starts and decays, and how much of it reaches each
-/// shared effect.
-struct Channel {
-    vibrato: Vibrato,
-    tilt: Tilt,
-    /// `OF`, `00`–`7F`.
-    offset: u8,
-    /// `LN`, `00`–`7F`.
-    length: u8,
-    /// `CH`, `DL`, `R1` and `R2`, each from `0` to `1`.
-    sends: Sends<Smoothing>,
-    /// Whether the render loop skips the channel, silent with its effects
-    /// at rest, and has cleared what its effects held.
-    idle: bool,
-}
-
-impl Channel {
-    fn new(sample_rate: f32) -> Self {
-        Self {
-            vibrato: Vibrato::new(sample_rate),
-            tilt: Tilt::new(sample_rate),
-            offset: 0,
-            length: 0x7F,
-            sends: Sends::from_fn(|| Smoothing::new(sample_rate, 0.0)),
-            idle: false,
-        }
-    }
-
-    /// Sets the effect on `controller` from a Control Change value. Reset All
-    /// Controllers clears Modulation, a performance controller, and leaves
-    /// the rest, the Sound and Effect Controllers and `OF` beside them, as
-    /// RP-015 has it. Any other controller changes nothing.
-    fn set(&mut self, controller: u8, value: u8) {
-        match controller {
-            MD => self.vibrato.set(value),
-            EQ => self.tilt.set(value),
-            LN => self.length = value,
-            OF => self.offset = value,
-            RESET => self.vibrato.set(0),
-            _ => {
-                if let Some(send) = self.sends.on(controller) {
-                    send.set(f32::from(value) / 127.0);
-                }
-            }
-        }
-    }
-
-    /// Whether every effect is at its load value and staying there, so that
-    /// silence on the channel adds nothing to the mix. Its offset and length
-    /// shape only sounds still to start.
-    fn rests(&self) -> bool {
-        self.vibrato.rests() && self.tilt.rests() && self.sends.all(|send| send.rests_at(0.0))
-    }
-
-    /// The channel's next sample, `input`, through its own effects: what it
-    /// adds to the mix.
-    fn process(&mut self, input: f32) -> Mix {
-        let out = self.tilt.process(self.vibrato.process(input));
-        let sends = Sends {
-            chorus: self.sends.chorus.next(),
-            delay: self.sends.delay.next(),
-            small: self.sends.small.next(),
-            large: self.sends.large.next(),
-        };
-        Mix {
-            // Up to half the channel goes to the chorus in place of itself.
-            dry: out * (1.0 - 0.5 * sends.chorus),
-            sends: Sends {
-                chorus: out * sends.chorus,
-                delay: out * sends.delay,
-                small: out * sends.small,
-                large: out * sends.large,
-            },
-        }
-    }
-}
-
-/// One sample of the mix ahead of the shared effects: every channel's dry
-/// signal, and what the channels send each shared effect.
-#[derive(Default)]
-struct Mix {
-    dry: f32,
-    sends: Sends<f32>,
-}
-
-impl std::ops::AddAssign for Mix {
-    fn add_assign(&mut self, other: Self) {
-        self.dry += other.dry;
-        self.sends += other.sends;
-    }
 }
 
 /// What a channel plays. The channel layout lives here alone, so
@@ -380,36 +218,22 @@ impl Synth {
                 self.queue.pop_front();
                 self.apply(message);
             }
-            let mut parts = [0.0; CHANNELS];
-            let mut sounding = [false; CHANNELS];
+            let mut parts = [None; CHANNELS];
             for slot in &mut self.voices {
                 let Some(voice) = slot else { continue };
                 match voice.sound.sample(dt, &self.acid) {
                     Some(value) => {
                         voice.fade = (voice.fade + dt / FADE).min(1.0);
                         let channel = usize::from(voice.channel);
-                        parts[channel] += value * voice.level * voice.fade;
-                        sounding[channel] = true;
+                        *parts[channel].get_or_insert(0.0) += value * voice.level * voice.fade;
                     }
                     None => *slot = None,
                 }
             }
             let mut mix = Mix::default();
-            for ((channel, part), sounding) in self.channels.iter_mut().zip(parts).zip(sounding) {
-                // A silent channel at rest would add exactly nothing, so it is
-                // skipped. That holds because a still vibrato and a flat tilt
-                // each pass their input through unchanged, and silence through
-                // them is silence. Its effects' history is cleared once as it
-                // goes idle, as the silence they would have taken in clears
-                // it, so a later turn of an effect does not replay the voice a
-                // steal cut off.
-                if sounding || !channel.rests() {
-                    channel.idle = false;
-                    mix += channel.process(part);
-                } else if !channel.idle {
-                    channel.vibrato.clear();
-                    channel.tilt.clear();
-                    channel.idle = true;
+            for (channel, part) in self.channels.iter_mut().zip(parts) {
+                if let Some(added) = channel.process(part) {
+                    mix += added;
                 }
             }
             let out = self.effects.process(mix);
@@ -468,10 +292,7 @@ impl Synth {
 
     fn note_on(&mut self, channel: u8, note: u8, velocity: u8) {
         self.started += 1;
-        let effects = &self.channels[usize::from(channel)];
-        // `SHORTEST` at `00`, rising exponentially to exactly `1` at `7F`.
-        let length = SHORTEST.powf(1.0 - f32::from(effects.length) / 127.0);
-        let offset = MAX_OFFSET * f32::from(effects.offset) / 127.0;
+        let Onset { length, offset } = self.channels[usize::from(channel)].onset();
         let mut sound = match Part::of(channel) {
             Part::Tone => Sound::Tone(Tone::new(channel, note, length)),
             Part::Acid => {
@@ -562,6 +383,7 @@ impl Synth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::controller::{CH, DL, EQ, LN, MD, OF, R1, R2, RESET};
 
     const RATE: f32 = 48_000.0;
 
