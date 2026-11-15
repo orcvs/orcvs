@@ -471,4 +471,4 @@ Every retained row above carries a provisional ID; it lands in the final rule of
 
 ## Reviewed, not applicable or wholly superseded at the 0110 snapshot
 
-Moved from the topic document's header: 0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](../../../docs/requirements/playback.md)).
+0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](../../../docs/requirements/playback.md)).

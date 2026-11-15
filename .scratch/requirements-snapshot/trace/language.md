@@ -404,4 +404,4 @@ under "Numeric, pitch and random Functions", LANG-390–410 under "Chords", and 
 
 ## Reviewed, not applicable or wholly superseded at the 0110 snapshot
 
-Moved from the topic document's header: 0005 (partly superseded by 0049; the `&` prefix and directional Address Functions its Status line keeps are reassigned by 0070, see LANG-190), 0007, 0025, 0026, 0029, 0030, 0039, 0062, 0075, 0104, 0107.
+0005 (partly superseded by 0049; the `&` prefix and directional Address Functions its Status line keeps are reassigned by 0070, see LANG-190), 0007, 0025, 0026, 0029, 0030, 0039, 0062, 0075, 0104, 0107.

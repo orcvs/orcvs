@@ -218,7 +218,7 @@ sets `cursor.area` is refused.
 
 Reason: motion around the Cursor distracts from reading the Grid.
 Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
-Evidence: test `console/src/config.rs` `the_removed_glitch_keys_are_unknown`.
+Evidence: test `console/src/console/tests.rs` `the_cursor_outline_is_one_box_the_same_on_all_four_sides`.
 
 ### CONS-122 Each Cell edge shows one line, the highest-ranked fact either side
 
@@ -442,7 +442,7 @@ The Source gets every key while no control holds egui's keyboard focus and no po
 ComboBox list) is open. It gets none while one does. The answer is latched once every widget has
 run, and read on the next frame. No control is named.
 
-Reason: a named list of controls leaks keys to every control added later. Latching keeps the Escape that leaves a field from also collapsing the Region.
+Reason: a named list of controls leaks keys from every control added later to the Source. Latching keeps the Escape that leaves a field from also collapsing the Region.
 Not: the Grid as a focusable widget, which would leave keys going nowhere at startup.
 Sources: [ADR 0048](../adr/0048-the-source-takes-the-keys-no-control-holds.md).
 Evidence: `console/src/console/input.rs` `latch_keyboard_owner`; test `console/src/console/kittest_tests.rs` `a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source`.
@@ -896,7 +896,7 @@ Evidence: test `console/src/console/kittest_tests.rs` `play_and_rewind_are_sourc
 One console Playback status takes each frame's drained diagnostics and the Playback observation, and
 alone decides where each failure belongs. MIDI selection keeps only its own messages: a refused
 discovery, a refused connect, and the browser's "Opening …" until a destination is installed. The
-network setting keeps only the value it refused. An Overrun or an Omitted summary is no failure and
+network destination keeps only the value it refused. An Overrun or an Omitted summary is no failure and
 raises no message. A MIDI output failure stands until the observation reports a delivery succeeded
 or a destination was installed.
 
