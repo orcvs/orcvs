@@ -48,7 +48,6 @@ function anchorsOf(text: string): Set<string> {
  */
 function adrsUnder(root: string): { number: number; latest: string }[] {
   const adrDir = join(root, 'docs/adr');
-  if (!existsSync(adrDir)) return [];
   return readdirSync(adrDir)
     .filter((name) => /^\d{4}-.*\.md$/.test(name))
     .map((name) => {
@@ -56,6 +55,8 @@ function adrsUnder(root: string): { number: number; latest: string }[] {
       const status = /^Status:[\s\S]*?(?:\n\n|(?![\s\S]))/m.exec(text)?.[0] ?? '';
       const amendments = [...text.matchAll(/^## Amendment, (\d{4}-\d\d-\d\d)/gm)].map((m) => m[1]);
       const dates = [...(status.match(DATE) ?? []), ...amendments].sort();
+      // '' stands for "no dated change": it sorts before every ISO date, so an
+      // ADR without one is never newer than a marker's date.
       return { number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '' };
     });
 }
