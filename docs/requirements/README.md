@@ -61,7 +61,9 @@ change dated up to that day. A marker that is not yet reconciled with a newer AD
 A proposed ADR, one whose Status paragraph starts `Status: proposed`, decides nothing yet, and a
 rejected one (`Status: rejected`) decides nothing at all: neither is newer than a marker or behind
 one, binds in the reading order, or needs a Behind line. Accepting a proposal is the Status change
-that makes it newer, by its acceptance date.
+that makes it newer, by its acceptance date; like an amendment, a proposal accepted on a marker's own
+day and numbered at or below it is not caught by the check, so that change advances the markers by
+hand.
 
 Any change to what an ADR decides updates the requirements in the same change: a new ADR, a dated
 amendment, or a Status change such as accepting a proposed ADR or marking one superseded.

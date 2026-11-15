@@ -16,8 +16,7 @@ one whose address uses `?example=`, `#source=` or `?small`, and the Small Consol
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
 > A newer ADR binds where it differs until this document is updated; the
 > [reading order](README.md#reading-order) says which ADRs are newer.
-> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102, 0113 (proposed;
-> cited only under Open decisions).
+> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102.
 
 ## Opening a Source by link
 

@@ -121,7 +121,10 @@ export function check(root: string): string[] {
     const marker = /^> Source ADRs:([\s\S]*?)\n\n/m.exec(text);
     const listed = new Set(marker ? marker[1].match(/\b\d{4}\b/g) ?? [] : []);
     const body = marker ? text.slice(marker.index + marker[0].length) : text;
-    for (const adr of new Set([...body.matchAll(/\.\.\/adr\/(\d{4})-/g)].map((m) => m[1]))) {
+    // An open decision may link a proposed ADR, which no rule restates yet.
+    const decided = decisions >= 0 ? text.slice(0, decisions) : text;
+    const rules = marker ? decided.slice(marker.index + marker[0].length) : decided;
+    for (const adr of new Set([...rules.matchAll(/\.\.\/adr\/(\d{4})-/g)].map((m) => m[1]))) {
       if (!listed.has(adr)) problems.push(`${name}: a rule cites ADR ${adr}, which the marker does not list`);
     }
 

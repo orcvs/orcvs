@@ -7,6 +7,9 @@ limit and its refusal forms (SITE-022), service workers, and replacing a cached 
 
 **Done when:** each is ruled, in an ADR or a dated ruling, and the requirement says which.
 
-**Progress, 2026-11-15:** all three proposed as
+## Comments
+
+2026-11-15: all three proposed as
 [ADR 0113](../../../docs/adr/0113-a-link-is-refused-whole-and-only-the-full-console-caches-itself.md).
 Waiting on Toby to accept or change it; its open questions list where the code and the spec differ.
+Ticket 05's preview-URL item is still ready-for-human and outside ADR 0113.

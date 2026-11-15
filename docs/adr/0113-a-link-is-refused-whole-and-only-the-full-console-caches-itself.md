@@ -88,4 +88,3 @@ Where the code and the `.scratch/` sources differ, this record states the code.
   deploy test covers the page and `console.js`.
 - Nothing asserts the worker's scope; it follows from where `sw.js` is served.
 - The `#dev` exception is in no spec.
-- Ticket 05's preview-URL item is still ready-for-human; it is outside this record.

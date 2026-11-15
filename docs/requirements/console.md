@@ -16,8 +16,7 @@ are defined in [CONTEXT.md](../../CONTEXT.md). The decisions and the arguments f
 > 0058, 0059 (console clause), 0061 (paint clause), 0063 (no Sequence value), 0069 (paint clause),
 > 0076 (Panel clauses), 0077 (paint clauses), 0078, 0079, 0080, 0081, 0082, 0083, 0084, 0085 (paint
 > clause), 0086 (Small Console shows the Panel), 0088 (console Theme key), 0089, 0091 (settings
-> keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause), 0111 (proposed; cited only under
-> Open decisions).
+> keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause).
 
 ## Crate boundary
 

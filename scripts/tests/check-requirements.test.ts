@@ -68,6 +68,8 @@ test('a missing link target or anchor is reported', () => {
 test('an ADR a rule cites but the marker omits is reported', () => {
   const found = problems({ 'a.md': `${MARKER}[ADR 0002](../adr/0002-b.md)\n` });
   assert.deepEqual(found, ['a.md: a rule cites ADR 0002, which the marker does not list']);
+  const open = problems({ 'a.md': `${MARKER}\n## Open decisions\n\n[ADR 0002](../adr/0002-b.md)\n` });
+  assert.deepEqual(open, []);
 });
 
 test('an Evidence file that is missing, or lacks its symbol, is reported', () => {

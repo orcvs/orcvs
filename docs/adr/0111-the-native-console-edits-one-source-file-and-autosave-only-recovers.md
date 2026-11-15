@@ -64,20 +64,19 @@ reader (`parse`):
   other keys stand.
 - A Theme identity no Theme answers to falls back as CONS-067 states.
 
-The notices go to the settings notice channel that Theme file problems use (`ThemeRegistry::notice`).
+The per-key fallback extends to every section the choice ADR 0079 made for `[cell]`. The notices go to the settings notice channel that Theme file problems use (`ThemeRegistry::notice`).
 
 ## Considered options
 
 - **Open on the web without Save.** The spec rejected it as half a feature: `rfd` picks a file on
   wasm32 but cannot save one there (0.17.2), and a download through `web-sys` or the Chromium-only
   File System Access API is its own work. The web keeps autosave and, since ADR 0091, its page's settings.
-- **Discard the whole settings file on any fault.** No source records it as considered; it is named
-  here only because the per-key rule is the choice ADR 0079 already made for `[cell]`.
 
 ## Consequences
 
 - `docs/requirements/console.md` can state the model as rules once this is accepted, replacing its
   "Built, awaiting a record" item, and CONS-131 can drop its pointer to an open decision.
+  `docs/requirements/site.md` owns the web's File menu and its asking before New and examples.
 - Every close request is asked about, but on macOS the app menu's ⌘Q ends the process without one,
   as the File menu's comment in `console/src/console/menu_bar.rs` records, so it quits without
   asking; no test covers it. File → Quit shows no chord for

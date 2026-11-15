@@ -38,7 +38,7 @@ send goes, and a destination is a value with no port to release, so nothing is h
 superseded one.
 
 **The console sets it on every engine it builds, and on every edit.** `environment` in
-`console/src/console.rs` sets the console's destination on each new Orcvs, so opening another
+`console/src/console.rs` sets the console's destination on each new engine, so opening another
 Source keeps it. The Panel's Output fields set it again after each valid edit, and a value the
 fields refuse changes nothing (`NetworkSetting::commit` in `console/src/network.rs`).
 
@@ -62,6 +62,8 @@ file holds no destination, and the console never writes that file.
 - ADR 0056's statement that each kind of handle request has a mailbox slot holds for every request
   but this one.
 - A destination set while no Tick sends anything waits, unread, for the next Tick that does.
+- `docs/requirements/console.md` owns the storage clause (the console stores the destination
+  itself), which CONS-130 already states.
 - `docs/requirements/playback.md` can state the path as a rule once this is accepted, replacing its
   "Built, awaiting a record" item.
 - Tests: `orcvs/src/playback/outputs.rs` `sends_keep_their_order_and_go_to_the_latest_destination`

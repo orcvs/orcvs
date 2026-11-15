@@ -12,7 +12,7 @@ Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [th
 > A newer ADR binds where it differs until this document is updated; the
 > [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090,
-> 0099, 0103, 0108, 0112 (proposed; cited only under Open decisions).
+> 0099, 0103, 0108.
 
 ## The seam between interpretation and Playback
 
