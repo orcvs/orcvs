@@ -42,9 +42,11 @@ Verification has two trigger tiers:
 Linux job runs only the native merge tier, the WASM job only the browser suite, and macOS
 `check_pull_request` and the MIDI loopback. The Linux pull-request tier and `check_wasm` therefore
 ran on the pull request's own merge with `main` as it stood then, not on the queued candidate. A
-conflict between two queued pull requests that only those runs would catch — a wasm-only build
-break, or a `cfg` path only Linux compiles — reaches `main`, and the push run, which runs
-everything, is where it fails. Development happens on macOS, so its clean-runner verification waits
+conflict between two queued pull requests that only those runs would catch reaches `main`, and the
+push run, which runs everything, is where it fails. The queue's Linux merge tier still compiles and
+tests the default feature set on Linux, and its browser suite compiles the console for `wasm32`, so
+what slips through is narrower: a Linux-only break under `--no-default-features`, a `wasm32` clippy
+lint, or a break in the `--no-default-features` Trunk build. Development happens on macOS, so its clean-runner verification waits
 for the queue. Push runs retain full verification and warm the caches that pull-request and queue
 runs restore, and a failed push run still requires repair before normal development continues.
 
