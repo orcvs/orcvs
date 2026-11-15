@@ -91,9 +91,9 @@ fn an_active_halt_locks_the_complete_root_one_row_south() {
     // EVAL-053: an active Halt locks the root one row south before that
     // root's Turn, and its lock is an Effect of its own Turn. Equality
     // Bangs every Tick; its result sits two columns west of `*!`, which is
-    // the horizontal activation geometry. The Add
-    // one row south of Halt is intrinsically active, so the lock is the
-    // only reason it contributes no `07` and its Source is unchanged.
+    // the horizontal activation geometry. The Add one row south of Halt is
+    // intrinsically active, so the lock is the only reason it contributes no
+    // `07` and its Source is unchanged.
     let (plans, grids, source) = tick_by_tick(
         Grid::with_shape(8, 4),
         &[".=0101  ", "  *!    ", "  .+0304", "        "],

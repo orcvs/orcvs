@@ -44,6 +44,12 @@ so trimming an entry leaves each one resolving. Recheck with
   - `lang/src/atom.rs:502` (Effect).
   - `orcvs/src/source/encoding.rs:3` (Spatial Output).
 
+**Needs a decision first:** Activation is "what lets a root take its Turn", as EVAL-050 says a
+Halt or Terminal Output root takes a Turn only when a Bang activates it. The Halt entry says a Halt
+above its own `**` "takes its Turn inert", as EVAL-053 implies, and Terminal Output says "Activation
+gates evaluation itself". Settle in `docs/requirements/evaluation.md` whether an unactivated root
+takes a Turn before trimming those entries.
+
 **Done when:** no `CONTEXT.md` entry states a rule that a requirement or `docs/functions.md` states,
 checked against every entry rather than only the seed list; every code citation of `CONTEXT.md`
 still names a term the glossary defines; and `docs/requirements/` is unchanged in meaning.

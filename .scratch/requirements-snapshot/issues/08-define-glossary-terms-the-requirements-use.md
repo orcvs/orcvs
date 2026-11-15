@@ -12,3 +12,5 @@ Refusal, Portal Error, Input and Output Span, Declared and Selected, Current and
 
 - 2026-11-15: safety action now has an entry, as do Root, Slot, Claim, Activation and Absolute
   Tick, which the requirements also use without one.
+- 2026-11-15: Parser, working Source and placement are also used without an entry. Pending
+  Operand is defined inside the Paint entry (CONS-027), not as an entry of its own.
