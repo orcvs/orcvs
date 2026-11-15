@@ -156,10 +156,12 @@ load-bearing; the comment above that line in `mise.toml` records why.
 
 ### Off-by-default features
 
-Two `console` features are off by default, so no ordinary gate compiles them and each has a task
-that compiles it by name: `inspection`, through `mise run check_inspection` in the pull-request tier
-(see [Inspection](#inspection)), and `release-capture`, through `mise run check_release_capture` in
-the merge tier (see [Release captures](#release-captures)). `scripts/check-tooling-contract.sh`
+Two `console` features are off by default and enabled by nothing else, so no ordinary gate compiles
+them and each has a task that compiles it by name: `inspection`, through `mise run check_inspection`
+in the pull-request tier (see [Inspection](#inspection)), and `release-capture`, through
+`mise run check_release_capture` in the merge tier (see [Release captures](#release-captures)). The
+third off-by-default feature, `test-source-shapes`, needs no task: the crate's own dev-dependency
+enables it in every `--all-targets` run. `scripts/check-tooling-contract.sh`
 pins each compile line and its caller, because deleting one is invisible — no test fails when a
 feature stops being compiled.
 
@@ -436,7 +438,7 @@ fetch, the order of the chain, and that no step after a ratio gate runs on the j
 
 ## Miri
 
-A fourth trigger runs nothing at all unless someone asks for it. `mise run miri` interprets the
+Miri runs nothing at all unless someone asks for it. `mise run miri` interprets the
 Source model tests under Miri, and `.github/workflows/miri.yml` runs that task on
 `workflow_dispatch` alone — no pull request, no push, no required status context, and no other mise
 task calls it. Miri ships on nightly only while `rust-toolchain.toml` pins stable, and a gate the
@@ -471,7 +473,7 @@ triggers.
 
 ## Release captures
 
-A fifth trigger is also manual, and produces evidence rather than a verdict. The release needs to
+The release-capture workflow is also manual, and produces evidence rather than a verdict. The release needs to
 see the exact candidate rendered — both built-in Themes, wide and tall — and a test can prove every
 colour as a value but not what reaches the screen. `.github/workflows/release-captures.yml` runs
 `mise run capture_native` on `workflow_dispatch` alone, given a full commit SHA: it renders the
