@@ -277,4 +277,4 @@ Document: `docs/requirements/site.md`. Each retained row above lands in the rule
 
 ## Reviewed, not applicable or wholly superseded at the 0110 snapshot
 
-Moved from the topic document's header: none wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](../../../docs/requirements/console.md)).
+None wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](../../../docs/requirements/console.md)).

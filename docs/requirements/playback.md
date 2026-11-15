@@ -97,7 +97,7 @@ writes or stop later Ticks.
 Reason: a performance survives a failing device or a late clock.
 Sources: [ADR 0002](../adr/0002-playback-engine-owns-lifecycle-concurrency.md),
 [ADR 0041](../adr/0041-the-playback-engine-owns-its-state-in-one-task.md).
-Evidence: `orcvs/src/playback.rs` `run_engine`; test `playback_begins_at_the_first_tick_and_advances_one_per_executed_tick` in the same file.
+Evidence: `orcvs/src/playback.rs` `run_engine`; test `adapter_failure_does_not_roll_back_source_or_stop_playback` in the same file.
 
 ### PLAY-050 One task owns the engine's state and publishes what callers observe
 
@@ -248,7 +248,7 @@ whether a Tick it was handed is still worth executing.
 Reason: the count reports the event, not the clock's arithmetic, and an ordinary slow Tick costs
 nothing.
 Sources: [ADR 0037](../adr/0037-a-late-tick-loses-its-turn.md).
-Evidence: `orcvs/src/playback.rs` `is_overrun`; test `a_deadline_reached_one_whole_period_late_is_missed` in the same file.
+Evidence: `orcvs/src/playback.rs` `is_overrun`; test `a_late_tick_loses_its_turn_and_the_run_resumes_on_the_grid` in the same file.
 
 ## Diagnostics
 
@@ -344,7 +344,8 @@ Channels are independent; the last command in a Tick owns the channel. Retrigger
 legato replacement differ only in message order (PLAY-240).
 
 Reason: the voice is the channel, so Source need not remember what it last put there.
-Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md).
+Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md),
+[ADR 0108](../adr/0108-a-plays-note-is-optional-by-type.md).
 Evidence: `orcvs/src/playback/schedule.rs`; test `a_monophonic_play_stops_whatever_note_its_channel_was_sounding` in the same file.
 
 ### PLAY-240 `legato` sets the order of a Monophonic replacement's messages
@@ -446,7 +447,7 @@ the network output. A further destination is one more entry in it.
 
 Reason: destination rules otherwise spread across engine, schedule and network output.
 Sources: [ADR 0090](../adr/0090-each-output-destination-keeps-its-policy-in-one-module.md).
-Evidence: `orcvs/src/playback/outputs.rs` `Outputs`; test `orcvs/src/playback/outputs.rs` `a_ticks_midi_is_delivered_before_its_network_sends`.
+Evidence: `orcvs/src/playback/outputs.rs` `Outputs`; test `network_sends_go_on_while_midi_is_disconnected` in the same file.
 
 ### PLAY-390 Network Sends travel beside Play Commands, and a Tick's MIDI goes first
 
@@ -685,7 +686,7 @@ channel can sound a chord. The channel table is in [docs/functions.md](../functi
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md),
 [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md) (2026-11-13
 amendment).
-Evidence: `synth/src/tone.rs`, `synth/src/lib.rs`; test `channels_zero_to_seven_play_tones_eight_the_acid_voice_and_nine_to_fifteen_the_kit` in the same file.
+Evidence: `synth/src/tone.rs`, `synth/src/lib.rs`; test `synth/src/lib.rs` `channels_zero_to_seven_play_tones_eight_the_acid_voice_and_nine_to_fifteen_the_kit`.
 
 ### PLAY-580 The kit answers General MIDI drum keys
 
@@ -776,7 +777,8 @@ Evidence: `synth/src/controller.rs` `RESET`; test `synth/src/lib.rs` `reset_all_
 Preserve this as built until an ADR records it or changes it.
 
 - The network destination reaches the engine on its own newest-wins channel, outside the request
-  slots ADR 0056 lists (PLAY-350). Tracked in
+  slots ADR 0056 lists (PLAY-350). ADR 0056 predates network output and does not say whether it is
+  a slot. Tracked in
   [requirements-snapshot/06](../../.scratch/requirements-snapshot/issues/06-decide-the-network-destination-path.md).
   Proposed for the record in [ADR 0112](../adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md),
   not yet accepted, which would also amend ADR 0085's storage clause to the eframe Storage key the

@@ -451,4 +451,4 @@ except as listed here; each retained row maps to the rule its row names.
 
 ## Reviewed, not applicable or wholly superseded at the 0110 snapshot
 
-Moved from the topic document's header: none wholly superseded; 0087's page protocol and timing are stated in [site.md](../../../docs/requirements/site.md), 0088's Sound Module is owned by the Site topic, and 0103's Chord building is stated in [language.md](../../../docs/requirements/language.md).
+None wholly superseded; 0087's page protocol and timing are stated in [site.md](../../../docs/requirements/site.md), 0088's Sound Module is owned by the Site topic, and 0103's Chord building is stated in [language.md](../../../docs/requirements/language.md).
