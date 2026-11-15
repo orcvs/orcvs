@@ -129,7 +129,7 @@ A Bang delivered to a root that has already taken its Turn this Tick. It activat
 _Avoid_: Late Bang, stored Bang
 
 **Directional Bang Function**:
-One of the four Source Functions `*^`, `*v`, `*<`, and `*>`. Like every ordinary Function it is inert until Bang activation, and each activation emits a Source-resident Self-Banging Function into the two Cells immediately outside its own two-Cell Span in the selected direction. The emitted Function first receives a turn from the following Source Snapshot and thereafter activates itself. That asymmetry is why both forms exist: a Directional Bang Function acts once per Bang it receives, while the Self-Banging Function it writes acts every Tick without one.
+One of the four Source Functions `*^`, `*v`, `*<`, and `*>`. Like every Function that performs an effect, other than a Self-Banging Function and the Bang Function, it is inert until Bang activation (ADR 0110), and each activation emits a Source-resident Self-Banging Function into the two Cells immediately outside its own two-Cell Span in the selected direction. The emitted Function first receives a turn from the following Source Snapshot and thereafter activates itself. That asymmetry is why both forms exist: a Directional Bang Function acts once per Bang it receives, while the Self-Banging Function it writes acts every Tick without one.
 _Avoid_: Always Function, movement Function, automatic mode
 
 **Self-Banging Function**:

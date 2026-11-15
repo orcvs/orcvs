@@ -1,8 +1,8 @@
 # Evaluation requirements
 
-> Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
-> ADRs accepted after 0109 bind where they differ, until this document is updated.
-> Source ADRs: 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0032, 0034, 0036, 0057, 0060, 0065, 0067 (scheduling amendments), 0068, 0071, 0072, 0073, 0076 (Tick count only), 0077. Reviewed, not applicable or wholly superseded: 0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](playback.md)).
+> Snapshot: checked against `c8cc197` (2026-11-15); incorporates ADRs through 0110.
+> ADRs accepted after 0110 bind where they differ, until this document is updated.
+> Source ADRs: 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0032, 0034, 0036, 0057, 0060, 0065, 0067 (scheduling amendments), 0068, 0071, 0072, 0073, 0076 (Tick count only), 0077, 0110. Reviewed, not applicable or wholly superseded: 0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](playback.md)).
 
 This document states how one Tick turns a Source Snapshot into a committed Tick Plan: Turns, Dependencies, Reservations, Portals and their writes, activation, placement, the Tick-family time and feedback inputs, error containment, the commit, and the Tick Portals record. It does not state Function spellings, operand types or what each Function reads ([language](language.md)), the Playback clock, the Tick period and Overrun (PLAY-180 Tick Grid and PLAY-190 Overrun in [playback](playback.md)), or output delivery ([playback](playback.md)), how the console paints Portals ([console](console.md)), or the site ([site](site.md)). Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
@@ -198,12 +198,12 @@ Evidence: tests `orcvs/src/source/tick/live_editing.rs` `live_inactive_ownership
 
 ## Activation, Halt and placement
 
-### EVAL-050 A root that answers an effect is inert until a Bang reaches it, except a Self-Banging Function and the Bang Function
+### EVAL-050 A value root takes a Turn every Tick; any other effect root waits for a Bang, except a Self-Banging Function and the Bang Function
 
-A Terminal Output, Directional Bang or Halt root takes a Turn only when a Bang activates it during the Tick. A Self-Banging Function and the Bang Function take their Turn with nothing delivered. Whether a root that answers a value is likewise inert is an open decision (see Open decisions).
+A root whose Function answers a value takes a Turn on every Tick with nothing delivered to it. So do a Self-Banging Function and the Bang Function. A Terminal Output, Directional Bang or Halt root takes a Turn only when a Bang activates it during the Tick. Each Function declares where its activation comes from in the Function table; a nested Function takes its Turn from the root that owns it.
 
-Reason: autonomous motion is visible in the Function spelling rather than in a hidden mode.
-Sources: [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md).
+Reason: a pulse such as Every must take a Turn to write the Bang that plays an output, and autonomous motion stays visible in the Function spelling rather than in a hidden mode.
+Sources: [ADR 0110](../adr/0110-a-value-root-takes-a-turn-every-tick.md), [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md).
 Evidence: `lang/src/atom.rs` `ActivationSource`, `Function::is_intrinsically_active`; test `orcvs/src/source/tick/movers.rs` `an_inert_directional_bang_function_emits_nothing`.
 
 ### EVAL-051 A Bang activates the complete roots aligned with its Span in the Tick it is produced
@@ -483,6 +483,5 @@ Evidence: `orcvs/src/source/mod.rs` `freshness`, `tick_portals`; tests `a_source
 
 ## Open decisions
 
-- Whether a root that answers a value is inert until Bang (ADR 0006: "An ordinary root Expression is inert until Bang activation") or takes a Turn every Tick (ADR 0032's first-implementation policy). Not binding either way. Observed implementation: every value Function is declared intrinsically active (`lang/src/atom.rs` `ActivationSource`), as `docs/functions.md` describes. Awaiting a maintainer ruling (requirements snapshot decision D5); closing it needs an ADR.
 - Emission/activation cycles through operand Reservations: whether an emission whose destination reserves its Bang supplier's operand should form a cycle. Not binding beyond EVAL-071. Investigated in [`.scratch/placement-semantics/issues/04`](../../.scratch/placement-semantics/issues/04-investigate-emission-activation-operand-cycles.md).
 - Function-valued output, replacements that change activation or output kind, and changed destinations introducing Dependencies are deferred by ADR 0034 and decide nothing here.
