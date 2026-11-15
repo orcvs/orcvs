@@ -5,16 +5,20 @@ import { pathToFileURL } from 'node:url';
 /**
  * Holds `docs/requirements/` to the snapshot contract its index states.
  *
- * Each topic document restates accepted ADRs as of a recorded commit, and
- * accepting or amending an ADR updates it in the same change. Nothing else
- * reads these documents mechanically, so without this check a duplicated rule
- * ID, a rule cited by another document that no longer exists, a broken link or
- * anchor, an ADR a rule cites but the marker omits, or an Evidence line naming
- * a file that does not hold its symbol would all land unnoticed.
+ * Each topic document restates accepted ADRs through a recorded ADR number and
+ * date, and accepting or amending an ADR updates it in the same change. Nothing
+ * else reads these documents mechanically, so without this check a duplicated
+ * rule ID, a rule cited by another document that no longer exists, a broken
+ * link or anchor, an ADR a rule cites but the marker omits, an ADR newer than a
+ * marker that the marker does not name as behind, or an Evidence line naming a
+ * file that does not hold its symbol would all land unnoticed.
  */
 
 const RULE_PREFIXES = ['LANG', 'EVAL', 'PLAY', 'CONS', 'SITE'];
-const MARKER = /^> Snapshot: checked against `[0-9a-f]{7,40}` \(\d{4}-\d\d-\d\d\); incorporates ADRs through \d{4}\.$/m;
+const MARKER = /^> Snapshot: incorporates ADRs through (\d{4}) and ADR changes dated through (\d{4}-\d\d-\d\d)\.$/m;
+/** An ADR number, not the year of a date. */
+const ADR_NUMBER = /(?<![\d-])\d{4}(?![\d-])/g;
+const DATE = /\d{4}-\d\d-\d\d/g;
 const SOURCE_FILE = /^[\w./-]+\.(rs|ts|js|astro|html|toml|yml|md|sh)$/;
 
 /** GitHub's heading anchor: lowercase, punctuation dropped, spaces to hyphens. */
@@ -37,9 +41,30 @@ function anchorsOf(text: string): Set<string> {
   return anchors;
 }
 
+/**
+ * Each ADR in `docs/adr/` with its number and the latest date its Status
+ * paragraph or an `## Amendment, <date>` heading carries. A marker's date is
+ * compared by day, so a change dated the marker's own day counts as included.
+ */
+function adrsUnder(root: string): { number: number; latest: string }[] {
+  const adrDir = join(root, 'docs/adr');
+  if (!existsSync(adrDir)) return [];
+  return readdirSync(adrDir)
+    .filter((name) => /^\d{4}-.*\.md$/.test(name))
+    .map((name) => {
+      const text = readFileSync(join(adrDir, name), 'utf8');
+      const status = /^Status:[\s\S]*?(?:\n\n|(?![\s\S]))/m.exec(text)?.[0] ?? '';
+      const amendments = [...text.matchAll(/^## Amendment, (\d{4}-\d\d-\d\d)/gm)].map((m) => m[1]);
+      const dates = [...(status.match(DATE) ?? []), ...amendments].sort();
+      return { number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '' };
+    });
+}
+
 /** Every problem in the requirements under `root`, one line each. */
 export function check(root: string): string[] {
   const dir = join(root, 'docs/requirements');
+  const adrs = adrsUnder(root);
+  const highest = Math.max(0, ...adrs.map((adr) => adr.number));
   const names = readdirSync(dir).filter((name) => name.endsWith('.md')).sort();
   const texts = new Map(names.map((name) => [name, readFileSync(join(dir, name), 'utf8')]));
   const problems: string[] = [];
@@ -47,7 +72,20 @@ export function check(root: string): string[] {
 
   for (const [name, text] of texts) {
     if (name === 'README.md') continue;
-    if (!MARKER.test(text)) problems.push(`${name}: no snapshot marker`);
+    const marker = MARKER.exec(text);
+    if (!marker) {
+      problems.push(`${name}: no snapshot marker`);
+    } else {
+      const [through, dated] = [Number(marker[1]), marker[2]];
+      const behind = new Set((/^> Behind:(.*)$/m.exec(text)?.[1] ?? '').match(ADR_NUMBER)?.map(Number));
+      if (through > highest) problems.push(`${name}: the marker incorporates ADRs through ${marker[1]}, above the highest ADR`);
+      for (const adr of adrs) {
+        if ((adr.number > through || adr.latest > dated) && !behind.has(adr.number)) {
+          const id = String(adr.number).padStart(4, '0');
+          problems.push(`${name}: ADR ${id} is newer than the marker, which neither incorporates it nor names it in a Behind line`);
+        }
+      }
+    }
     for (const match of text.matchAll(/^### ([A-Z]+-\d{3})\b/gm)) {
       const id = match[1];
       if (defined.has(id)) problems.push(`${name}: ${id} is also defined in ${defined.get(id)}`);

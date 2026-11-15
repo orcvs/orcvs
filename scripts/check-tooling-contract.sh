@@ -246,8 +246,9 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node --test scrip
 assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/roadmap[.]ts > /dev/null$'
 # `docs/requirements/` restates accepted ADRs, and nothing else reads it
 # mechanically: a duplicated rule ID, a dangling rule citation, a broken link or
-# anchor, an ADR cited but missing from a snapshot marker, or an Evidence symbol
-# absent from its file would otherwise land unnoticed.
+# anchor, an ADR cited but missing from a snapshot marker, an ADR newer than a
+# marker that does not name it as behind, or an Evidence symbol absent from its
+# file would otherwise land unnoticed.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node --test scripts/tests/check-requirements[.]test[.]ts$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/check-requirements[.]ts$'
 # `audit_deps` had no caller at all. Dependabot's weekly grouped bumps are exactly

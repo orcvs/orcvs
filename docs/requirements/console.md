@@ -1,8 +1,8 @@
 # Console requirements
 
-> Snapshot: checked against `c8cc197` (2026-11-15); incorporates ADRs through 0109.
-> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
-> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> A newer ADR binds where it differs until this document is updated; the
+> [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0043 (presentation clause), 0044,
 > 0045, 0046, 0047, 0048, 0051, 0052, 0053, 0054 (console clauses), 0055 (console clause), 0058,
 > 0059 (console clause), 0061 (paint clause), 0063 (no Sequence value), 0069 (paint clause),
@@ -38,6 +38,8 @@ Being free of the toolkit is necessary but not sufficient for code to live in `o
 a Source (for example, which Language Unit a Cell belongs to) belongs to `orcvs`. A decision about
 how the console shows a Source (alphas, font sizes, glow bands) belongs to the console, even when it
 can be written as plain numbers.
+
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
 
 Reason: the compiler enforces only the dependency half, so presentation drifted into `orcvs`. Review enforces this half.
 Sources: [ADR 0042](../adr/0042-responsibility-is-not-freedom-from-the-toolkit.md).
@@ -243,6 +245,8 @@ A width of zero withdraws a fact from the edge rather than hiding the edge. The 
 colour is composited once over the facts below it. A Sector Seam composites over its edge's line,
 except on the Cursor or Region outline. The Paint decides each edge's fact, colour and width, and
 coalesces them into runs.
+
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
 
 Reason: Cells that each stroke their own border draw every shared edge twice, at twice the Theme's width, and composite a translucent edge twice.
 Not: a lattice of full-length lines with outlines painted over it.
@@ -749,7 +753,8 @@ Evidence: `console/src/window_geometry.rs`, `console/src/main.rs`; tests `consol
 
 On native the console reads `~/.orcvs/config.toml` once, at startup. On the web it reads the same
 text from its page instead ([site.md](site.md)). No menu offers a setting, nothing reloads the
-file, and the console never writes it.
+file, and the console never writes it. The network destination is not a setting: the console
+stores it itself, and the Output list edits it (PLAY-350).
 
 Reason: a setting has one owner, the file, and the console never stores a second answer.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-10), [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md).
@@ -759,6 +764,7 @@ Evidence: `console/src/config.rs`; tests `console/src/console/kittest_tests.rs` 
 
 These settings exist on native and the web:
 
+- `[cell] width` and `height` ([CONS-120](#cons-120-source-cells-are-configurable-rectangles)).
 - `[minimap] open`: default open.
 - `[diagnostics] open`: default closed.
 - `[info] open`: default shown.
