@@ -992,8 +992,8 @@ mod test {
 /// property below is one clause of those two rules.
 ///
 /// The generated value is the shape alone, and each case then sweeps every
-/// Position inside it. That split is the point rather than an economy: the
-/// rule quantifies over *every* Position a Grid mints, so drawing one
+/// Position inside it. That split is the point rather than an economy:
+/// LANG-030 quantifies over *every* Position a Grid mints, so drawing one
 /// Position per case would leave the quantifier itself unchecked.
 ///
 /// An exhaustive loop is preferred where the domain is small enough for one,
@@ -1103,10 +1103,9 @@ mod property {
 
     proptest! {
         ///
-        /// "A Grid has at least one column and one row, and a position outside
-        /// it does not exist": `position` answers `Some` exactly at the
-        /// coordinates the Grid has a Cell for, and the Position it answers
-        /// with is the one that was asked for.
+        /// "A position outside it does not exist" (LANG-020): `position`
+        /// answers `Some` exactly at the coordinates the Grid has a Cell for,
+        /// and the Position it answers with is the one that was asked for.
         ///
         /// The sweep runs past both dimensions, so every case states the
         /// refusal as well as the acceptance, and the far coordinates below

@@ -201,7 +201,7 @@ _Avoid_: Pass, visit, step
 
 **Activation**:
 What lets a root take its Turn in a Tick: a Bang aligned with it, delivered during that Tick, or the root's own declaration that it needs none. Each Function declares where its activation comes from (EVAL-050), and a nested Function is activated with its root.
-_Avoid_: Trigger, enable, gate
+_Avoid_: Trigger, enable
 
 **Portal**:
 One Cell destination resolved during a Tick. A Function may read through a Portal input, write through a Portal output, or both at the same site. When a Function does not name another Position, that Portal is one row south of the Function's anchor. The site is declared by the Function and placed by its anchor, so it is known from any Source revision before a Tick runs; what is resolved during a Tick is what the Portal carries. It carries an Atom, or one destination in a Source Function's validated write bundle; it is neither a language value nor persistent state.
@@ -313,7 +313,7 @@ _Avoid_: Player, sequencer
 The module that owns Playback lifecycle and musical time and dispatches each Tick's ordered Play Commands and Network Sends exactly as supplied. Each destination keeps its own output policy (PLAY-390, PLAY-400): a Tick's MIDI is delivered before its Network Sends, Network Sends go on while no MIDI destination is connected, and stopping, rewinding, disconnecting and the safety action reach MIDI alone. It does not parse Source or interpret musical intent; when a Timed or Monophonic Play Command explicitly supplies a lifetime, it schedules the corresponding Note Off. One schedule holds both, keyed per channel and note for Timed Play and per channel alone for Monophonic Play, each claim carrying a generation token, so a stop retired by a replacement or by an explicit stop cannot cut a later note short. Beginning a run, stopping, rewinding a live run, disconnecting, and changing destination each clear the schedule. Stopping holds the absolute Tick (PLAY-150): the next run resumes at the Tick after the last one executed, and only a Rewind returns it to Tick `0`. What a refused submission does to the schedule is stated in PLAY-260 and in its entry under "Accepted but not built, or built differently" in `docs/requirements/playback.md`. Stopping Playback, rewinding a live run, disconnecting an output adapter, changing destination, and tearing down after a refused delivery each trigger the same safety action. Notes alone are not enough, because a Control Change can latch state and a Pitch Bend can deflect the wheel, and neither ends when the Source that wrote it stops running. A channel whose message the destination refuses does not end the action: the first refusal is the failure reported and every remaining channel is still attempted. Nothing is sent to release the individual notes the Playback Engine knows it started; All Notes Off is what silences them, and stopping, rewinding, disconnecting, and changing destination discard the schedule rather than replay it.
 _Avoid_: Runtime, audio engine, MIDI engine, sequencer
 
-**Safety Action**:
+**Safety action**:
 The fixed sequence of messages that returns every MIDI channel to silence and its defaults (PLAY-260); the one output the Playback Engine originates (PLAY-010).
 _Avoid_: Panic, reset, all-notes-off
 

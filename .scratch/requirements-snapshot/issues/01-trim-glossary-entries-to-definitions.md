@@ -33,7 +33,7 @@ so trimming an entry leaves each one resolving. Recheck with
 - Repointed to the rule ID that owns the rule (done):
   - `orcvs/src/source/language_map.rs:2009`, `:2231` → LANG-060; `:2701` → LANG-080.
   - `lang/src/parser.rs:2015` → LANG-080.
-  - `orcvs/src/grid.rs:986` → LANG-020, LANG-030.
+  - `orcvs/src/grid.rs:986` and `:1106` → LANG-020, LANG-030.
   - `orcvs/src/source/portal.rs:15` → EVAL-030; `:63` → EVAL-053, EVAL-054.
   - `orcvs/src/source/tick/halt.rs:91` → EVAL-053.
   - `orcvs/src/source/tick/execution.rs:630` and `lang/src/atom.rs:1440` → EVAL-040.
