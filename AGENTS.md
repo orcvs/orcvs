@@ -7,7 +7,7 @@
 - Vocabulary: `CONTEXT.md`. Decisions: `docs/adr/`, which stay binding and append-only.
 - Current required behaviour: `docs/requirements/`, a snapshot restating the accepted ADRs. Before
   changing behaviour, read the owning requirement and the ADRs newer than its marker, in the order
-  `docs/requirements/README.md` states; where they differ, the ADR binds.
+  `docs/requirements/README.md` states.
 - CI is authoritative when local and CI behaviour differ.
 
 This is an internal application. Track current stable Rust deliberately; nightly is optional and
@@ -66,8 +66,8 @@ Then run only the gates whose inputs the change actually touched:
 
 - `mise.toml`, `.github/workflows/`, or `scripts/`: `mise run check_docs`, `actionlint`, and
   `zizmor --offline .github/workflows`
-- `docs/adr/`, `docs/requirements/`, `.scratch/`, or a renamed or deleted source file:
-  `mise run check_docs`
+- `docs/adr/`, `docs/requirements/`, `.scratch/`, or renaming or deleting a file, function or
+  test that a requirement's Evidence line names: `mise run check_docs`
 - persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
   `console` enables `persistence` by default, so the ordinary run already covers the feature-on
   path and `--features persistence` adds nothing; the arm worth running per change is the one
