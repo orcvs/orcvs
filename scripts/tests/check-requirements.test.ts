@@ -7,16 +7,22 @@ import test from 'node:test';
 import { check, slug } from '../check-requirements.ts';
 
 const MARKER = [
-  '> Snapshot: checked against `abc1234` (2026-11-15); incorporates ADRs through 0002.',
+  '> Snapshot: incorporates ADRs through 0002 and ADR changes dated through 2026-11-15.',
   '> Source ADRs: 0001.',
   '',
   '',
 ].join('\n');
 
-/** A repository holding `docs/requirements/` with `files`, plus any other `extra` files. */
+/** The ADRs every fixture holds, both within the marker above. */
+const ADRS = {
+  'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n',
+  'docs/adr/0002-b.md': '# B\n\nStatus: accepted.\n\n## Amendment, 2026-11-15: same day\n',
+};
+
+/** A repository holding `docs/requirements/` with `files`, the ADRs above, and any other `extra` files. */
 function repo(files: Record<string, string>, extra: Record<string, string> = {}): string {
   const root = mkdtempSync(join(tmpdir(), 'requirements-'));
-  const all = { ...extra };
+  const all = { ...ADRS, ...extra };
   for (const [name, text] of Object.entries(files)) all[`docs/requirements/${name}`] = text;
   for (const [path, text] of Object.entries(all)) {
     mkdirSync(join(root, path, '..'), { recursive: true });
@@ -34,15 +40,13 @@ function problems(files: Record<string, string>, extra: Record<string, string> =
   }
 }
 
-const ADR = { 'docs/adr/0001-a.md': '# A\n' };
-
 test('slug follows GitHub heading anchors', () => {
   assert.equal(slug('LANG-001 A rule, with `code`'), 'lang-001-a-rule-with-code');
 });
 
 test('a consistent snapshot has no problems', () => {
   const text = `# T\n\n${MARKER}### LANG-001 A rule\n\nSources: [ADR 0001](../adr/0001-a.md). See [above](#lang-001-a-rule).\n`;
-  assert.deepEqual(problems({ 'language.md': text, 'README.md': '# Index\n' }, ADR), []);
+  assert.deepEqual(problems({ 'language.md': text, 'README.md': '# Index\n' }), []);
 });
 
 test('a missing marker and a duplicated ID are reported', () => {
@@ -62,8 +66,7 @@ test('a missing link target or anchor is reported', () => {
 });
 
 test('an ADR a rule cites but the marker omits is reported', () => {
-  const extra = { ...ADR, 'docs/adr/0002-b.md': '# B\n' };
-  const found = problems({ 'a.md': `${MARKER}[ADR 0002](../adr/0002-b.md)\n` }, extra);
+  const found = problems({ 'a.md': `${MARKER}[ADR 0002](../adr/0002-b.md)\n` });
   assert.deepEqual(found, ['a.md: a rule cites ADR 0002, which the marker does not list']);
 });
 
@@ -74,4 +77,22 @@ test('an Evidence file that is missing, or lacks its symbol, is reported', () =>
     'a.md: `absent` is not in the file named before it',
     'a.md: Evidence names missing src/gone.rs',
   ]);
+});
+
+test('an ADR numbered or dated past the marker is reported unless a Behind line names it', () => {
+  const extra = {
+    'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n\n## Amendment, 2026-11-16: later\n',
+    'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-16.\n',
+  };
+  assert.deepEqual(problems({ 'a.md': MARKER }, extra), [
+    'a.md: ADR 0001 is newer than the marker, which neither incorporates it nor names it in a Behind line',
+    'a.md: ADR 0003 is newer than the marker, which neither incorporates it nor names it in a Behind line',
+  ]);
+  const behind = MARKER.replace('> Source', "> Behind: ADR 0003; ADR 0001's 2026-11-16 amendment.\n> Source");
+  assert.deepEqual(problems({ 'a.md': behind }, extra), []);
+});
+
+test('a marker that incorporates an ADR number no file holds is reported', () => {
+  const text = MARKER.replace('through 0002', 'through 0003');
+  assert.deepEqual(problems({ 'a.md': text }), ['a.md: the marker incorporates ADRs through 0003, above the highest ADR']);
 });

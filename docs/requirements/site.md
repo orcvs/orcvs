@@ -1,14 +1,14 @@
 # Site requirements
 
-> Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
-> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
-> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> A newer ADR binds where it differs until this document is updated; the
+> [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102. Reviewed, not applicable or wholly superseded: none wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](console.md)).
 
 This document owns the web console's life on a page: opening a Source by link or by message, the
 messages between a console and the page that frames it, the page's audio and the timing of its
 Built-in Synth, the Sound Module, the web settings
-element, Copy Link, and the build and deploy chain that puts a console on the site. The Built-in
+element, Copy Link, and which console the site deploys. The Built-in
 Synth's voices, effects, listing order and automatic selection belong to [playback.md](playback.md).
 Settings keys, the top bar and the Panel belong to [console.md](console.md). The Source File format
 belongs to [language.md](language.md), and Ticks to [evaluation.md](evaluation.md). Terms are defined in
@@ -302,6 +302,8 @@ page plays each `orcvs.midi` a fixed delay after its `time`. The delay is set wi
 target. A message whose time has passed by more than the delay sounds at once. The page passes
 each message on to the synth core, which [playback.md](playback.md) describes.
 
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+
 Reason: no note moves until lateness exceeds the delay.
 Sources: [ADR 0087](../adr/0087-the-site-plays-the-console-through-a-built-in-synth.md).
 Evidence: `synth/web/synth-host.js` `DELAY_MS`, `contextTime`; test `site/tests/synth.spec.ts` "a framed console plays the page's synth at a constant offset from its Ticks" (asserts sounding at planned + 50 ms within 2 ms; assertions inspected).
@@ -438,117 +440,23 @@ Reason: a link that would not open is worse than none.
 Sources: [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md).
 Evidence: `console/src/linked_source.rs` `link`; `console/src/console/files.rs` `copy_link`; test `console/src/linked_source.rs` `a_source_whose_link_is_over_the_limit_is_refused` (assertions inspected).
 
-## Console publication
+## Which console the site deploys
 
-### SITE-070 A commit's console has a key that reads the console's path filter
+The chain that keys, builds, publishes and fetches the web console is engineering tooling:
+[`docs/tooling.md`](../tooling.md) states it, and `.github/workflows/console-web.yml` and
+`site/scripts/console.sh` implement it. The rules a reader of the site can observe are these two.
 
-A commit's console key is one hash over the git objects of every path the console is built from.
-That set of paths is exactly the path filter of the Console web workflow, and the key script reads
-the filter rather than keeping its own copy. Two commits share a key exactly when they build the
-same console.
+### SITE-075 Every site build deploys the console its own commit builds
 
-Reason: the key needs only the commit's own tree, not its history.
-Not: waiting for a published console that names its commit.
-Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md).
-Evidence: `scripts/console-key.sh`; test `site/scripts/tests/console.sh` (the key changes exactly with console paths; a glob or an empty filter fails).
-
-### SITE-071 The path filter covers every input of the console build
-
-The path filter must cover every workspace member, every file a crate embeds from outside itself,
-and every script a Trunk hook runs. The console script's test fails when one is missing.
-
-Reason: a missing path would give two different consoles one key.
-Sources: [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md).
-Evidence: `.github/workflows/console-web.yml` `on.push.paths`; test `site/scripts/tests/console.sh` (member, embed and Trunk-hook checks).
-
-### SITE-072 A push that changes the console builds it unless its key is published
-
-Console web runs on a push to any branch except `gh-pages` and the merge queue's, and only when the
-push changes a filtered path. Its first job computes the key and lists the `console-web` release,
-reading every page. It fails on any API error other than a missing release. If the key is already
-published, the run builds nothing. A branch that changes nothing in the console takes `main`'s
-archive of its key. A Dependabot branch's console is built but not published. Fork pull requests do
-not run the console build.
-
-Reason: every preview of a console change hears that change, and pushes that do not change the
-console run nothing.
-Not: an opt-in label, a manual run, the `pull_request` trigger, or running on every push.
-Sources: [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md).
-Evidence: `.github/workflows/console-web.yml` jobs `key`, `build`, `publish`; `scripts/console-assets.sh`.
-
-### SITE-073 `main` and other branches publish under separate names, and the rolling console tracks `main`
-
-`main` publishes `console-web-<key>.tar.gz` on the `console-web` release. Every other branch
-publishes `console-preview-<key>.tar.gz`. `main` counts only its own archives as published, and a
-branch counts either name. The rolling `console-web.tar.gz` is `main`'s current console. Local
-builds take it.
-
-Reason: separate names keep an honest branch run from ever touching what production takes.
-Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md), [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md).
-Evidence: `.github/workflows/console-web.yml` jobs `key` (accepted names), `publish`, `latest`; test `site/scripts/tests/console.sh` "Production never takes a console a branch published".
-
-### SITE-074 An archive is never replaced, and every pushed console gets published
-
-`publish` lists the release again, leaves any archive another run has already published, and
-uploads without overwriting. Builds of one archive run one at a time. No push cancels another
-push's run, so every pushed commit's console is published and no preview waits for a console that
-never comes.
-
-Reason: one key is one console, and a cancelled run would leave its commit's preview waiting.
-Sources: [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md).
-Evidence: `.github/workflows/console-web.yml` `build.concurrency`, `publish`.
-
-### SITE-078 The release keeps 100 of `main`'s archives and 50 of the branches'
-
-The release keeps the newest 100 of `main`'s keyed archives and the newest 50 of the branches'. It
-never prunes `main`'s current key. A branch so far behind that its key was pruned rebuilds it by
-running Console web on the branch, and the failed preview's message names that step.
-
-Reason: archives accumulate on every console push.
-Sources: [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md).
-Evidence: `.github/workflows/console-web.yml` job `latest` (prune loop); `site/scripts/console.sh` failure message.
-
-## Site build and deploy
-
-### SITE-075 Every Cloudflare build waits for its own commit's console
-
-A Cloudflare build of the site (`WORKERS_CI_BRANCH` set) computes its commit's key and downloads that
-archive. It retries every 20 seconds for up to 15 minutes. Production takes only `main`'s archive,
-and a preview takes either name. If the console never arrives, the build fails and names the key,
-so nothing is deployed. The site never deploys a console other than the one its commit builds.
+A Cloudflare build of the site, production or preview, takes the console keyed to its own commit.
+Production takes only `main`'s archive. If that console never arrives, the build fails and names the
+key, so nothing is deployed. A local build, and a `dependabot/` branch's build, which cannot publish,
+take `main`'s current console instead.
 
 Reason: two builds start at once on a merge, and without the wait the site could ship the previous
 console without anything reporting it.
 Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md), [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md).
-Evidence: `site/scripts/console.sh`; test `site/scripts/tests/console.sh` (production and preview waits, 44 sleeps, failure names the key).
-
-### SITE-076 Dependabot and local builds take the rolling console
-
-A `dependabot/` branch's build, which cannot publish, takes the rolling console. So does a local
-build.
-
-Reason: Dependabot's pushes get a read-only token.
-Sources: [ADR 0101](../adr/0101-every-site-build-takes-the-console-its-commit-builds.md), [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md).
-Evidence: `site/scripts/console.sh`; test `site/scripts/tests/console.sh` "A local build, and a Dependabot branch's build, take the rolling console".
-
-### SITE-079 No deploy hook, and GitHub holds no Cloudflare credential
-
-The site needs no secret, and GitHub holds no Cloudflare credential of any kind. If a site build
-fails because the console build failed or ran late, it is retried from Cloudflare's dashboard.
-
-Reason: a hook works only while a secret nobody is reminded of stays set, and a missing secret
-fails silently.
-Not: a deploy hook.
-Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md).
-Evidence: `.github/workflows/` (no Cloudflare secret).
-
-### SITE-080 Cloudflare builds the site on pushes that change the console
-
-Cloudflare's build watch paths include the console's paths, or are left unset.
-
-Reason: SITE-075's wait can deploy a console change only if a console push starts a site build.
-Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md) (Consequences).
-Evidence: Cloudflare dashboard (outside the repository).
+Evidence: `site/scripts/console.sh`; test `site/scripts/tests/console.sh` (production and preview waits, failure names the key, local and Dependabot builds).
 
 ### SITE-081 The site build never compiles the console
 
@@ -565,12 +473,6 @@ Evidence: `site/scripts/console.sh`.
   starting and are more than 500 ms past their planned instant. The rule says they sound at once.
   The drop is described only in [orcvs-site/16](../../.scratch/orcvs-site/issues/16-wake-the-synth-before-the-first-note.md)
   (resolved). No tracking issue found.
-- SITE-074: the Console web workflow's concurrency group lets a newer pending run replace a pending
-  run of the same archive, so not every pushed run finishes. The archive is still published. No
-  tracking issue found.
-- SITE-080: the build watch paths live in Cloudflare's dashboard and cannot be checked from the
-  repository; [orcvs-site/26](../../.scratch/orcvs-site/issues/26-build-the-site-on-console-pushes.md)
-  (ready-for-human).
 
 ## Open decisions
 
