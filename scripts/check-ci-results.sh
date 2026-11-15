@@ -9,7 +9,8 @@ esac
 
 # `changes` decides whether the workflow compiles. Only a Markdown-only pull
 # request skips it, and then the WASM job is skipped rather than run; Linux still
-# runs the contract and the roadmap planner, so it must still succeed.
+# runs the contract, the roadmap planner and the requirements check, so it must
+# still succeed.
 if [[ "${CHANGES_RESULT:?}" != success ]]; then
   echo "CI failed: the compile decision did not succeed (changes=$CHANGES_RESULT)" >&2
   exit 1

@@ -20,12 +20,13 @@ shaped the way it is. Sections: [Tiers](#tiers), [Markdown-only pull requests](#
 
 Verification has two trigger tiers:
 
-- `mise run check_pull_request` runs `check_docs` (the tooling contract, the roadmap planner, the
-  requirements check and both scripts' test suites), the two workflow linters, the dependency audit,
-  formatting, clippy with and without the default features, the `inspection` compile, a
+- `mise run check_pull_request` runs `check_docs` (the tooling contract, plus the roadmap planner
+  and the requirements check, each with its test suite), the two workflow linters, the dependency
+  audit, formatting, clippy with and without the default features, the `inspection` compile, a
   Windows-target lint of the shipped crates, the native tests and doctests under both feature sets,
-  and the rustdoc gates under both. The tooling contract's own fixture suite is not part of it; see
-  [The tooling contract](#the-tooling-contract).
+  and rustdoc with default features and with `--features persistence`, the only place `orcvs`'s
+  persistence-gated docs are generated. The tooling contract's own fixture suite is not part of it;
+  see [The tooling contract](#the-tooling-contract).
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
   the application twice, once under each feature set. Pull requests run the first on Linux and the
   second on the WASM job. macOS runs `check_pull_request` and the MIDI loopback only during merge
@@ -52,9 +53,10 @@ fails the pull request that wrote it. The same holds one feature over — the pe
 in a test-only module behind a dev-dependency, so no library build can reach them, and the
 pull-request tier reaches them by building all targets. Doctests follow the same rule: a doctest
 that one feature set compiles and the other does not is compiled by only one of them, so the tier
-runs `cargo test --doc` under both. Rustdoc takes the same pair: doctests execute examples and do
+runs `cargo test --doc` under both. Rustdoc is gated too, because doctests execute examples and do
 not generate the docs, so a public item that links to a private one is invisible until `cargo doc`
-runs with warnings denied. Each rustdoc pass costs about a second on a warm runner after clippy,
+runs with warnings denied. Its pair is not the feature-set pair: it is default features and
+`--features persistence`, so no rustdoc pass runs `--no-default-features`. Each rustdoc pass costs about a second on a warm runner after clippy,
 which is why it sits in the pull-request tier.
 
 ## Markdown-only pull requests
@@ -62,8 +64,9 @@ which is why it sits in the pull-request tier.
 A pull request whose diff is Markdown and `site/` alone does not compile. The `changes` job asks
 `scripts/ci-compile-needed.sh`, which answers `false` only for a pull request whose every changed
 path ends in `.md` or lies under `site/`, counting both sides of a rename; the Linux job then runs
-`mise run check_docs` and the WASM job is skipped. `check_pull_request` runs `check_docs` as its
-first step, so a Markdown-reading gate is added to that one task and both paths run it.
+`mise run check_docs` — the tooling contract, the roadmap planner and the requirements check, the
+only gates that read Markdown — and the WASM job is skipped. `check_pull_request` runs `check_docs`
+as its first step, so a Markdown-reading gate is added to that one task and both paths run it.
 `scripts/check-ci-results.sh` accepts that skip only on a pull request. No crate compiles or reads a
 `.md` file, which is the whole of the rule: `.scratch/` is not exempt as a directory, because a test
 includes a `.toml` from it. The merge queue, pushes to `main` and manual dispatch always compile.
@@ -305,10 +308,10 @@ an empty token permission set.
 in `check_pull_request`: it costs under a second, and it is what fails when someone edits a pinned
 line, so every pull request owes it whatever that pull request touched. Its fixture suite,
 `scripts/tests/check-tooling-contract.sh`, copies a tree, breaks one line and re-runs the contract,
-ninety times over — about thirty seconds — and the tier runs on both the Linux and macOS legs. What
-the suite can answer depends only on the files it copies into a fixture, so
-`.github/workflows/tooling.yml` runs it path-filtered on exactly those, plus the two scripts
-themselves, so a pull request that changes one of them meets the suite there.
+over a hundred times — a minute or more. What the suite can answer depends only on the files it
+copies into a fixture, so `.github/workflows/tooling.yml` runs it path-filtered on exactly those,
+plus the two scripts themselves, so a pull request that changes one of them meets the suite there
+and one that touches none of them does not pay for it.
 
 That filter is derived rather than trusted. The paths and the files the suite reads are the same set
 stated twice, and a file added to the suite and not to the workflow would leave the gate blind to
@@ -544,7 +547,7 @@ anything compiles them.
 - `node` also runs `scripts/check-requirements.ts` and its suite. The script holds
   `docs/requirements/` to its snapshot contract: a marker on every topic, unique rule IDs, every
   cited rule defined, relative links and anchors resolving, every ADR a rule cites listed in its
-  marker, and every Evidence file present and holding the symbols named after it. Because Evidence
+  marker, every ADR newer than the marker named in a `Behind:` line, and every Evidence file present and holding the symbols named after it. Because Evidence
   reads source files, a rename in code can fail it; such a change is not Markdown-only, so it meets
   the check through `check_pull_request`.
 

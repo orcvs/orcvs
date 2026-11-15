@@ -293,8 +293,8 @@ description = "Pull-request verification tier"
 # scripts/check-tooling-contract.sh pins.
 env = { PROPTEST_CASES = '32' }
 run = '''
-# The contract and the roadmap planner, the gates that read Markdown. The
-# contract's fixture suite does not run here: its verdict depends only on the
+# The contract, the roadmap planner and the requirements check, the gates that
+# read Markdown. The contract's fixture suite does not run here: its verdict depends only on the
 # files `make_fixture` copies, so `.github/workflows/tooling.yml` runs it
 # path-filtered on those instead of on every pull request.
 mise run check_docs
