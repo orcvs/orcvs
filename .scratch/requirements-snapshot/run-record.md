@@ -182,8 +182,9 @@ print('\n'.join(errors) or 'no errors'); sys.exit(1 if errors else 0)
 
 ## Open items
 
-- D5 (value roots and ADR 0006) and D6 (accepting ADRs 0078 and 0079) await Toby; both are listed
-  as open in their requirements and in `issues/04`.
+- D5 ruled 2026-11-15: ADR 0110 records that value roots take a Turn every Tick; EVAL-050 binds it
+  and `evaluation.md`'s marker is at ADR 0110.
+- D6 (accepting ADRs 0078 and 0079) awaits Toby; listed as open in `console.md` and `issues/04`.
 - Follow-ups: `issues/01` (trim glossary entries), `issues/02` (stale code citations), `issues/03`
   (ADR status-line forward pointers), `issues/04` (open decisions and missing glossary terms).
 

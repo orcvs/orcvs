@@ -4,8 +4,6 @@
 
 Each is listed under "Open decisions" in its requirement and is not binding there.
 
-- Value roots and ADR 0006's "inert until Bang" (decisions D5, `docs/requirements/evaluation.md`).
-  Asked of Toby on 2026-11-14.
 - Accepting ADRs 0078 and 0079, which are built (D6, `docs/requirements/console.md`). Asked of
   Toby on 2026-11-14.
 - Standalone operand literals: a 2026-10-16 ruling reverses ADR 0021 for Number and Note pairs and

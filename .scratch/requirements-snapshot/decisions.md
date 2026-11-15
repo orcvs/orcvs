@@ -36,13 +36,12 @@ ADR 0021 says a standalone operand literal is invalid; ADR 0067 leaves diagnosis
 with no ADR. The code still diagnoses. Snapshot: LANG states ADR 0021's rule as binding and lists
 the pending reversal under open decisions. Recording the reversal needs a new ADR.
 
-## D5. Value roots and ADR 0006's "inert until Bang" — awaiting Toby
+## D5. Value roots and ADR 0006's "inert until Bang" — ruled 2026-11-15
 
-ADR 0006 says an ordinary root is inert until Bang. ADR 0032 kept "value roots calculate each Tick"
-as the first implementation's policy, and code (`ActivationSource`), `docs/functions.md` and later
-ADRs assume value roots are intrinsically active. No ADR retires 0006's wider rule. Snapshot: EVAL
-states the activation rule as an open decision, describing the built behaviour as observed
-implementation, not as binding.
+Toby chose on 2026-11-15 to record the built behaviour: a root that answers a value takes a Turn on
+every Tick, and only a Terminal Output, Directional Bang or Halt root waits for a Bang. Recorded as
+[ADR 0110](../../docs/adr/0110-a-value-root-takes-a-turn-every-tick.md), which amends ADR 0006;
+EVAL-050 states it and `evaluation.md`'s marker advanced to ADR 0110.
 
 ## D6. ADRs 0078 and 0079 are proposed but built — awaiting Toby
 
