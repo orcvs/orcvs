@@ -15,7 +15,7 @@ codebase. The repository has one context; its domain documents are the three bel
 ## Use the glossary's vocabulary
 
 When output names a domain concept—in an issue title, refactor proposal, hypothesis, or test
-name—name it by its bold `CONTEXT.md` heading.
+name—use the term `CONTEXT.md` defines, never a word on its `_Avoid_` line.
 
 If the concept isn't in the glossary, reconsider whether it belongs to the project or note the gap for `/domain-modeling`.
 
@@ -26,7 +26,7 @@ A glossary entry defines a domain term without naming the toolkit, crate, module
 If output contradicts an existing ADR or requirement, surface it explicitly rather than silently
 overriding:
 
-> _Contradicts ADR 0003 (Source Snapshot is complete language state)—but worth reopening because…_
+> _Contradicts ADR 0003 (Source Snapshot is the complete language state)—but worth reopening because…_
 
 [`docs/requirements/README.md`](../requirements/README.md#keeping-the-snapshot-current) states how
 a requirement that disagrees with an ADR, or with the code, is resolved.
@@ -39,6 +39,8 @@ for a new ADR, an amendment or a Status change:
 
 Terms go into `CONTEXT.md` the moment they settle. A renamed term is applied to the requirements
 that use it in the same change. `CONTEXT.md` keeps definitions, distinctions and `_Avoid_` lines;
-a rule about what the product does goes in the owning requirement. Where an existing entry carries
-behaviour, correct the sentence if it contradicts an ADR and leave moving it out to
-`.scratch/requirements-snapshot/issues/01-trim-glossary-entries-to-definitions.md`.
+a rule about what the product does goes in the owning requirement. Keep an entry that still
+carries behaviour as it is apart from correcting a sentence that contradicts an ADR; new behaviour
+goes in the owning requirement, and
+`.scratch/requirements-snapshot/issues/01-trim-glossary-entries-to-definitions.md` tracks moving the
+rest out.

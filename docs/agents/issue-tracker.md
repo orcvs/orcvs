@@ -7,11 +7,13 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 - One feature per directory: `.scratch/<feature-slug>/`
 - The spec is `.scratch/<feature-slug>/spec.md`
 - Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` — never a single combined tickets file
-- Triage state is recorded as a `Status:` line near the top of each issue file. The open
-  statuses are the triage skill's canonical role names verbatim: `needs-triage`, `needs-info`,
-  `ready-for-agent` and `ready-for-human`, plus `claimed` for a Wayfinding ticket in progress. A
-  settled issue uses `resolved` when done, or `wontfix`, `superseded` or `obsoleted` when dropped.
-  `scripts/roadmap.ts` reports any other value as unrecognised.
+- Triage state is recorded as a `Status:` line near the top of each issue file, using the triage
+  skill's five canonical role names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`,
+  `ready-for-human` and `wontfix`. An open issue is `needs-triage`, `needs-info`,
+  `ready-for-agent`, `ready-for-human`, or `claimed` for a Wayfinding ticket in progress. A settled
+  issue uses `resolved` when done, or `wontfix`, `superseded` or `obsoleted` when dropped. Write
+  only these. `scripts/roadmap.ts` also reads older synonyms and `accepted` (its `STATE_BY_WORD`
+  table is the full list), and reports any value outside that table as unrecognised.
 - Optional orthogonal collections are recorded as a comma-separated `Tags:` line
   near the top of an issue. Release membership uses a namespaced tag such as
   `Tags: release/v1`; the issue remains in its ordinary effort and may appear in
