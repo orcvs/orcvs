@@ -17,5 +17,8 @@ Readers also found stale facts in ADR bodies that later ADRs changed without a S
 kit channels (0099), 0091's phone Cell size (0102), 0055's failure routing (0092), 0094's
 `orca-tracker` link name (the code uses `tracker`).
 
+The repository already adds dated amendment pointers to an amended ADR, as ADR 0006 now points to
+ADR 0110, so the open part is a Status-line pointer for a partial supersession.
+
 **Done when:** the ADR process states whether such forward pointers are permitted, and they are
 added or the decision not to is recorded.

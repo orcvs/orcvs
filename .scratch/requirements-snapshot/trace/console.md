@@ -347,3 +347,17 @@ Every retained row keeps its provisional ID as its final rule ID. There are no m
     same Function; subtree unedited; Selected-descendant reads; lock conditions). EVAL-106 defers
     to it.
 - CONS-079 is reduced to the console guarantee: the console has no `sound.magnitude` key and a Theme that sets it is refused as unknown. The colour rule is owned by SITE-038.
+- 2026-11-15: Toby accepted ADRs 0078 and 0079.
+  - CONS-120..123 move to a binding group, "## Cell geometry and edges", after "Drawing the
+    Source", each with a Reason line. The "Proposed, built" section and the D6 open decision are
+    deleted.
+  - CONS-122 states the Portal and Locked edge order as ADR 0077's (Output > Input > Locked).
+  - ADR 0053's animated-fragment clause is amended by 0079, so its built-differently item is
+    removed. The inert `cell.selection.border.width` key is now a gap against CONS-122
+    (cell-edges/07).
+  - The marker is dated 2026-11-15 and adds 0043, 0063 and 0086 (cited in Sources but missing
+    from the marker).
+  - Evidence paths are verified by script against the files that define each test.
+    `region_fallback_only_reaches_a_fully_transparent_role_background` is in `contrast.rs`;
+    `only_a_toml_file_is_a_theme_file` is in `theme_registry.rs`.
+  - O1 is resolved by acceptance.

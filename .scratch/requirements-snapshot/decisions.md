@@ -43,11 +43,11 @@ every Tick, and only a Terminal Output, Directional Bang or Halt root waits for 
 [ADR 0110](../../docs/adr/0110-a-value-root-takes-a-turn-every-tick.md), which amends ADR 0006;
 EVAL-050 states it and `evaluation.md`'s marker advanced to ADR 0110.
 
-## D6. ADRs 0078 and 0079 are proposed but built — awaiting Toby
+## D6. ADRs 0078 and 0079 are proposed but built — ruled 2026-11-15
 
 Accepted ADRs 0038, 0047, 0053, 0058 and 0091 cite 0079's amendments, and `CONTEXT.md` describes
-both. Snapshot: CONS lists their content under "Proposed, built" apart from the binding rules, so
-nothing proposed reads as binding. Accepting them is a status-line change through the ADR process.
+both. Toby chose "Accept both" on 2026-11-15. Both Status lines now read accepted, recording that
+acceptance followed the build, and their rules sit among the binding CONS rules.
 
 ## D7. Status lines that do not name a later superseding ADR — proposed
 

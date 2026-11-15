@@ -1,9 +1,10 @@
 # Playback and outputs requirements
 
 > Snapshot: checked against `c8cc197` (2026-11-14); incorporates ADRs through 0109.
-> ADRs accepted after 0109 bind where they differ, until this document is updated.
-> Source ADRs: 0001, 0002, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090, 0099,
-> 0103. Reviewed, not applicable or wholly superseded: none wholly superseded; 0087's page protocol
+> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
+> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090, 0099,
+> 0103, 0108. Reviewed, not applicable or wholly superseded: none wholly superseded; 0087's page protocol
 > and timing are stated in [site.md](site.md), 0088's Sound Module is owned by the Site topic, and
 > 0103's Chord building is stated in [language.md](language.md).
 
@@ -698,7 +699,7 @@ These transitions live in the shared lifecycle module, which tests drive through
 Reason: a new backend is built before the outgoing Playback task has shut down, so backend-local
 counts cannot describe a page-wide port.
 Sources: [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).
-Evidence: `console/src/web_midi/ports.rs`; test `an_abandoned_open_releases_its_output`,
+Evidence: `console/src/web_midi/ports.rs`; tests `console/src/web_midi.rs` `an_abandoned_open_releases_its_output`,
 `a_new_selection_reuses_an_abandoned_open_before_it_completes`,
 `a_new_claim_waits_for_an_in_flight_close_before_reopening`,
 `replacing_a_source_does_not_close_the_new_backends_connection`.
@@ -874,15 +875,17 @@ every channel's vibrato and keeps the sound a Source set up.
 
 Sources: [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md) (second
 2026-11-14 amendment).
-Evidence: `synth/src/controller.rs` `RESET`; test `reset_all_controllers_leaves_the_acid_voices_sound_alone`,
+Evidence: `synth/src/controller.rs` `RESET`; tests `synth/src/lib.rs` `reset_all_controllers_leaves_the_acid_voices_sound_alone`,
 `reset_all_controllers_leaves_every_effect_but_modulation_alone`,
 `reset_all_controllers_clears_modulation_on_its_channel_only`.
 
 ## Accepted but not built, or built differently
 
-- PLAY-260: after a refused delivery the engine keeps every Timed and Mono claim and retries the due
-  stops at the next executed Tick (stated as such by `CONTEXT.md`, Playback Engine). ADR 0016 says
-  teardown ends that ownership. With the MIDI adapter nothing is delivered until a destination change
+- PLAY-260: the code keeps the schedule after a refused delivery. The schedule records only what an
+  output adapter accepted, so a refused submission leaves every Timed and Mono claim standing and the
+  due stops are delivered again at the next executed Tick (test `orcvs/src/playback.rs`
+  `a_refused_submission_leaves_the_schedule_standing_for_the_next_tick`). ADR 0016 says teardown
+  after a refused delivery ends that ownership. With the MIDI adapter nothing is delivered until a destination change
   clears the schedule; an adapter that survives a refusal sees the retry. Ruling without ADR:
   [midi-output-family/02](../../.scratch/midi-output-family/issues/02-schedule-timed-play-note-off.md)
   (resolved); no open tracking issue found.

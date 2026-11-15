@@ -1,8 +1,9 @@
 # Evaluation requirements
 
 > Snapshot: checked against `c8cc197` (2026-11-15); incorporates ADRs through 0110.
-> ADRs accepted after 0110 bind where they differ, until this document is updated.
-> Source ADRs: 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0032, 0034, 0036, 0057, 0060, 0065, 0067 (scheduling amendments), 0068, 0071, 0072, 0073, 0076 (Tick count only), 0077, 0110. Reviewed, not applicable or wholly superseded: 0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](playback.md)).
+> Any ADR added, amended or accepted after `c8cc197` binds where it differs, until this document is
+> updated; `git log --oneline c8cc197.. -- docs/adr/` lists them.
+> Source ADRs: 0001, 0002, 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0032, 0034, 0036, 0057, 0060, 0061, 0063, 0065, 0067 (scheduling amendments), 0068, 0071, 0072, 0073, 0076 (Tick count only), 0077, 0110. Reviewed, not applicable or wholly superseded: 0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](playback.md)).
 
 This document states how one Tick turns a Source Snapshot into a committed Tick Plan: Turns, Dependencies, Reservations, Portals and their writes, activation, placement, the Tick-family time and feedback inputs, error containment, the commit, and the Tick Portals record. It does not state Function spellings, operand types or what each Function reads ([language](language.md)), the Playback clock, the Tick period and Overrun (PLAY-180 Tick Grid and PLAY-190 Overrun in [playback](playback.md)), or output delivery ([playback](playback.md)), how the console paints Portals ([console](console.md)), or the site ([site](site.md)). Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
@@ -450,7 +451,7 @@ The owner is the anchor of the Function whose Turn made the access, the Cells it
 
 Reason: a Tick may rewrite the Cells its owners stood in.
 Sources: [ADR 0077](../adr/0077-a-committed-tick-records-its-portal-accesses.md).
-Evidence: `orcvs/src/source/portal.rs` `InputSpan`, `OutputSpan`; test `orcvs/src/source/tick/movers.rs` `reads_and_writes_keep_their_order_and_owners_when_a_mover_rewrites_the_source`.
+Evidence: `orcvs/src/source/tick/portals.rs` `InputSpan`, `OutputSpan`; test `orcvs/src/source/tick/movers.rs` `reads_and_writes_keep_their_order_and_owners_when_a_mover_rewrites_the_source`.
 
 ### EVAL-102 A Turn records its read, its writes, its lock and its Source Bundle parts in the order they ran
 

@@ -3139,8 +3139,8 @@ mod tests {
         // Both owning spellings, for the reason the lifecycle test loops them:
         // the retry is a property of the one schedule they share, and a Tick
         // resolved against a copy adopts or discards every claim in it at
-        // once. Asserting it of `!~` alone would leave the claim CONTEXT.md
-        // makes the same promise to untested.
+        // once. Asserting it of `!~` alone would leave the Mono claim, which
+        // the same retry covers (docs/requirements/playback.md, PLAY-260), untested.
         for expression in ["!~007FC402", "!%007FC402  "] {
             let source = SourceCommander::new(Grid::with_shape(expression.len(), 9));
             write(&source, 2 * expression.len(), expression);

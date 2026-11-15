@@ -11,8 +11,9 @@ How the engineering skills should consume this repo's domain documentation when 
   snapshot marker, with the code and tests that implement each rule and the known gaps. Read it
   before the ADRs.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in, for the argument, the
-  rejected alternatives and the history, and every ADR numbered above the requirement's snapshot
-  marker: where a newer ADR differs from the requirement, the ADR binds. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions. `docs/adr/README.md` states how a new one is numbered and which of two ADRs is renumbered when they collide.
+  rejected alternatives and the history, and every ADR added, amended or accepted since the commit the
+  requirement's snapshot marker names (`git log --oneline <commit>.. -- docs/adr/`), whatever its
+  number: where such an ADR differs from the requirement, the ADR binds. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions. `docs/adr/README.md` states how a new one is numbered and which of two ADRs is renumbered when they collide.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill creates them lazily when terms or decisions actually get resolved.
 
@@ -52,8 +53,8 @@ ignore the ADR. Code that lacks a rule does not retire it: the requirement lists
 
 ## Recording a decision or a term
 
-`/domain-modeling` still decides when an ADR is warranted and what it holds. Accepting an ADR also
-updates the owning requirement and its snapshot marker in the same change, or marks that topic's
+`/domain-modeling` still decides when an ADR is warranted and what it holds. Accepting or amending an
+ADR, including a Status change, also updates the owning requirement and its snapshot marker in the same change, or marks that topic's
 snapshot as behind; [`docs/requirements/README.md`](../requirements/README.md) states how.
 
 Terms still go into `CONTEXT.md` the moment they settle. A renamed term is applied to the
