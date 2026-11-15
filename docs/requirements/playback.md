@@ -9,10 +9,11 @@ blank operands ([language.md](language.md)), how a Tick is planned and committed
 Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> Behind: ADRs 0111, 0112 and 0113, which are proposed and bind nothing until accepted.
 > A newer ADR binds where it differs until this document is updated; the
 > [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090,
-> 0099, 0103, 0108.
+> 0099, 0103, 0108, 0112 (proposed; cited only under Open decisions).
 
 ## The seam between interpretation and Playback
 
@@ -777,6 +778,9 @@ Preserve this as built until an ADR records it or changes it.
 - The network destination reaches the engine on its own newest-wins channel, outside the request
   slots ADR 0056 lists (PLAY-350). Tracked in
   [requirements-snapshot/06](../../.scratch/requirements-snapshot/issues/06-decide-the-network-destination-path.md).
+  Proposed for the record in [ADR 0112](../adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md),
+  not yet accepted, which would also amend ADR 0085's storage clause to the eframe Storage key the
+  console uses.
 
 ### Undecided
 

@@ -11,3 +11,7 @@ notice and only that key takes its default. `docs/requirements/console.md` lists
 decisions" as built, awaiting a record.
 
 **Done when:** an ADR or a dated ruling records the model, and console.md states it as a rule.
+
+**Progress, 2026-11-15:** proposed as
+[ADR 0111](../../../docs/adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md).
+Waiting on Toby to accept or change it; its open questions list where the code and the spec differ.

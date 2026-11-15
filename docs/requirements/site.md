@@ -14,9 +14,11 @@ one whose address uses `?example=`, `#source=` or `?small`, and the Small Consol
 `/play/?small`.
 
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> Behind: ADRs 0111, 0112 and 0113, which are proposed and bind nothing until accepted.
 > A newer ADR binds where it differs until this document is updated; the
 > [reading order](README.md#reading-order) says which ADRs are newer.
-> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102.
+> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102, 0113 (proposed;
+> cited only under Open decisions).
 
 ## Opening a Source by link
 
@@ -482,6 +484,9 @@ Each is built as described but rests only on an undated `.scratch/` spec decisio
 implementation choice ([decisions D3](../../.scratch/requirements-snapshot/decisions.md#d3-rulings-recorded-only-in-scratch--proposed)). Preserve each as built until an ADR or a dated ruling records it or
 changes it. Tracked in
 [requirements-snapshot/07](../../.scratch/requirements-snapshot/issues/07-ground-the-site-details-from-undated-spec-text.md).
+All three are proposed for the record in
+[ADR 0113](../adr/0113-a-link-is-refused-whole-and-only-the-full-console-caches-itself.md), not yet
+accepted.
 
 - The link limit (SITE-022) is 16 KiB of text after `source=`, checked before decoding. A link that
   names an unknown example, carries unreadable text, or names both `?example=` and `#source=` opens
