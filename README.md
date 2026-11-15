@@ -75,7 +75,9 @@ Every other property keeps the default's value. `console/src/theme.md` lists eve
   rest.
 - [Function reference](docs/functions.md) lists every Function with its operands, what it does,
   and an example checked against the language.
-- [`docs/adr/`](docs/adr/) records each language and architecture decision.
+- [`docs/requirements/`](docs/requirements/README.md) states what each part of Orcvs must do now;
+  open the topic your task touches.
+- [`docs/adr/`](docs/adr/) holds the binding decision records and their arguments.
 - [`console/assets/function_reference.orcvs`](console/assets/function_reference.orcvs) is the Source
   the Function Reference opens.
 

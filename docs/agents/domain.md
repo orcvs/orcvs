@@ -6,14 +6,12 @@ How the engineering skills should consume this repo's domain documentation when 
 
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/requirements/`** — the owning requirement for the area, found through its
-  [index](../requirements/README.md). It restates the accepted ADRs in current words as of its
-  snapshot marker, with the code and tests that implement each rule and the known gaps. Read it
-  before the ADRs.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in, for the argument, the
-  rejected alternatives and the history, and every ADR added, amended or accepted since the commit the
-  requirement's snapshot marker names (`git log --oneline <commit>.. -- docs/adr/`), whatever its
-  number: where such an ADR differs from the requirement, the ADR binds. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions. `docs/adr/README.md` states how a new one is numbered and which of two ADRs is renumbered when they collide.
+- **`docs/requirements/`** — the owning requirement for the area, then the ADRs newer than its
+  snapshot marker, in the order its [index](../requirements/README.md#reading-order) states.
+- **`docs/adr/`** — the full argument, rejected alternatives and history of a decision. In
+  multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
+  `docs/adr/README.md` states how a new one is numbered and which of two ADRs is renumbered when
+  they collide.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill creates them lazily when terms or decisions actually get resolved.
 
@@ -48,14 +46,14 @@ overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders)—but worth reopening because…_
 
-A requirement that disagrees with an accepted ADR is a defect in the requirement, never a reason to
-ignore the ADR. Code that lacks a rule does not retire it: the requirement lists the gap.
+[`docs/requirements/README.md`](../requirements/README.md#keeping-the-snapshot-current) states how
+a requirement that disagrees with an ADR, or with the code, is resolved.
 
 ## Recording a decision or a term
 
-`/domain-modeling` still decides when an ADR is warranted and what it holds. A new ADR, an amendment
-or a Status change also updates the owning requirement in the same change, as
-[`docs/requirements/README.md`](../requirements/README.md#keeping-the-snapshot-current) states.
+`/domain-modeling` decides when an ADR is warranted and what it holds. Updating the requirements
+for a new ADR, an amendment or a Status change:
+[`docs/requirements/README.md`](../requirements/README.md#keeping-the-snapshot-current).
 
 Terms still go into `CONTEXT.md` the moment they settle. A renamed term is applied to the
 requirements that use it in the same change. `CONTEXT.md` keeps definitions, distinctions and

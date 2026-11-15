@@ -30,9 +30,8 @@ a day, and left 78 bare citations outside this directory resolving to either of 
 ## The requirements restate these decisions
 
 [`docs/requirements/`](../requirements/README.md) restates the accepted ADRs in current words, one
-rule in one place, as a snapshot at the revision each document names. The ADRs stay binding: a
-requirement that disagrees with an accepted ADR is a defect in the requirement. A new ADR, an
-amendment or a Status change updates the owning requirement in the same change, as
+rule in one place, and the ADRs stay binding. Writing a new ADR, an amendment or a Status change:
+update the requirements in the same change, as
 [the requirements index](../requirements/README.md#keeping-the-snapshot-current) states.
 
 The topic that owns each ADR, superseded ADRs included so a reader can see where their surviving

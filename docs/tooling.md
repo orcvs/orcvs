@@ -39,7 +39,10 @@ The web console and the site build separately, and GitHub Actions deploys neithe
 `.github/workflows/console-web.yml` runs on a push to any branch except `gh-pages` and the merge
 queue's that changes what the console is built from: the console, the crates under it, the Built-in
 Synth, the shipped examples and the toolchain and tool pins. Its first job takes the console key
-from `scripts/console-key.sh`, one hash over the paths in the workflow's own path filter. When an
+from `scripts/console-key.sh`, one hash over the paths in the workflow's own path filter, so the
+filter covers every workspace member, every file a crate embeds from outside itself and every script
+a Trunk hook runs, or two different consoles share a key; `site/scripts/tests/console.sh` fails when
+one is missing. When an
 archive of that key is already on the public `console-web` release the run builds nothing. Otherwise it runs `mise run console_web_build`: one
 release Trunk build with relative URLs into `target/console-web/`, kept as the `console-web`
 artifact. Trunk's post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly
@@ -59,7 +62,12 @@ minutes for the console keyed to its own commit and fails without it (ADR 0093, 
 production for `main`'s archive only, a preview for either. A local build and a `dependabot/`
 branch's build take the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
 release, and the site workflow runs it. A push to `main` deploys, and a pull
-request gets Cloudflare's preview URL. `site/.node-version` is the Node pin Cloudflare's build
+request gets Cloudflare's preview URL. No deploy hook exists and GitHub holds no Cloudflare
+credential; a site build that failed because its console was late is retried from Cloudflare's
+dashboard. The dashboard's build watch paths must include the console's paths, or be unset, so a
+console push starts a site build; they cannot be checked from the repository
+([orcvs-site/26](../.scratch/orcvs-site/issues/26-build-the-site-on-console-pushes.md)).
+`site/.node-version` is the Node pin Cloudflare's build
 reads, and a site test holds it equal to `mise.toml`'s.
 
 `.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it renders,

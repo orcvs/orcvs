@@ -5,9 +5,9 @@
 - Toolchain and targets: `rust-toolchain.toml`.
 - Workspace, edition, Rust version, features, dependencies, and lints: root and crate `Cargo.toml` files.
 - Vocabulary: `CONTEXT.md`. Decisions: `docs/adr/`, which stay binding and append-only.
-- Current required behaviour: `docs/requirements/`, a snapshot restating the accepted ADRs as of
-  each document's marker. Read the owning requirement before the ADRs, then any ADR added, amended or
-  accepted since its marker's commit; where they differ the ADR binds. `docs/requirements/README.md` routes by task.
+- Current required behaviour: `docs/requirements/`, a snapshot restating the accepted ADRs. Before
+  changing behaviour, read the owning requirement and the ADRs newer than its marker, in the order
+  `docs/requirements/README.md` states; where they differ, the ADR binds.
 - CI is authoritative when local and CI behaviour differ.
 
 This is an internal application. Track current stable Rust deliberately; nightly is optional and
@@ -77,7 +77,7 @@ Then run only the gates whose inputs the change actually touched:
 
 - `mise.toml`, `.github/workflows/`, or `scripts/`: `bash scripts/check-tooling-contract.sh`,
   `actionlint`, and `zizmor --offline .github/workflows`
-- `docs/requirements/`, or code a requirement's Evidence line names: `node scripts/check-requirements.ts`,
+- `docs/requirements/`, `docs/adr/`, or a renamed or deleted source file: `node scripts/check-requirements.ts`,
   and `node --test scripts/tests/check-requirements.test.ts` when the script changes
 - `scripts/roadmap.ts` or `.scratch/`: `node --test scripts/tests/roadmap.test.ts` and
   `node scripts/roadmap.ts > /dev/null`
@@ -164,8 +164,8 @@ Triage uses the five default canonical label strings. See `docs/agents/triage-la
 
 ### Domain docs
 
-Domain documentation uses a single-context layout. See `docs/agents/domain.md` for the reading
-order. A change to `docs/adr/` updates the owning requirement in the same change, as
+Domain documentation uses a single-context layout. See `docs/agents/domain.md`. Adding an ADR, or
+changing one's Status or amendments: update the requirements in the same change, as
 `docs/requirements/README.md` states under "Keeping the snapshot current".
 
 ### Syntax prototypes
