@@ -7,7 +7,7 @@
 - Vocabulary: `CONTEXT.md`. Decisions: `docs/adr/`, which stay binding and append-only.
 - Current required behaviour: `docs/requirements/`, a snapshot restating the accepted ADRs. Before
   changing behaviour, read the owning requirement and the ADRs newer than its marker, in the order
-  `docs/requirements/README.md` states; where they differ, the ADR binds.
+  `docs/requirements/README.md` states.
 - CI is authoritative when local and CI behaviour differ.
 
 This is an internal application. Track current stable Rust deliberately; nightly is optional and
