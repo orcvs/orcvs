@@ -160,7 +160,8 @@ Issues are tracked as local Markdown files under `.scratch/`. See `docs/agents/i
 
 ### Triage labels
 
-Triage uses the five default canonical label strings. See `docs/agents/triage-labels.md`.
+Triage labels are the triage skill's canonical role names verbatim, written as an issue's
+`Status:` line. `docs/agents/issue-tracker.md` lists every status.
 
 ### Domain docs
 

@@ -2,7 +2,7 @@
 
 A comment states what the code does, why, and the invariant it keeps, in the present tense and about the code as it stands. It does not narrate lineage. An ADR or ticket citation stays only where the constraint it names cannot be seen in the code itself.
 
-This covers every comment in a tracked code or configuration file: `//`, `///` and `//!` in `.rs` files, tests and benches included, and `#` or `//` comments in `.toml`, `.sh`, `.ts`, `.js` and workflow `.yml` files. It does not cover Markdown: `CONTEXT.md`, ADRs and `.scratch/` tickets are where lineage goes.
+This covers every comment in a tracked code or configuration file: `//`, `///` and `//!` in `.rs` files, tests and benches included, and `#` or `//` comments in `.toml`, `.sh`, `.ts`, `.js` and workflow `.yml` files. It does not cover Markdown; commit messages, ADRs and `.scratch/` tickets are where lineage goes.
 
 ## The rule
 
