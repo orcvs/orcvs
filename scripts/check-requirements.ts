@@ -10,14 +10,12 @@ import { pathToFileURL } from 'node:url';
  * else reads these documents mechanically, so without this check a duplicated
  * rule ID, a rule cited by another document that no longer exists, a broken
  * link or anchor, an ADR a rule cites but the marker omits, an ADR newer than a
- * marker that the marker does not name as behind, or an Evidence line naming a
+ * marker, or an Evidence line naming a
  * file that does not hold its symbol would all land unnoticed.
  */
 
 const RULE_PREFIXES = ['LANG', 'EVAL', 'PLAY', 'CONS', 'SITE'];
 const MARKER = /^> Snapshot: incorporates ADRs through (\d{4}) and ADR changes dated through (\d{4}-\d\d-\d\d)\.$/m;
-/** An ADR number, not the year of a date. */
-const ADR_NUMBER = /(?<![\d-])\d{4}(?![\d-])/g;
 const DATE = /\d{4}-\d\d-\d\d/g;
 const SOURCE_FILE = /^[\w./-]+\.(rs|ts|js|astro|html|toml|yml|md|sh)$/;
 
@@ -81,12 +79,11 @@ export function check(root: string): string[] {
       problems.push(`${name}: no snapshot marker`);
     } else {
       const [through, dated] = [Number(marker[1]), marker[2]];
-      const behind = new Set((/^> Behind:(.*)$/m.exec(text)?.[1] ?? '').match(ADR_NUMBER)?.map(Number));
       if (through > highest) problems.push(`${name}: the marker incorporates ADRs through ${marker[1]}, above the highest ADR`);
       for (const adr of adrs) {
-        if ((adr.number > through || adr.latest > dated) && !behind.has(adr.number)) {
+        if (adr.number > through || adr.latest > dated) {
           const id = String(adr.number).padStart(4, '0');
-          problems.push(`${name}: ADR ${id} is newer than the marker, which neither incorporates it nor names it in a Behind line`);
+          problems.push(`${name}: ADR ${id} is newer than the marker, which does not incorporate it`);
         }
       }
     }

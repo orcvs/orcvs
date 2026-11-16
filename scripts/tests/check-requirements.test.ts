@@ -81,17 +81,15 @@ test('an Evidence file that is missing, or lacks its symbol, is reported', () =>
   ]);
 });
 
-test('an ADR numbered or dated past the marker is reported unless a Behind line names it', () => {
+test('an ADR numbered or dated past the marker is reported', () => {
   const extra = {
     'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n\n## Amendment, 2026-11-16: later\n',
     'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-16.\n',
   };
   assert.deepEqual(problems({ 'a.md': MARKER }, extra), [
-    'a.md: ADR 0001 is newer than the marker, which neither incorporates it nor names it in a Behind line',
-    'a.md: ADR 0003 is newer than the marker, which neither incorporates it nor names it in a Behind line',
+    'a.md: ADR 0001 is newer than the marker, which does not incorporate it',
+    'a.md: ADR 0003 is newer than the marker, which does not incorporate it',
   ]);
-  const behind = MARKER.replace('> Source', "> Behind: ADR 0003; ADR 0001's 2026-11-16 amendment.\n> Source");
-  assert.deepEqual(problems({ 'a.md': behind }, extra), []);
 });
 
 test('a proposed or rejected ADR is not newer than the marker; an accepted one is', () => {
@@ -101,7 +99,7 @@ test('a proposed or rejected ADR is not newer than the marker; an accepted one i
   assert.deepEqual(problems({ 'a.md': MARKER }, rejected), []);
   const accepted = { 'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-17.\n' };
   assert.deepEqual(problems({ 'a.md': MARKER }, accepted), [
-    'a.md: ADR 0003 is newer than the marker, which neither incorporates it nor names it in a Behind line',
+    'a.md: ADR 0003 is newer than the marker, which does not incorporate it',
   ]);
 });
 

@@ -18,12 +18,9 @@ This is the one statement of the order; every other document points here.
 2. [`CONTEXT.md`](../../CONTEXT.md) for what each term means.
 3. The owning requirement below, for what the behaviour must be, why, and where it is implemented
    and tested.
-4. The ADRs newer than that requirement's snapshot marker, and the ADRs its marker names as behind.
-   Where one differs from the requirement, the ADR binds. An ADR is newer when its number is above
-   the marker's "through" number (a new ADR never refills a numbering gap; see
-   [Numbering](../adr/README.md#numbering)), or when its Status paragraph or an `## Amendment, <date>` heading
-   carries a date after the marker's date. Open the full set in [`docs/adr/`](../adr/) only for an
-   ADR's argument, its rejected alternatives or its history.
+4. Nothing newer: a change to an ADR updates every topic in the same change, and the check below
+   fails until it does, so the requirement already restates every accepted ADR. Open
+   [`docs/adr/`](../adr/) only for an ADR's argument, its rejected alternatives or its history.
 
 Per-Function spellings, operands and examples live in the [Function reference](../functions.md),
 which a test holds to the Function table; the requirements state the rules that cross Functions and
@@ -55,15 +52,16 @@ Engineering workflow, tooling and CI are not product behaviour and have no requi
 
 Every topic's marker reads "incorporates ADRs through NNNN and ADR changes dated through
 YYYY-MM-DD": the document has been reconciled against every ADR up to that number and every ADR
-change dated up to that day. A marker that is not yet reconciled with a newer ADR adds a line such as
-`> Behind: ADR 0123; ADR 0016's 2026-12-01 amendment.`, and readers check those ADRs.
+change dated up to that day. An ADR is newer than a marker when its number is above the "through"
+number (a new ADR never refills a numbering gap; see [Numbering](../adr/README.md#numbering)), or
+when its Status paragraph or an `## Amendment, <date>` heading carries a later date. No marker is
+ever left behind an ADR: a change that cannot reconcile every topic does not merge.
 
 A proposed ADR, one whose Status paragraph starts `Status: proposed`, decides nothing yet, and a
-rejected one (`Status: rejected`) decides nothing at all: neither is newer than a marker or behind
-one, binds in the reading order, or needs a Behind line. Accepting a proposal is the Status change
-that makes it newer, by its acceptance date; like an amendment, a proposal accepted on a marker's own
-day and numbered at or below it is not caught by the check, so that change advances the markers by
-hand.
+rejected one (`Status: rejected`) decides nothing at all: neither counts as newer than a marker.
+Accepting a proposal is the Status change that makes it newer, by its acceptance date; like an
+amendment, a proposal accepted on a marker's own day and numbered at or below it is not caught by
+the check, so that change advances the markers by hand.
 
 Any change to what an ADR decides updates the requirements in the same change: a new ADR, a dated
 amendment, or a Status change such as accepting a proposed ADR or marking one superseded.
@@ -74,10 +72,9 @@ amendment, or a Status change such as accepting a proposed ADR or marking one su
    Evidence, and add the ADR to that marker's Source ADRs.
 3. Add the ADR to the owner table in [`docs/adr/README.md`](../adr/README.md#the-requirements-restate-these-decisions).
 4. Advance every topic's marker to the ADR's number and the change's date, the topics the ADR does
-   not touch included, since the marker records what the topic was checked against. A topic that
-   cannot be reconciled in this change names the ADR in a Behind line instead.
+   not touch included, since the marker records what the topic was checked against.
 5. Done when `node scripts/check-requirements.ts` passes. It fails while any ADR is numbered or dated
-   past a marker that neither incorporates it nor names it as behind.
+   past a marker.
 
 An ADR change that alters nothing a requirement states still advances the markers, and says so in
 its pull request. A link fix or rewording of a requirement leaves the markers as they are.
