@@ -92,9 +92,8 @@ Then run only the gates whose inputs the change actually touched:
 
 Each risk the change carries owes these tests, and is done when its bound holds:
 
-- public API: a doctest or example on every changed public item, a clean
-  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, and the changed API named
-  for human review on the `Risks` line.
+- public API: the changed API named for human review on the `Risks` line. Both crates are internal
+  and unpublished, so doctests and rustdoc warnings are left to CI's rustdoc gates.
 - concurrency: a test for each of cancellation, shutdown, ownership, backpressure and ordering
   that the change touches, plus a race-sensitive test for any new shared state.
 - parser/protocol boundary: boundary or property tests over every input form the change accepts;
