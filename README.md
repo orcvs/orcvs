@@ -25,49 +25,7 @@ the first time.
 Function, asking first if the running Source has unsaved changes.
 
 To see a result of your own, follow [Your first result](docs/first-result.md). It takes a few
-minutes and needs no MIDI device.
-
-## Changing the Bang colours
-
-The console ships `grayscale-dark` and `grayscale-light` as its default Themes and switches between
-them with the light/dark mode. To change one colour, add a custom Theme that inherits a default and
-lists only what it changes. `source.bang` is the Bang glyph and `source.bang.border` its Cell border.
-
-`~/.orcvs/themes/my-dark.toml`:
-
-```toml
-format = "orcvs-theme"
-version = 1
-name = "My Dark"
-inherits = "grayscale-dark"
-
-[style]
-"source.bang" = "#FFAA00"
-"source.bang.border" = "#FFAA00"
-```
-
-`~/.orcvs/themes/my-light.toml`:
-
-```toml
-format = "orcvs-theme"
-version = 1
-name = "My Light"
-inherits = "grayscale-light"
-
-[style]
-"source.bang" = "#964B00"
-"source.bang.border" = "#964B00"
-```
-
-Then select them by file name in `~/.orcvs/config.toml`, and restart the console:
-
-```toml
-[theme]
-dark = "my-dark"
-light = "my-light"
-```
-
-Every other property keeps the default's value. `console/src/theme.md` lists every property.
+minutes and needs no MIDI device. To change the console's colours, see [Themes](docs/themes.md).
 
 ## Learn the language
 
@@ -85,7 +43,6 @@ Every other property keeps the default's value. `console/src/theme.md` lists eve
 
 - [`AGENTS.md`](AGENTS.md) is the repository contract: sources of truth, Rust policy, and the
   checks each change runs.
-- [`docs/tooling.md`](docs/tooling.md) describes the `mise` tasks and the CI tiers, including
-  `mise run bench`.
+- [`docs/tooling.md`](docs/tooling.md) records the CI tiers and which gate covers each path.
 - Work is tracked as Markdown under `.scratch/`; see
   [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).

@@ -6,9 +6,9 @@ name exactly one decision for a citation to be followable.
 
 ## Numbering
 
-Take the next number above the highest file in this directory. A gap is not a free number: `0027` is
-missing here because a branch that has not landed claims it, and reusing it would land the collision
-this directory has already had once.
+Take the next number above the highest file in this directory. A gap is not a free number: a
+branch that has not landed may claim it, and reusing it would land the collision this directory has
+already had once.
 
 ## When two ADRs collide on a number
 

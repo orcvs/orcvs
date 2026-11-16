@@ -293,8 +293,7 @@ description = "Pull-request verification tier"
 # scripts/check-tooling-contract.sh pins.
 env = { PROPTEST_CASES = '32' }
 run = '''
-# The contract and the roadmap planner, the gates that read Markdown. The
-# contract's fixture suite does not run here: its verdict depends only on the
+# `check_docs` holds the gates that read Markdown. The contract's fixture suite does not run here: its verdict depends only on the
 # files `make_fixture` copies, so `.github/workflows/tooling.yml` runs it
 # path-filtered on those instead of on every pull request.
 mise run check_docs
@@ -357,8 +356,8 @@ run = '''
 case "${ORCVS_MERGE_COMPONENT:-all}" in
   native) mise run check_merge_native ;;
   # What is merge-only on the WASM side is the browser run. The compile-and-build
-  # half is `check_wasm`, which the WASM job runs as its own step on every event,
-  # so this component narrows to what the step before it did not do. `all` below
+  # half is `check_wasm`, which the WASM job runs as its own step on every event
+  # but `merge_group`, so this component narrows to the browser run. `all` below
   # still runs both, which is the path a local `mise run check` takes.
   wasm) mise run test_wasm ;;
   all)
