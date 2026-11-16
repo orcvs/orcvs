@@ -7,7 +7,13 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 - One feature per directory: `.scratch/<feature-slug>/`
 - The spec is `.scratch/<feature-slug>/spec.md`
 - Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` — never a single combined tickets file
-- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the open role strings); completed issues use `resolved`
+- Triage state is recorded as a `Status:` line near the top of each issue file, using the triage
+  skill's five canonical role names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`,
+  `ready-for-human` and `wontfix`. An open issue is `needs-triage`, `needs-info`,
+  `ready-for-agent`, `ready-for-human`, or `claimed` for a ticket in progress. A settled
+  issue uses `resolved` when done, or `wontfix`, `superseded` or `obsoleted` when dropped. Write
+  only these. `scripts/roadmap.ts` also reads older synonyms and `accepted` (its `STATE_BY_WORD`
+  table is the full list), and reports any value outside that table as unrecognised.
 - Optional orthogonal collections are recorded as a comma-separated `Tags:` line
   near the top of an issue. Release membership uses a namespaced tag such as
   `Tags: release/v1`; the issue remains in its ordinary effort and may appear in
@@ -57,7 +63,7 @@ Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 
 - **Map**: `.scratch/<effort>/map.md` — the Notes / Decisions-so-far / Fog body.
 - **Child ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records `claimed`/`resolved`.
-- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is `resolved`.
+- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is settled (see the `Status:` line above).
 - **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
 - **Claim**: set `Status: claimed` and save before any work.
 - **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
