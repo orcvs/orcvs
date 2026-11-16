@@ -141,13 +141,21 @@ struct DueStops {
 }
 
 impl DueStops {
+    /// Adds the stop for `note` on `voice`, due this Tick.
+    fn push(&mut self, voice: Voice, note: Note) {
+        self.stops.push((voice, note));
+    }
+
     ///
-    /// The note of the Mono stop due on `channel`, taken out of the stops
-    /// delivered first, if no Monophonic command has yet been resolved on
-    /// that channel this Tick.
+    /// Resolves a Monophonic command on `channel`, and answers the note of
+    /// the Mono stop it takes over: the stop due on `channel`, taken out of
+    /// the stops delivered first, when the command `slides` and is the first
+    /// Monophonic command resolved on that channel this Tick.
     ///
-    fn take_over(&mut self, channel: MidiChannel) -> Option<Note> {
-        if self.settled & Self::bit(channel) != 0 {
+    fn resolve(&mut self, channel: MidiChannel, slides: bool) -> Option<Note> {
+        let first = self.settled & Self::bit(channel) == 0;
+        self.settled |= Self::bit(channel);
+        if !(first && slides) {
             return None;
         }
         let at = self
@@ -155,11 +163,6 @@ impl DueStops {
             .iter()
             .position(|(voice, _)| *voice == Voice::Mono { channel })?;
         Some(self.stops.remove(at).1)
-    }
-
-    /// Marks `channel` as resolved, so no later command this Tick takes over.
-    fn settle(&mut self, channel: MidiChannel) {
-        self.settled |= Self::bit(channel);
     }
 
     /// `channel`'s bit in `settled`.
@@ -184,7 +187,8 @@ impl DueStops {
 impl OwnedNotes {
     ///
     /// This Tick's delivery: every stop due at `tick`, then `commands`
-    /// resolved against ownership, in Tick Plan order.
+    /// resolved against ownership, in Tick Plan order, except a Mono stop a
+    /// sliding command takes over, which goes after that command's Note On.
     ///
     /// One list rather than two submissions, because the order is the whole of
     /// what ADR 0016 requires here — a scheduled Note Off arrives at the
@@ -262,7 +266,7 @@ impl OwnedNotes {
                     // command, which is what monophony means here: the voice
                     // is the channel, and the Source need not remember what it
                     // last put on it.
-                    let mut held = self.release(voice);
+                    let held = self.release(voice);
                     // Velocity `00` and length `00` both leave the channel
                     // silent, and ADR 0016 makes that the end of the command.
                     // Timed Play's length `00` is a no-op instead, and the
@@ -276,10 +280,9 @@ impl OwnedNotes {
                     // A sliding command on a channel whose note ends this
                     // Tick takes that note's stop over, so a line whose
                     // lengths equal its steps still slides.
-                    if starts && articulation == Articulation::Legato && held.is_none() {
-                        held = due.take_over(channel);
-                    }
-                    due.settle(channel);
+                    let slides = starts && articulation == Articulation::Legato;
+                    let taken = due.resolve(channel, slides && held.is_none());
+                    let held = held.or(taken);
                     let note_on = OutputCommand::NoteOn {
                         channel,
                         velocity,
@@ -372,7 +375,7 @@ impl OwnedNotes {
                 && sounding.claim == expiry.claim
             {
                 self.voices.remove(&expiry.voice);
-                stops.stops.push((expiry.voice, sounding.note));
+                stops.push(expiry.voice, sounding.note);
             }
         }
         stops
