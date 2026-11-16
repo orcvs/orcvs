@@ -567,7 +567,7 @@ anything compiles them.
 
 ## Property tests
 
-`AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests
+`AGENTS.md` obliges a change at the parser boundary to bring "boundary or property tests
 over every input form the change accepts", and the parser is the widest input surface in the
 workspace because every keystroke reaches it. That obligation is the rationale for the dependency.
 `proptest` is declared once in `[workspace.dependencies]` and consumed by `lang` and `orcvs` under
@@ -609,8 +609,7 @@ such as a `u8` and a pair of small column indices, records an input proptest wou
 and its counterexample may be discarded.
 
 The same `AGENTS.md` sentence leaves fuzzing to a statement on the `Risks` line of whether untrusted
-input warrants it, so no fuzzing harness is installed. That is a separate decision with its own
-cost, and it is not taken here.
+input warrants it, so no fuzzing harness is installed.
 
 ## Version pins
 
