@@ -167,7 +167,7 @@ midir = "0.11"
 # `dispatch2`, `raw-window-handle` and `windows-sys` 0.61 it uses were already
 # locked. MIT licensed; `rfd` calls platform APIs through `unsafe`, as any
 # dialog crate must.
-rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.18.0", default-features = false, features = ["xdg-portal"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # `main.rs`'s `trace()` is the only shipped user of this crate, and it is
 # itself `cfg(not(target_arch = "wasm32"))`-gated, so a WASM build has no code
