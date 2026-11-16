@@ -37,7 +37,7 @@ The sentence that accompanied the deferral of a Source operation producing Funct
 
 The spatial encoding rule replaces this proposal's earlier rule that whole spatial replacements preserve the producer's type. Whole and partial spatial writes now use the receiving operand's literal interpretation. The reason is Source-equivalent behavior: identical final operand characters have the same meaning, whether entered directly or supplied spatially. Historical prototype assessments are evidence about their recorded candidate, not the production contract.
 
-## Amendment: the Render Frame carries Tokens, not a Glyph classification
+## Amendment, 2026-09-11: the Render Frame carries Tokens, not a Glyph classification
 
 This ADR states that the Parser's typed output is the structure rendering uses and that the
 production migration retires the independent spelling classifier. One classifier survived the
