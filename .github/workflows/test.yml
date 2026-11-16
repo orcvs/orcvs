@@ -61,9 +61,12 @@ jobs:
     needs: changes
     runs-on: ubuntu-latest
     steps:
+      # Depth two so the pull request's merge commit has its base as first parent,
+      # which the requirements marker step below diffs against.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0
         with:
           components: clippy,rustfmt
@@ -87,6 +90,10 @@ jobs:
         run: mise run check_pull_request
       - if: needs.changes.outputs.compile != 'true'
         run: mise run check_docs
+      # A change to `docs/adr/` moves every requirements marker in the same pull
+      # request. Only a diff shows that, so it runs here rather than in a task.
+      - if: github.event_name == 'pull_request'
+        run: node scripts/check-requirements.ts --since HEAD^1
       - if: github.event_name != 'pull_request'
         env:
           ORCVS_MERGE_COMPONENT: native
