@@ -1,8 +1,6 @@
 # Playback and outputs requirements
 
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> A newer ADR binds where it differs until this document is updated; the
-> [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090, 0099,
 > 0103, 0108. Reviewed, not applicable or wholly superseded: none wholly superseded; 0087's page protocol
 > and timing are stated in [site.md](site.md), 0088's Sound Module is owned by the Site topic, and
