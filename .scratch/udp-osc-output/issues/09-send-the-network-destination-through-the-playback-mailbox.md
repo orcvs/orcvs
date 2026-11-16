@@ -1,6 +1,7 @@
 # 09 — Send the network destination through the playback mailbox
 
-**Status:** needs-triage
+Status: needs-triage
+Type: task
 
 **Background:** The console hands the playback engine the network destination (the host and port
 UDP and OSC output sends to) on its own newest-wins `watch` channel
