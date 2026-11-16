@@ -2009,8 +2009,8 @@ mod tests {
 /// and the answer has to keep LANG-060 (`docs/requirements/language.md`) — a
 /// row is partitioned left to right into non-overlapping complete Language
 /// Units, an unmatched character diagnoses without participating in an
-/// overlapping unit, and incomplete or invalid Source contributes no runtime
-/// Atoms.
+/// overlapping unit, and incomplete or invalid Source forms no Language Unit,
+/// so it contributes no runtime Atoms.
 ///
 /// The Source is generated as raw text rather than as Expressions. What makes
 /// this path worth a property is exactly the input a grammar-shaped generator
