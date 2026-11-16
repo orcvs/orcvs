@@ -1,11 +1,12 @@
 # The native console edits one Source File, and autosave only recovers the session
 
-Status: proposed on 2026-11-15. Drafted for Toby from the built console, to record what the undated
+Status: accepted by Toby on 2026-11-16. Drafted from the built console, to record what the undated
 `.scratch/menu-structure/spec.md` ("A document model on native", "Web file I/O is deferred",
-"Settings are config-file only") decided and no ADR states. It decides nothing the code does not
-already do. Extends the per-key fallback [ADR 0079](0079-source-cells-are-configurable-rectangles.md)
-gives the `[cell]` keys to every settings key, on native and, through
-[ADR 0091](0091-the-web-console-reads-its-settings-from-its-page.md), on the web.
+"Settings are config-file only") decided and no ADR states. Toby's acceptance changed three things
+the code does not yet do: Help → Function Reference opens the site's reference page, ⌘Q on macOS
+asks, and nothing on the web discards a written Source unasked. Extends the per-key fallback
+[ADR 0079](0079-source-cells-are-configurable-rectangles.md) gives the `[cell]` keys to every
+settings key, on native and, through [ADR 0091](0091-the-web-console-reads-its-settings-from-its-page.md), on the web.
 
 The console opens, saves and discards Sources, and reads a settings file, but no ADR says what the
 open file is, when a discard asks first, or how a faulty settings file falls back.
@@ -26,10 +27,18 @@ Source is unsaved unless it is empty, because it is compared with the empty Sour
 **The window title names the open file, or `Untitled`, and marks it while unsaved:**
 `• loop.orcvs — Orcvs`. `Console::show_title` sends it when it changes.
 
-**Every native action that would discard unsaved changes asks first.** New, Open, Help → Function
-Reference, each Help → Examples item, File → Quit and the window's close button each show one modal question with Discard and Cancel while the Source is unsaved, and act at once
-when it is not (`Console::discard_asking_first`, `Console::guard_close`, the `*_CONFIRMATION`
-constants in `console/src/console/files.rs`). Save and Save As discard nothing and never ask.
+**Every native action that would discard unsaved changes asks first.** New, Open, each Help →
+Examples item, File → Quit, ⌘Q from the macOS app menu and the window's close button each show one
+modal question with Discard and Cancel while the Source is unsaved, and act at once when it is not
+(`Console::discard_asking_first`, `Console::guard_close`, the `*_CONFIRMATION` constants in
+`console/src/console/files.rs`). Save and Save As discard nothing and never ask.
+
+**Help → Function Reference opens the site's reference page, and the runnable Grid is an
+example.** The item opens `https://orcvs.com/reference/` in a new tab on the web and in the system
+browser on native, as Help → Learn does, and replaces the separate Help → Reference item. The
+checked-in Source that shows every Function working (`console/assets/function_reference.orcvs`) is
+listed under Help → Examples as `Functions`, and asks before discarding as every example does. No
+Help item discards the running Source unasked.
 
 **Save writes the file; autosave is session recovery.** Save writes the open file, or runs Save As
 when none is open. Save As offers the open file's name, or `Untitled.orcvs`, in its folder, and
@@ -45,9 +54,8 @@ storage, and autosave never writes a file.
 
 **The web has no Open, Save or Save As.** Its File menu holds New. It tracks no file, so it asks
 before discarding whenever any Cell of the running Source is written (`Console::source_is_written`):
-New and each example ask, with their own wording. Help → Function Reference opens without asking on
-the web. A web console opened at `/play/` with no link autosaves as native does; a Linked Console
-and the Small Console neither restore nor store (SITE-021, SITE-010).
+New and each example ask, with their own wording. A web console opened at `/play/` with no link
+autosaves as native does; a Linked Console and the Small Console neither restore nor store (SITE-021, SITE-010).
 
 **A faulty settings file costs only the keys it affects, and says why.** `console/src/config.rs`
 reads `~/.orcvs/config.toml` on native, and the page's `orcvs_config` text on the web, with one
@@ -71,16 +79,25 @@ The per-key fallback extends to every section the choice ADR 0079 made for `[cel
 - **Open on the web without Save.** The spec rejected it as half a feature: `rfd` picks a file on
   wasm32 but cannot save one there (0.17.2), and a download through `web-sys` or the Chromium-only
   File System Access API is its own work. The web keeps autosave and, since ADR 0091, its page's settings.
+- **Keep Help → Function Reference as the runnable Grid.** Toby rejected it on 2026-11-16: Help held
+  both a "Function Reference" that replaced the Source and a "Reference" that opened the page titled
+  Function reference, and the first discarded work unasked on the web. As an example, the Grid keeps
+  what the page cannot show, each Function running, under the asking rule every example follows.
+- **Record ⌘Q as an exception.** Rejected: it is the usual way to quit on a Mac, so the rule would
+  not hold where it matters most.
 
 ## Consequences
 
-- `docs/requirements/console.md` can state the model as rules once this is accepted, replacing its
-  "Built, awaiting a record" item, and CONS-131 can drop its pointer to an open decision.
-  `docs/requirements/site.md` owns the web's File menu and its asking before New and examples.
-- Every close request is asked about, but on macOS the app menu's ⌘Q ends the process without one,
-  as the File menu's comment in `console/src/console/menu_bar.rs` records, so it quits without
-  asking; no test covers it. File → Quit shows no chord for
-  that reason.
+- `docs/requirements/console.md` states the model as CONS-134 to CONS-137, on native and the web,
+  and CONS-133 states the Help menu.
+- Built differently when accepted, each tracked as a ticket:
+  - On macOS the app menu's ⌘Q ends the process without a close request, as the File menu's
+    comment in `console/src/console/menu_bar.rs` records, so it quits without asking; File → Quit
+    shows no chord for that reason
+    ([menu-structure/10](../../.scratch/menu-structure/issues/10-ask-before-cmd-q-discards-unsaved-changes.md)).
+  - Help still offers Function Reference, which replaces the running Source with the runnable Grid
+    (unasked on the web), beside a separate Reference item that opens the site's page
+    ([menu-structure/11](../../.scratch/menu-structure/issues/11-open-the-function-reference-page-from-help.md)).
 - A Source a Tick keeps writing is unsaved for as long as Playback runs, so quitting a playing
   Source that was just saved can ask.
 - Tests: `console/src/console/kittest_tests.rs`
@@ -94,16 +111,13 @@ The per-key fallback extends to every section the choice ADR 0079 made for `[cel
   `an_out_of_range_or_mistyped_value_falls_back_alone`,
   `a_malformed_file_is_the_defaults_and_a_notice_naming_the_file_and_line`.
 
-## Open questions
-
-Where the code and `.scratch/menu-structure/spec.md` differ, this record states the code.
+## Where this differs from the spec
 
 - The spec lists New, Open, Function Reference, Quit and closing the window as the actions that ask.
-  The code also asks before each Help → Examples item.
-- The spec says nothing of the web asking. The code asks on the web before New and each example
-  when any Cell is written, and opens the Function reference there unasked.
-- The spec has Quit ask before discarding. On macOS, ⌘Q from the app menu quits without asking,
-  because it sends no close request for the console to cancel.
+  This record also asks before each Help → Examples item, and makes Function Reference a link that
+  discards nothing.
+- The spec says nothing of the web asking. This record asks on the web before New and each example
+  when any Cell is written.
 - The spec's settings list (`theme.*`, `cursor_effects.glitch_*`) and its "no config file" for the
   web are older than ADRs 0079 and 0091, which replaced them; the code follows those ADRs, and the
   glitch keys now read as unknown keys.

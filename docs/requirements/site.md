@@ -13,8 +13,8 @@ A Linked Console and the Small Console are as `CONTEXT.md` defines them. Here a 
 one whose address uses `?example=`, `#source=` or `?small`, and the Small Console opens at
 `/play/?small`.
 
-> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102.
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16.
+> Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102, 0113.
 
 ## Opening a Source by link
 
@@ -23,12 +23,19 @@ one whose address uses `?example=`, `#source=` or `?small`, and the Small Consol
 `/play/?example=<link-name>` opens the shipped example with that link name. `/play/#source=<text>`
 opens percent-encoded Source File text. In that text `+` stays `+`, and `%` must be followed by two
 hex digits. The console reads its URL once, at startup. A URL that names neither form opens the
-stored Source.
+stored Source. `?small` is read first: a URL naming it opens the Small Console whatever else it
+names.
+
+A link the console cannot open opens the empty Source, Linked and stopped, with a notice saying
+why; nothing of a refused link opens. A link is refused when `?example=` names no shipped example,
+when the `#source=` text is over the limit (SITE-022), has a `%` not followed by two hex digits or
+is not a Source File, or when it names both `?example=` and `#source=`.
 
 Reason: a link is how a reader is sent one Source, and `/play/` keeps both forms beside the Small
-Console's messages.
-Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md) (Consequences), [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md).
-Evidence: `console/src/linked_source.rs` `opening`, `source_from`, `percent_decoded`; `console/src/console.rs` `Console::start_at`; test `console/src/linked_source.rs` `an_example_name_opens_that_example`.
+Console's messages. An ambiguous link never opens something its author did not mean.
+Not: picking one parameter when a link names both.
+Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md) (Consequences), [ADR 0094](../adr/0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md), [ADR 0113](../adr/0113-a-link-is-refused-whole-and-only-the-full-console-caches-itself.md).
+Evidence: `console/src/linked_source.rs` `opening`, `source_from`, `percent_decoded`; `console/src/console.rs` `Console::start_at`; test `console/src/linked_source.rs` `an_example_name_opens_that_example`, `an_unknown_example_name_is_refused`, `malformed_percent_encoding_is_refused`, `text_that_is_not_a_source_file_is_refused`, `an_example_and_source_text_together_are_refused`.
 
 ### SITE-021 A Linked Console opens stopped and never reads or writes saved work
 
@@ -42,13 +49,14 @@ Evidence: `console/src/console.rs` `Console::new` (`stores_source`), `Console::s
 
 ### SITE-022 A link's text, a sent Source and a copied link share one byte limit
 
-The `#source=` reader has one byte limit (`console/src/linked_source.rs` `SOURCE_TEXT_LIMIT`).
-SITE-013 applies the same limit to a Source sent by message, and SITE-062 applies it to a copied
-link.
+The `#source=` reader has one byte limit, 16 KiB of the percent-encoded text after `source=`,
+checked before decoding (`console/src/linked_source.rs` `SOURCE_TEXT_LIMIT`). It holds 21 full Grid
+rows with every byte encoded. SITE-013 applies the same limit to a Source sent by message, on its
+raw text, and SITE-062 applies it to a copied link, on its encoded text.
 
 Reason: one limit means a link the console copies always opens, and a message can carry no more
 than a link.
-Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md), [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md).
+Sources: [ADR 0086](../adr/0086-a-small-console-takes-its-source-by-message.md), [ADR 0097](../adr/0097-copy-link-gives-the-site-link-to-the-running-source.md), [ADR 0113](../adr/0113-a-link-is-refused-whole-and-only-the-full-console-caches-itself.md).
 Evidence: `console/src/linked_source.rs` `source_from`, `source_message`, `link`; test `text_over_the_limit_is_refused_before_decoding` in the same file.
 
 ### SITE-024 Link names are the console's, and are public
@@ -442,7 +450,7 @@ Evidence: `console/src/linked_source.rs` `link`; `console/src/console/files.rs` 
 
 The chain that keys, builds, publishes and fetches the web console is engineering tooling:
 [`docs/tooling.md`](../tooling.md) states it, and `.github/workflows/console-web.yml` and
-`site/scripts/console.sh` implement it. The rules a reader of the site can observe are these two.
+`site/scripts/console.sh` implement it. The rules a reader of the site can observe are these four.
 
 ### SITE-075 Every site build deploys the console its own commit builds
 
@@ -465,33 +473,51 @@ Not: building the console inside the site build.
 Sources: [ADR 0093](../adr/0093-the-site-deploys-only-the-console-its-commit-builds.md).
 Evidence: `site/scripts/console.sh`.
 
+### SITE-082 Only `/play/` with no link registers a service worker, scoped to `/play/`
+
+`/play/` registers `sw.js`, with the default scope `/play/`, unless the console reads its URL
+as a link (SITE-020) or the URL names `small`, so neither a Linked Console nor the Small Console
+caches the site's console. A `#dev` fragment also registers none. `/` frames `/play/` with its own
+query and fragment (SITE-030), so `/` with no link holds a console that registers it.
+
+Reason: a console that keeps nothing should leave nothing cached.
+Sources: [ADR 0113](../adr/0113-a-link-is-refused-whole-and-only-the-full-console-caches-itself.md).
+Evidence: `console/index.html`; `site/tests/smoke.spec.ts`.
+
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+
+### SITE-083 A deploy reaches a returning reader on their next load
+
+The console's file names are fixed (`console/Trunk.toml` turns hashing off). The service worker
+answers every `/play/` request from the network first, caching each good response and falling back
+to the cache only offline, and the site serves every `/play/` file with `Cache-Control: no-cache`.
+A reader offline still gets the last console their worker cached.
+
+Reason: a reader who returns after a deploy runs the deployed console, not a cached one.
+Not: file hashing, or a versioned worker whose new cache name evicts the old.
+Sources: [ADR 0113](../adr/0113-a-link-is-refused-whole-and-only-the-full-console-caches-itself.md).
+Evidence: `console/assets/sw.js`; `console/Trunk.toml`; `site/public/_headers`; `site/tests/deploy.spec.ts`.
+
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+
 ## Accepted but not built, or built differently
 
 - SITE-043: `synth/web/synth-host.js` drops messages that arrived while the audio context was
   starting and are more than 500 ms past their planned instant. The rule says they sound at once.
   The drop is described only in [orcvs-site/16](../../.scratch/orcvs-site/issues/16-wake-the-synth-before-the-first-note.md)
   (resolved). Tracked in [requirements-snapshot/12](../../.scratch/requirements-snapshot/issues/12-decide-late-messages-during-audio-start.md).
+- SITE-082: `console/index.html` decides a link apart from the console's own reader (SITE-020)
+  and differs at the edges. `?example` with no `=` registers no worker, yet opens the stored Source
+  and autosaves; `#a&source=..` opens Linked, yet registers the worker. Tracked in
+  [orcvs-site/31](../../.scratch/orcvs-site/issues/31-register-the-service-worker-by-the-consoles-own-reading-of-a-link.md).
+- SITE-083: `sw.js` answers only navigations, `console.js` and `console_bg.wasm` from the network
+  first, and every other cached file, `logo-splash.png` among them, from its cache first, so a
+  deploy that changes such a file reaches a returning reader only when `sw.js` itself changes.
+  Tracked in
+  [orcvs-site/32](../../.scratch/orcvs-site/issues/32-answer-every-play-file-from-the-network-first.md).
 
 ## Open decisions
 
 ### Built, awaiting a record
 
-Each is built as described but rests only on an undated `.scratch/` spec decision or an
-implementation choice ([decisions D3](../../.scratch/requirements-snapshot/decisions.md#d3-rulings-recorded-only-in-scratch--proposed)). Preserve each as built until an ADR or a dated ruling records it or
-changes it. Tracked in
-[requirements-snapshot/07](../../.scratch/requirements-snapshot/issues/07-ground-the-site-details-from-undated-spec-text.md).
-All three are proposed for the record in
-[ADR 0113](../adr/0113-a-link-is-refused-whole-and-only-the-full-console-caches-itself.md), not yet
-accepted.
-
-- The link limit (SITE-022) is 16 KiB of text after `source=`, checked before decoding. A link that
-  names an unknown example, carries unreadable text, or names both `?example=` and `#source=` opens
-  the empty Source with a notice. Sources: `.scratch/orcvs-site/spec.md` (Loading a Source) and
-  `.scratch/orcvs-site/issues/01-open-a-source-from-the-url-stopped.md` (the value and the
-  both-parameters refusal were chosen in the ticket).
-- Service workers: a Linked Console, and the Small Console, register no service worker, while
-  `/play/` keeps it, scoped to `/play/`. Source: `.scratch/orcvs-site/spec.md` (Service worker).
-- A deploy replaces the console a returning reader's service worker has cached. Sources:
-  `.scratch/orcvs-site/spec.md` (Service worker) and
-  `.scratch/orcvs-site/issues/05-deploy-to-cloudflare-with-previews.md`, whose preview-URL item is
-  still ready-for-human.
+None.

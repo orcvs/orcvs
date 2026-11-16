@@ -1,10 +1,12 @@
 # A link is refused whole, and only the full console caches itself
 
-Status: proposed on 2026-11-15. Drafted for Toby from the built console and site, to record what
+Status: accepted by Toby on 2026-11-16. Drafted from the built console and site, to record what
 the undated `.scratch/orcvs-site/spec.md` ("Loading a Source", "Service worker") and the choices
 made in `.scratch/orcvs-site/issues/01-open-a-source-from-the-url-stopped.md` and
-`.scratch/orcvs-site/issues/05-deploy-to-cloudflare-with-previews.md` decided and no ADR states. It
-decides nothing the code does not already do.
+`.scratch/orcvs-site/issues/05-deploy-to-cloudflare-with-previews.md` decided and no ADR states.
+Toby's acceptance changed two things the code does not yet do: the service worker follows the same
+reading of a link as `opening`, and every `/play/` file reaches a returning reader on their next
+load.
 
 [ADR 0094](0094-a-link-to-the-site-opens-what-it-opens-on-the-console.md) and
 [ADR 0097](0097-copy-link-gives-the-site-link-to-the-running-source.md) say what a link opens and
@@ -36,17 +38,16 @@ refused when:
 `?small` is read first: a URL naming it opens the Small Console whatever else it names, and a
 Source sent to the Small Console that the reader refuses leaves the open Source in place (SITE-013).
 
-**Only `/play/` with no link registers a service worker, and its scope is `/play/`.** The inline
-script in `console/index.html` registers `sw.js` unless the query has `example` or `small`, or the
-fragment starts with `#source=`, so neither a Linked Console nor the Small Console caches the site's
-console. It also skips registration on a `#dev` fragment. `register('sw.js')` names no scope, so the
+**Only `/play/` with no link registers a service worker, and its scope is `/play/`.** A URL is a
+link exactly when `opening` in `console/src/linked_source.rs` reads it as one, and the inline script
+in `console/index.html` registers `sw.js` exactly when it is not and does not name `small`, so
+neither a Linked Console nor the Small Console caches the site's console. It also skips registration on a `#dev` fragment. `register('sw.js')` names no scope, so the
 worker takes the default: the directory it is served from, `/play/`. `/` frames `/play/` with its own
 query and fragment (SITE-030), so `/` with no link holds a console that registers it.
 
 **A deploy reaches a returning reader on their next load, with fixed file names.**
-`console/Trunk.toml` turns file hashing off. `console/assets/sw.js` answers navigations,
-`console.js` and `console_bg.wasm` from the network first, caching each good response and falling
-back to the cache only offline. `site/public/_headers` sets `Cache-Control: no-cache` on every
+`console/Trunk.toml` turns file hashing off. `console/assets/sw.js` answers every `/play/` request
+from the network first, caching each good response and falling back to the cache only offline. `site/public/_headers` sets `Cache-Control: no-cache` on every
 `/play/` file, so each is revalidated. Ticket 05 records that this answers its choice between file
 hashing and a versioned worker with neither, since either would repeat that guarantee.
 
@@ -54,13 +55,27 @@ hashing and a versioned worker with neither, since either would repeat that guar
 
 - **Pick one parameter when a link names both.** Ticket 01 left the choice open and chose refusal,
   for the reason above.
+- **Narrow the deploy guarantee to the page, `console.js` and `console_bg.wasm`.** Toby rejected it
+  on 2026-11-16: the guarantee is only useful whole, and network-first costs little on a few small
+  files.
+- **Record both readings of a link.** Rejected on 2026-11-16: one definition of a Linked Console,
+  not two.
 - **File hashing, or a versioned worker whose new cache name evicts the old.** Ticket 05 rejected
   both as repeating what the network-first worker and `_headers` already guarantee.
 
 ## Consequences
 
-- `docs/requirements/site.md` can state these as rules once this is accepted, replacing its "Built,
-  awaiting a record" items.
+- `docs/requirements/site.md` states these in SITE-020, SITE-022, SITE-082 and SITE-083.
+- Built differently when accepted, each tracked as a ticket:
+  - `console/index.html` and `opening` decide "Linked" separately and differ at the edges.
+    `?example` with no `=` registers no worker, yet `opening` opens the stored Source and autosaves.
+    A fragment with `source=` after another pair, such as `#a&source=..`, opens Linked, yet
+    registers the worker. No test covers either
+    ([orcvs-site/31](../../.scratch/orcvs-site/issues/31-register-the-service-worker-by-the-consoles-own-reading-of-a-link.md)).
+  - `sw.js` answers only navigations, `console.js` and `console_bg.wasm` from the network first,
+    and serves every other file it has cached, `logo-splash.png` among them, from its cache first,
+    so a deploy that changes such a file reaches a returning reader only when `sw.js` itself
+    changes ([orcvs-site/32](../../.scratch/orcvs-site/issues/32-answer-every-play-file-from-the-network-first.md)).
 - A reader offline still gets the last `/play/` console their worker cached.
 - Tests: `console/src/linked_source.rs` `text_over_the_limit_is_refused_before_decoding`,
   `an_unknown_example_name_is_refused`, `malformed_percent_encoding_is_refused`,
@@ -69,22 +84,11 @@ hashing and a versioned worker with neither, since either would repeat that guar
   link forms that register none; `site/tests/deploy.spec.ts` "a second deploy replaces the console
   a returning reader cached".
 
-## Open questions
-
-Where the code and the `.scratch/` sources differ, this record states the code.
+## Where this differs from the sources
 
 - The spec's "Service worker" and ticket 05's opening text still say a deploy is handled by file
   hashing or a versioned worker. The code uses neither, as ticket 05's 2026-10-26 comment records.
 - The spec's testing decisions and ticket 01's checklist say the ticket picks which parameter wins
   when a link names both. The code refuses both.
-- `console/index.html` and `opening` decide "Linked" separately and differ at the edges.
-  `?example` with no `=` registers no worker, yet `opening` opens the stored Source and autosaves.
-  A fragment with `source=` after another pair, such as `#a&source=..`, opens Linked, yet registers
-  the worker. No test covers either.
-- `sw.js` serves every other file it has cached, `logo-splash.png` among them, from its cache
-  first. Its `install` handler refills the cache, and the browser reinstalls the worker only when
-  `sw.js` is byte-different, so a deploy that changes such a file reaches a returning reader only
-  when `sw.js` itself changes in any way; changing the cache name is one way to change it. The
-  deploy test covers the page and `console.js`.
 - Nothing asserts the worker's scope; it follows from where `sw.js` is served.
 - The `#dev` exception is in no spec.

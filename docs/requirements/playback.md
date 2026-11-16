@@ -8,9 +8,9 @@ blank operands ([language.md](language.md)), how a Tick is planned and committed
 ([console.md](console.md)), or the site's page messages and Sound Module ([site.md](site.md)).
 Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
-> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16.
 > Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090,
-> 0099, 0103, 0108.
+> 0099, 0103, 0108, 0112.
 
 ## The seam between interpretation and Playback
 
@@ -189,7 +189,7 @@ Stopping ends the run, sends the safety action and discards the Note Off schedul
 survives. The next run begins at the Tick after the last one executed, with its first Tick
 immediate and a Tick Grid of its own: the stopped interval is neither skipped as Overruns nor owed.
 A stopped Playback is what Orca calls paused; there is no separate paused state. Replacing the
-running Orcvs (opening a Source, File New, the Function Reference) begins at Tick `0`.
+running Orcvs (opening a Source, File New, an example) begins at Tick `0`.
 
 Reason: every voice of a tracker resumes on the step it stopped on, as in Orca.
 Not: a Paused state beside Stopped.
@@ -412,13 +412,23 @@ Evidence: `orcvs/src/playback/outputs.rs` `Outputs::release`, `disconnect`, `beg
 ### PLAY-350 The console keeps the network destination, never Source
 
 UDP and OSC go to one host with a UDP port and an OSC port. The console keeps them, and never in
-Source; defaults are `127.0.0.1`, `49161` and `49162`. A new destination applies from the next
-send. The Output list's UDP/OSC section holds the host and ports (CONS-104).
+Source; defaults are `127.0.0.1`, `49161` and `49162`. The Output list's UDP/OSC section holds the
+host and ports (CONS-104), and each valid edit sets them again; a value the fields refuse changes
+nothing. The console sets the destination on every engine it builds, so opening another Source
+keeps it. A native build with `persistence` stores it under the eframe Storage key
+`orcvs_network_destination` and reads it at startup; the settings file never holds it (CONS-130).
 
-Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
-Evidence: `orcvs/src/network.rs` `NetworkDestination`; test `the_default_destination_is_orcas` in the same file.
+The destination reaches the engine on its own newest-wins channel, outside ADR 0056's request
+slots: setting it never fails, waits or wakes the engine. The engine reads the newest value once per
+Tick that makes a Network Send, after the Tick's MIDI and before its sends, and every send in that
+Tick goes there. A new destination applies from the next send and clears the network failure latch,
+so its first failure is reported (PLAY-410).
 
-Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+Reason: a destination commutes with stop, tempo and MIDI changes and holds no port, so ordering it
+against them buys nothing.
+Not: a fourth request slot.
+Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md), [ADR 0112](../adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md).
+Evidence: `orcvs/src/network.rs` `NetworkDestination`; `orcvs/src/playback.rs` `set_network_destination`; `console/src/network.rs` `stored`, `store`; test `orcvs/src/network.rs` `the_default_destination_is_orcas`; test `orcvs/src/playback/outputs.rs` `sends_keep_their_order_and_go_to_the_latest_destination`, `a_new_destination_and_a_new_run_each_report_the_failure_again`; test `console/src/console/storage_tests.rs` `the_network_destination_round_trips_through_the_console_save`.
 
 ### PLAY-360 The web build diagnoses every activated UDP or OSC Function
 
@@ -765,11 +775,6 @@ Evidence: `synth/src/controller.rs` `RESET`; test `synth/src/lib.rs` `reset_all_
 - PLAY-120: the code adds a network-failure class, ranked just above Overrun and counted in Omitted
   Diagnostics, which ADR 0055 does not name. Tracked in
   [requirements-snapshot/11](../../.scratch/requirements-snapshot/issues/11-record-the-network-failure-diagnostic-class.md).
-- PLAY-350: ADR 0085 calls the destination a console setting saved with the console's other
-  settings. The console stores it in its own persisted state instead, apart from the settings file
-  it only reads (CONS-130), and only a native build with `persistence` writes it
-  (`console/src/network.rs` `store`). Proposed ADR 0112 decides it, under Open decisions; tracked in
-  [requirements-snapshot/14](../../.scratch/requirements-snapshot/issues/14-follow-up-the-network-destination-storage.md).
 - PLAY-550: native has no Built-in Synth. Tracked in
   [orcvs-site/14](../../.scratch/orcvs-site/issues/14-give-native-the-built-in-synth.md).
 
@@ -777,15 +782,7 @@ Evidence: `synth/src/controller.rs` `RESET`; test `synth/src/lib.rs` `reset_all_
 
 ### Built, awaiting a record
 
-Preserve this as built until an ADR records it or changes it.
-
-- The network destination reaches the engine on its own newest-wins channel, outside the request
-  slots ADR 0056 lists (PLAY-350). ADR 0056 predates network output and does not say whether it is
-  a slot. Tracked in
-  [requirements-snapshot/06](../../.scratch/requirements-snapshot/issues/06-decide-the-network-destination-path.md).
-  Proposed for the record in [ADR 0112](../adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md),
-  not yet accepted, which would also amend ADR 0085's storage clause to the eframe Storage key the
-  console uses.
+None.
 
 ### Undecided
 

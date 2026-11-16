@@ -8,13 +8,13 @@ outputs ([playback.md](playback.md)), or the site and its page settings ([site.m
 are defined in [CONTEXT.md](../../CONTEXT.md). The decisions and the arguments for them are in
 [the ADRs](../adr/).
 
-> Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16.
 > Source ADRs: 0022, 0034 (Render Frame amendment), 0038, 0040, 0042, 0043 (presentation clause),
 > 0044, 0045, 0046, 0047, 0048, 0051, 0052, 0053, 0054 (console clauses), 0055 (console clause),
 > 0058, 0059 (console clause), 0061 (paint clause), 0063 (no Sequence value), 0069 (paint clause),
 > 0076 (Panel clauses), 0077 (paint clauses), 0078, 0079, 0080, 0081, 0082, 0083, 0084, 0085 (paint
 > clause), 0086 (Small Console shows the Panel), 0088 (console Theme key), 0089, 0091 (settings
-> keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause).
+> keys), 0092, 0095, 0096, 0098, 0100, 0102, 0105 (paint clause), 0111.
 
 ## Crate boundary
 
@@ -769,7 +769,8 @@ These settings exist on native and the web:
 The View menu toggles the Minimap, Diagnostics and Info, and a menu change is not saved.
 `console/src/config.rs` owns the key list, the defaults and the ranges. An unusable Theme selection
 falls back as [CONS-067](#cons-067-an-unavailable-selected-theme-falls-back-without-losing-the-selection)
-states. How other faulty keys fall back is an [open decision](#open-decisions).
+states, and other faulty keys as [CONS-137](#cons-137-a-faulty-settings-file-costs-only-the-keys-it-affects)
+states.
 
 Reason: the views a console opens with, including on a phone, are configuration rather than code.
 Sources: [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md), [ADR 0100](../adr/0100-failures-are-toasts-and-the-panel-keeps-a-line-for-the-cursor.md), [ADR 0098](../adr/0098-the-overview-is-called-the-minimap.md).
@@ -785,14 +786,76 @@ Reason: Orcvs is pre-release, and every stored Source is an autosave.
 Sources: [ADR 0054](../adr/0054-a-grid-is-always-256-by-256.md).
 Evidence: `console/src/persistence.rs`; test `console/src/persistence.rs` `a_source_stored_at_a_previous_default_grid_is_discarded_rather_than_migrated`.
 
-### CONS-133 The Help menu reaches the site's Learn and Reference pages
+### CONS-133 The Help menu reaches the site's Learn and Function reference pages
 
-The Help menu offers the site's Learn and Reference pages, the Function reference, the shipped
-examples, and About.
+The Help menu offers Learn, Function Reference, the shipped examples, and About. Learn and Function
+Reference open the site's `/learn/` and `/reference/` pages, in a new tab on the web and in the
+system browser on native, so neither touches the running Source. The examples include `Functions`,
+the checked-in Source that shows every Function working, which opens as any example does
+([CONS-135](#cons-135-every-action-that-would-discard-unsaved-work-asks-first)).
 
-Reason: the site's documentation is reached from the console.
-Sources: ruled 2026-10-26, no ADR ([orcvs-site/13](../../.scratch/orcvs-site/issues/13-link-learn-and-reference-from-the-help-menu.md)).
-Evidence: test `console/src/console/kittest_tests.rs` `the_help_menu_offers_the_sites_learn_and_reference_pages`.
+Reason: the site's documentation is reached from the console, and no Help item discards work
+unasked.
+Sources: ruled 2026-10-26 ([orcvs-site/13](../../.scratch/orcvs-site/issues/13-link-learn-and-reference-from-the-help-menu.md)), [ADR 0111](../adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md).
+Evidence: `console/src/console/menu_bar.rs` `SITE_LINKS`; test `console/src/console/kittest_tests.rs` `the_help_menu_offers_the_sites_learn_and_reference_pages`.
+
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+
+### CONS-134 The native console edits one open Source File, unsaved while its Cells differ
+
+On native the console tracks one open Source File: its path, if any, and the Cells it held when
+last opened or saved. The Source is unsaved while its Cells differ from those, so typing a character
+and deleting it leaves nothing unsaved, and a Tick's write can make it unsaved. Opening a file names
+it and is saved. New, an example and a restored autosave open Untitled; a restored Source is unsaved
+unless it is empty. The window title names the open file, or `Untitled`, and marks it while
+unsaved: `• loop.orcvs — Orcvs`.
+
+Reason: a person can tell from the title whether quitting would lose anything.
+Sources: [ADR 0111](../adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md).
+Evidence: `console/src/source_file.rs` `OpenSourceFile`; `console/src/console.rs` `show_title`; test `console/src/console/kittest_tests.rs` `the_window_title_names_the_source_and_marks_unsaved_changes`, `a_restored_source_is_untitled_and_unsaved`; test `console/src/source_file.rs` `a_source_is_unsaved_while_its_cells_differ_from_the_ones_opened`.
+
+### CONS-135 Every action that would discard unsaved work asks first
+
+On native, New, Open, each Help → Examples item, File → Quit, ⌘Q from the macOS app menu and the
+window's close button each show one modal question with Discard and Cancel while the Source is
+unsaved, and act at once when it is not. Save and Save As discard nothing and never ask. The web
+tracks no file, so New and each example ask whenever any Cell of the running Source is written.
+
+Reason: no action loses a person's work without their say.
+Sources: [ADR 0111](../adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md).
+Evidence: `console/src/console/files.rs` `discard_asking_first`, `guard_close`, `source_is_written`; test `console/src/console/kittest_tests.rs` `open_asks_before_discarding_unsaved_changes`, `an_example_asks_before_discarding_unsaved_changes`, `closing_the_window_asks_before_discarding_unsaved_changes`.
+
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
+
+### CONS-136 Save writes the file, and autosave only recovers the session
+
+Save writes the open file, or runs Save As when none is open. Save As offers the open file's name,
+or `Untitled.orcvs`, in its folder, and appends `.orcvs` unless the picked name already ends in it,
+in any case; it refuses, with a notice, to replace an existing file at the appended name. A write
+goes beside the file and is renamed over it, so a failed save never truncates it and raises a
+notice. With the `persistence` feature, eframe's save stores the running Source, never its file,
+so a restart restores the Cells, Untitled. Save never touches storage, and autosave never writes a
+file. The web has no Open, Save or Save As; its File menu holds New.
+
+Reason: a file changes only when its person saves it, and a crash still loses nothing.
+Not: Open on the web without Save.
+Sources: [ADR 0111](../adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md).
+Evidence: `console/src/source_file.rs` `with_source_file_extension`; `console/src/console/files.rs` `save`; `console/src/persistence.rs` `SOURCE_KEY`.
+
+### CONS-137 A faulty settings file costs only the keys it affects
+
+One reader, `parse`, reads `~/.orcvs/config.toml` on native and the page's text on the web. A
+missing file is the defaults with no notice. A file that cannot be read, is over 64 KiB or is not
+UTF-8, and text that is not valid TOML, is the defaults with one notice naming the file. A known
+section that is not a table leaves its keys at their defaults, with a notice. An unknown top-level
+value that is not a table, and each unknown key in any table, is ignored with a notice naming it,
+while the known keys apply; an unknown table with no keys is ignored silently. A value of the wrong
+type or out of its range falls back alone, with a notice naming the key. The notices go to the
+settings notice channel Theme file problems use.
+
+Reason: one mistyped key should not cost a person the rest of their settings.
+Sources: [ADR 0111](../adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md), [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md), [ADR 0091](../adr/0091-the-web-console-reads-its-settings-from-its-page.md).
+Evidence: `console/src/config.rs` `parse`; test `console/src/config.rs` `an_unknown_key_is_a_notice_and_leaves_the_known_keys_applied`, `an_out_of_range_or_mistyped_value_falls_back_alone`, `a_malformed_file_is_the_defaults_and_a_notice_naming_the_file_and_line`.
 
 ## Minimap
 
@@ -1049,25 +1112,19 @@ Evidence: `console/src/console/input.rs`, `console/src/web_startup.rs`, `console
 - CONS-122: the Theme key `cell.selection.border.width` is still accepted and does nothing,
   although a Cell's border width no longer hides anything. Tracked in
   [cell-edges/07](../../.scratch/cell-edges/issues/07-retire-the-cell-selection-border-width.md).
+- CONS-133: Help still offers Function Reference, which replaces the running Source with the
+  `Functions` Grid (unasked on the web), beside a separate Reference item that opens the site's
+  page. Tracked in
+  [menu-structure/11](../../.scratch/menu-structure/issues/11-open-the-function-reference-page-from-help.md).
+- CONS-135: on macOS, ⌘Q from the app menu ends the process without a close request, so it quits
+  without asking. Tracked in
+  [menu-structure/10](../../.scratch/menu-structure/issues/10-ask-before-cmd-q-discards-unsaved-changes.md).
 
 ## Open decisions
 
 ### Built, awaiting a record
 
-Preserve these as built until an ADR or a dated ruling records them or changes them.
-
-- The native document model and per-key settings fallback, which `console/src/console/files.rs`
-  and `console/src/config.rs` build from the undated `.scratch/menu-structure/spec.md` ([decisions D3](../../.scratch/requirements-snapshot/decisions.md#d3-rulings-recorded-only-in-scratch--proposed)):
-  - The window title names the open Source File and marks unsaved changes.
-  - New, Open, the Function reference, an example, Quit and closing the window ask before
-    discarding unsaved changes.
-  - Autosave is session recovery, and Save writes the file. The web has no Open or Save.
-  - A malformed file, an unknown key, or a mistyped or out-of-range value raises a notice, and
-    only the affected keys take their defaults.
-
-  Tracked in [requirements-snapshot/13](../../.scratch/requirements-snapshot/issues/13-ground-the-native-document-model.md).
-  Proposed for the record in [ADR 0111](../adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md),
-  not yet accepted.
+None.
 
 ### Undecided
 

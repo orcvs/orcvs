@@ -1,6 +1,6 @@
 # The network destination is a value the engine reads at each send
 
-Status: proposed on 2026-11-15. Drafted for Toby from the built engine and console; it decides
+Status: accepted by Toby on 2026-11-16. Drafted from the built engine and console; it decides
 nothing the code does not already do. Amends ADR 0085's "saved with the console's other settings":
 the console stores the destination itself, in eframe storage, natively and only with the
 `persistence` feature, and never in the settings file. Records the one Playback handle request that
@@ -53,7 +53,8 @@ file holds no destination, and the console never writes that file.
 - **A fourth slot in ADR 0056's mailbox.** It is the alternative
   [requirements-snapshot/06](../../.scratch/requirements-snapshot/issues/06-decide-the-network-destination-path.md)
   names. A slot would order the destination against stop, tempo and MIDI changes and wake the task
-  for it. No source records a reason to prefer either path; this record keeps the built one.
+  for it. Toby kept the built path on 2026-11-16: the destination commutes with all three slots
+  and holds no port, so ordering it and waking the task for it buys nothing.
 - **The settings file, as ADR 0085 wrote.** The console never writes `config.toml` (CONS-130), so
   the Output list could not save an edit there.
 
@@ -64,8 +65,7 @@ file holds no destination, and the console never writes that file.
 - A destination set while no Tick sends anything waits, unread, for the next Tick that does.
 - `docs/requirements/console.md` owns the storage clause (the console stores the destination
   itself), which CONS-130 already states.
-- `docs/requirements/playback.md` can state the path as a rule once this is accepted, replacing its
-  "Built, awaiting a record" item.
+- `docs/requirements/playback.md` states the path in PLAY-350.
 - Tests: `orcvs/src/playback/outputs.rs` `sends_keep_their_order_and_go_to_the_latest_destination`
   and `a_new_destination_and_a_new_run_each_report_the_failure_again` hold the read at each sending
   Tick, newest wins, and the cleared failure latch; `console/src/console/storage_tests.rs`

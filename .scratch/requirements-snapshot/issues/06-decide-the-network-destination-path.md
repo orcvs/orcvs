@@ -1,6 +1,6 @@
 # 06 — Decide how the network destination reaches the Playback Engine
 
-**Status:** needs-triage
+**Status:** resolved
 
 **What to decide:** the network destination reaches the Playback Engine outside ADR 0056's request
 slots. `docs/requirements/playback.md` lists this under "Open decisions".
@@ -18,3 +18,5 @@ which records the built watch channel and amends ADR 0085's storage clause to th
 
 2026-11-15: Toby kept ADR 0112 as one record, amending ADR 0085's storage clause. The storage loose
 ends moved to [issue 14](14-follow-up-the-network-destination-storage.md).
+
+2026-11-16: Toby accepted [ADR 0112](../../../docs/adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md) as drafted. PLAY-350 states the path; issue 14 keeps the storage loose ends.

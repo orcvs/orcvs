@@ -1,6 +1,6 @@
 # 13 — Ground the native document model and per-key settings fallback
 
-**Status:** needs-triage
+**Status:** resolved
 
 **What to decide:** the console builds a document model and a per-key settings fallback that rest
 only on the undated `.scratch/menu-structure/spec.md`, with no recorded maintainer ruling
@@ -17,3 +17,5 @@ decisions" as built, awaiting a record.
 2026-11-15: proposed as
 [ADR 0111](../../../docs/adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md).
 Waiting on Toby to accept or change it; its open questions list where the code and the spec differ.
+
+2026-11-16: Toby accepted [ADR 0111](../../../docs/adr/0111-the-native-console-edits-one-source-file-and-autosave-only-recovers.md), deciding that ⌘Q asks and that Help → Function Reference opens the site's page with the runnable Grid as an example. CONS-133 to CONS-137 state it; the two gaps are [menu-structure/10](../../menu-structure/issues/10-ask-before-cmd-q-discards-unsaved-changes.md) and [menu-structure/11](../../menu-structure/issues/11-open-the-function-reference-page-from-help.md).
