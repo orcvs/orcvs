@@ -2012,7 +2012,7 @@ mod property {
                     comment.set(comment.get() + 1);
                 }
                 // A `|` with no `|` beside it: incomplete Source rather than
-                // the introducer, which is the distinction CONTEXT.md draws.
+                // the introducer, which is the distinction LANG-080 draws.
                 let bytes = source.as_bytes();
                 if bytes.iter().enumerate().any(|(index, byte)| {
                     *byte == b'|'

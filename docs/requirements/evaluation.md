@@ -198,13 +198,13 @@ Evidence: test `orcvs/src/source/tick/live_editing.rs` `live_inactive_ownership_
 
 ## Activation, Halt and placement
 
-### EVAL-050 A value root takes a Turn every Tick; any other effect root waits for a Bang, except a Self-Banging Function and the Bang Function
+### EVAL-050 Every root takes a Turn every Tick; an effect root acts on it only when a Bang activates it, except a Self-Banging Function and the Bang Function
 
-A root whose Function answers a value takes a Turn on every Tick with nothing delivered to it. So do a Self-Banging Function and the Bang Function. A Terminal Output, Directional Bang or Halt root takes a Turn only when a Bang activates it during the Tick. Each Function declares where its activation comes from in the Function table; a nested Function takes its Turn from the root that owns it.
+Every root takes a Turn on every Tick. A root whose Function answers a value acts on its Turn with nothing delivered to it, and so do a Self-Banging Function and the Bang Function. A Terminal Output, Directional Bang or Halt root acts on its Turn only when a Bang activates it during the Tick; otherwise its Turn emits nothing, and a Bang that reaches it after that Turn is a Missed Bang (EVAL-052). Each Function declares where its activation comes from in the Function table; a nested Function takes its Turn, and its activation, from the root that owns it.
 
 Reason: a pulse such as Every must take a Turn to write the Bang that plays an output, and autonomous motion stays visible in the Function spelling rather than in a hidden mode.
 Sources: [ADR 0110](../adr/0110-a-value-root-takes-a-turn-every-tick.md), [ADR 0006](../adr/0006-bang-activation-includes-self-banging-functions.md), [ADR 0072](../adr/0072-a-standalone-bang-is-a-function.md), [ADR 0032](../adr/0032-schedule-tick-execution-by-dependency.md).
-Evidence: `lang/src/atom.rs` `ActivationSource`, `Function::is_intrinsically_active`; test `orcvs/src/source/tick/movers.rs` `an_inert_directional_bang_function_emits_nothing`.
+Evidence: `lang/src/atom.rs` `ActivationSource`, `Function::is_intrinsically_active`; tests `orcvs/src/source/tick/movers.rs` `an_inert_directional_bang_function_emits_nothing`, `orcvs/src/source/tick/halt.rs` `an_inert_halt_does_not_lock_and_the_south_root_runs`.
 
 ### EVAL-051 A Bang activates the complete roots aligned with its Span in the Tick it is produced
 

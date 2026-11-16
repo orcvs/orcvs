@@ -15,3 +15,9 @@ Repoint each to the owning requirement rule or the current ADR:
   superseded; the rule holds through ADRs 0028 and 0061 (LANG-250).
 
 **Done when:** every listed comment cites a source that states what it says; crate gates pass.
+
+## Comments
+
+- 2026-11-15: the `halt.rs`, `portal.rs`, `grid.rs` and `language_map.rs` items are done; each
+  comment now cites its rule ID (issue 01 lists every repointed citation). The ADR 0029 citations
+  in `lang/src/atom.rs` and `lang/src/lib.rs` remain.
