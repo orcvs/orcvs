@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794834336740,
+  "lastUpdate": 1794834348841,
   "repoUrl": "https://github.com/orcvs/orcvs",
   "entries": {
     "lang": [
@@ -171150,6 +171150,135 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/orcvs/orcvs/commit/4b944eda8cef617fd77aa67f863cad98e05505d8"
         },
         "date": 1794833345047,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "lang render frame re-read fixture blocks",
+            "value": 1,
+            "unit": "blocks"
+          },
+          {
+            "name": "lang render frame re-read fixture bytes",
+            "value": 2,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled blocks",
+            "value": 38880,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs locked tick 256x256 settled bytes",
+            "value": 16167053,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled blocks",
+            "value": 38880,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs playback tick 256x256 settled bytes",
+            "value": 16167053,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 empty bytes",
+            "value": 3621,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated blocks",
+            "value": 8,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated bytes",
+            "value": 5072,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 16x16 populated expressions carried",
+            "value": 43,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 empty bytes",
+            "value": 3749,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated blocks",
+            "value": 17,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated bytes",
+            "value": 13645,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 32x32 populated expressions carried",
+            "value": 160,
+            "unit": "expressions"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty blocks",
+            "value": 11,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 empty bytes",
+            "value": 4005,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated blocks",
+            "value": 29,
+            "unit": "blocks"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated bytes",
+            "value": 30034,
+            "unit": "bytes"
+          },
+          {
+            "name": "orcvs write one cell 64x64 populated expressions carried",
+            "value": 621,
+            "unit": "expressions"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tobyhede@info-architects.net",
+            "name": "Toby Hede",
+            "username": "tobyhede"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f5dcfaa571a5507bacde3d938556408900e1c03",
+          "message": "Merge pull request #410 from orcvs/claude/project-thread-jupqjw\n\ndocs: audit the essential docs for agents, and accept ADRs 0111–0113",
+          "timestamp": "2026-11-16T12:45:38Z",
+          "tree_id": "ca42e37cc0ef78d5a98be78858a5d7a6c2650946",
+          "url": "https://github.com/orcvs/orcvs/commit/1f5dcfaa571a5507bacde3d938556408900e1c03"
+        },
+        "date": 1794834348761,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
