@@ -897,9 +897,9 @@ Evidence: tests `console/src/console/kittest_tests.rs` `play_and_rewind_are_sour
 One console Playback status takes each frame's drained diagnostics and the Playback observation, and
 alone decides where each failure belongs. MIDI selection keeps only its own messages: a refused
 discovery, a refused connect, and the browser's "Opening …" until a destination is installed. The
-network setting keeps only the value it refused. An Overrun or an Omitted summary is no failure and
-raises no message. A MIDI output failure stands until the observation reports a delivery succeeded
-or a destination was installed.
+network destination keeps only its own send failure, which a change of destination forgets. An
+Overrun or an Omitted summary is no failure and raises no message. A MIDI output failure stands
+until the observation reports a delivery succeeded or a destination was installed.
 
 Reason: when failures were routed by call order, an engine failure read as a MIDI failure.
 Sources: [ADR 0092](../adr/0092-the-panel-routes-playback-failures-in-one-place.md), [ADR 0055](../adr/0055-playback-diagnostics-are-retained-within-a-bound.md), [ADR 0059](../adr/0059-the-browser-answers-midi-discovery-from-access-it-already-holds.md).

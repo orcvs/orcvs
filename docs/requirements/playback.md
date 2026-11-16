@@ -547,14 +547,15 @@ Evidence: `orcvs/src/network.rs` `NetworkAdapter`; test `a_refused_send_names_wh
 
 ### PLAY-350 The console keeps the network destination, never Source
 
-UDP and OSC go to one host with a UDP port and an OSC port. The console stores them itself, apart
-from the settings file it only reads (CONS-130), and never in Source; defaults are `127.0.0.1`,
-`49161` and `49162`. A new destination applies from the next send. The Output list edits it
-(CONS-104).
+UDP and OSC go to one host with a UDP port and an OSC port. The console keeps them, and never in
+Source; defaults are `127.0.0.1`, `49161` and `49162`. A new destination applies from the next
+send. The Output list's UDP/OSC section holds the host and ports (CONS-104).
 
 Sources: [ADR 0085](../adr/0085-udp-and-osc-send-the-cells-up-to-their-closer.md).
 Evidence: `orcvs/src/network.rs` `NetworkDestination`; test `the_default_destination_is_orcas`;
 `console/src/network.rs` `a_stored_destination_is_read_back`.
+
+Built differently; see [Accepted but not built](#accepted-but-not-built-or-built-differently).
 
 ### PLAY-360 The web build diagnoses every activated UDP or OSC Function
 
@@ -896,6 +897,10 @@ Evidence: `synth/src/controller.rs` `RESET`; tests `synth/src/lib.rs` `reset_all
   (resolved); no open tracking issue found.
 - PLAY-120: the code adds a network-failure class, ranked just above Overrun and counted in Omitted
   Diagnostics, which ADR 0055 does not name. No tracking issue found.
+- PLAY-350: ADR 0085 calls the destination a console setting saved with the console's other
+  settings. The console stores it in its own persisted state instead, apart from the settings file
+  it only reads (CONS-130), and only a native build with `persistence` writes it
+  (`console/src/network.rs` `store`). No tracking issue found.
 - PLAY-550: native has no Built-in Synth.
   [orcvs-site/14](../../.scratch/orcvs-site/issues/14-give-native-the-built-in-synth.md).
 
