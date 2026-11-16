@@ -1,8 +1,6 @@
 # Site requirements
 
 > Snapshot: incorporates ADRs through 0110 and ADR changes dated through 2026-11-15.
-> A newer ADR binds where it differs until this document is updated; the
-> [reading order](README.md#reading-order) says which ADRs are newer.
 > Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102. Reviewed, not applicable or wholly superseded: none wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](console.md)).
 
 This document owns the web console's life on a page: opening a Source by link or by message, the
