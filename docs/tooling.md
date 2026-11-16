@@ -585,8 +585,8 @@ anything compiles them.
   reads source files, a rename in code can fail it; such a change is not Markdown-only, so it meets
   the check through `check_pull_request`.
 
-`AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests;
-fuzz when exposure warrants it", and the parser is the widest input surface in the workspace because
+`AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests
+over every input form the change accepts", and the parser is the widest input surface in the workspace because
 every keystroke reaches it. That obligation is the rationale for the dependency. `proptest` is
 declared once in `[workspace.dependencies]` and consumed by `lang` and `orcvs` under
 `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]` only. Every invariant these
@@ -633,8 +633,8 @@ space every run re-covers within a handful of cases, so a seed from one records 
 would have found unaided. Keep the first kind. Discarding the second is a judgement rather than an
 oversight, and it is the judgement taken here.
 
-The same `AGENTS.md` sentence defers fuzzing to "when exposure warrants it", so no fuzzing harness is
-installed. That is a separate decision with its own cost, and it is not taken here.
+The same `AGENTS.md` sentence leaves fuzzing to a statement on the `Risks` line of whether untrusted
+input warrants it, so no fuzzing harness is installed. That is a separate decision with its own cost, and it is not taken here.
 
 Every version this repository pins is bumped by something that watches the file it lives in.
 `.github/dependabot.yml` covers three ecosystems weekly: `cargo` for the workspace manifests,

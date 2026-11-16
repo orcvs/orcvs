@@ -29,7 +29,8 @@ and semantics changes as active language design, not public-API breakage.
 - Propagate or handle fallible results intentionally; use assertions for proven invariants.
 - Keep lint suppressions narrow and explain why the lint is inapplicable.
 - Comments state what the code does, why, and the invariant it keeps; lineage goes in the commit
-  message. When a comment holds history, a citation, `SAFETY:` or a doctest: `docs/agents/comments.md`.
+  message, an ADR or a ticket. When a comment holds history, a citation, `SAFETY:`, a doctest or an
+  intra-doc link: `docs/agents/comments.md`.
 - Keep test-only inputs out of shipped code: no shipped function takes a parameter, or reaches a
   branch, that only a test populates. When a test needs an input production cannot construct, it
   builds that input itself — below the shipped entry point, in a test-only item beside the shipped
@@ -40,8 +41,9 @@ and semantics changes as active language design, not public-API breakage.
 
 ## Verification
 
-Local gates cover what the change can reach; CI runs every feature set and target, and
-`docs/tooling.md` records which tier runs what.
+Local gates cover what the change can reach; CI runs the feature sets and targets
+`docs/tooling.md` lists, and records which tier runs each. A feature or target it does not list
+is covered only by the gate below that names it.
 
 Run this for every change, on the crate you edited and the crates that depend on it — `lang`
 means `lang` and `orcvs`, `orcvs` means `orcvs` and `console`:
@@ -64,17 +66,18 @@ cargo test --workspace --doc --locked
 
 Then run only the gates whose inputs the change actually touched:
 
-- `mise.toml`, `.github/workflows/`, or `scripts/`: `mise run check_docs`, `actionlint`, and
+- `mise.toml`, `.github/workflows/`, `scripts/`, `docs/adr/`, `docs/requirements/`, `.scratch/`,
+  or renaming or deleting a file, function or test that a requirement's Evidence line names:
+  `mise run check_docs`; for the first three, also `actionlint` and
   `zizmor --offline .github/workflows`
-- `docs/adr/`, `docs/requirements/`, `.scratch/`, or renaming or deleting a file, function or
-  test that a requirement's Evidence line names: `mise run check_docs`
 - persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
   `console` enables `persistence` by default, so the ordinary run already covers the feature-on
   path and `--features persistence` adds nothing; the arm worth running per change is the one
   that proves the feature still compiles out. `mise run test_persistence` is the merge tier's
   whole pass and belongs to CI.
 - WASM or platform code: `mise run check_wasm`
-- dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`
+- dependency, feature, lockfile, build script, or proc macro: `mise run audit_deps`; a change to a
+  crate's feature set also runs the `--no-default-features` command under persistence.
 - `console`'s `inspection` feature, or the `eframe` feature set it selects: `mise run check_inspection`.
   The feature is off by default, so every other gate compiles the console without it.
 - `console`'s `release-capture` feature, `console::kittest_tests::capture`, or a console test helper
@@ -87,10 +90,12 @@ Then run only the gates whose inputs the change actually touched:
   with `CONSOLE_WEB=../target/console-web`.
 - unsafe, FFI, layout, raw pointer, or atomic changes: the clippy gate, which denies
   `unsafe_op_in_unsafe_fn` and `undocumented_unsafe_blocks` across the workspace, and focused
-  tests on every affected target and platform. When to add the optional Miri run: the
-  `rust-unsafe` skill.
+  tests on every affected target and platform. The optional Miri run (`mise run miri`, see the
+  `rust-unsafe` skill) also applies to two safe-code changes: the copy-on-write Cell write
+  `Source::set_source` makes through `SourceBuffer::write`, and the Grid indexing that mints the
+  index it takes.
 
-Each risk the change carries owes these tests, and is done when its bound holds:
+Each risk the change carries owes the following before it is done:
 
 - public API: the changed API named for human review on the `Risks` line. Both crates are internal
   and unpublished, so doctests and rustdoc warnings are left to CI's rustdoc gates.
@@ -98,8 +103,9 @@ Each risk the change carries owes these tests, and is done when its bound holds:
   that the change touches, plus a race-sensitive test for any new shared state.
 - parser/protocol boundary: boundary or property tests over every input form the change accepts;
   where that input is untrusted, state on the `Risks` line whether it warrants fuzzing.
-- performance: a benchmark for any path whose cost the change claims to move. Adding the
-  benchmark is local work; running the comparison is deferred to CI.
+- performance: a benchmark for any path whose cost the change claims to move, which the workspace
+  clippy run compiles through `--all-targets`. Adding the benchmark is local work; running the
+  comparison is deferred to CI.
 
 ### Deferred to CI
 
@@ -122,7 +128,7 @@ Changed: ...
 Tests added or updated: ...
 Commands run: <exact command> — passed/failed
 Not run: <required check> — <reason>
-Risks: public API / unsafe / dependencies / features / performance
+Risks: public API / unsafe / concurrency / parser boundary / dependencies / features / performance
 ```
 
 "Deferred to CI" is a complete reason for anything the section above defers. Name it on the
@@ -162,4 +168,5 @@ Building or reviewing a syntax or evaluation prototype (`lang/*-prototype.html`)
 
 ### Skills
 
-Adding or editing a skill: `docs/agents/skills.md`.
+The skills this file names live in `.agents/skills/<name>/SKILL.md`. Adding or editing a skill:
+`docs/agents/skills.md`.
