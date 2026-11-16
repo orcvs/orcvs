@@ -18,12 +18,10 @@ This is the one statement of the order; every other document points here.
 2. [`CONTEXT.md`](../../CONTEXT.md) for what each term means.
 3. The owning requirement below, for what the behaviour must be, why, and where it is implemented
    and tested.
-4. Any ADR change dated the marker's own day. A change to an ADR updates every topic in the same
-   change, and the check below fails while any ADR is numbered or dated past a marker, so the
-   requirement restates every accepted ADR the check can see. It cannot see a second ADR change
-   dated a marker's own day (step 5 below), so open [`docs/adr/`](../adr/) for an ADR whose Status
-   paragraph or amendment heading carries the marker's date. Otherwise open it only for an ADR's
-   argument, its rejected alternatives or its history.
+4. Nothing newer: a change to an accepted ADR updates every topic in the same change, and the check
+   below fails while any marker has not taken in the accepted ADRs as they stand, so the requirement
+   restates every accepted ADR. Open [`docs/adr/`](../adr/) only for an ADR's argument, its rejected
+   alternatives or its history.
 
 Per-Function spellings, operands and examples live in the [Function reference](../functions.md),
 which a test holds to the Function table; the requirements state the rules that cross Functions and
@@ -54,16 +52,20 @@ Engineering workflow, tooling and CI are not product behaviour and have no requi
 ## Keeping the snapshot current
 
 Every topic's marker reads "incorporates ADRs through NNNN and ADR changes dated through
-YYYY-MM-DD": the document has been reconciled against every ADR up to that number and every ADR
-change dated up to that day. An ADR is newer than a marker when its number is above the "through"
+YYYY-MM-DD (adr xxxxxxxx)": the document has been reconciled against every ADR up to that number,
+every ADR change dated up to that day, and the accepted ADR files exactly as the fingerprint
+`xxxxxxxx` records them. The fingerprint covers every accepted ADR's file name and text, so any
+change to an accepted ADR changes it, whatever date the change carries: a second change dated a
+marker's own day, an edit to an ADR's body, an ADR that fills a numbering gap, or an accepted ADR
+being rejected. An ADR is newer than a marker when its number is above the "through"
 number (a new ADR never refills a numbering gap; see [Numbering](../adr/README.md#numbering)), or
 when its Status paragraph or an `## Amendment, <date>` heading carries a later date. No marker is
 ever left behind an ADR: a change that cannot reconcile every topic does not merge.
 
 A proposed ADR, one whose Status paragraph starts `Status: proposed`, decides nothing yet, and a
 rejected one (`Status: rejected`) decides nothing at all: neither counts as newer than a marker.
-Accepting a proposal is the Status change that makes it newer, by its acceptance date, and step 5's
-pull-request check treats it as any other ADR change. A change to a proposed or rejected ADR owes
+Accepting a proposal is the Status change that makes it newer, by its acceptance date, and adds it
+to the fingerprint. A change to a proposed or rejected ADR owes
 the markers nothing.
 
 Any change to what an ADR decides updates the requirements in the same change: a new ADR, a dated
@@ -74,17 +76,15 @@ amendment, or a Status change such as accepting a proposed ADR or marking one su
 2. Restate the new or changed rule in the owning requirement, with its rule ID, Sources and
    Evidence, and add the ADR to that marker's Source ADRs.
 3. Add the ADR to the owner table in [`docs/adr/README.md`](../adr/README.md#the-requirements-restate-these-decisions).
-4. Advance every topic's marker to the highest ADR number and the change's date, the topics the
-   ADR does not touch included, since the marker records what the topic was checked against. A new
-   ADR raises the number; an amendment or Status change to an older ADR moves the date alone.
+4. Advance every topic's marker, the topics the ADR does not touch included, since the marker
+   records what the topic was checked against. `node scripts/check-requirements.ts --marker` prints
+   the line every topic carries: the highest ADR number, the latest change date and the fingerprint.
+   A new ADR raises the number; an amendment or Status change moves the date unless it falls on the
+   marker's own day; any change moves the fingerprint.
 5. Done when `node scripts/check-requirements.ts` passes. It fails while any ADR is numbered or dated
-   past a marker, while a marker is dated past the latest ADR change, or while an ADR names an
-   amendment in any form but `## Amendment, YYYY-MM-DD`.
-   On a pull request, `node scripts/check-requirements.ts --since HEAD^1` also fails when the change
-   touches an accepted ADR and leaves any topic's marker where it was, unless that marker already
-   names the highest accepted ADR and the latest ADR change date. Only that exemption lets a second
-   ADR change dated a marker's own day through unchecked, so such a change still reconciles every
-   topic by hand.
+   past a marker, while a marker is dated past the latest ADR change, while a marker's fingerprint
+   is not the accepted ADRs' own, or while an ADR names an amendment in any form but
+   `## Amendment, YYYY-MM-DD`. It reads one tree, so it fails the same way locally and in CI.
 
 An ADR change that alters nothing a requirement states still advances the markers, and says so in
 its pull request. A link fix or rewording of a requirement leaves the markers as they are.

@@ -8,7 +8,7 @@ blank operands ([language.md](language.md)), how a Tick is planned and committed
 ([console.md](console.md)), or the site's page messages and Sound Module ([site.md](site.md)).
 Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
-> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16.
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 24fd341c).
 > Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090,
 > 0099, 0103, 0108, 0112.
 

@@ -4,20 +4,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { check, slug, unmovedMarkers } from '../check-requirements.ts';
+import { check, fingerprint, markerLine, slug } from '../check-requirements.ts';
 
-const MARKER = [
-  '> Snapshot: incorporates ADRs through 0002 and ADR changes dated through 2026-11-15.',
-  '> Source ADRs: 0001.',
-  '',
-  '',
-].join('\n');
-
-/** The ADRs every fixture holds, both within the marker above. */
-const ADRS = {
+/** The ADRs every fixture holds, both within the marker below. */
+const ADRS: Record<string, string> = {
   'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n',
   'docs/adr/0002-b.md': '# B\n\nStatus: accepted.\n\n## Amendment, 2026-11-15: same day\n',
 };
+
+/**
+ * A topic's marker block naming ADR `through`, date `dated` and the fingerprint
+ * of the accepted ADRs in `adrs` (the fixture's own unless given).
+ */
+function marker(through = '0002', dated = '2026-11-15', adrs: Record<string, string> = ADRS): string {
+  const accepted = Object.entries(adrs)
+    .filter(([, text]) => !/^Status: (?:proposed|rejected)\b/m.test(text))
+    .map(([path, text]) => ({ name: path.slice('docs/adr/'.length), text }));
+  return [
+    `> Snapshot: incorporates ADRs through ${through} and ADR changes dated through ${dated} (adr ${fingerprint(accepted)}).`,
+    '> Source ADRs: 0001.',
+    '',
+    '',
+  ].join('\n');
+}
+
+const MARKER = marker();
 
 /** A repository holding `docs/requirements/` with `files`, the ADRs above, and any other `extra` files. */
 function repo(files: Record<string, string>, extra: Record<string, string> = {}): string {
@@ -86,7 +97,8 @@ test('an ADR numbered or dated past the marker is reported', () => {
     'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n\n## Amendment, 2026-11-16: later\n',
     'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-16.\n',
   };
-  assert.deepEqual(problems({ 'a.md': MARKER }, extra), [
+  const current = marker('0002', '2026-11-15', { ...ADRS, ...extra });
+  assert.deepEqual(problems({ 'a.md': current }, extra), [
     'a.md: ADR 0001 is newer than the snapshot marker, which does not incorporate it',
     'a.md: ADR 0003 is newer than the snapshot marker, which does not incorporate it',
   ]);
@@ -105,7 +117,8 @@ test('a proposed or rejected ADR is not newer than the marker; an accepted one i
   const rejected = { 'docs/adr/0003-c.md': '# C\n\nStatus: rejected by Toby on 2026-11-17.\n' };
   assert.deepEqual(problems({ 'a.md': MARKER }, rejected), []);
   const accepted = { 'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-17.\n' };
-  assert.deepEqual(problems({ 'a.md': MARKER }, accepted), [
+  const current = marker('0002', '2026-11-15', { ...ADRS, ...accepted });
+  assert.deepEqual(problems({ 'a.md': current }, accepted), [
     'a.md: ADR 0003 is newer than the snapshot marker, which does not incorporate it',
   ]);
 });
@@ -117,7 +130,8 @@ test('a marker that incorporates an ADR number no file holds is reported, in a g
   ]);
   // The same marker becomes a gap once ADR 0004 exists above the missing 0003.
   const later = { 'docs/adr/0004-d.md': '# D\n\nStatus: accepted on 2026-11-01.\n' };
-  assert.deepEqual(problems({ 'a.md': above }, later), [
+  const gap = marker('0003', '2026-11-15', { ...ADRS, ...later });
+  assert.deepEqual(problems({ 'a.md': gap }, later), [
     'a.md: the snapshot marker incorporates ADRs through 0003, which no ADR file holds',
     'a.md: ADR 0004 is newer than the snapshot marker, which does not incorporate it',
   ]);
@@ -127,29 +141,49 @@ test('an amendment heading without a readable date is reported', () => {
   const extra = {
     'docs/adr/0002-b.md': '# B\n\nStatus: accepted.\n\n## Amendment, 2026-11-15: same day\n\n## Amendment: undated\n',
   };
-  assert.deepEqual(problems({ 'a.md': MARKER }, extra), [
+  const current = marker('0002', '2026-11-15', { ...ADRS, ...extra });
+  assert.deepEqual(problems({ 'a.md': current }, extra), [
     'docs/adr/0002-b.md: "## Amendment: undated" is not an `## Amendment, YYYY-MM-DD` heading',
   ]);
 });
 
-test('a change to docs/adr/ that leaves a marker behind the newest ADR is reported', () => {
-  const marker = MARKER.split('\n')[0];
-  const old = marker.replace('2026-11-15', '2026-11-14');
-  const proposed = { 'docs/adr/0003-c.md': '# C\n\nStatus: proposed on 2026-11-16.\n' };
-  const root = repo({ 'a.md': MARKER, 'b.md': MARKER.replace('2026-11-15', '2026-11-14') }, proposed);
+/** The fingerprint problem `check` reports for topic `name` once the ADRs are `adrs`. */
+function stale(name: string, adrs: Record<string, string>): string {
+  const was = /\(adr ([0-9a-f]{8})\)/.exec(MARKER)![1];
+  const now = /\(adr ([0-9a-f]{8})\)/.exec(marker('0002', '2026-11-15', adrs))![1];
+  return `${name}: the snapshot marker's fingerprint adr ${was} is not adr ${now}: an accepted ADR changed since it was set; reconcile the topic, then run \`node scripts/check-requirements.ts --marker\``;
+}
+
+test('any change to an accepted ADR the marker has not taken in is reported, whatever its date', () => {
+  const cases: Record<string, Record<string, string>> = {
+    'an amendment dated the marker\'s own day': {
+      'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n\n## Amendment, 2026-11-15: also today\n',
+    },
+    'an edit to the body': { 'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n\nNew text.\n' },
+    'an ADR filling a gap, dated before the marker': {
+      'docs/adr/0000-z.md': '# Z\n\nStatus: accepted on 2026-11-01.\n',
+    },
+    'an accepted ADR rejected': { 'docs/adr/0001-a.md': '# A\n\nStatus: rejected on 2026-11-01.\n' },
+  };
+  for (const [what, extra] of Object.entries(cases)) {
+    const found = problems({ 'a.md': MARKER, 'b.md': MARKER }, extra);
+    const adrs = { ...ADRS, ...extra };
+    assert.ok(found.includes(stale('a.md', adrs)) && found.includes(stale('b.md', adrs)), `${what}: ${found}`);
+  }
+});
+
+test('a change to a proposed ADR or outside the numbered ADRs owes no marker', () => {
+  const extra = {
+    'docs/adr/0003-c.md': '# C\n\nStatus: proposed on 2026-11-16.\n',
+    'docs/adr/README.md': '# ADRs\n',
+  };
+  assert.deepEqual(problems({ 'a.md': MARKER }, extra), []);
+});
+
+test('--marker prints the line the accepted ADRs call for', () => {
+  const root = repo({ 'a.md': MARKER });
   try {
-    const adr = ['docs/adr/0002-b.md'];
-    // a.md moved to the newest ADR; b.md stayed behind it.
-    const before = new Map([['a.md', old], ['b.md', old]]);
-    assert.deepEqual(unmovedMarkers(root, adr, before), [
-      'b.md: the change touches docs/adr/ but leaves this snapshot marker where it was',
-    ]);
-    // A marker that already names the newest ADR and date has nowhere to move.
-    assert.deepEqual(unmovedMarkers(root, adr, new Map([['a.md', marker]])), []);
-    // A change outside docs/adr/ owes nothing.
-    assert.deepEqual(unmovedMarkers(root, ['docs/requirements/b.md'], before), []);
-    // Nor does a change to a proposed ADR, which decides nothing yet.
-    assert.deepEqual(unmovedMarkers(root, ['docs/adr/0003-c.md'], before), []);
+    assert.equal(markerLine(root), MARKER.split('\n')[0]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

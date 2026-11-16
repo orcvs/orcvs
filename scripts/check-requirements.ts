@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,23 +6,22 @@ import { pathToFileURL } from 'node:url';
 /**
  * Holds `docs/requirements/` to the snapshot contract its index states.
  *
- * Each topic document restates accepted ADRs through a recorded ADR number and
- * date, and accepting or amending an ADR updates it in the same change. Nothing
- * else reads these documents mechanically, so without this check a duplicated
- * rule ID, a rule cited by another document that no longer exists, a broken
- * link or anchor, an ADR a rule cites but the marker omits, an ADR newer than a
- * marker, an amendment heading the date comparison cannot read, or an Evidence
+ * Each topic document restates accepted ADRs through a recorded ADR number,
+ * date and fingerprint of the accepted ADR files, and accepting or amending an
+ * ADR updates it in the same change. Nothing else reads these documents
+ * mechanically, so without this check a duplicated rule ID, a rule cited by
+ * another document that no longer exists, a broken link or anchor, an ADR a rule
+ * cites but the marker omits, any change to an accepted ADR the marker has not
+ * taken in, an amendment heading the date comparison cannot read, or an Evidence
  * line naming a file that does not hold its symbol would all land unnoticed, and
- * so would a marker dated past the latest ADR change, which hides every later one.
+ * so would a marker dated past the latest ADR change.
  *
- * `--since <ref>` adds the one rule a single tree cannot show: a change to
- * `docs/adr/` since `<ref>` moves every topic's marker, unless that marker
- * already names the newest ADR and date. An amendment dated a marker's own day
- * is otherwise invisible to the date comparison.
+ * `--marker` prints the marker line the accepted ADRs call for.
  */
 
 const RULE_PREFIXES = ['LANG', 'EVAL', 'PLAY', 'CONS', 'SITE'];
-const MARKER = /^> Snapshot: incorporates ADRs through (\d{4}) and ADR changes dated through (\d{4}-\d\d-\d\d)\.$/m;
+const MARKER =
+  /^> Snapshot: incorporates ADRs through (\d{4}) and ADR changes dated through (\d{4}-\d\d-\d\d) \(adr ([0-9a-f]{8})\)\.$/m;
 const DATE = /\d{4}-\d\d-\d\d/g;
 const SOURCE_FILE = /^[\w./-]+\.(rs|ts|js|astro|html|toml|yml|md|sh)$/;
 
@@ -49,11 +48,14 @@ function anchorsOf(text: string): Set<string> {
 /**
  * Each ADR in `docs/adr/` with its number and the latest date its Status
  * paragraph or an `## Amendment, <date>` heading carries. A marker's date is
- * compared by day, so a change dated the marker's own day counts as included.
+ * compared by day; a change dated the marker's own day is caught by the
+ * fingerprint instead.
  * A proposed or rejected ADR decides nothing, so it is left out; accepting a
  * proposal dates its Status paragraph, which makes it newer than the markers.
  */
-function adrsUnder(root: string): { name: string; number: number; latest: string; undated: string[] }[] {
+function adrsUnder(
+  root: string,
+): { name: string; number: number; latest: string; undated: string[]; text: string }[] {
   const adrDir = join(root, 'docs/adr');
   return readdirSync(adrDir)
     .filter((name) => /^\d{4}-.*\.md$/.test(name))
@@ -70,53 +72,40 @@ function adrsUnder(root: string): { name: string; number: number; latest: string
       const dates = [...(status.match(DATE) ?? []), ...amendments].sort();
       // '' stands for "no dated change": it sorts before every ISO date, so an
       // ADR without one is never newer than a marker's date.
-      return [{ name, number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '', undated }];
+      return [{ name, number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '', undated, text }];
     });
 }
 
-/** The marker a topic should carry: the highest ADR number and the latest ADR change date. */
-function newestMarker(root: string): { through: number; dated: string } {
+/**
+ * The first eight hex digits of a SHA-256 over every accepted ADR's file name and
+ * text, in file-name order. Any edit to an accepted ADR, a new or deleted one, or
+ * one accepted or rejected, changes it, whatever date the change carries, so a
+ * marker that names it has taken in exactly the ADRs as they now stand. Line
+ * endings are normalised so a checkout's conversion does not change it.
+ */
+export function fingerprint(adrs: { name: string; text: string }[]): string {
+  const hash = createHash('sha256');
+  for (const adr of [...adrs].sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    hash.update(`${adr.name}\0${adr.text.replace(/\r\n/g, '\n')}\0`);
+  }
+  return hash.digest('hex').slice(0, 8);
+}
+
+/** The marker a topic should carry: the highest ADR number, the latest ADR change date and the fingerprint. */
+function newestMarker(root: string): { through: number; dated: string; adr: string } {
   const adrs = adrsUnder(root);
   return {
     through: Math.max(0, ...adrs.map((adr) => adr.number)),
     dated: adrs.map((adr) => adr.latest).sort().at(-1) ?? '',
+    adr: fingerprint(adrs),
   };
 }
 
-/**
- * Every topic whose marker a change left in place although the change touched
- * `docs/adr/`. `changed` lists the paths the change touches, `before` maps each
- * topic to its marker line before the change (absent for a new topic), and
- * `root` holds the tree after it.
- */
-export function unmovedMarkers(root: string, changed: string[], before: Map<string, string>): string[] {
-  // A proposed or rejected ADR decides nothing, so changing one owes no marker.
-  const decided = new Set(adrsUnder(root).map((adr) => `docs/adr/${adr.name}`));
-  const decides = (path: string) => decided.has(path) || !existsSync(join(root, path));
-  if (!changed.some((path) => /^docs\/adr\/\d{4}-.*\.md$/.test(path) && decides(path))) return [];
-  const dir = join(root, 'docs/requirements');
-  const newest = newestMarker(root);
-  const problems: string[] = [];
-  for (const name of readdirSync(dir).filter((n) => n.endsWith('.md') && n !== 'README.md').sort()) {
-    const snapshot = MARKER.exec(readFileSync(join(dir, name), 'utf8'));
-    if (!snapshot || snapshot[0] !== before.get(name)) continue;
-    if (Number(snapshot[1]) === newest.through && snapshot[2] === newest.dated) continue;
-    problems.push(`${name}: the change touches docs/adr/ but leaves this snapshot marker where it was`);
-  }
-  return problems;
-}
-
-/** `unmovedMarkers` for the change from git revision `base` to the working tree under `root`. */
-function unmovedSince(root: string, base: string): string[] {
-  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
-  const changed = git('diff', '--name-only', '--no-renames', base, '--').split('\n').filter(Boolean);
-  const before = new Map<string, string>();
-  for (const path of git('ls-tree', '--name-only', base, 'docs/requirements/').split('\n')) {
-    if (!path.endsWith('.md')) continue;
-    const snapshot = MARKER.exec(git('show', `${base}:${path}`));
-    if (snapshot) before.set(path.slice('docs/requirements/'.length), snapshot[0]);
-  }
-  return unmovedMarkers(root, changed, before);
+/** The marker line `newestMarker` describes, as a topic document writes it. */
+export function markerLine(root: string): string {
+  const { through, dated, adr } = newestMarker(root);
+  const number = String(through).padStart(4, '0');
+  return `> Snapshot: incorporates ADRs through ${number} and ADR changes dated through ${dated} (adr ${adr}).`;
 }
 
 /** Every problem in the requirements under `root`, one line each. */
@@ -148,6 +137,11 @@ export function check(root: string): string[] {
       // the comparison below, so a marker carries exactly the latest date.
       if (dated > newest.dated) {
         problems.push(`${name}: the snapshot marker is dated ${dated}, after the latest ADR change on ${newest.dated || 'no date'}`);
+      }
+      if (snapshot[3] !== newest.adr) {
+        problems.push(
+          `${name}: the snapshot marker's fingerprint adr ${snapshot[3]} is not adr ${newest.adr}: an accepted ADR changed since it was set; reconcile the topic, then run \`node scripts/check-requirements.ts --marker\``,
+        );
       }
       for (const adr of adrs) {
         if (adr.number > through || adr.latest > dated) {
@@ -213,13 +207,16 @@ export function check(root: string): string[] {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const root = resolve(dirname(new URL(import.meta.url).pathname), '..');
-  const since = process.argv.indexOf('--since');
-  const base = process.argv[since + 1];
-  if (since >= 0 && !base) {
-    console.error('usage: node scripts/check-requirements.ts [--since <git revision>]');
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== '--marker')) {
+    console.error('usage: node scripts/check-requirements.ts [--marker]');
     process.exit(2);
   }
-  const problems = since >= 0 ? unmovedSince(root, base) : check(root);
-  for (const problem of problems) console.error(problem);
-  if (problems.length > 0) process.exit(1);
+  if (args[0] === '--marker') {
+    console.log(markerLine(root));
+  } else {
+    const problems = check(root);
+    for (const problem of problems) console.error(problem);
+    if (problems.length > 0) process.exit(1);
+  }
 }

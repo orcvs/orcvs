@@ -558,10 +558,9 @@ anything compiles them.
 - `node` also runs `scripts/check-requirements.ts` and its suite. The script holds
   `docs/requirements/` to its snapshot contract: a marker on every topic, unique rule IDs, every
   cited rule defined, relative links and anchors resolving, every ADR a rule cites listed in its
-  marker, every ADR amendment heading dated, no ADR numbered or dated past a marker, and every
-  Evidence file present and holding the symbols named after it. With `--since HEAD^1`, the test
-  workflow's pull-request run also checks that a change to `docs/adr/` moved every marker, which only
-  a diff can show. Because Evidence
+  marker, every ADR amendment heading dated, no ADR numbered or dated past a marker, every marker's
+  fingerprint matching the accepted ADR files, and every Evidence file present and holding the
+  symbols named after it. Because Evidence
   reads source files, a rename in code can fail it; such a change is not Markdown-only, so it meets
   the check through `check_pull_request`.
 
