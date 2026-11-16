@@ -8,7 +8,7 @@ blank operands ([language.md](language.md)), how a Tick is planned and committed
 ([console.md](console.md)), or the site's page messages and Sound Module ([site.md](site.md)).
 Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
-> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 870a78e4).
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 5517e858).
 > Source ADRs: 0001, 0002, 0012, 0016, 0037, 0041, 0055, 0056, 0059, 0076, 0085, 0087, 0088, 0090,
 > 0099, 0103, 0108, 0112.
 
@@ -352,15 +352,17 @@ Off, then the replacement's Note On. With any other value it plays legato: the r
 then the prior note's Note Off. A legato replacement at the pitch already sounding sends its Note On
 and no Note Off; the prior claim is retired and the note sounds on to the replacement's own end. A
 legato replacement on the Tick the prior note's stop is due takes that stop over: it is delivered
-after the Note On, or not at all at the same pitch. A legato replacement on a silent channel starts
-as any note does. Velocity `00` or length `00` starts nothing whatever the `legato`, and still stops
-the prior note. The ADR records these edge rules as awaiting the maintainer's confirmation; they
-bind as written.
+after the Note On, or not at all at the same pitch. Only the first Monophonic Play on a channel in a
+Tick may take that stop over, and only a Mono-owned stop: a later legato Monophonic Play on that
+channel in the Tick takes over nothing, and a Timed note ending on the channel is stopped at the
+beginning of the Tick. A legato replacement on a silent channel starts as any note does. Velocity `00` or length `00` starts nothing whatever the `legato`, and still stops
+the prior note. The ADR records the other edge rules as awaiting the maintainer's confirmation;
+they bind as written.
 
 Reason: a mono synth hears a key still held and slides; a line whose lengths equal its steps still
 slides.
 Sources: [ADR 0016](../adr/0016-use-distinct-raw-and-timed-play-functions.md) (2026-11-14
-amendment), [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md).
+and 2026-11-16 amendments), [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md).
 Evidence: `orcvs/src/playback/schedule.rs`; test `a_legato_monophonic_play_starts_its_note_before_it_stops_the_one_it_replaces` in the same file.
 
 ### PLAY-250 Timed and Mono claims share one schedule and differ only in key
@@ -732,7 +734,7 @@ CC 2 to 8 set nothing. Load values and names are tabled in
 
 Reason: one channel's controllers never change another channel, as on a musician's other gear.
 Sources: [ADR 0088](../adr/0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)
-(2026-11-14 amendment), [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md)
+(2026-11-14 and 2026-11-16 amendments), [ADR 0099](../adr/0099-one-built-in-synth-channel-plays-a-303-style-voice.md)
 (first 2026-11-14 amendment).
 Evidence: `synth/src/controller.rs`; test `synth/src/lib.rs` `each_effect_changes_the_channel_it_is_set_on`.
 
