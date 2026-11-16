@@ -131,8 +131,7 @@ fn note_off(channel: MidiChannel, note: Note) -> OutputCommand {
 /// first Monophonic command on its channel slides from: that command takes
 /// the stop and delivers it after its own Note On, or not at all at the same
 /// pitch. Only the first command may take it, so `settled` records each
-/// channel a Monophonic command has already been resolved on, one bit per
-/// channel.
+/// channel a Monophonic command has already settled, one bit per channel.
 ///
 #[derive(Default)]
 struct DueStops {
@@ -147,12 +146,12 @@ impl DueStops {
     }
 
     ///
-    /// Resolves a Monophonic command on `channel`, and answers the note of
-    /// the Mono stop it takes over: the stop due on `channel`, taken out of
-    /// the stops delivered first, when the command `slides` and is the first
-    /// Monophonic command resolved on that channel this Tick.
+    /// Marks `channel` settled for this Tick, and answers the note of the
+    /// Mono stop a command there takes over: the stop due on `channel`, taken
+    /// out of the stops delivered first, when the command `slides` and is the
+    /// first Monophonic command on that channel this Tick.
     ///
-    fn resolve(&mut self, channel: MidiChannel, slides: bool) -> Option<Note> {
+    fn settle_and_take(&mut self, channel: MidiChannel, slides: bool) -> Option<Note> {
         let first = self.settled & Self::bit(channel) == 0;
         self.settled |= Self::bit(channel);
         if !(first && slides) {
@@ -165,14 +164,15 @@ impl DueStops {
         Some(self.stops.remove(at).1)
     }
 
-    /// `channel`'s bit in `settled`.
+    /// `channel`'s bit in `settled`. A `MidiChannel` holds `0..=15`, so the
+    /// shift stays inside the `u16`.
     fn bit(channel: MidiChannel) -> u16 {
         1 << channel.value()
     }
 
-    /// The stops no command took over, in the order they were scheduled,
-    /// followed by `delivery`.
-    fn before(self, delivery: Vec<OutputCommand>) -> Vec<OutputCommand> {
+    /// Consumes the list: the stops no command took over, as Note Offs in
+    /// the order they were scheduled, followed by `delivery`.
+    fn ahead_of(self, delivery: Vec<OutputCommand>) -> Vec<OutputCommand> {
         let mut out = Vec::with_capacity(self.stops.len() + delivery.len());
         out.extend(
             self.stops
@@ -281,7 +281,11 @@ impl OwnedNotes {
                     // Tick takes that note's stop over, so a line whose
                     // lengths equal its steps still slides.
                     let slides = starts && articulation == Articulation::Legato;
-                    let taken = due.resolve(channel, slides && held.is_none());
+                    let taken = due.settle_and_take(channel, slides);
+                    // A due Mono stop means `expired_at` already released
+                    // the channel's claim, so nothing is held when one is
+                    // taken.
+                    debug_assert!(held.is_none() || taken.is_none());
                     let held = held.or(taken);
                     let note_on = OutputCommand::NoteOn {
                         channel,
@@ -346,7 +350,7 @@ impl OwnedNotes {
             }
         }
 
-        due.before(delivery)
+        due.ahead_of(delivery)
     }
 
     ///
