@@ -69,7 +69,8 @@ Then run only the gates whose inputs the change actually touched:
 - `mise.toml`, `.github/workflows/`, `scripts/`, `docs/adr/`, `docs/requirements/`, `.scratch/`,
   or renaming or deleting a file, function or test that a requirement's Evidence line names:
   `mise run check_docs`; for the first three, also `actionlint` and
-  `zizmor --offline .github/workflows`
+  `zizmor --offline .github/workflows`. Without mise, run the lines under
+  `[tasks.check_docs]` in `mise.toml` instead.
 - persistence: `cargo nextest run --workspace --tests --no-default-features --locked`.
   `console` enables `persistence` by default, so the ordinary run already covers the feature-on
   path and `--features persistence` adds nothing; the arm worth running per change is the one
