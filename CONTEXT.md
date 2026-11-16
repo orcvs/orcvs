@@ -200,7 +200,7 @@ One original Producer's opportunity to emit Effects after its current-Tick data 
 _Avoid_: Pass, visit, step
 
 **Activation**:
-What lets a root take its Turn in a Tick: a Bang aligned with it, delivered during that Tick, or the root's own declaration that it needs none. Each Function declares where its activation comes from (EVAL-050), and a nested Function is activated with its root.
+What lets a root act on its Turn in a Tick: a Bang aligned with it, delivered during that Tick, or the root's own declaration that it needs none. A root that is not activated still takes its Turn, which emits nothing. Each Function declares where its activation comes from (EVAL-050), and a nested Function is activated with its root.
 _Avoid_: Trigger, enable
 
 **Portal**:
