@@ -61,7 +61,11 @@ amendment, or a Status change such as accepting a proposed ADR or marking one su
 4. Advance every topic's marker to the ADR's number and the change's date, the topics the ADR does
    not touch included, since the marker records what the topic was checked against.
 5. Done when `node scripts/check-requirements.ts` passes. It fails while any ADR is numbered or dated
-   past a marker.
+   past a marker, or while an ADR names an amendment in any form but `## Amendment, YYYY-MM-DD`.
+   On a pull request, `node scripts/check-requirements.ts --since HEAD^1` also fails when the change
+   touches `docs/adr/` and leaves any topic's marker where it was, unless that marker already names
+   the highest ADR and the latest ADR change date. Only that exemption lets a second ADR change dated
+   a marker's own day through unchecked, so such a change still reconciles every topic by hand.
 
 An ADR change that alters nothing a requirement states still advances the markers, and says so in
 its pull request. A link fix or rewording of a requirement leaves the markers as they are.
