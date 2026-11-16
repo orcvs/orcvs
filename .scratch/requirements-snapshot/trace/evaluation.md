@@ -468,3 +468,7 @@ Every retained row above carries a provisional ID; it lands in the final rule of
   the parser has no separate fixed Atom limit". It is a parse rule, stated by `language.md` LANG-070
   ("No claim crosses a row edge ... there is no record limit"), so EVAL does not restate it. The
   Operand Stack bound, which 0028 ties to that point, is EVAL-081.
+
+## Reviewed, not applicable or wholly superseded at the 0110 snapshot
+
+0031 (by 0032), 0066 (by 0069), 0037 (owned by [playback](../../../docs/requirements/playback.md)).

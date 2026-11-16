@@ -10,7 +10,7 @@ Status: accepted. Supersedes the List clauses of [ADR 0063](0063-a-list-is-cells
 
 **Track's read is ordered by ADR 0032's rule, completed at Track's Turn.** A Function goes after whatever writes the Cells it reads. A Jump's Input Portal is a fixed offset from its anchor, so its dependency is known before the Tick. Track's pair depends on `index` and `count`, which are themselves inputs, ordered before Track by the same rule. Once they settle, Track's pair is known. Any writer of that pair that has not yet taken its Turn goes first, and Track takes its Turn after it. If that writer waits on Track, the two form a same-Tick dependency cycle, diagnosed under [ADR 0065](0065-an-error-never-stops-the-performance.md). The loop that orders Turns continues during the Tick so that a dependency found at a Turn can join it. Nothing is reserved for Track before the Tick, and every other Function is ordered as before.
 
-## Amendment: static and dynamic Input Portals
+## Amendment, 2026-10-08: static and dynamic Input Portals
 
 An Input Portal is named by when its position is known. A static Input Portal's position is a fixed offset from its Function's anchor, known when the Source is parsed: a Jump's Input Portal is static, as are Increment's and Interpolation's, so its dependency is known before the Tick. A dynamic Input Portal's position is selected by its Function's operands, by a rule each such Function's definition states, so its dependency is found at its Turn. Track's Input Portal is dynamic. The distinction is of position, not contents: every Input Portal's Cells are read from working Source at its Function's Turn.
 

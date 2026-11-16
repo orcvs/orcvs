@@ -1,6 +1,6 @@
 # Syntax Prototypes
 
-Use a self-contained interactive HTML file for every prototype that explores Orcvs syntax or evaluation semantics.
+Use a self-contained interactive HTML file, `lang/<question>-prototype.html`, for every prototype that explores Orcvs syntax or evaluation semantics.
 
 ## Required presentation
 

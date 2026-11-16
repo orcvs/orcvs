@@ -28,9 +28,8 @@ env:
 jobs:
   changes:
     # Decides whether this run compiles. A pull request whose diff is Markdown
-    # alone cannot change what cargo builds or tests, so it runs the contract and
-    # the roadmap planner and skips the rest; every other event compiles. See
-    # `scripts/ci-compile-needed.sh`.
+    # alone cannot change what cargo builds or tests, so it runs `check_docs` and
+    # skips the rest; every other event compiles. See `scripts/ci-compile-needed.sh`.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     outputs:

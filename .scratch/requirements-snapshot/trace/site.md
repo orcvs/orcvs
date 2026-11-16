@@ -7,6 +7,10 @@ lifecycle and message timing, the web settings element, Copy Link, and the conso
 deploy chain. PLAY owns the Built-in Synth's voices, effects, core and destination selection in
 general; CONS owns settings keys, the top bar and the Panel.
 
+2026-11-15, after the draft: SITE-070 to SITE-074 and SITE-076 to SITE-080 are no longer rules.
+`docs/tooling.md` states the console publication chain they described, and SITE-075 took
+SITE-076's local and Dependabot builds. The rows below keep their original IDs.
+
 ## Source disposition
 
 | Source at c8cc197 | Claim | Disposition | Owner / reason | Basis |
@@ -270,3 +274,7 @@ Document: `docs/requirements/site.md`. Each retained row above lands in the rule
 - Redirected to PLAY: what each effect does to the sound and how the synth answers each controller (0088's Consequences, the amendment's first two bullets).
 - ADR 0088 and 0099 are added to the marker.
 - F4: SITE-043 now links to PLAY-540 for how late each Tick is. SITE-043, SITE-046 and SITE-048 already state the delay, the unavailable synth and the unframed console in full, so PLAY can link to them.
+
+## Reviewed, not applicable or wholly superseded at the 0110 snapshot
+
+None wholly superseded; 0079 (the `[cell]` keys, owned by [console.md](../../../docs/requirements/console.md)).

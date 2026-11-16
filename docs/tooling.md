@@ -2,44 +2,88 @@
 
 `rust-toolchain.toml` is the source of truth for the Rust toolchain and compilation targets.
 `mise.toml` pins the additional tooling and defines verification commands used both locally and in
-CI, so the same checkout executes the same gates.
+CI, so the same checkout executes the same gates. Each task's comment in `mise.toml` explains its
+own command line; this file holds what spans tasks and workflows.
+
+Open this file to learn which gate covers a path, what a task or workflow proves, and why a job is
+shaped the way it is. Sections: [Tiers](#tiers), [Markdown-only pull requests](#markdown-only-pull-requests),
+[Web console and site](#web-console-and-site), [Features](#features), [Windows](#windows),
+[Inspection](#inspection), [Dependencies](#dependencies), [Workflows and CI](#workflows-and-ci),
+[Caches](#caches), [Advisory gates](#advisory-gates), [Benchmarks](#benchmarks), [Miri](#miri),
+[Release captures](#release-captures), [Tools](#tools), [Property tests](#property-tests),
+[Version pins](#version-pins), [MIDI loopback](#midi-loopback),
+[Network loopback](#network-loopback),
+[Worktrees](#worktrees-each-need-their-own-target-directory) and
+[Flux](#flux-refinement-checking-opt-in-local-only).
+
+## Tiers
 
 Verification has two trigger tiers:
 
-- `mise run check_pull_request` runs the tooling contract, the contract's own test suite, the two
-  workflow linters, the roadmap planner's and requirements check's test suites, the dependency audit, formatting, clippy with
-  and without the default features, a Windows-target lint of the shipped crates, the native tests and
-  doctests under both, and the rustdoc gates under both feature sets.
+- `mise run check_pull_request` runs `check_docs` (the tooling contract, plus the roadmap planner
+  and the requirements check, each with its test suite), the two workflow linters, the dependency
+  audit, formatting, clippy with and without the default features, the `inspection` compile, a
+  Windows-target lint of the shipped crates, the native tests and doctests under both feature sets,
+  and rustdoc with default features and with `--features persistence`, the only place `orcvs`'s
+  persistence-gated docs are generated. The tooling contract's own fixture suite is not part of it;
+  see [The tooling contract](#the-tooling-contract).
   `mise run check_wasm` compiles every crate's test targets for `wasm32-unknown-unknown` and builds
-  the application twice, once under each. Pull requests run the first on Linux and the second on the
-  WASM job. macOS runs the native tier only during merge queue verification, pushes to `main`, and
-  manual dispatch, and Windows runs the network loopback on the same events.
-- `mise run check_merge` runs the browser regression suite, the persistence
-  tier at proptest's full case count, and a compile of the release captures. CI distributes these gates across the existing Linux and WASM
-  jobs on `merge_group`, after a push to `main`, or on manual dispatch.
+  the application twice, once under each feature set. Pull requests run the first on Linux and the
+  second on the WASM job. macOS runs `check_pull_request` and the MIDI loopback only during merge
+  queue verification, pushes to `main`, and manual dispatch, and Windows runs the network loopback
+  on the same events.
+- `mise run check_merge` runs the native merge tier (`check_merge_native`: the persistence tier at
+  proptest's full case count, a compile of the release captures, and `cargo deny`) and the browser
+  regression suite; run locally, it also runs `check_wasm`. CI runs the native component on the
+  Linux job and the browser suite on the WASM job, on `merge_group`, after a push to `main`, or on
+  manual dispatch.
+
+`mise run check` runs both tiers locally. The merge queue runs each tier once. In the queue the
+Linux job runs only the native merge tier, the WASM job only the browser suite, and macOS
+`check_pull_request` and the MIDI loopback. The Linux pull-request tier and `check_wasm` therefore
+ran on the pull request's own merge with `main` as it stood then, not on the queued candidate. A
+conflict between two queued pull requests that only those runs would catch reaches `main`, and the
+push run, which runs everything, is where it fails. The queue's Linux merge tier still compiles and
+tests the default feature set on Linux, and its browser suite compiles the console for `wasm32`, so
+what slips through is narrower: a Linux-only break under `--no-default-features`, a `wasm32` clippy
+lint, or a break in the `--no-default-features` Trunk build. Development happens on macOS, so its clean-runner verification waits
+for the queue. Push runs retain full verification and warm the caches that pull-request and queue
+runs restore, and a failed push run still requires repair before normal development continues.
+
+What the queue defers is behaviour rather than compilation: a browser test that no longer compiles
+fails the pull request that wrote it. The same holds one feature over — the persistence tests live
+in a test-only module behind a dev-dependency, so no library build can reach them, and the
+pull-request tier reaches them by building all targets. Doctests follow the same rule: a doctest
+that one feature set compiles and the other does not is compiled by only one of them, so the tier
+runs `cargo test --doc` under both. Rustdoc is gated too, because doctests execute examples and do
+not generate the docs, so a public item that links to a private one is invisible until `cargo doc`
+runs with warnings denied. Its pair is not the feature-set pair: it is default features and
+`--features persistence`, so no rustdoc pass runs `--no-default-features`. Each rustdoc pass costs about a second on a warm runner after clippy,
+which is why it sits in the pull-request tier.
+
+## Markdown-only pull requests
 
 A pull request whose diff is Markdown and `site/` alone does not compile. The `changes` job asks
 `scripts/ci-compile-needed.sh`, which answers `false` only for a pull request whose every changed
-path ends in `.md` or lies under `site/`, counting both sides of a rename; the Linux job then runs `mise run check_docs` —
-the tooling contract, the roadmap planner and the requirements check, the only gates that read Markdown — and the WASM job
-is skipped. `check_pull_request` runs `check_docs` as its first step, so a Markdown-reading gate is
-added in one place and both tiers run it.
+path ends in `.md` or lies under `site/`, counting both sides of a rename; the Linux job then runs
+`mise run check_docs` — the tooling contract, the roadmap planner and the requirements check, the
+only gates that read Markdown — and the WASM job is skipped. `check_pull_request` runs `check_docs`
+as its first step, so a Markdown-reading gate is added to that one task and both paths run it.
 `scripts/check-ci-results.sh` accepts that skip only on a pull request. No crate compiles or reads a
 `.md` file, which is the whole of the rule: `.scratch/` is not exempt as a directory, because a test
 includes a `.toml` from it. The merge queue, pushes to `main` and manual dispatch always compile.
 
-The merge queue runs each tier once. In the queue the Linux job runs only the native merge tier
-and the WASM job only the browser suite; macOS runs `check_pull_request` and the native merge tier.
-The Linux pull-request tier and `check_wasm` therefore ran on the pull request's own merge with
-`main` as it stood then, not on the queued candidate. A conflict between two queued pull requests
-that only those gates would catch — a wasm-only build break, a feature-off build, a rustdoc or
-workflow lint — reaches `main`, and the push run, which runs everything, is where it fails.
+## Web console and site
 
 The web console and the site build separately, and GitHub Actions deploys neither.
 `.github/workflows/console-web.yml` runs on a push to any branch except `gh-pages` and the merge
 queue's that changes what the console is built from: the console, the crates under it, the Built-in
 Synth, the shipped examples and the toolchain and tool pins. Its first job takes the console key
-from `scripts/console-key.sh`, one hash over the paths in the workflow's own path filter. When an
+from `scripts/console-key.sh`, one hash over the paths in the workflow's own path filter, so the
+filter covers every workspace member, every file a crate embeds from outside itself and every script
+a Trunk hook runs, or two different consoles share a key; `site/scripts/tests/console.sh` fails when
+one is missing. The key job reads every page of the release and fails on any API error other than a
+missing release; fork pull requests do not run the build. When an
 archive of that key is already on the public `console-web` release the run builds nothing. Otherwise it runs `mise run console_web_build`: one
 release Trunk build with relative URLs into `target/console-web/`, kept as the `console-web`
 artifact. Trunk's post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly
@@ -47,19 +91,30 @@ module and stages it beside the console with `synth/web/`'s AudioWorklet and pag
 The build is published on the release as `console-web-<key>.tar.gz` from `main` and as
 `console-preview-<key>.tar.gz` from any other branch, except Dependabot's read-only ones, and an
 archive is never replaced. On `main` the run then copies `main`'s keyed archive to the rolling
-`console-web.tar.gz` and keeps the newest 100 of `main`'s archives and 50 of the branches'
-(ADR 0101). A branch that changes nothing in the console takes `main`'s archive of its key.
+`console-web.tar.gz` and keeps the newest 100 of `main`'s archives and 50 of the branches', never
+pruning `main`'s current key; a branch whose key was pruned rebuilds it by running Console web on
+the branch, as the failed preview's message says (ADR 0101).
+A branch that changes nothing in the console takes `main`'s archive of its key.
+Builds of one archive share a concurrency group, and GitHub keeps only the newest pending run in a
+group, so a run can be replaced before it starts, against ADR 0101's "no push cancels another's run";
+the run that replaced it publishes the same archive
+([orcvs-site/30](../.scratch/orcvs-site/issues/30-let-every-pushed-console-run-finish.md)).
 
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
 `site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
 the directory `CONSOLE_WEB` names, relative to `site/`, and Astro builds the site around it into
-`site/dist/`; nothing in the site build compiles the console. Every Cloudflare build waits up to 15
-minutes for the console keyed to its own commit and fails without it (ADR 0093, ADR 0101):
+`site/dist/`; nothing in the site build compiles the console. Every Cloudflare build retries every 20 seconds
+for up to 15 minutes for the console keyed to its own commit and fails without it (ADR 0093, ADR 0101):
 production for `main`'s archive only, a preview for either. A local build and a `dependabot/`
 branch's build take the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
 release, and the site workflow runs it. A push to `main` deploys, and a pull
-request gets Cloudflare's preview URL. `site/.node-version` is the Node pin Cloudflare's build
+request gets Cloudflare's preview URL. No deploy hook exists and GitHub holds no Cloudflare
+credential; a site build that failed because its console was late is retried from Cloudflare's
+dashboard. The dashboard's build watch paths must include the console's paths, or be unset, so a
+console push starts a site build; they cannot be checked from the repository
+([orcvs-site/26](../.scratch/orcvs-site/issues/26-build-the-site-on-console-pushes.md)).
+`site/.node-version` is the Node pin Cloudflare's build
 reads, and a site test holds it equal to `mise.toml`'s.
 
 `.github/workflows/site.yml`, path-filtered to the site, the tool pins and the docs it renders,
@@ -70,104 +125,67 @@ otherwise the archive under its key. `mise run site_test` serves `site/dist/` an
 Playwright tests in Chromium. None of these is part of `check_pull_request`, and neither workflow
 is a required check.
 
-`mise run check` runs both tiers locally. The merge queue verifies the combined candidate with the
-merge tier, the browser suite and the macOS native tier before it reaches `main`. Development happens on macOS, so its
-clean-runner verification is deferred until that point. Push runs retain full verification and warm
-the caches that pull-request and queue runs restore, and a failed push run still requires repair
-before normal development continues. What the queue defers is behaviour rather than compilation: a
-browser test that no longer compiles fails the pull request that wrote it. The same is true one
-feature over — the persistence tests live in a test-only module behind a dev-dependency, so no
-library build can reach them, and the pull-request tier reaches them by building all targets. The
-doctests follow the same rule: a doctest that one feature set compiles and the other does not is
-compiled by only one of them, so the tier runs `cargo test --doc` under both rather than only the
-shipped one. Rustdoc follows the same rule and the same pair: doctests execute examples and do not
-generate the docs, so a public item that links to a private one is invisible until `cargo doc` runs
-with warnings denied. Each pass is about a second on a warm runner after clippy, which is why the
-gate lives here rather than in the merge leftovers it was first bundled with.
+## Features
 
-`persistence` is a default feature of `console`, so "both feature sets" now means the default one and
-`--no-default-features`. The shipped binary saves the current Source revision and restores it on the
-next start, which is what `product-persistence/01` requires of the shipped application: a feature
-that shipped off would be proved only in a configuration nobody launches, since `mise run run`,
-`cargo run`, the `.vscode` cargo tasks, and a plain `trunk build` all take the default set. `console`
-pulls `orcvs/persistence` in through its own feature, so `orcvs` keeps `default = []` and the whole
-workspace still resolves with storage on whenever `console` is in the build.
+### `persistence`
 
-That makes `--no-default-features` the arm that proves the feature-off build, and it is the arm that
-proves it *only* — nothing else in either tier compiles the application without the storage path.
-`product-persistence/01`'s criterion that "a build without the feature keeps today's behaviour and
-compiles" is what those runs are for, so the pull-request tier pairs `cargo clippy`, `cargo nextest
-run` and `cargo test --doc` over the default set with the same three over `--no-default-features`,
-and `check_wasm` pairs the two `trunk build` invocations the same way. Naming `--features
-persistence` on the other half of any of those pairs would name the default twice and leave one
-configuration tested; `scripts/check-tooling-contract.sh` pins both halves, and pins
-`default = ["persistence"]` in `console/Cargo.toml` beside them, because with the default flipped back
+`persistence` is a default feature of `console`, so "both feature sets" means the default one and
+`--no-default-features`, and every command in this file resolves the shipped application unless a
+line names `--no-default-features` beside it. The shipped binary saves the current Source revision
+and restores it on the next start, which is what `product-persistence/01` requires of the shipped
+application: a feature that shipped off would be proved only in a configuration nobody launches,
+since `mise run run`, `cargo run`, the `.vscode` cargo tasks, and a plain `trunk build` all take the
+default set. `console` pulls `orcvs/persistence` in through its own feature, so `orcvs` keeps
+`default = []` and the whole workspace still resolves with storage on whenever `console` is in the
+build.
+
+That makes `--no-default-features` the only arm that proves the feature-off build: nothing else in
+either tier compiles the application without the storage path. Turning persistence off gives up
+save and restore of the current Source revision, and `product-persistence/01`'s criterion that "a
+build without the feature keeps today's behaviour and compiles" is what those runs are for. The
+pull-request tier pairs `cargo clippy`, `cargo nextest run` and `cargo test --doc` over the default
+set with the same three over `--no-default-features`, and `check_wasm` pairs its two `trunk build`
+invocations the same way. `scripts/check-tooling-contract.sh` pins both halves, and pins
+`default = ["persistence"]` in `console/Cargo.toml` beside them, because with the default flipped
 the pair collapses into two feature-off runs and nothing compiles the storage path at all.
 
-The browser suite and `mise run test_persistence` take no feature flag decision from this.
-`test_wasm` runs the default configuration, which is the one a browser loads, and spending a second
-headless Firefox run on a build `check_wasm` already compiles buys nothing. `test_persistence` keeps
-its explicit `--features persistence`, so the task keeps its meaning if the `console` default ever
-moves. Its `cargo clippy --package orcvs --lib --features persistence` line is the one lint of
-`orcvs`'s shipped library with `persistence` on and the test-only features off: every
-`--all-targets` invocation builds `orcvs`'s own tests, and its dev-dependency on itself unifies
-`test-grid-shapes` and `test-output-adapter` into the library those lines compile.
+`check_pull_request` also lints `orcvs` with `--no-default-features --features persistence` and runs
+its tests with `--no-default-features`; between them and the two workspace passes beside them, all
+four cells of the two features are compiled, and the tests that state what disabling persistence
+gives up — compiled only with it off — are executed rather than merely type-checked.
 
-`mise run test_persistence` still runs in the merge tier, and its overlap with the pull-request tier
-is deliberate rather than an oversight: `check_pull_request` sets `PROPTEST_CASES` to 32, so the
-merge tier is the only place the properties run at proptest's 256-case default. What is genuinely
-merge-only is the browser run and that full-case run.
+The browser suite and `mise run test_persistence` take no feature-flag decision from this; each
+task's comment says why. `test_persistence` runs in the merge tier, and its overlap with the
+pull-request tier is deliberate: `check_pull_request` sets `PROPTEST_CASES` to 32, so the merge tier
+is the only place the properties run at proptest's 256-case default. What is genuinely merge-only
+is the browser run and that full-case run. Its `nextest` line's `-E 'not kind(bench)'` is
+load-bearing; the comment above that line in `mise.toml` records why.
 
-Its `nextest` line carries `-E 'not kind(bench)'`, and the filter is load-bearing. `--all-targets`
-includes `--benches`, and `nextest` executes a criterion benchmark as a test, where criterion falls
-back to its own defaults because the budget flags `mise run bench` passes do not reach it — a 3s
-warm-up, a 5s measurement and a 100,000-resample bootstrap, per benchmark, for all 29. That was
-about 26 of the line's 27.5 seconds on a warm runner and 235 seconds per benchmark on a contended
-one, which held four merge-queue runs until `timeout-minutes` killed them. No number survived the
-spend: `nextest` records pass or fail. `.github/workflows/bench.yml` is where these are measured,
-budgeted, on its own trigger. `--all-targets` stays so every target still compiles and links under
-the feature; only the execution is filtered.
+### Off-by-default features
 
-The tooling contract and its fixture suite are gated differently, and the split is worth stating
-because it looks like an inconsistency. `scripts/check-tooling-contract.sh` runs in
-`check_pull_request`: it costs under a second, and it is what fails when someone edits a pinned
-line, so every pull request owes it whatever that pull request touched. Its fixture suite,
-`scripts/tests/check-tooling-contract.sh`, does not run there. The suite copies a tree, breaks one
-line and re-runs the contract, ninety times over — about thirty seconds — and the tier runs on both
-the Linux and macOS legs, so every pull request paid it twice, including the ones that touched no
-tooling at all. What the suite can answer depends only on the files it copies into a fixture, so
-`.github/workflows/tooling.yml` runs it path-filtered on exactly those, plus the two scripts
-themselves.
+Two `console` features are off by default and enabled by nothing else, so no ordinary gate compiles
+them and each has a task that compiles it by name: `inspection`, through `mise run check_inspection`
+in the pull-request tier (see [Inspection](#inspection)), and `release-capture`, through
+`mise run check_release_capture` in the merge tier (see [Release captures](#release-captures)). The
+third off-by-default feature, `test-source-shapes`, needs no task: the crate's own dev-dependency
+enables it in every `--all-targets` run. `scripts/check-tooling-contract.sh`
+pins each compile line and its caller, because deleting one is invisible — no test fails when a
+feature stops being compiled.
 
-That filter is derived rather than trusted. The paths and the files the suite reads are the same set
-stated twice, and a file added to the suite and not to the workflow would leave the gate blind to
-exactly the file it had just started reading — which is the failure the contract exists to catch,
-one layer up. So the contract reads both lists out of the files and fails if any input is
-uncovered, and the absence of the suite from `check_pull_request` is pinned alongside its presence
-in the workflow, because putting the line back is a one-word edit nothing else notices.
+## Windows
 
-Platform MIDI lives in the console, not the toolkit-free crate. The console declares `midir` for
-macOS, Windows, and Linux only; the browser build never sees it and reaches Web MIDI through
-`web-sys` bindings instead (ADR 0059). `orcvs` carries the MIDI vocabulary
-and output adapter but no platform binding — no `midir`, no `dispatch`, and no target table that
-could pull either in.
+No CI job builds the console for Windows, so `mise run check_windows` is the one place that
+compiles it there, from the runners the tier already has: Linux on pull requests, and macOS in the
+merge queue and on pushes. The task's comment gives the command, its scope and why clippy needs no
+MSVC linker. `rust-toolchain.toml` declares the target so rustup installs it with the pinned
+channel, the way the WASM job gets `wasm32-unknown-unknown`. It proves that Windows compiles, not
+that it runs; the merge tier's `windows` job runs only the network loopback below, and
+`docs/research/windows-support.md` covers what running the rest would take.
+`scripts/check-tooling-contract.sh` pins the task, its call in `check_pull_request`, and the
+toolchain target.
 
-`console` carries a feature the tier can pass without ever building: `persistence` ships on by
-default, so every command in this file resolves the shipped application unless a line names
-`--no-default-features` beside it. What turning persistence off gives up is save and restore of the
-current Source revision; what the `--no-default-features` halves of the tier still prove is that the
-path compiles out.
+## Inspection
 
-`check_pull_request` lints `orcvs` with `--no-default-features --features persistence` and runs its
-tests with `--no-default-features`; between them and the two workspace passes beside them, all four
-cells of the two features are compiled, and the tests that state what disabling persistence gives up
-— compiled only with it off — are executed rather than merely type-checked. `mise run audit_deps`
-holds the toolkit-free tree claim itself rather than describing it — it resolves `orcvs` with default
-features off and fails if `midir`, `dispatch`, or a `-sys` crate beneath them is still in it.
-`scripts/check-tooling-contract.sh` pins all of it: `midir` in the console's supported-native table
-only, and none of those bindings in `orcvs`.
-
-A third `console` feature is off by default and is the only one no tier would otherwise compile.
 `inspection` forwards to `eframe/inspection`, which pulls in `egui_inspection` and attaches its
 plugin at start (`eframe-0.37.0/src/lib.rs:214-222`). It is development tooling rather than product:
 what it offers is an external process reading the console's AccessKit tree, injecting input,
@@ -175,50 +193,14 @@ resizing the window and taking screenshots, which is full control of the running
 authentication in the protocol at all. That is why it ships off, and why the feature alone is not
 enough to turn it on — `egui_inspection` binds nothing unless `EGUI_INSPECTION` is set, so a build
 carrying the feature and launched without the variable behaves exactly like a build without it
-(`egui_inspection-0.37.0/src/lib.rs:20-51`).
+(`egui_inspection-0.37.0/src/lib.rs:20-51`). `mise run check_inspection` compiles it; the task's
+comment says why one line on one crate is enough.
 
-Being off by default is exactly why the tier has to compile it by name, and `mise run
-check_inspection` is that line: one `cargo clippy --package console --all-targets --features
-inspection --locked`. The scope is one crate because the feature reaches one crate and adds no
-module to it — what can break is the dependency resolving and the console still building against the
-`eframe` feature set it selects, which is what a compile answers. It is not a tier of its own for
-the same reason: there is nothing to run. `scripts/check-tooling-contract.sh` pins the line's
-presence in `check_pull_request`, because deleting it is invisible — no test fails when a feature
-stops being compiled.
-
-No CI job builds the console for Windows, so `mise run check_windows` is the one place that compiles it there: `cargo
-clippy --workspace --lib --bins --target x86_64-pc-windows-msvc --locked`, with default features and
-with `--no-default-features`. It reaches the `cfg(windows)` code in the console's dependencies —
-midir's WinMM backend, rfd's COM dialogs, winit's Win32 window and eframe's known-folder storage
-path — from the runners the tier already has: Linux on pull requests, and macOS in the merge tier.
-clippy is a check build, so it neither links nor needs the MSVC linker or Windows SDK;
-`rust-toolchain.toml` declares the target so rustup installs it with the pinned channel, the way the
-WASM job gets `wasm32-unknown-unknown`. It is scoped to the shipped crates because the test and bench
-targets pull in criterion, whose `alloca` build script compiles C for the target and needs `lib.exe`
-or `clang-cl`. It proves that Windows compiles, not that it runs; the merge tier's `windows` job
-runs only the network loopback below, and `docs/research/windows-support.md` covers what running
-the rest would take. `scripts/check-tooling-contract.sh` pins the task, its call in
-`check_pull_request`, and the toolchain target.
-
-`mise run inspect` is the launcher, and two things about it are load-bearing rather than
-convenience. It writes `EGUI_INSPECTION=127.0.0.1:5719` out in full instead of the `EGUI_INSPECTION=1`
-the upstream README suggests: a command-level assignment replaces any inherited `EGUI_INSPECTION`
-value, and `1` itself resolves to loopback (`bind_addr_from_env` in
-`egui_inspection-0.37.0/src/lib.rs:40-51`). The literal is self-documenting and greppable, the port
-is selectable, and the contract counts each assignment in `mise.toml` and requires every one of them
-to name the loopback host, so a bare `1` fails it as repository policy rather than because that
-spelling is unsafe. And it builds, then runs the built binary under a `HOME` and `XDG_DATA_HOME` of
-`target/inspection`, because eframe derives its storage directory from those
-(`eframe-0.37.0/src/native/file_storage.rs:17-41`) and `console` saves the current Source revision
-every thirty seconds — a smoke test launched without that override would overwrite whatever Source
-the developer last had open. The binary it then launches is the one that build reported, through
-`--message-format=json-render-diagnostics`, rather than a written-down `./target/debug/console`: a
-written-down path ignores `CARGO_TARGET_DIR` and `build.target-dir`, and with either of those set
-the task would launch whatever stale binary the default location still holds — one without the
-feature, which eframe starts anyway and only logs a warning about, so the failure arrives as an
-attach timeout that names nothing. The two halves are separate commands because `cargo` reads `HOME`
-to find `CARGO_HOME`, so the build needs the real environment and the console needs the disposable
-one.
+`mise run inspect` is the launcher; its comment explains the literal loopback address, the
+disposable `HOME` and `XDG_DATA_HOME`, and why it launches the binary the build reports. The
+contract counts each `EGUI_INSPECTION` assignment in `mise.toml` and requires every one of them to
+name the loopback host, so a bare `1` fails it as repository policy rather than because that
+spelling is unsafe.
 
 **The storage redirect works on macOS and Linux only.** Those are the two platforms eframe resolves
 its storage directory from the environment on. On Windows it calls
@@ -231,24 +213,32 @@ the platform. Development and both CI tiers run on macOS and Linux, so this is a
 rather than a guard: on Windows, close the console before inspecting, or expect the Source to be
 overwritten.
 
-`mise run install_egui_mcp` installs the bridge the agent side attaches through: `egui_mcp` 0.3.0
-from crates.io, `--locked`, which is the release requiring `egui_inspection ^0.37.0`. It is the one
-pinned tool that `[tools]` does not hold, because it is a cargo binary rather than a mise-managed
-one, so the version lives in the task and the contract pins its shape there — including that it is
-not installed from a git branch, which would make "the version that worked" unanswerable.
-`.mcp.json` and `.codex/config.toml` register the installed `egui-mcp` as a stdio server for
-repository-scoped agent configuration (Claude and Codex); no user-global or machine-global file is
-written by anything in this repository. Codex loads the project file only when the project is
-trusted.
+`mise run install_egui_mcp` installs the bridge the agent side attaches through, at the version its
+comment names. It is the one pinned tool that `[tools]` does not hold, because it is a cargo binary
+rather than a mise-managed one, so the version lives in the task and the contract pins its shape
+there — including that it is not installed from a git branch. `.mcp.json` and `.codex/config.toml`
+register the installed `egui-mcp` as a stdio server for repository-scoped agent configuration
+(Claude and Codex); no user-global or machine-global file is written by anything in this
+repository. Codex loads the project file only when the project is trusted.
 `.agents/skills/egui/references/guide.md` is where the attach, verify and troubleshooting procedure
 lives.
 
-Dependency auditing runs in the pull-request tier through `mise run audit_deps`, which checks
-advisories, licences, and sources and prints the feature-resolved dependency tree. Dependabot's
-weekly grouped bumps are exactly the pull requests it exists for, so it gates them rather than
-reporting on them once they are already on `main`. `mise run check_merge_native` runs `cargo deny`
-again after a merge; the audit is cheap, and each tier reading correctly on its own is worth more
-than removing the overlap.
+## Dependencies
+
+Dependency auditing runs in the pull-request tier through `mise run audit_deps`, which prints the
+feature-resolved dependency tree, runs `cargo deny` over advisories, bans, licences and sources, and
+checks the toolkit-free tree. Dependabot's weekly grouped bumps are exactly the pull requests it
+exists for, so it gates them rather than reporting on them once they are already on `main`.
+`check_merge_native` runs `cargo deny` again in the merge tier; the audit is cheap, and each tier
+reading correctly on its own is worth more than removing the overlap.
+
+Platform MIDI lives in the console, not the toolkit-free crate. The console declares `midir` for
+macOS, Windows, and Linux only; the browser build never sees it and reaches Web MIDI through
+`web-sys` bindings instead (ADR 0059). `orcvs` carries the MIDI vocabulary and output adapter but no
+platform binding — no `midir`, no `dispatch`, and no target table that could pull either in.
+`audit_deps` resolves `orcvs` with default features off and fails if `midir`, `dispatch`, or a
+`-sys` crate beneath them is in it, and `scripts/check-tooling-contract.sh` pins `midir` to the
+console's supported-native table and keeps those bindings out of `orcvs`.
 
 The audit denies a second version of any crate. The `[bans] skip` list in `deny.toml` is the
 complete set of duplicates the graph carries on purpose, and each entry names the upstream crate
@@ -257,19 +247,19 @@ not an exact version, because a full version after `@` matches only that version
 `cargo update` to a new patch release would then fail the audit. When a change fails it with
 `error[duplicate]`, the duplicate is new and needs a decision: unify it by changing a manifest
 requirement, if the dependents allow one shared version, or add a skip entry that names the upstream
-crate holding the older copy. Don't pin a transitive version into `Cargo.lock` with `cargo update
---precise`. Cargo resolves each requirement to its greatest compatible version and does not
-deduplicate across incompatible ones, so the next `cargo update` undoes the pin and the audit fails
-on a duplicate that is already known. When an upstream release lifts a constraint, cargo-deny
-reports the entry as an unmatched skip, which is the signal to remove it.
+crate holding the older copy. Leave `Cargo.lock` to the resolver rather than pinning a transitive
+version with `cargo update --precise`: Cargo resolves each requirement to its greatest compatible
+version and does not deduplicate across incompatible ones, so the next `cargo update` undoes the pin
+and the audit fails on a duplicate that is already known. When an upstream release lifts a
+constraint, cargo-deny reports the entry as an unmatched skip, which is the signal to remove it.
 
 A `[dependencies]` entry nothing uses fails the build. `[workspace.lints.cargo]` in the root
 `Cargo.toml` denies `cargo::unused_dependencies`; `-D warnings` cannot, because it reaches rustc and
 clippy but not Cargo's own lints. Cargo reports an entry only on a build that compiles every target
 of the package that could use it — the library and its binaries together, as the `--all-targets`
 and `--lib --bins` clippy runs and `trunk build` do — and never reports a dev-dependency. An entry
-used on one platform or feature set fails on the others, which is how the console's `serde` came to
-sit in the non-wasm32 table: `theme_document` compiles only on native targets and in tests. When a
+used on one platform or feature set fails on the others; the console's `serde` sits in the
+non-wasm32 table because `theme_document` compiles only on native targets and in tests. When a
 change fails with `unused dependency`, either remove the entry or move it under the
 `[target.'cfg(...)'.dependencies]` table, or behind the feature, that its use is gated by.
 
@@ -281,6 +271,8 @@ reporting it until the next pull request happens to open. `.github/workflows/adv
 runs the repository's own task rather than a bespoke `cargo deny` line, so the scheduled answer and
 the pull-request answer are the same answer. Scheduled workflows run on the default branch only,
 which is the branch the question is about.
+
+## Workflows and CI
 
 The workflows themselves are the one part of the verification surface no compiler reads, and they
 are the part that decides whether the rest of it runs. `actionlint` checks their syntax and
@@ -294,9 +286,23 @@ stops running.
 
 Every job in every workflow declares `timeout-minutes`. Without one a job inherits the six-hour
 runner limit, and the shape that would spend it is a `wasm-pack test --headless --firefox` waiting
-on a browser that never answers; the jobs otherwise finish in about ninety seconds. The contract
-derives the expected number of bounds from the number of jobs each file declares rather than from a
-literal, so a job added without one fails the contract instead of quietly inheriting the default.
+on a browser that never answers. The contract derives the expected number of bounds from the number
+of jobs each file declares rather than from a literal, so a job added without one fails the contract
+instead of quietly inheriting the default.
+
+Every commit that reaches `main` gets its own merge-tier run. The test workflow's concurrency group
+is keyed on the pull request number for a pull request and on the commit for anything else, so a
+later merge cannot cancel an earlier commit's run, and `cancel-in-progress` is confined to pull
+requests. The merge-tier steps are guarded on the event not being a pull request rather than on its
+being a push, so a manual dispatch — the obvious way to re-verify a commit — runs the merge tier
+instead of reporting green having run only the pull-request tier.
+
+The `ci` aggregate is the required check, and the merge queue for `main` waits on it. It runs with
+`always()` and requires Linux success on every supported event, and WASM success on every event
+except a Markdown-only pull request, where WASM must be skipped. It requires macOS and Windows to be
+skipped on pull requests and successful on merge groups, pushes, and manual dispatches. Failure,
+cancellation, and unexpected skipping fail the aggregate. `scripts/tests/check-ci-results.sh`
+exercises every combination of these job results.
 
 `.github/workflows/code-review.yml` asks Claude's code-review routine to review a pull request when
 it is opened, reopened or marked ready for review; drafts, Dependabot and fork pull requests are
@@ -307,52 +313,52 @@ a review, so each review is asked for once rather than once per commit. Because 
 secret, the contract holds whichever workflow names it to the `pull_request` trigger alone and to
 an empty token permission set.
 
-Every commit that reaches `main` gets its own merge-tier run. The workflow's concurrency group is
-keyed on the pull request number for a pull request and on the commit for anything else, so a later
-merge cannot cancel an earlier commit's run, and `cancel-in-progress` is confined to pull requests.
-The merge-tier steps are guarded on the event not being a pull request rather than on its being a
-push, so a manual dispatch — the obvious way to re-verify a commit — runs the merge tier instead of
-reporting green having run only the pull-request tier.
+### The tooling contract
 
-The `ci` aggregate runs with `always()` and requires Linux and WASM success on every supported
-event. It requires macOS and Windows to be skipped on pull requests and successful on merge
-groups, pushes, and manual dispatches. Failure, cancellation, and unexpected skipping fail the aggregate.
-`scripts/tests/check-ci-results.sh` exercises every combination of these job results.
+`scripts/check-tooling-contract.sh` and its fixture suite are gated differently. The contract runs
+in `check_pull_request`: it costs under a second, and it is what fails when someone edits a pinned
+line, so every pull request owes it whatever that pull request touched. Its fixture suite,
+`scripts/tests/check-tooling-contract.sh`, copies a tree, breaks one line and re-runs the contract,
+over a hundred times — a minute or more. What the suite can answer depends only on the files it
+copies into a fixture, so `.github/workflows/tooling.yml` runs it path-filtered on exactly those,
+plus the two scripts themselves, so a pull request that changes one of them meets the suite there
+and one that touches none of them does not pay for it.
 
-To activate the queue, first land this workflow and confirm the `ci` check reports successfully.
-Then replace `main`'s required checks (`full-gate`, `macos`, `wasm`) with `ci` from GitHub Actions,
-and require a merge queue for `main` in a repository ruleset. Disable the old strict up-to-date
-requirement: the queue validates against the current base itself. Start with build concurrency 1,
-minimum and maximum merge group size 1, and a 30-minute status-check timeout. Keep the existing
-merge method and review requirements. These repository settings must follow the workflow rollout;
-enabling the queue first would leave it waiting for checks that do not report on `merge_group`.
-Until that activation, the extended checks still verify pushes after merge.
+That filter is derived rather than trusted. The paths and the files the suite reads are the same set
+stated twice, and a file added to the suite and not to the workflow would leave the gate blind to
+exactly the file it had just started reading. So the contract reads both lists out of the files and
+fails if any input is uncovered, and the absence of the suite from `check_pull_request` is pinned
+alongside its presence in the workflow, because putting the line back is a one-word edit nothing
+else notices.
+
+## Caches
 
 Caches are written only from `main`. GitHub scopes a cache to the ref that saved it, so an entry
 written on `refs/pull/N/merge` is readable by that pull request and by nothing else, while the
-repository's quota is shared across all of them. Left ungated, pull-request runs filled that quota
-with entries no later run could read and evicted the `main` entries every run restores from — the
-repository sat at 9.8 GB of a 10 GB limit, under continuous eviction. Every `Swatinem/rust-cache`
-step carries `save-if` and every `jdx/mise-action` step carries `cache_save`, both gated on the
-default branch. Restoring is deliberately not gated: a pull request still reads `main`'s cache
-through the key prefix, so the gate costs a pull request nothing and it saves nothing worth keeping.
-The two benchmark jobs additionally share one key, because they build the same tree under the same
-profile and only ever one of them runs. `scripts/check-tooling-contract.sh` counts the gates against
-the number of caching steps in each workflow, so a job added with an ungated cache fails the
-pull-request tier rather than quietly filling the quota again.
+repository's 10 GB quota is shared across all of them; ungated pull-request entries evict the `main`
+entries every run restores from. Every `Swatinem/rust-cache` step carries `save-if` and every
+`jdx/mise-action` step carries `cache_save`, both gated on the default branch. Restoring is
+deliberately not gated: a pull request still reads `main`'s cache through the key prefix, so the
+gate costs a pull request nothing and it saves nothing worth keeping. The two benchmark jobs
+additionally share one key, because they build the same tree under the same profile and only ever
+one of them runs. `scripts/check-tooling-contract.sh` counts the gates against the number of caching
+steps in each workflow, so a job added with an ungated cache fails the pull-request tier.
 
-Two gates advise rather than block, and both are recorded here rather than assumed. The benchmark
-comparison in `.github/workflows/bench.yml` fails on a threefold regression but is not a required
-status context, and `main`'s branch protection does not enforce against administrators, so a direct
-push skips every required context. Both stay as they are for the first release: on 2026-09-24 the
-benchmark gate was accepted as advisory and branch protection left unchanged, recorded in
-`.scratch/v1-release/issues/01-prove-the-first-release-candidate.md`, whose benchmark series and
-floor review stand in for enforcement. Closing either after v1 needs repository administration
+## Advisory gates
+
+Two gates advise rather than block. The benchmark comparison in `.github/workflows/bench.yml` fails
+on a threefold regression but is not a required status context, and `main`'s branch protection does
+not enforce against administrators, so a direct push skips every required context. Both stay as
+they are for the first release, as
+`.scratch/v1-release/issues/01-prove-the-first-release-candidate.md` records; its benchmark series
+and floor review stand in for enforcement. Closing either after v1 needs repository administration
 rather than a change to a checkout, so
 `.scratch/verification-gaps/issues/09-require-the-benchmark-and-close-the-protection-bypasses.md`
 records the intended settings and holds that decision.
 
-A third tier measures locally and checks only in CI. `mise run bench` runs the criterion benchmarks
+## Benchmarks
+
+Benchmarks measure locally and check only in CI. `mise run bench` runs the criterion benchmarks
 in `lang`, `orcvs`, `console`, and `synth` and prints them in the bencher output format. `lang` covers language
 execution: parsing an Expression and interpreting it. `orcvs` covers a populated Source: reading an
 unchanged revision, deriving its Render Frame, and applying an edit with the Language Map rebuild it
@@ -363,6 +369,10 @@ fixed size. `synth` covers `Synth::render` filling one render quantum with every
 one tone at rest, and with 1, 4 and 16 channels running their effects. `.github/workflows/bench.yml` runs the same command
 in two jobs and fails either when a benchmark is more than three times slower than the previous
 stored result.
+
+The measurement is reproducible from a checkout; the comparison is not, because it lives in the
+action rather than in `mise.toml`, so the benchmarks are the one gate a local run cannot reproduce.
+`.scratch/benchmarks/spec.md` records what the gate can and cannot detect.
 
 That ratio gate answers one question — did this change make it worse — and has no way to answer a
 second one: is it still as good as we agreed it should be. `benchmark-action/github-action-benchmark`
@@ -384,33 +394,22 @@ records how its starting figure was chosen. Both bench jobs run
 by name — `mise install node` — immediately before the one step that needs it, rather than flipping
 that job-wide setting.
 
-The task names criterion's measurement budget rather than taking its default, and the figures are
-sized to the gate that reads them. That gate alerts at 150% and fails at 300%, comparing a number
-measured on one hosted runner against one measured on another, so it cannot resolve better than
-tens of per cent; criterion's defaults spend a 3s warm-up, a 5s measurement and a 100,000-resample
-bootstrap per benchmark to resolve about 2%. At those defaults the job took 12m32s, of which 10m35s
-was criterion executing 29 benchmarks twice. `--quick` is the flag this budget appears to want and
-it must never be used: it drops the name from each output line, the action's parser is one regex
-over `test <name> ... bench: <N> ns/iter`, and a line that does not match is skipped silently, so a
-`--quick` run stores zero benchmarks and reports green. `scripts/check-tooling-contract.sh` pins
-both bench commands whole and refuses the flag in either file.
-
-Each job runs the benchmarks twice and discards the first pass, because a freshly compiled criterion
-binary's first run is contaminated — `parse_source` read 1,204 ns on a first run against a settled
-417 ns after. That discard run is `mise run bench_warmup`, which keeps the warm-up half of the
-budget and cuts the measurement to the floor: its output goes to `/dev/null`, so it needs to execute
-every benchmark and to measure none of them well. Both jobs run it and both run the same task. The
-contamination moves the mean rather than widening the spread, so a job that skipped the warm-up
-would report slower numbers than the job it is compared against, and the gate would read a
-regression off the difference between two jobs rather than between two commits. A differing
-measurement budget between the jobs would be safe, since that only widens variance; a differing
-warm-up is not.
+The `bench` task names criterion's measurement budget rather than taking its default, and never
+passes `--quick`; its comment gives the figures and the reasons, and
+`scripts/check-tooling-contract.sh` pins both bench commands whole and refuses the flag in either
+file. Each job runs `mise run bench_warmup` first and discards its output, for the reason that
+task's comment records. Both jobs run the same warm-up: the contamination it removes moves the mean
+rather than widening the spread, so a job that skipped it would report slower numbers than the job
+it is compared against, and the gate would read a regression off the difference between two jobs
+rather than between two commits. A differing measurement budget between the jobs would be safe,
+since that only widens variance; a differing warm-up is not.
 
 The publishing job runs after a push to `main` and appends the result to the series on the
 `gh-pages` branch. The pull-request job compares against that series and stores nothing.
 Permissions are declared per job, so only the publishing job can write repository contents. Both
-triggers are filtered to the paths that can move a measurement, so a change that cannot touch `lang`,
-`orcvs`, or `console` performance runs no benchmark. `mise run check` does not run either.
+triggers are filtered to the paths that can move a measurement, so a change that cannot touch
+`lang`, `orcvs`, `console`, or `synth` performance runs no benchmark. `mise run check` does not run
+either.
 
 Both jobs publish a second series beside the timings, and it measures allocation rather than wall
 clock. `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs` count the blocks and bytes a Tick
@@ -444,20 +443,17 @@ comparison commits its point onto the local branch without pushing it, and a pla
 rewind that. The job still fails on the ratio gate. `scripts/check-tooling-contract.sh` pins the
 fetch, the order of the chain, and that no step after a ratio gate runs on the job's status.
 
-This benchmark gate is the one exception to the equivalence above. The measurement is reproducible
-from a checkout; the comparison is not, because it lives in the action rather than in `mise.toml`.
-`.scratch/benchmarks/spec.md` records what the gate can and cannot detect.
+## Miri
 
-A fourth trigger runs nothing at all unless someone asks for it. `mise run miri` interprets the
+Miri runs nothing at all unless someone asks for it. `mise run miri` interprets the
 Source model tests under Miri, and `.github/workflows/miri.yml` runs that task on
 `workflow_dispatch` alone — no pull request, no push, no required status context, and no other mise
-task calls it. That is deliberate rather than an omission.
-`.scratch/verification-gaps/issues/12-name-an-unsafe-review-gate-that-runs.md` decided the contract
-would stop *requiring* Miri, because it ships on nightly only while `rust-toolchain.toml` pins
-stable, and a gate the toolchain cannot run makes the contract unfollowable at the one place it
-matters most. What that decision kept is Miri as the tool the unsafe gate would prefer, run
-deliberately. This is the path it points at, and it stays off both tiers so that reaching for it
-remains a decision rather than a cost every change pays.
+task calls it. Miri ships on nightly only while `rust-toolchain.toml` pins stable, and a gate the
+toolchain cannot run would make the contract unfollowable, so the contract keeps Miri as the tool
+the unsafe gate would prefer, run deliberately
+([verification-gaps/12](../.scratch/verification-gaps/issues/12-name-an-unsafe-review-gate-that-runs.md)).
+It stays off both tiers so that reaching for it remains a decision rather than a cost every change
+pays.
 
 The workspace's shipped code holds no `unsafe` block. What the task covers is the Source's
 copy-on-write Cell write — `Source::set_source` in `orcvs/src/source/model.rs`, through
@@ -472,25 +468,19 @@ cannot check that the invariant holds. Miri can, and the moment to spend it is w
 block enters shipped code, or when that Cell write, or the Grid indexing that mints the index it
 takes, changes.
 
-The task installs `nightly` and the `miri` component itself rather than moving the pinned channel,
-so nothing else in the repository becomes nightly's problem for the length of a run. It is scoped by
-test filter — `-E 'test(/^source::model::test::/)'`, the tests of the module whose `set_source`
-reaches the Cell write — and not by crate. That distinction is what makes the run possible at all:
-`orcvs` links a multi-threaded Tokio runtime, which Miri cannot execute. Miri interprets what
-actually runs rather than what the crate links, so a dependency no selected test calls never becomes
-a problem, where `cargo miri nextest run --package orcvs` would also select the `#[tokio::test]`
-tests that start that runtime. The run goes through `nextest` for the
-reason every gate here does, with one addition: process-per-test gives each test its own interpreter
-context, so Miri's leak check at termination reports per test rather than per binary. Miri's
-isolation also rejects a wall-clock read, so the crates' test `trace()` helpers log without
-timestamps; a subscriber that stamps the time aborts any selected test that logs. The job's
-`timeout-minutes` is longer than any other job in this repository carries, because interpretation
-costs roughly two orders of magnitude over native execution and `cargo miri setup` builds a MIR
-standard library before any of it starts. `scripts/check-tooling-contract.sh` pins the filter, pins
-that no task calls `mise run miri`, and requires any workflow that does run it to carry
-`workflow_dispatch` and neither of the other two triggers.
+The task's comment explains the nightly install, the test filter rather than a crate scope, and
+`nextest`'s per-test interpreter context. Miri's isolation also rejects a wall-clock read, so the
+crates' test `trace()` helpers log without timestamps; a subscriber that stamps the time aborts any
+selected test that logs. The job's `timeout-minutes` is longer than any other job in this
+repository carries, because interpretation costs roughly two orders of magnitude over native
+execution and `cargo miri setup` builds a MIR standard library before any of it starts.
+`scripts/check-tooling-contract.sh` pins the filter, pins that no task calls `mise run miri`, and
+requires any workflow that does run it to carry `workflow_dispatch` and neither of the other two
+triggers.
 
-A fifth trigger is also manual, and produces evidence rather than a verdict. The release needs to
+## Release captures
+
+The release-capture workflow is also manual, and produces evidence rather than a verdict. The release needs to
 see the exact candidate rendered — both built-in Themes, wide and tall — and a test can prove every
 colour as a value but not what reaches the screen. `.github/workflows/release-captures.yml` runs
 `mise run capture_native` on `workflow_dispatch` alone, given a full commit SHA: it renders the
@@ -507,11 +497,8 @@ against a baseline; a reviewer reads them against the visual checklist.
 The capture is gated by a feature rather than a test filter, because what it must keep out of the
 tiers is a dependency tree and not only a run. `release-capture` enables `egui_kittest/snapshot`
 and `egui_kittest/wgpu` on a dev-dependency, so no shipped build can carry it. Two `mise.toml`
-lines name it. The capture task runs it. `mise run check_release_capture` compiles it with clippy,
-from `check_merge_native` alone: the capture calls the console's crate-private test helpers, so a
-change to one that every pull-request gate accepts would otherwise first fail when a reviewer
-dispatches the capture. That compile renders nothing and needs no GPU adapter; what the merge tier
-pays is the wgpu and naga trees, and a pull request pays nothing. `scripts/check-tooling-contract.sh`
+lines name it: `capture_native` runs it, and `check_release_capture` compiles it from
+`check_merge_native` alone; the two tasks' comments say why. `scripts/check-tooling-contract.sh`
 pins that count of two over every spelling cargo accepts — a feature list, `=`, `-F`,
 `console/release-capture` — pins the compile task's line and its one caller, allows
 `--all-features` only on the dependency audit's `cargo tree`, pins that no task calls the capture
@@ -521,6 +508,8 @@ tree, because `deny.toml` resolves with every feature on: the wgpu graph brings 
 and a second `rustc-hash`, and `snapshot`'s image differ brings `colored` 2 under MPL-2.0, allowed
 for that one crate. `mise run audit_deps` answers for all three on every pull request whether or not
 anything compiles them.
+
+## Tools
 
 - `criterion` measures the four benchmarked paths — language execution in `lang`, populated Source
   reading, rendering, and editing in `orcvs`, Paint derivation in `console`, and the Built-in Synth's
@@ -544,8 +533,8 @@ anything compiles them.
   --edges normal` is what answers.
 - `egui_mcp` is not a dependency of this workspace at all. It is a separately installed binary that
   speaks the `egui_inspection` protocol to a console launched by `mise run inspect`, so an agent can
-  query the widget tree and drive the UI. Nothing in either verification tier uses it, and nothing
-  should: a gate that needs a desktop, a window and a live server is not a gate.
+  query the widget tree and drive the UI. Neither verification tier uses it: a gate that needs a
+  desktop, a window and a live server is not a gate.
 - `proptest` generates the property tests that encode the invariants `CONTEXT.md` and the ADRs
   already state.
 - `cargo-nextest` runs the native and feature-specific test suites with the repository's CI
@@ -553,12 +542,11 @@ anything compiles them.
 - `cargo-deny` audits the locked dependency graph for advisories, bans, licences, and sources.
 - `actionlint` checks the workflow files for syntax and expression errors. Actions accepts an
   unrecognised key by ignoring it, so a misspelled `if:` does not fail a run — it silently changes
-  which jobs execute, which is the failure this branch exists to close, one file over from where it
-  was found. It is the cheapest check that reads the workflows as a language rather than as text.
+  which jobs execute. It is the cheapest check that reads the workflows as a language rather than as
+  text.
 - `zizmor` audits the same files for injection, permission, and credential findings. It overlaps
   `actionlint` deliberately: the two answer different questions about one file, and the file decides
-  whether every other gate here runs. Neither has anything to report against the workflows as they
-  stand, so both are regression protection for a shape already reached rather than a repair.
+  whether every other gate here runs.
 - `trunk` builds the browser application and performs its WASM asset pipeline.
 - `wasm-pack` executes the browser regression suite through `wasm-bindgen-test`.
 - `node` runs `scripts/roadmap.ts` and its test suite through its own type stripping and test
@@ -570,86 +558,85 @@ anything compiles them.
 - `node` also runs `scripts/check-requirements.ts` and its suite. The script holds
   `docs/requirements/` to its snapshot contract: a marker on every topic, unique rule IDs, every
   cited rule defined, relative links and anchors resolving, every ADR a rule cites listed in its
-  marker, and every Evidence file present and holding the symbols named after it. Because Evidence
+  marker, every ADR amendment heading dated, no ADR numbered or dated past a marker, every marker's
+  fingerprint matching the accepted ADR files, and every Evidence file present and holding the
+  symbols named after it. Because Evidence
   reads source files, a rename in code can fail it; such a change is not Markdown-only, so it meets
   the check through `check_pull_request`.
 
-`AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests;
-fuzz when exposure warrants it", and the parser is the widest input surface in the workspace because
-every keystroke reaches it. That obligation is the rationale for the dependency. `proptest` is
-declared once in `[workspace.dependencies]` and consumed by `lang` and `orcvs` under
+## Property tests
+
+`AGENTS.md` obliges a change at the parser boundary to bring "boundary or property tests
+over every input form the change accepts", and the parser is the widest input surface in the
+workspace because every keystroke reaches it. That obligation is the rationale for the dependency.
+`proptest` is declared once in `[workspace.dependencies]` and consumed by `lang` and `orcvs` under
 `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]` only. Every invariant these
 properties encode is platform-independent logic, so running them under `wasm-pack` would add a
 dependency graph to maintain and no signal; the property modules carry the same `cfg`, so a WASM
 build never sees the dependency at all. Default features are off and only `std` is enabled, because
 `std` is what the counterexample files are written through and the `fork`, `timeout`, and `bit-set`
 features buy nothing for properties over pure logic. `scripts/check-tooling-contract.sh` pins that
-confinement, so a later change cannot quietly move `proptest` into a shipped `[dependencies]` table.
+confinement, so `proptest` stays out of every shipped `[dependencies]` table.
 
-The case count follows the verification tier. `mise run check_pull_request` sets `PROPTEST_CASES` to
-32, so a pull request trades coverage for latency; the merge tier leaves proptest's 256-case default
-in place. The setting is task-level env rather than an inline assignment on a run line, because the
-contract script pins the exact text of those lines.
+The case count follows the verification tier: `check_pull_request` sets `PROPTEST_CASES` to 32 and
+the merge tier leaves proptest's 256-case default in place. The task's comment says why the setting
+is task-level env.
 
 Counterexample files are committed like source. proptest writes them to a `proptest-regressions`
 directory beside each crate's `src`, one file per module, and no ignore rule excludes them. The
-contract script pins the path for each property — `lang/proptest-regressions/parser.txt`,
-`orcvs/proptest-regressions/grid.txt`, `orcvs/proptest-regressions/source/file.txt`,
-`orcvs/proptest-regressions/source/language_map.txt`, `orcvs/proptest-regressions/source/tick.txt`,
-and `orcvs/proptest-regressions/source/tick/schedule_reuse.txt` — by asking
-`git check-ignore` rather than reading
-`.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule. A
+contract script asks `git check-ignore` about a fixed sample of counterexample paths rather than
+reading `.gitignore`, which catches a broad glob or a nested ignore file as well as a literal rule;
+the sample is not one path per property or per tracked file. A
 counterexample that CI can see and a developer cannot reproduce is worse than no property at all, so
 the shrunk input travels with the repository and the next run replays it before generating anything
-new.
+new. `git ls-files '*proptest-regressions*'` lists the counterexamples tracked today.
 
-What that pin does and does not do. It keeps git from hiding a counterexample, so one proptest
-writes surfaces as an untracked file rather than being silently swallowed. It does not assert the
-file exists, and existence is not assertable: a counterexample exists only for a property that has
-failed, so requiring these paths would fail every green checkout. Four of the five have never been
-committed, for exactly that reason. Nor can CI catch one generated locally and deleted before a
+That pin keeps git from hiding a counterexample, so one proptest writes surfaces as an untracked
+file rather than being silently swallowed. It does not assert the file exists, and existence is not
+assertable: a counterexample exists only for a property that has failed, so requiring these paths
+would fail every green checkout. Nor can CI catch one generated locally and deleted before a
 commit — the file was never tracked, so there is no deletion to see, and the branch arrives looking
 exactly like one whose properties all passed. Committing a counterexample is a discipline this
-repository states, not a gate it enforces, and no check here should be read as enforcing it.
+repository states, not a gate it enforces.
 
 Whether a counterexample earns its place depends on how hard its input is to rediscover, and that
 varies by an order of magnitude across these properties. The `language_map` rebuild property draws
 two 78-element vectors over the alphabet, a grid size and six booleans, and the `parser` properties
 draw generated Source to a depth of 128; a shrunk input there may be the only way anyone reproduces
-a CI failure, and `orcvs/proptest-regressions/source/language_map.txt` is the one counterexample
-this repository tracks. The two `tick` properties draw a `u8` and a pair of small column indices, a
-space every run re-covers within a handful of cases, so a seed from one records an input proptest
-would have found unaided. Keep the first kind. Discarding the second is a judgement rather than an
-oversight, and it is the judgement taken here.
+a CI failure, so commit it. A property over a space every run re-covers within a handful of cases,
+such as a `u8` and a pair of small column indices, records an input proptest would find unaided,
+and its counterexample may be discarded.
 
-The same `AGENTS.md` sentence defers fuzzing to "when exposure warrants it", so no fuzzing harness is
-installed. That is a separate decision with its own cost, and it is not taken here.
+The same `AGENTS.md` sentence leaves fuzzing to a statement on the `Risks` line of whether untrusted
+input warrants it, so no fuzzing harness is installed.
 
-Every version this repository pins is bumped by something that watches the file it lives in.
-`.github/dependabot.yml` covers three ecosystems weekly: `cargo` for the workspace manifests,
-`github-actions` for the SHA pins in the workflows, and `rust-toolchain` for the channel in
-`rust-toolchain.toml`. The third is a separate ecosystem rather than a setting on the first —
-`cargo` never reads the toolchain file — and its absence is why the channel sat at 1.98.0 while
-1.98.1 was current.
+## Version pins
+
+Every version this repository pins is bumped by something that watches the file it lives in, except
+the `[tools]` table. `.github/dependabot.yml` covers three ecosystems weekly: `cargo` for the
+workspace manifests, `github-actions` for the SHA pins in the workflows, and `rust-toolchain` for
+the channel in `rust-toolchain.toml`. The third is a separate ecosystem rather than a setting on the
+first, because `cargo` never reads the toolchain file.
 
 All three entries hold back any release younger than seven days with Dependabot's `cooldown`, the
 floor zizmor's `dependabot-cooldown` audit accepts. A compromised or broken release is usually
 yanked inside that window, and on a weekly schedule the delay costs at most one run. When an advisory
 fix needs a release younger than the window, bump it by hand; `cargo deny` still checks it.
 
-`mise.toml`'s `[tools]` table is the remaining exception, and it is an exception because Dependabot
-has no mise ecosystem and no near prospect of one. The seven pins there move only when a human edits
-the line. `.scratch/verification-gaps/issues/13-bump-the-mise-tool-pins-automatically.md` records
-what that costs and the three options for closing it; the decision is about which bots run against
-the repository and what write permission they hold, so it is not one a checkout can take.
+`mise.toml`'s `[tools]` table is the exception, because Dependabot has no mise ecosystem. Its pins
+move only when a human edits the line.
+`.scratch/verification-gaps/issues/13-bump-the-mise-tool-pins-automatically.md` records what that
+costs and the options for closing it; the decision is about which bots run against the repository
+and what write permission they hold, so it is not one a checkout can take.
 
-Every pin in `[tools]` installs a release binary: `aqua:` where the aqua registry has the package,
-`github:` where it does not. CI's mise cache is keyed on this file and saved only on `main`, so a
-pull request that edits `mise.toml` installs every tool afresh, and a download keeps that to seconds.
-The contract rejects a `cargo:` entry, because that backend compiles the tool from source.
+Every pin in `[tools]` installs a release binary. CI's mise cache is keyed on this file and saved
+only on `main`, so a pull request that edits `mise.toml` installs every tool afresh, and a download
+keeps that to seconds. The contract rejects a `cargo:` entry, because that backend compiles the tool
+from source.
 
-Upgrade each version deliberately in its source-of-truth file, then run `mise run check`, the
-affected platform or feature gates, and `mise run audit_deps`.
+Upgrade each version deliberately in its source-of-truth file, then run the gates `AGENTS.md` names
+for a dependency or tooling change, including `mise run audit_deps` and the affected platform or
+feature gates; the full `mise run check` belongs to CI.
 
 ## MIDI loopback
 

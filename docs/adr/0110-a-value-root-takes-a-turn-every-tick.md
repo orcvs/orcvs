@@ -52,3 +52,15 @@ scheduling, ordering and Bang-lifetime rules of ADR 0032 and its successors are 
 - No code changes: `lang/src/atom.rs` already declares every value Function, Self-Banging Function
   and the Bang Function `Intrinsic`, and every Terminal Output, Directional Bang and Halt Function
   `Bang`.
+
+## Amendment, 2026-11-16: every root takes a Turn; an effect root acts only when activated
+
+The sentence "take a Turn only when a Bang activates them" above is replaced. Every root holds a
+place in the Tick's order and takes its Turn there. A Terminal Output, Directional Bang or Halt root
+acts on its Turn only when a Bang activated it before that Turn; otherwise the Turn emits nothing,
+and the root takes no other Turn that Tick. A Bang that reaches the root after its Turn is a Missed
+Bang: it is not stored and does not activate the root later in the Tick.
+
+This records what the scheduler does. `orcvs/src/source/tick/write.rs`
+`a_bang_onto_a_root_that_fed_the_write_is_missed` shows it: a Halt whose place precedes the Write
+it locks takes its Turn inert, and the Write's later `**` beside it is diagnosed as missed.

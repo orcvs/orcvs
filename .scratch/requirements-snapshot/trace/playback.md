@@ -448,3 +448,7 @@ except as listed here; each retained row maps to the rule its row names.
 - Intro no longer claims site.md states 0088's Sound Module; it says SITE owns it.
 
 - PLAY-230 reworded: only a Monophonic Play that emits a Play Command replaces the claim; a blank note leaves the voice sounding (ADR 0108).
+
+## Reviewed, not applicable or wholly superseded at the 0110 snapshot
+
+None wholly superseded; 0087's page protocol and timing are stated in [site.md](../../../docs/requirements/site.md), 0088's Sound Module is owned by the Site topic, and 0103's Chord building is stated in [language.md](../../../docs/requirements/language.md).
