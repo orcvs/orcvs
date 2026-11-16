@@ -95,7 +95,7 @@ test('an Evidence file that is missing, or lacks its symbol, is reported', () =>
 test('an ADR numbered or dated past the marker is reported', () => {
   const extra = {
     'docs/adr/0001-a.md': '# A\n\nStatus: accepted on 2026-11-01.\n\n## Amendment, 2026-11-16: later\n',
-    'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-16.\n',
+    'docs/adr/0003-c.md': '# C\n\nStatus: accepted on 2026-11-16.\n',
   };
   const current = marker('0002', '2026-11-15', { ...ADRS, ...extra });
   assert.deepEqual(problems({ 'a.md': current }, extra), [
@@ -114,9 +114,9 @@ test('a marker dated past the latest ADR change is reported', () => {
 test('a proposed or rejected ADR is not newer than the marker; an accepted one is', () => {
   const proposed = { 'docs/adr/0003-c.md': '# C\n\nStatus: proposed on 2026-11-16.\n' };
   assert.deepEqual(problems({ 'a.md': MARKER }, proposed), []);
-  const rejected = { 'docs/adr/0003-c.md': '# C\n\nStatus: rejected by Toby on 2026-11-17.\n' };
+  const rejected = { 'docs/adr/0003-c.md': '# C\n\nStatus: rejected on 2026-11-17.\n' };
   assert.deepEqual(problems({ 'a.md': MARKER }, rejected), []);
-  const accepted = { 'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-17.\n' };
+  const accepted = { 'docs/adr/0003-c.md': '# C\n\nStatus: accepted on 2026-11-17.\n' };
   const current = marker('0002', '2026-11-15', { ...ADRS, ...accepted });
   assert.deepEqual(problems({ 'a.md': current }, accepted), [
     'a.md: ADR 0003 is newer than the snapshot marker, which does not incorporate it',

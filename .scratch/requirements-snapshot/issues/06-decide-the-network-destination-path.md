@@ -13,10 +13,10 @@ requirement or the code follows it.
 2026-11-15: proposed as
 [ADR 0112](../../../docs/adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md),
 which records the built watch channel and amends ADR 0085's storage clause to the eframe Storage key
-`orcvs_network_destination`. Waiting on Toby to accept or change it, including whether to amend ADR
+`orcvs_network_destination`. Waiting to be accepted or changed, including whether to amend ADR
 0085 or change the code.
 
-2026-11-15: Toby kept ADR 0112 as one record, amending ADR 0085's storage clause. The storage loose
+2026-11-15: ADR 0112 kept as one record, amending ADR 0085's storage clause. The storage loose
 ends moved to [issue 14](14-follow-up-the-network-destination-storage.md).
 
-2026-11-16: Toby accepted [ADR 0112](../../../docs/adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md) as drafted. PLAY-350 states the path; issue 14 keeps the storage loose ends.
+2026-11-16: accepted [ADR 0112](../../../docs/adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md) as drafted. PLAY-350 states the path; issue 14 keeps the storage loose ends.

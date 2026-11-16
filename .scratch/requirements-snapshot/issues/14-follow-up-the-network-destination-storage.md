@@ -2,9 +2,9 @@
 
 **Status:** needs-triage
 
-**Background:** Toby kept
+**Background:**
 [ADR 0112](../../../docs/adr/0112-the-network-destination-is-a-value-the-engine-reads-at-each-send.md)
-as one record on 2026-11-15, so its amendment of ADR 0085 stands: the console stores the network
+was kept as one record on 2026-11-15, so its amendment of ADR 0085 stands: the console stores the network
 destination itself, under the eframe Storage key `orcvs_network_destination`
 (`console/src/network.rs`), natively and only with the `persistence` feature. `config.toml` never
 holds it. Three loose ends follow from that choice.
