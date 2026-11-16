@@ -205,6 +205,7 @@ size is the smaller of three quarters of the snapped height and the snapped widt
 A Sector is a block of Cells, not a square.
 
 Reason: Orca's 2:3 shape reads as a row of text, and 12 by 18 stays whole at 1×, 1.5× and 2×. The Glyph's width term stops a narrow Cell overlapping its neighbours.
+Not: one constant size.
 Sources: [ADR 0079](../adr/0079-source-cells-are-configurable-rectangles.md).
 Evidence: `console/src/grid_viewport.rs` `CELL_SIZE`, `glyph_size`; test `console/src/grid_viewport.rs` `the_source_cell_is_twelve_by_eighteen_points`.
 
@@ -506,7 +507,7 @@ press holds the other appearance as egui's `ThemePreference`, which egui's memor
 the first press the preference is `System`, so the console follows the OS. No control returns it to
 `System`. The toggle names itself for accessibility.
 
-Reason: one toggle that shows the current appearance is the plainest mode control; three buttons confuse.
+Reason: the maintainer found a three-button control confusing (2026-10-31).
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-31).
 Evidence: `console/src/console/menu_bar.rs`; test `console/src/console/kittest_tests.rs` `the_mode_toggle_flips_the_appearance`.
 
@@ -672,7 +673,7 @@ fallback. An identity the registry does not hold is missing: a selection naming 
 is kept, and a document inheriting one is refused with a notice. `console/src/theme.md` records
 each built-in's values.
 
-Reason: the grayscale pair is the chosen default appearance, and nothing depends on a particular Theme, so no other built-in is needed.
+Reason: the maintainer retired the coloured built-ins on 2026-10-25.
 Sources: [ADR 0053](../adr/0053-one-theme-styles-the-whole-console.md) (amendment 2026-10-25).
 Evidence: `console/src/theme_registry.rs`; test `console/src/theme_selection.rs` `a_selection_of_a_retired_built_in_falls_back_to_the_default_and_is_kept`.
 
