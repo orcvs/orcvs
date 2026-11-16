@@ -249,6 +249,9 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/road
 # otherwise land unnoticed.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node --test scripts/tests/check-requirements[.]test[.]ts$'
 assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/check-requirements[.]ts$'
+# Whether an ADR change moved every marker is visible only in a diff, so the
+# pull-request run checks it against the merge commit's base; the workflow
+# assertions below pin the step and its guard.
 # `audit_deps` had no caller at all. Dependabot's weekly grouped bumps are exactly
 # the pull requests an advisory, licence, and source audit exists for, and the
 # feature-resolved tree it prints was inspected only when a human typed it.
@@ -766,7 +769,8 @@ assert_contains "$root_dir/.github/workflows/test.yml" "^  cancel-in-progress: [
 assert_contains "$root_dir/.github/workflows/test.yml" '^  merge_group:$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    types: \[checks_requested\]$'
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 4
-assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 9
+assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 10
+assert_line_followed_by "$root_dir/.github/workflows/test.yml" "^      - if: github[.]event_name == 'pull_request'$" '^        run: node scripts/check-requirements[.]ts --since HEAD\^1$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    if: always[(][)]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[changes, full-gate, macos, windows, wasm\]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^        run: bash scripts/check-ci-results.sh$'

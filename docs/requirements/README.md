@@ -59,9 +59,9 @@ ever left behind an ADR: a change that cannot reconcile every topic does not mer
 
 A proposed ADR, one whose Status paragraph starts `Status: proposed`, decides nothing yet, and a
 rejected one (`Status: rejected`) decides nothing at all: neither counts as newer than a marker.
-Accepting a proposal is the Status change that makes it newer, by its acceptance date; like an
-amendment, a proposal accepted on a marker's own day and numbered at or below it is not caught by
-the check, so that change advances the markers by hand.
+Accepting a proposal is the Status change that makes it newer, by its acceptance date, and step 5's
+pull-request check treats it as any other ADR change. A change to a proposed or rejected ADR owes
+the markers nothing.
 
 Any change to what an ADR decides updates the requirements in the same change: a new ADR, a dated
 amendment, or a Status change such as accepting a proposed ADR or marking one superseded.
@@ -74,7 +74,12 @@ amendment, or a Status change such as accepting a proposed ADR or marking one su
 4. Advance every topic's marker to the ADR's number and the change's date, the topics the ADR does
    not touch included, since the marker records what the topic was checked against.
 5. Done when `node scripts/check-requirements.ts` passes. It fails while any ADR is numbered or dated
-   past a marker.
+   past a marker, or while an ADR names an amendment in any form but `## Amendment, YYYY-MM-DD`.
+   On a pull request, `node scripts/check-requirements.ts --since HEAD^1` also fails when the change
+   touches an accepted ADR and leaves any topic's marker where it was, unless that marker already
+   names the highest accepted ADR and the latest ADR change date. Only that exemption lets a second
+   ADR change dated a marker's own day through unchecked, so such a change still reconciles every
+   topic by hand.
 
 An ADR change that alters nothing a requirement states still advances the markers, and says so in
 its pull request. A link fix or rewording of a requirement leaves the markers as they are.

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,8 +11,13 @@ import { pathToFileURL } from 'node:url';
  * else reads these documents mechanically, so without this check a duplicated
  * rule ID, a rule cited by another document that no longer exists, a broken
  * link or anchor, an ADR a rule cites but the marker omits, an ADR newer than a
- * marker, or an Evidence line naming a
- * file that does not hold its symbol would all land unnoticed.
+ * marker, an amendment heading the date comparison cannot read, or an Evidence
+ * line naming a file that does not hold its symbol would all land unnoticed.
+ *
+ * `--since <ref>` adds the one rule a single tree cannot show: a change to
+ * `docs/adr/` since `<ref>` moves every topic's marker, unless that marker
+ * already names the newest ADR and date. An amendment dated a marker's own day
+ * is otherwise invisible to the date comparison.
  */
 
 const RULE_PREFIXES = ['LANG', 'EVAL', 'PLAY', 'CONS', 'SITE'];
@@ -46,20 +52,70 @@ function anchorsOf(text: string): Set<string> {
  * A proposed or rejected ADR decides nothing, so it is left out; accepting a
  * proposal dates its Status paragraph, which makes it newer than the markers.
  */
-function adrsUnder(root: string): { number: number; latest: string }[] {
+function adrsUnder(root: string): { name: string; number: number; latest: string; undated: string[] }[] {
   const adrDir = join(root, 'docs/adr');
   return readdirSync(adrDir)
     .filter((name) => /^\d{4}-.*\.md$/.test(name))
     .flatMap((name) => {
       const text = readFileSync(join(adrDir, name), 'utf8');
+      // A heading naming an amendment in any other form carries no date the
+      // comparison can read, so the change it records could never be newer.
+      const undated = [...text.matchAll(/^#{1,6} Amendment\b.*$/gm)]
+        .map((m) => m[0])
+        .filter((heading) => !/^## Amendment, \d{4}-\d\d-\d\d\b/.test(heading));
       const status = /^Status:[\s\S]*?(?:\n\n|(?![\s\S]))/m.exec(text)?.[0] ?? '';
       if (/^Status: (?:proposed|rejected)\b/.test(status)) return [];
       const amendments = [...text.matchAll(/^## Amendment, (\d{4}-\d\d-\d\d)/gm)].map((m) => m[1]);
       const dates = [...(status.match(DATE) ?? []), ...amendments].sort();
       // '' stands for "no dated change": it sorts before every ISO date, so an
       // ADR without one is never newer than a marker's date.
-      return [{ number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '' }];
+      return [{ name, number: Number(name.slice(0, 4)), latest: dates.at(-1) ?? '', undated }];
     });
+}
+
+/** The marker a topic should carry: the highest ADR number and the latest ADR change date. */
+function newestMarker(root: string): { through: number; dated: string } {
+  const adrs = adrsUnder(root);
+  return {
+    through: Math.max(0, ...adrs.map((adr) => adr.number)),
+    dated: adrs.map((adr) => adr.latest).sort().at(-1) ?? '',
+  };
+}
+
+/**
+ * Every topic whose marker a change left in place although the change touched
+ * `docs/adr/`. `changed` lists the paths the change touches, `before` maps each
+ * topic to its marker line before the change (absent for a new topic), and
+ * `root` holds the tree after it.
+ */
+export function unmovedMarkers(root: string, changed: string[], before: Map<string, string>): string[] {
+  // A proposed or rejected ADR decides nothing, so changing one owes no marker.
+  const decided = new Set(adrsUnder(root).map((adr) => `docs/adr/${adr.name}`));
+  const decides = (path: string) => decided.has(path) || !existsSync(join(root, path));
+  if (!changed.some((path) => /^docs\/adr\/\d{4}-.*\.md$/.test(path) && decides(path))) return [];
+  const dir = join(root, 'docs/requirements');
+  const newest = newestMarker(root);
+  const problems: string[] = [];
+  for (const name of readdirSync(dir).filter((n) => n.endsWith('.md') && n !== 'README.md').sort()) {
+    const marker = MARKER.exec(readFileSync(join(dir, name), 'utf8'));
+    if (!marker || marker[0] !== before.get(name)) continue;
+    if (Number(marker[1]) === newest.through && marker[2] === newest.dated) continue;
+    problems.push(`${name}: the change touches docs/adr/ but leaves this marker where it was`);
+  }
+  return problems;
+}
+
+/** `unmovedMarkers` for the change from git revision `base` to the working tree under `root`. */
+function unmovedSince(root: string, base: string): string[] {
+  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+  const changed = git('diff', '--name-only', '--no-renames', base, '--').split('\n').filter(Boolean);
+  const before = new Map<string, string>();
+  for (const path of git('ls-tree', '--name-only', base, 'docs/requirements/').split('\n')) {
+    if (!path.endsWith('.md')) continue;
+    const marker = MARKER.exec(git('show', `${base}:${path}`));
+    if (marker) before.set(path.slice('docs/requirements/'.length), marker[0]);
+  }
+  return unmovedMarkers(root, changed, before);
 }
 
 /** Every problem in the requirements under `root`, one line each. */
@@ -71,6 +127,11 @@ export function check(root: string): string[] {
   const texts = new Map(names.map((name) => [name, readFileSync(join(dir, name), 'utf8')]));
   const problems: string[] = [];
   const defined = new Map<string, string>();
+  for (const adr of adrs) {
+    for (const heading of adr.undated) {
+      problems.push(`docs/adr/${adr.name}: "${heading}" is not an \`## Amendment, YYYY-MM-DD\` heading`);
+    }
+  }
 
   for (const [name, text] of texts) {
     if (name === 'README.md') continue;
@@ -145,7 +206,13 @@ export function check(root: string): string[] {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const root = resolve(dirname(new URL(import.meta.url).pathname), '..');
-  const problems = check(root);
+  const since = process.argv.indexOf('--since');
+  const base = process.argv[since + 1];
+  if (since >= 0 && !base) {
+    console.error('usage: node scripts/check-requirements.ts [--since <git revision>]');
+    process.exit(2);
+  }
+  const problems = since >= 0 ? unmovedSince(root, base) : check(root);
   for (const problem of problems) console.error(problem);
   if (problems.length > 0) process.exit(1);
 }
