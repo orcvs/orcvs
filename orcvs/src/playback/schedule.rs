@@ -131,12 +131,13 @@ fn note_off(channel: MidiChannel, note: Note) -> OutputCommand {
 /// first Monophonic command on its channel slides from: that command takes
 /// the stop and delivers it after its own Note On, or not at all at the same
 /// pitch. Only the first command may take it, so `settled` records each
-/// channel a Monophonic command has already been resolved on.
+/// channel a Monophonic command has already been resolved on, one bit per
+/// channel.
 ///
 #[derive(Default)]
 struct DueStops {
-    stops: Vec<Option<(Voice, Note)>>,
-    settled: Vec<MidiChannel>,
+    stops: Vec<(Voice, Note)>,
+    settled: u16,
 }
 
 impl DueStops {
@@ -146,29 +147,37 @@ impl DueStops {
     /// that channel this Tick.
     ///
     fn take_over(&mut self, channel: MidiChannel) -> Option<Note> {
-        if self.settled.contains(&channel) {
+        if self.settled & Self::bit(channel) != 0 {
             return None;
         }
-        self.stops
-            .iter_mut()
-            .find(|stop| matches!(stop, Some((Voice::Mono { channel: on }, _)) if *on == channel))
-            .and_then(Option::take)
-            .map(|(_, note)| note)
+        let at = self
+            .stops
+            .iter()
+            .position(|(voice, _)| *voice == Voice::Mono { channel })?;
+        Some(self.stops.remove(at).1)
     }
 
     /// Marks `channel` as resolved, so no later command this Tick takes over.
     fn settle(&mut self, channel: MidiChannel) {
-        if !self.settled.contains(&channel) {
-            self.settled.push(channel);
-        }
+        self.settled |= Self::bit(channel);
     }
 
-    /// The stops no command took over, in the order they were scheduled.
-    fn into_commands(self) -> impl Iterator<Item = OutputCommand> {
-        self.stops
-            .into_iter()
-            .flatten()
-            .map(|(voice, note)| note_off(voice.channel(), note))
+    /// `channel`'s bit in `settled`.
+    fn bit(channel: MidiChannel) -> u16 {
+        1 << channel.value()
+    }
+
+    /// The stops no command took over, in the order they were scheduled,
+    /// followed by `delivery`.
+    fn before(self, delivery: Vec<OutputCommand>) -> Vec<OutputCommand> {
+        let mut out = Vec::with_capacity(self.stops.len() + delivery.len());
+        out.extend(
+            self.stops
+                .into_iter()
+                .map(|(voice, note)| note_off(voice.channel(), note)),
+        );
+        out.extend(delivery);
+        out
     }
 }
 
@@ -334,7 +343,7 @@ impl OwnedNotes {
             }
         }
 
-        due.into_commands().chain(delivery).collect()
+        due.before(delivery)
     }
 
     ///
@@ -363,7 +372,7 @@ impl OwnedNotes {
                 && sounding.claim == expiry.claim
             {
                 self.voices.remove(&expiry.voice);
-                stops.stops.push(Some((expiry.voice, sounding.note)));
+                stops.stops.push((expiry.voice, sounding.note));
             }
         }
         stops
