@@ -52,6 +52,10 @@ The build is published on the release as `console-web-<key>.tar.gz` from `main` 
 archive is never replaced. On `main` the run then copies `main`'s keyed archive to the rolling
 `console-web.tar.gz` and keeps the newest 100 of `main`'s archives and 50 of the branches'
 (ADR 0101). A branch that changes nothing in the console takes `main`'s archive of its key.
+Builds of one archive share a concurrency group, and GitHub keeps only the newest pending run in a
+group, so a run can be replaced before it starts, against ADR 0101's "no push cancels another's run";
+the run that replaced it publishes the same archive
+([orcvs-site/30](../.scratch/orcvs-site/issues/30-let-every-pushed-console-run-finish.md)).
 
 Cloudflare builds and deploys the site through its GitHub app (Workers Builds), with `site/` as
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
