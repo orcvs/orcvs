@@ -6,8 +6,8 @@ codebase. The repository has one context; its domain documents are the three bel
 ## Before exploring, read these
 
 - **`CONTEXT.md`** at the repo root — the glossary.
-- **`docs/requirements/`** — the owning requirement for the area, then the ADRs newer than its
-  snapshot marker, in the order its [index](../requirements/README.md#reading-order) states.
+- **`docs/requirements/`** — the owning requirement for the area, in the order its
+  [index](../requirements/README.md#reading-order) states.
 - **`docs/adr/`** — the full argument, rejected alternatives and history of a decision.
   `docs/adr/README.md` states how a new one is numbered and which of two ADRs is renumbered when
   they collide.
