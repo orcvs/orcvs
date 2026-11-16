@@ -9,7 +9,7 @@ console shows Source ([console.md](console.md)), or the site ([site.md](site.md)
 spellings, operands, domains and examples are in [the Function reference](../functions.md). Terms
 are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
-> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 24fd341c).
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 870a78e4).
 > Source ADRs: 0008, 0010, 0011, 0013, 0015, 0017, 0018, 0019, 0021, 0023, 0024, 0028, 0033, 0035,
 > 0043, 0049, 0054, 0061, 0063, 0067, 0069, 0070, 0071, 0072, 0073, 0074, 0103, 0105, 0108, 0109,
 > 0110.

@@ -1,10 +1,10 @@
 # A link is refused whole, and only the full console caches itself
 
-Status: accepted by Toby on 2026-11-16. Drafted from the built console and site, to record what
+Status: accepted on 2026-11-16. Drafted from the built console and site, to record what
 the undated `.scratch/orcvs-site/spec.md` ("Loading a Source", "Service worker") and the choices
 made in `.scratch/orcvs-site/issues/01-open-a-source-from-the-url-stopped.md` and
 `.scratch/orcvs-site/issues/05-deploy-to-cloudflare-with-previews.md` decided and no ADR states.
-Toby's acceptance changed two things the code does not yet do: the service worker follows the same
+Acceptance changed two things the code does not yet do: the service worker follows the same
 reading of a link as `opening`, and every `/play/` file reaches a returning reader on their next
 load.
 
@@ -55,8 +55,8 @@ hashing and a versioned worker with neither, since either would repeat that guar
 
 - **Pick one parameter when a link names both.** Ticket 01 left the choice open and chose refusal,
   for the reason above.
-- **Narrow the deploy guarantee to the page, `console.js` and `console_bg.wasm`.** Toby rejected it
-  on 2026-11-16: the guarantee is only useful whole, and network-first costs little on a few small
+- **Narrow the deploy guarantee to the page, `console.js` and `console_bg.wasm`.** Rejected at
+  acceptance on 2026-11-16: the guarantee is only useful whole, and network-first costs little on a few small
   files.
 - **Record both readings of a link.** Rejected on 2026-11-16: one definition of a Linked Console,
   not two.

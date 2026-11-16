@@ -1,8 +1,8 @@
 # The native console edits one Source File, and autosave only recovers the session
 
-Status: accepted by Toby on 2026-11-16. Drafted from the built console, to record what the undated
+Status: accepted on 2026-11-16. Drafted from the built console, to record what the undated
 `.scratch/menu-structure/spec.md` ("A document model on native", "Web file I/O is deferred",
-"Settings are config-file only") decided and no ADR states. Toby's acceptance changed three things
+"Settings are config-file only") decided and no ADR states. Acceptance changed three things
 the code does not yet do: Help → Function Reference opens the site's reference page, ⌘Q on macOS
 asks, and nothing on the web discards a written Source unasked. Extends the per-key fallback
 [ADR 0079](0079-source-cells-are-configurable-rectangles.md) gives the `[cell]` keys to every
@@ -79,7 +79,7 @@ The per-key fallback extends to every section the choice ADR 0079 made for `[cel
 - **Open on the web without Save.** The spec rejected it as half a feature: `rfd` picks a file on
   wasm32 but cannot save one there (0.17.2), and a download through `web-sys` or the Chromium-only
   File System Access API is its own work. The web keeps autosave and, since ADR 0091, its page's settings.
-- **Keep Help → Function Reference as the runnable Grid.** Toby rejected it on 2026-11-16: Help held
+- **Keep Help → Function Reference as the runnable Grid.** Rejected at acceptance on 2026-11-16: Help held
   both a "Function Reference" that replaced the Source and a "Reference" that opened the page titled
   Function reference, and the first discarded work unasked on the web. As an example, the Grid keeps
   what the page cannot show, each Function running, under the asking rule every example follows.

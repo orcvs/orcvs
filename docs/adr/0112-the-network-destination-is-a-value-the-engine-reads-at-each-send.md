@@ -1,6 +1,6 @@
 # The network destination is a value the engine reads at each send
 
-Status: accepted by Toby on 2026-11-16. Drafted from the built engine and console; it decides
+Status: accepted on 2026-11-16. Drafted from the built engine and console; it decides
 nothing the code does not already do. Amends ADR 0085's "saved with the console's other settings":
 the console stores the destination itself, in eframe storage, natively and only with the
 `persistence` feature, and never in the settings file. Records the one Playback handle request that
@@ -53,7 +53,7 @@ file holds no destination, and the console never writes that file.
 - **A fourth slot in ADR 0056's mailbox.** It is the alternative
   [requirements-snapshot/06](../../.scratch/requirements-snapshot/issues/06-decide-the-network-destination-path.md)
   names. A slot would order the destination against stop, tempo and MIDI changes and wake the task
-  for it. Toby kept the built path on 2026-11-16: the destination commutes with all three slots
+  for it. Kept at acceptance on 2026-11-16: the destination commutes with all three slots
   and holds no port, so ordering it and waking the task for it buys nothing.
 - **The settings file, as ADR 0085 wrote.** The console never writes `config.toml` (CONS-130), so
   the Output list could not save an edit there.
@@ -76,8 +76,8 @@ file holds no destination, and the console never writes that file.
 
 ## Open questions
 
-- Toby chose on 2026-11-15 to keep the storage clause in this record rather than split it out, so
-  it amends ADR 0085 as written; the loose ends it leaves are
+- The storage clause stays in this record rather than split out (2026-11-15), so it amends
+  ADR 0085 as written; the loose ends it leaves are
   `.scratch/requirements-snapshot/issues/14-follow-up-the-network-destination-storage.md`.
 - The web build reads `orcvs_network_destination` at startup when `persistence` is on, but nothing
   on the web writes it and the web Panel shows no network fields, since a browser cannot send UDP or
