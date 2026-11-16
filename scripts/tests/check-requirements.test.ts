@@ -67,7 +67,7 @@ test('a missing link target or anchor is reported', () => {
 
 test('an ADR a rule cites but the marker omits is reported', () => {
   const found = problems({ 'a.md': `${MARKER}[ADR 0002](../adr/0002-b.md)\n` });
-  assert.deepEqual(found, ['a.md: a rule cites ADR 0002, which the marker does not list']);
+  assert.deepEqual(found, ['a.md: a rule cites ADR 0002, which its Source ADRs do not list']);
 });
 
 test('an Evidence file that is missing, or lacks its symbol, is reported', () => {
@@ -85,14 +85,22 @@ test('an ADR numbered or dated past the marker is reported', () => {
     'docs/adr/0003-c.md': '# C\n\nStatus: accepted by Toby on 2026-11-16.\n',
   };
   assert.deepEqual(problems({ 'a.md': MARKER }, extra), [
-    'a.md: ADR 0001 is newer than the marker, which does not incorporate it',
-    'a.md: ADR 0003 is newer than the marker, which does not incorporate it',
+    'a.md: ADR 0001 is newer than the snapshot marker, which does not incorporate it',
+    'a.md: ADR 0003 is newer than the snapshot marker, which does not incorporate it',
   ]);
 });
 
-test('a marker that incorporates an ADR number no file holds is reported', () => {
-  const text = MARKER.replace('through 0002', 'through 0003');
-  assert.deepEqual(problems({ 'a.md': text }), ['a.md: the marker incorporates ADRs through 0003, above the highest ADR']);
+test('a marker that incorporates an ADR number no file holds is reported, in a gap or above the highest', () => {
+  const above = MARKER.replace('through 0002', 'through 0003');
+  assert.deepEqual(problems({ 'a.md': above }), [
+    'a.md: the snapshot marker incorporates ADRs through 0003, which no ADR file holds',
+  ]);
+  const gap = MARKER.replace('through 0002', 'through 0003');
+  const later = { 'docs/adr/0004-d.md': '# D\n\nStatus: accepted on 2026-11-01.\n' };
+  assert.deepEqual(problems({ 'a.md': gap }, later), [
+    'a.md: the snapshot marker incorporates ADRs through 0003, which no ADR file holds',
+    'a.md: ADR 0004 is newer than the snapshot marker, which does not incorporate it',
+  ]);
 });
 
 test('an amendment heading without a readable date is reported', () => {
@@ -111,7 +119,7 @@ test('a change to docs/adr/ that leaves a marker behind the newest ADR is report
     // a.md moved to the newest ADR; b.md stayed behind it.
     const before = new Map([['a.md', old], ['b.md', old]]);
     assert.deepEqual(unmovedMarkers(root, adr, before), [
-      'b.md: the change touches docs/adr/ but leaves this marker where it was',
+      'b.md: the change touches docs/adr/ but leaves this snapshot marker where it was',
     ]);
     // A marker that already names the newest ADR and date has nowhere to move.
     assert.deepEqual(unmovedMarkers(root, adr, new Map([['a.md', marker]])), []);

@@ -42,7 +42,8 @@ Synth, the shipped examples and the toolchain and tool pins. Its first job takes
 from `scripts/console-key.sh`, one hash over the paths in the workflow's own path filter, so the
 filter covers every workspace member, every file a crate embeds from outside itself and every script
 a Trunk hook runs, or two different consoles share a key; `site/scripts/tests/console.sh` fails when
-one is missing. When an
+one is missing. The key job reads every page of the release and fails on any API error other than a
+missing release; fork pull requests do not run the build. When an
 archive of that key is already on the public `console-web` release the run builds nothing. Otherwise it runs `mise run console_web_build`: one
 release Trunk build with relative URLs into `target/console-web/`, kept as the `console-web`
 artifact. Trunk's post-build hook, `scripts/stage-synth.sh`, builds the `synth` crate's WebAssembly
@@ -50,8 +51,9 @@ module and stages it beside the console with `synth/web/`'s AudioWorklet and pag
 The build is published on the release as `console-web-<key>.tar.gz` from `main` and as
 `console-preview-<key>.tar.gz` from any other branch, except Dependabot's read-only ones, and an
 archive is never replaced. On `main` the run then copies `main`'s keyed archive to the rolling
-`console-web.tar.gz` and keeps the newest 100 of `main`'s archives and 50 of the branches'
-(ADR 0101). A branch that changes nothing in the console takes `main`'s archive of its key.
+`console-web.tar.gz` and keeps the newest 100 of `main`'s archives and 50 of the branches', never
+pruning `main`'s current key; a branch whose key was pruned rebuilds it by running Console web on
+the branch, as the failed preview's message says (ADR 0101). A branch that changes nothing in the console takes `main`'s archive of its key.
 Builds of one archive share a concurrency group, and GitHub keeps only the newest pending run in a
 group, so a run can be replaced before it starts, against ADR 0101's "no push cancels another's run";
 the run that replaced it publishes the same archive
@@ -61,8 +63,8 @@ Cloudflare builds and deploys the site through its GitHub app (Workers Builds), 
 the root directory and its default build command, `npm run build`. The build's `prebuild` step,
 `site/scripts/console.sh`, downloads the published console into `site/public/play/`, or copies
 the directory `CONSOLE_WEB` names, relative to `site/`, and Astro builds the site around it into
-`site/dist/`; nothing in the site build compiles the console. Every Cloudflare build waits up to 15
-minutes for the console keyed to its own commit and fails without it (ADR 0093, ADR 0101):
+`site/dist/`; nothing in the site build compiles the console. Every Cloudflare build retries every 20 seconds
+for up to 15 minutes for the console keyed to its own commit and fails without it (ADR 0093, ADR 0101):
 production for `main`'s archive only, a preview for either. A local build and a `dependabot/`
 branch's build take the rolling console. `site/scripts/tests/console.sh` tests the script against a stubbed
 release, and the site workflow runs it. A push to `main` deploys, and a pull

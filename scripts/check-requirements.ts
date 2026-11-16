@@ -91,10 +91,10 @@ export function unmovedMarkers(root: string, changed: string[], before: Map<stri
   const newest = newestMarker(root);
   const problems: string[] = [];
   for (const name of readdirSync(dir).filter((n) => n.endsWith('.md') && n !== 'README.md').sort()) {
-    const marker = MARKER.exec(readFileSync(join(dir, name), 'utf8'));
-    if (!marker || marker[0] !== before.get(name)) continue;
-    if (Number(marker[1]) === newest.through && marker[2] === newest.dated) continue;
-    problems.push(`${name}: the change touches docs/adr/ but leaves this marker where it was`);
+    const snapshot = MARKER.exec(readFileSync(join(dir, name), 'utf8'));
+    if (!snapshot || snapshot[0] !== before.get(name)) continue;
+    if (Number(snapshot[1]) === newest.through && snapshot[2] === newest.dated) continue;
+    problems.push(`${name}: the change touches docs/adr/ but leaves this snapshot marker where it was`);
   }
   return problems;
 }
@@ -106,8 +106,8 @@ function unmovedSince(root: string, base: string): string[] {
   const before = new Map<string, string>();
   for (const path of git('ls-tree', '--name-only', base, 'docs/requirements/').split('\n')) {
     if (!path.endsWith('.md')) continue;
-    const marker = MARKER.exec(git('show', `${base}:${path}`));
-    if (marker) before.set(path.slice('docs/requirements/'.length), marker[0]);
+    const snapshot = MARKER.exec(git('show', `${base}:${path}`));
+    if (snapshot) before.set(path.slice('docs/requirements/'.length), snapshot[0]);
   }
   return unmovedMarkers(root, changed, before);
 }
@@ -116,7 +116,6 @@ function unmovedSince(root: string, base: string): string[] {
 export function check(root: string): string[] {
   const dir = join(root, 'docs/requirements');
   const adrs = adrsUnder(root);
-  const highest = Math.max(0, ...adrs.map((adr) => adr.number));
   const names = readdirSync(dir).filter((name) => name.endsWith('.md')).sort();
   const texts = new Map(names.map((name) => [name, readFileSync(join(dir, name), 'utf8')]));
   const problems: string[] = [];
@@ -129,16 +128,17 @@ export function check(root: string): string[] {
 
   for (const [name, text] of texts) {
     if (name === 'README.md') continue;
-    const marker = MARKER.exec(text);
-    if (!marker) {
+    const snapshot = MARKER.exec(text);
+    if (!snapshot) {
       problems.push(`${name}: no snapshot marker`);
     } else {
-      const [through, dated] = [Number(marker[1]), marker[2]];
-      if (through > highest) problems.push(`${name}: the marker incorporates ADRs through ${marker[1]}, above the highest ADR`);
+      const [through, dated] = [Number(snapshot[1]), snapshot[2]];
+      if (!adrs.some((adr) => adr.number === through)) {
+        problems.push(`${name}: the snapshot marker incorporates ADRs through ${snapshot[1]}, which no ADR file holds`);
+      }
       for (const adr of adrs) {
         if (adr.number > through || adr.latest > dated) {
-          const id = String(adr.number).padStart(4, '0');
-          problems.push(`${name}: ADR ${id} is newer than the marker, which does not incorporate it`);
+          problems.push(`${name}: ADR ${adr.name.slice(0, 4)} is newer than the snapshot marker, which does not incorporate it`);
         }
       }
     }
@@ -170,11 +170,11 @@ export function check(root: string): string[] {
     }
 
     if (name === 'README.md') continue;
-    const marker = /^> Source ADRs:([\s\S]*?)\n\n/m.exec(text);
-    const listed = new Set(marker ? marker[1].match(/\b\d{4}\b/g) ?? [] : []);
-    const body = marker ? text.slice(marker.index + marker[0].length) : text;
+    const sourceAdrs = /^> Source ADRs:([\s\S]*?)\n\n/m.exec(text);
+    const listed = new Set(sourceAdrs ? sourceAdrs[1].match(/\b\d{4}\b/g) ?? [] : []);
+    const body = sourceAdrs ? text.slice(sourceAdrs.index + sourceAdrs[0].length) : text;
     for (const adr of new Set([...body.matchAll(/\.\.\/adr\/(\d{4})-/g)].map((m) => m[1]))) {
-      if (!listed.has(adr)) problems.push(`${name}: a rule cites ADR ${adr}, which the marker does not list`);
+      if (!listed.has(adr)) problems.push(`${name}: a rule cites ADR ${adr}, which its Source ADRs do not list`);
     }
 
     // An Evidence line names a file, then symbols or tests in it, in backticks.
