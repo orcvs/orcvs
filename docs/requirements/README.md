@@ -71,8 +71,9 @@ amendment, or a Status change such as accepting a proposed ADR or marking one su
 2. Restate the new or changed rule in the owning requirement, with its rule ID, Sources and
    Evidence, and add the ADR to that marker's Source ADRs.
 3. Add the ADR to the owner table in [`docs/adr/README.md`](../adr/README.md#the-requirements-restate-these-decisions).
-4. Advance every topic's marker to the ADR's number and the change's date, the topics the ADR does
-   not touch included, since the marker records what the topic was checked against.
+4. Advance every topic's marker to the highest ADR number and the change's date, the topics the
+   ADR does not touch included, since the marker records what the topic was checked against. A new
+   ADR raises the number; an amendment or Status change to an older ADR moves the date alone.
 5. Done when `node scripts/check-requirements.ts` passes. It fails while any ADR is numbered or dated
    past a marker, or while an ADR names an amendment in any form but `## Amendment, YYYY-MM-DD`.
    On a pull request, `node scripts/check-requirements.ts --since HEAD^1` also fails when the change
