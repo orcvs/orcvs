@@ -6,8 +6,8 @@ How the engineering skills should consume this repo's domain documentation when 
 
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/requirements/`** — the owning requirement for the area, then the ADRs newer than its
-  snapshot marker, in the order its [index](../requirements/README.md#reading-order) states.
+- **`docs/requirements/`** — the owning requirement for the area, in the order its
+  [index](../requirements/README.md#reading-order) states.
 - **`docs/adr/`** — the full argument, rejected alternatives and history of a decision. In
   multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
   `docs/adr/README.md` states how a new one is numbered and which of two ADRs is renumbered when
