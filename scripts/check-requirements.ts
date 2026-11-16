@@ -12,7 +12,8 @@ import { pathToFileURL } from 'node:url';
  * rule ID, a rule cited by another document that no longer exists, a broken
  * link or anchor, an ADR a rule cites but the marker omits, an ADR newer than a
  * marker, an amendment heading the date comparison cannot read, or an Evidence
- * line naming a file that does not hold its symbol would all land unnoticed.
+ * line naming a file that does not hold its symbol would all land unnoticed, and
+ * so would a marker dated past the latest ADR change, which hides every later one.
  *
  * `--since <ref>` adds the one rule a single tree cannot show: a change to
  * `docs/adr/` since `<ref>` moves every topic's marker, unless that marker
@@ -122,6 +123,7 @@ function unmovedSince(root: string, base: string): string[] {
 export function check(root: string): string[] {
   const dir = join(root, 'docs/requirements');
   const adrs = adrsUnder(root);
+  const newest = newestMarker(root);
   const names = readdirSync(dir).filter((name) => name.endsWith('.md')).sort();
   const texts = new Map(names.map((name) => [name, readFileSync(join(dir, name), 'utf8')]));
   const problems: string[] = [];
@@ -141,6 +143,11 @@ export function check(root: string): string[] {
       const [through, dated] = [Number(snapshot[1]), snapshot[2]];
       if (!adrs.some((adr) => adr.number === through)) {
         problems.push(`${name}: the snapshot marker incorporates ADRs through ${snapshot[1]}, which no ADR file holds`);
+      }
+      // A marker dated past every ADR change would hide each later change from
+      // the comparison below, so a marker carries exactly the latest date.
+      if (dated > newest.dated) {
+        problems.push(`${name}: the snapshot marker is dated ${dated}, after the latest ADR change on ${newest.dated || 'no date'}`);
       }
       for (const adr of adrs) {
         if (adr.number > through || adr.latest > dated) {

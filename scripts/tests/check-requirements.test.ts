@@ -92,6 +92,13 @@ test('an ADR numbered or dated past the marker is reported', () => {
   ]);
 });
 
+test('a marker dated past the latest ADR change is reported', () => {
+  const ahead = MARKER.replace('2026-11-15', '2099-01-01');
+  assert.deepEqual(problems({ 'a.md': ahead }), [
+    'a.md: the snapshot marker is dated 2099-01-01, after the latest ADR change on 2026-11-15',
+  ]);
+});
+
 test('a proposed or rejected ADR is not newer than the marker; an accepted one is', () => {
   const proposed = { 'docs/adr/0003-c.md': '# C\n\nStatus: proposed on 2026-11-16.\n' };
   assert.deepEqual(problems({ 'a.md': MARKER }, proposed), []);
@@ -117,7 +124,9 @@ test('a marker that incorporates an ADR number no file holds is reported, in a g
 });
 
 test('an amendment heading without a readable date is reported', () => {
-  const extra = { 'docs/adr/0002-b.md': '# B\n\nStatus: accepted.\n\n## Amendment: undated\n' };
+  const extra = {
+    'docs/adr/0002-b.md': '# B\n\nStatus: accepted.\n\n## Amendment, 2026-11-15: same day\n\n## Amendment: undated\n',
+  };
   assert.deepEqual(problems({ 'a.md': MARKER }, extra), [
     'docs/adr/0002-b.md: "## Amendment: undated" is not an `## Amendment, YYYY-MM-DD` heading',
   ]);
