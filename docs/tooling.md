@@ -569,9 +569,8 @@ anything compiles them.
 
 `AGENTS.md` already obliges a change at the parser boundary to bring "boundary or property tests
 over every input form the change accepts", and the parser is the widest input surface in the
-workspace because
-every keystroke reaches it. That obligation is the rationale for the dependency. `proptest` is
-declared once in `[workspace.dependencies]` and consumed by `lang` and `orcvs` under
+workspace because every keystroke reaches it. That obligation is the rationale for the dependency.
+`proptest` is declared once in `[workspace.dependencies]` and consumed by `lang` and `orcvs` under
 `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]` only. Every invariant these
 properties encode is platform-independent logic, so running them under `wasm-pack` would add a
 dependency graph to maintain and no signal; the property modules carry the same `cfg`, so a WASM
