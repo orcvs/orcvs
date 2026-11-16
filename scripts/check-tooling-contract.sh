@@ -770,7 +770,7 @@ assert_contains "$root_dir/.github/workflows/test.yml" '^  merge_group:$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    types: \[checks_requested\]$'
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" "if: github.event_name != 'pull_request'$" 4
 assert_occurs_exactly "$root_dir/.github/workflows/test.yml" '^[[:space:]]*(- )?if[[:space:]]*:' 10
-assert_line_followed_by "$root_dir/.github/workflows/test.yml" "^      - if: github[.]event_name == 'pull_request'$" '^        run: node scripts/check-requirements[.]ts --since HEAD\^1$'
+assert_line_followed_by "$root_dir/.github/workflows/test.yml" "^      - if: github[.]event_name == 'pull_request'$" '^        run: node scripts/check-requirements[.]ts --since HEAD.1$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    if: always[(][)]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^    needs: \[changes, full-gate, macos, windows, wasm\]$'
 assert_contains "$root_dir/.github/workflows/test.yml" '^        run: bash scripts/check-ci-results.sh$'
