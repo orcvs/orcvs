@@ -96,9 +96,10 @@
 //! # MIDI activation needs no area, only a Bang source
 //!
 //! A Terminal Output Function answers no value and writes no Cell (the
-//! Terminal Output Function entry in `CONTEXT.md`), so nothing about a `!`-spelled Expression itself ever changes
-//! once checked in, and no row is set aside south of it the way a
-//! value-answering group sets one aside for its result.
+//! Terminal Output Function entry in `CONTEXT.md`), so nothing about a
+//! `!`-spelled Expression itself ever changes once checked in, and no row is
+//! set aside south of it the way a value-answering group sets one aside for
+//! its result.
 //! What changes is each example's own Bang source: a Euclidean, `~%0104`
 //! (the `X...` pattern), Bangs once every four Ticks — slow enough to hear
 //! each event distinctly at the default tempo — and clears to blank between
@@ -979,13 +980,13 @@ mod tests {
     /// not among them), each gated by its own Euclidean Bang source, `~%0104`.
     ///
     /// Every Terminal Output Function answers no value and writes no Cell
-    /// (the Terminal Output Function entry in `CONTEXT.md`), so no row is set aside south of any of these
-    /// nine Expressions — unlike every value-answering group's own result
-    /// row — and the only Cells that ever change while ticking this group are
-    /// the Euclidean sources' own Bang Cells, [`midi_bang_result_areas`],
-    /// which this test names explicitly and excludes rather than asserting
-    /// fixed content for, since each toggles between `**` and blank forever
-    /// rather than settling.
+    /// (the Terminal Output Function entry in `CONTEXT.md`), so no row is set
+    /// aside south of any of these nine Expressions — unlike every
+    /// value-answering group's own result row — and the only Cells that ever
+    /// change while ticking this group are the Euclidean sources' own Bang
+    /// Cells, [`midi_bang_result_areas`], which this test names explicitly and
+    /// excludes rather than asserting fixed content for, since each toggles
+    /// between `**` and blank forever rather than settling.
     ///
     /// This ticks the reference across two full Euclidean cycles (Ticks `0`
     /// through `8`) and asserts, at every Tick: no diagnostic; no

@@ -18,9 +18,12 @@ This is the one statement of the order; every other document points here.
 2. [`CONTEXT.md`](../../CONTEXT.md) for what each term means.
 3. The owning requirement below, for what the behaviour must be, why, and where it is implemented
    and tested.
-4. Nothing newer: a change to an ADR updates every topic in the same change, and the check below
-   fails until it does, so the requirement already restates every accepted ADR. Open
-   [`docs/adr/`](../adr/) only for an ADR's argument, its rejected alternatives or its history.
+4. Any ADR change dated the marker's own day. A change to an ADR updates every topic in the same
+   change, and the check below fails while any ADR is numbered or dated past a marker, so the
+   requirement restates every accepted ADR the check can see. It cannot see a second ADR change
+   dated a marker's own day (step 5 below), so open [`docs/adr/`](../adr/) for an ADR whose Status
+   paragraph or amendment heading carries the marker's date. Otherwise open it only for an ADR's
+   argument, its rejected alternatives or its history.
 
 Per-Function spellings, operands and examples live in the [Function reference](../functions.md),
 which a test holds to the Function table; the requirements state the rules that cross Functions and

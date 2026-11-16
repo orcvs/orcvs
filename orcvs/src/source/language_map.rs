@@ -2009,7 +2009,8 @@ mod tests {
 /// and the answer has to keep LANG-060 (`docs/requirements/language.md`) — a
 /// row is partitioned left to right into non-overlapping complete Language
 /// Units, an unmatched character diagnoses without participating in an
-/// overlapping unit, and incomplete or invalid Source forms no Language Unit.
+/// overlapping unit, and incomplete or invalid Source contributes no runtime
+/// Atoms.
 ///
 /// The Source is generated as raw text rather than as Expressions. What makes
 /// this path worth a property is exactly the input a grammar-shaped generator
@@ -2230,9 +2231,8 @@ mod property {
         /// Deriving a Language Map from any Source answers, and answers with
         /// the partition LANG-060 states, with the Comment extent LANG-080
         /// draws: each row left to right into non-overlapping units of two
-        /// Cells unless Comment, with an
-        /// unmatched character diagnosed on its own Cell and the walk resuming
-        /// one Cell later.
+        /// Cells unless Comment, with an unmatched character diagnosed on its
+        /// own Cell and the walk resuming one Cell later.
         ///
         /// A Comment is the one unit that is not two Cells. It is a Language
         /// Unit the Parser establishes, spelled `||` and claiming through the

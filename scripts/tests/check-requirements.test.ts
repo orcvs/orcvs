@@ -115,9 +115,9 @@ test('a marker that incorporates an ADR number no file holds is reported, in a g
   assert.deepEqual(problems({ 'a.md': above }), [
     'a.md: the snapshot marker incorporates ADRs through 0003, which no ADR file holds',
   ]);
-  const gap = MARKER.replace('through 0002', 'through 0003');
+  // The same marker becomes a gap once ADR 0004 exists above the missing 0003.
   const later = { 'docs/adr/0004-d.md': '# D\n\nStatus: accepted on 2026-11-01.\n' };
-  assert.deepEqual(problems({ 'a.md': gap }, later), [
+  assert.deepEqual(problems({ 'a.md': above }, later), [
     'a.md: the snapshot marker incorporates ADRs through 0003, which no ADR file holds',
     'a.md: ADR 0004 is newer than the snapshot marker, which does not incorporate it',
   ]);
