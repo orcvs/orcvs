@@ -124,31 +124,52 @@ fn note_off(channel: MidiChannel, note: Note) -> OutputCommand {
 }
 
 ///
-/// Whether the first Monophonic command `commands` hold for `voice`'s channel
-/// slides, so it takes over the claim on that voice. A Timed voice is never
-/// taken over.
+/// The stops due at one Tick, held back until that Tick's commands are
+/// resolved.
 ///
-fn slides_over(voice: Voice, commands: &[PlayCommand]) -> bool {
-    let Voice::Mono { channel } = voice else {
-        return false;
-    };
-    commands
-        .iter()
-        .find_map(|command| match *command {
-            PlayCommand::Mono {
-                channel: on,
-                velocity,
-                length,
-                articulation,
-                ..
-            } if on == channel => Some(
-                articulation == Articulation::Legato
-                    && velocity != Velocity::ZERO
-                    && length != Length::ZERO,
-            ),
-            _ => None,
-        })
-        .unwrap_or(false)
+/// A due stop goes out ahead of every command, except a Mono stop that the
+/// first Monophonic command on its channel slides from: that command takes
+/// the stop and delivers it after its own Note On, or not at all at the same
+/// pitch. Only the first command may take it, so `settled` records each
+/// channel a Monophonic command has already been resolved on.
+///
+#[derive(Default)]
+struct DueStops {
+    stops: Vec<Option<(Voice, Note)>>,
+    settled: Vec<MidiChannel>,
+}
+
+impl DueStops {
+    ///
+    /// The note of the Mono stop due on `channel`, taken out of the stops
+    /// delivered first, if no Monophonic command has yet been resolved on
+    /// that channel this Tick.
+    ///
+    fn take_over(&mut self, channel: MidiChannel) -> Option<Note> {
+        if self.settled.contains(&channel) {
+            return None;
+        }
+        self.stops
+            .iter_mut()
+            .find(|stop| matches!(stop, Some((Voice::Mono { channel: on }, _)) if *on == channel))
+            .and_then(Option::take)
+            .map(|(_, note)| note)
+    }
+
+    /// Marks `channel` as resolved, so no later command this Tick takes over.
+    fn settle(&mut self, channel: MidiChannel) {
+        if !self.settled.contains(&channel) {
+            self.settled.push(channel);
+        }
+    }
+
+    /// The stops no command took over, in the order they were scheduled.
+    fn into_commands(self) -> impl Iterator<Item = OutputCommand> {
+        self.stops
+            .into_iter()
+            .flatten()
+            .map(|(voice, note)| note_off(voice.channel(), note))
+    }
 }
 
 impl OwnedNotes {
@@ -164,7 +185,8 @@ impl OwnedNotes {
     /// leave that order to the adapter to keep.
     ///
     pub(crate) fn deliver(&mut self, tick: Tick, commands: &[PlayCommand]) -> Vec<OutputCommand> {
-        let mut delivery = self.expired_at(tick, commands);
+        let mut due = self.expired_at(tick);
+        let mut delivery = Vec::new();
 
         for command in commands {
             match *command {
@@ -230,10 +252,8 @@ impl OwnedNotes {
                     // note comes back out of the claim rather than off the
                     // command, which is what monophony means here: the voice
                     // is the channel, and the Source need not remember what it
-                    // last put on it. A claim whose stop is due this Tick is
-                    // still held here when this command slides, because
-                    // `expired_at` left it for this command to take over.
-                    let held = self.release(voice);
+                    // last put on it.
+                    let mut held = self.release(voice);
                     // Velocity `00` and length `00` both leave the channel
                     // silent, and ADR 0016 makes that the end of the command.
                     // Timed Play's length `00` is a no-op instead, and the
@@ -244,6 +264,13 @@ impl OwnedNotes {
                     // one that starts nothing has replaced the voice with
                     // silence.
                     let starts = velocity != Velocity::ZERO && length != Length::ZERO;
+                    // A sliding command on a channel whose note ends this
+                    // Tick takes that note's stop over, so a line whose
+                    // lengths equal its steps still slides.
+                    if starts && articulation == Articulation::Legato && held.is_none() {
+                        held = due.take_over(channel);
+                    }
+                    due.settle(channel);
                     let note_on = OutputCommand::NoteOn {
                         channel,
                         velocity,
@@ -307,7 +334,7 @@ impl OwnedNotes {
             }
         }
 
-        delivery
+        due.into_commands().chain(delivery).collect()
     }
 
     ///
@@ -322,16 +349,11 @@ impl OwnedNotes {
     /// compared against can no longer reach — and a run whose absolute Tick
     /// has stopped advancing has already lost more than a Note Off.
     ///
-    /// A Mono claim due now is left standing for `commands` when the first
-    /// Monophonic command on its channel slides: that command then delivers
-    /// the stop after its own Note On, or none at the same pitch, so a note
-    /// whose length is its step slides into the next one.
-    ///
-    fn expired_at(&mut self, tick: Tick, commands: &[PlayCommand]) -> Vec<OutputCommand> {
+    fn expired_at(&mut self, tick: Tick) -> DueStops {
         let later = self.expiries.split_off(&tick.next());
         let due = std::mem::replace(&mut self.expiries, later);
 
-        let mut stops = Vec::new();
+        let mut stops = DueStops::default();
         for expiry in due.into_values().flatten() {
             // A stale expiry stops nothing: its claim was released when the
             // voice was replaced or stopped. The note comes from the standing
@@ -339,10 +361,9 @@ impl OwnedNotes {
             // to stop.
             if let Some(sounding) = self.voices.get(&expiry.voice).copied()
                 && sounding.claim == expiry.claim
-                && !slides_over(expiry.voice, commands)
             {
                 self.voices.remove(&expiry.voice);
-                stops.push(note_off(expiry.voice.channel(), sounding.note));
+                stops.stops.push(Some((expiry.voice, sounding.note)));
             }
         }
         stops
@@ -913,6 +934,38 @@ mod tests {
                 "{command:?}"
             );
         }
+    }
+
+    #[test]
+    fn only_the_first_monophonic_play_on_a_channel_can_take_over_its_ending_note() {
+        let mut schedule = OwnedNotes::default();
+
+        plan(&mut schedule, 0, &[mono_play(8, 0x64, 48, 2, true)]);
+        // The silent command is the first on channel 8, so the ending note's
+        // stop goes at the Tick's start and the legato command after it has
+        // nothing to slide from.
+        assert_eq!(
+            plan(
+                &mut schedule,
+                2,
+                &[
+                    mono_play(8, 0x00, 52, 2, true),
+                    mono_play(8, 0x64, 55, 2, true)
+                ]
+            ),
+            vec![stop(8, 48), note_on(8, 0x64, 55)]
+        );
+    }
+
+    #[test]
+    fn a_legato_monophonic_play_never_takes_over_a_timed_note_ending_on_its_channel() {
+        let mut schedule = OwnedNotes::default();
+
+        plan(&mut schedule, 0, &[timed_play(8, 0x64, 40, 2)]);
+        assert_eq!(
+            plan(&mut schedule, 2, &[mono_play(8, 0x64, 52, 2, true)]),
+            vec![stop(8, 40), note_on(8, 0x64, 52)]
+        );
     }
 
     #[test]
