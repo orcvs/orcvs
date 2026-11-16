@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { check, slug } from '../check-requirements.ts';
+import { check, slug, unmovedMarkers } from '../check-requirements.ts';
 
 const MARKER = [
   '> Snapshot: incorporates ADRs through 0002 and ADR changes dated through 2026-11-15.',
@@ -93,4 +93,31 @@ test('an ADR numbered or dated past the marker is reported', () => {
 test('a marker that incorporates an ADR number no file holds is reported', () => {
   const text = MARKER.replace('through 0002', 'through 0003');
   assert.deepEqual(problems({ 'a.md': text }), ['a.md: the marker incorporates ADRs through 0003, above the highest ADR']);
+});
+
+test('an amendment heading without a readable date is reported', () => {
+  const extra = { 'docs/adr/0002-b.md': '# B\n\nStatus: accepted.\n\n## Amendment: undated\n' };
+  assert.deepEqual(problems({ 'a.md': MARKER }, extra), [
+    'docs/adr/0002-b.md: "## Amendment: undated" is not an `## Amendment, YYYY-MM-DD` heading',
+  ]);
+});
+
+test('a change to docs/adr/ that leaves a marker behind the newest ADR is reported', () => {
+  const marker = MARKER.split('\n')[0];
+  const old = marker.replace('2026-11-15', '2026-11-14');
+  const root = repo({ 'a.md': MARKER, 'b.md': MARKER.replace('2026-11-15', '2026-11-14') });
+  try {
+    const adr = ['docs/adr/0002-b.md'];
+    // a.md moved to the newest ADR; b.md stayed behind it.
+    const before = new Map([['a.md', old], ['b.md', old]]);
+    assert.deepEqual(unmovedMarkers(root, adr, before), [
+      'b.md: the change touches docs/adr/ but leaves this marker where it was',
+    ]);
+    // A marker that already names the newest ADR and date has nowhere to move.
+    assert.deepEqual(unmovedMarkers(root, adr, new Map([['a.md', marker]])), []);
+    // A change outside docs/adr/ owes nothing.
+    assert.deepEqual(unmovedMarkers(root, ['docs/requirements/b.md'], before), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
