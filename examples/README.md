@@ -1,8 +1,9 @@
 # Examples
 
 Each example is a Source File with a guide beside it. Open any of them from
-**Help > Examples** in the console, or on the site as `?example=` and its name
-in lowercase, such as `?example=kombine`.
+**Help > Examples** in the console, or on the site at
+`/play/?example=<link-name>`. An example's link name is its name in lowercase
+with a hyphen for each space, so Kombine opens at `/play/?example=kombine`.
 
 | Example | Source File | Guide | What it plays |
 | --- | --- | --- | --- |
