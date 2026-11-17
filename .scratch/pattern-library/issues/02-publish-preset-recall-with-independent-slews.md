@@ -1,6 +1,6 @@
 # 02 — Publish preset recall with independent slews
 
-Status: ready-for-agent
+Status: claimed
 Blocked by: 01
 
 **What to build:** A musician opens a bassline with two presets from Help →
