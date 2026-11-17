@@ -389,16 +389,7 @@ async fn copied_and_pasted_pairs_keep_their_empty_pairs() {
     }
     harness.event(Event::Copy);
     harness.step();
-    let copied = harness
-        .output()
-        .platform_output
-        .commands
-        .iter()
-        .find_map(|command| match command {
-            egui::OutputCommand::CopyText(copied) => Some(copied.clone()),
-            _ => None,
-        })
-        .expect("Copy put the Region on the clipboard");
+    let copied = clipboard(&harness).expect("Copy put the Region on the clipboard");
     harness.run_steps(1);
     assert_eq!(copied, "C4D4  G4  A4C5  ");
 
@@ -577,9 +568,10 @@ async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
 /// and clipboard events: copy the accent Region from (0, 9) to (17, 11), paste
 /// it into the Tracker at (2, 32), make the pasted Clock's `division` `02`,
 /// move the closed hat's Every four columns west with a cut and a paste, and
-/// retype its Play four columns west with `&$0222` for its velocity. The hat then plays `70`, `30`, `50` and `40` on
-/// its hits at steps 0, 2, 4 and 6, the other voices keep `77`, and nothing is
-/// diagnosed.
+/// retype its Play four columns west with `&$0222` for its velocity. The hat
+/// then plays `70`, `30`, `50` and `40` on its hits at steps 0, 2, 4 and 6,
+/// every other voice plays the shipped Tracker's channels, notes, steps and
+/// velocity `77`, and nothing is diagnosed.
 ///
 #[tokio::test]
 async fn the_kombine_accent_region_pasted_into_the_tracker_accents_the_closed_hat() {
@@ -596,16 +588,7 @@ async fn the_kombine_accent_region_pasted_into_the_tracker_accents_the_closed_ha
     }
     harness.event(Event::Copy);
     harness.step();
-    let copied = harness
-        .output()
-        .platform_output
-        .commands
-        .iter()
-        .find_map(|command| match command {
-            egui::OutputCommand::CopyText(copied) => Some(copied.clone()),
-            _ => None,
-        })
-        .expect("Copy put the Region on the clipboard");
+    let copied = clipboard(&harness).expect("Copy put the Region on the clipboard");
     harness.run_steps(1);
 
     super::choose_example(&mut harness, "Tracker");
@@ -624,9 +607,11 @@ async fn the_kombine_accent_region_pasted_into_the_tracker_accents_the_closed_ha
     }
     harness.event(Event::Cut);
     harness.step();
+    let cut = clipboard(&harness).expect("Cut put the Every on the clipboard");
+    assert_eq!(cut, "~*0101", "the Cut takes the hat's Every");
     harness.run_steps(1);
     go_to(&mut harness, 12, 6);
-    harness.event(Event::Paste("~*0101".to_owned()));
+    harness.event(Event::Paste(cut));
     harness.step();
     harness.run_steps(1);
     go_to(&mut harness, 18, 7);
@@ -655,26 +640,21 @@ async fn the_kombine_accent_region_pasted_into_the_tracker_accents_the_closed_ha
     );
 
     let mut hat = Vec::new();
+    let mut neighbours = Vec::new();
     for step in 0..16 {
         let plan = tick(&harness, step);
         assert_eq!(diagnostics(&plan), [], "Tick {step}");
-        for command in &plan.play_commands {
-            let PlayCommand::Timed {
-                channel,
-                velocity,
-                note,
-                ..
-            } = command
-            else {
-                panic!("the Tracker plays only Timed notes, not {command:?}");
-            };
-            if (channel.value(), note.value()) == (9, 42) {
-                hat.push((step, velocity.value()));
-            } else {
-                assert_eq!(velocity.value(), 0x77, "Tick {step}: {command:?}");
-            }
-        }
+        let (hits, others): (Vec<_>, Vec<_>) = timed_plays(&plan)
+            .into_iter()
+            .partition(|&(channel, note, _)| (channel, note) == (9, 42));
+        hat.extend(hits.into_iter().map(|(_, _, velocity)| (step, velocity)));
+        neighbours.push(others);
     }
+    assert_eq!(
+        neighbours,
+        shipped_tracker_neighbours(),
+        "every other voice plays as in the shipped Tracker"
+    );
     assert_eq!(
         hat,
         [
@@ -688,6 +668,73 @@ async fn the_kombine_accent_region_pasted_into_the_tracker_accents_the_closed_ha
             (14, 0x40),
         ]
     );
+}
+
+///
+/// The text the frame's Copy or Cut put on the clipboard, if it put any.
+///
+fn clipboard(harness: &Harness<'_, Console>) -> Option<String> {
+    harness
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|command| match command {
+            egui::OutputCommand::CopyText(copied) => Some(copied.clone()),
+            _ => None,
+        })
+}
+
+/// The channel, MIDI note and velocity of each note a Tick's Timed Plays
+/// start.
+fn timed_plays(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
+    plan.play_commands
+        .iter()
+        .map(|command| match command {
+            PlayCommand::Timed {
+                channel,
+                note,
+                velocity,
+                ..
+            } => (channel.value(), note.value(), velocity.value()),
+            other => panic!("the trackers play only Timed notes, not {other:?}"),
+        })
+        .collect()
+}
+
+///
+/// The shipped Tracker's first sixteen Ticks in a console of its own, each
+/// Tick's notes without the closed hat's: what the transfer must leave every
+/// other voice playing. Each voice plays velocity `77`, and the kick, snare
+/// and bassline each play.
+///
+fn shipped_tracker_neighbours() -> Vec<Vec<(u8, u8, u8)>> {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    super::choose_example(&mut harness, "Tracker");
+    let neighbours: Vec<Vec<(u8, u8, u8)>> = (0..16)
+        .map(|step| {
+            timed_plays(&tick(&harness, step))
+                .into_iter()
+                .filter(|&(channel, note, _)| (channel, note) != (9, 42))
+                .collect()
+        })
+        .collect();
+    let plays: Vec<&(u8, u8, u8)> = neighbours.iter().flatten().collect();
+    assert!(plays.iter().all(|&&(_, _, velocity)| velocity == 0x77));
+    // The kick `C2` and snare `D2` on channel `09`, and the bassline on `08`.
+    assert!(
+        plays
+            .iter()
+            .any(|&&(channel, note, _)| (channel, note) == (9, 36))
+    );
+    assert!(
+        plays
+            .iter()
+            .any(|&&(channel, note, _)| (channel, note) == (9, 38))
+    );
+    assert!(plays.iter().any(|&&(channel, _, _)| channel == 8));
+    neighbours
 }
 
 ///
