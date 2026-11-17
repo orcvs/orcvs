@@ -4,7 +4,7 @@
 means for that channel's Part, with each controller's load value beside it. `Synth::apply` asks it
 once, and the holders of the state take the meaning and never see a controller number.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 **Why:** Routing is four match sites in four files chained by fall-through: `Synth::apply`
 (`lib.rs`), `Controls::take` (`acid.rs`), `Channel::set` (`channel.rs`) and `Sends::on`
@@ -30,3 +30,6 @@ through `Sound`; moving them belongs with giving the voice pool its own module.
 
 Decided with Toby on 2026-11-17. ADR 0088 and ADR 0099 fix the table's contents, not where it
 lives, so no ADR changes.
+
+PR #413 (`claude/synth-controller-map`) implements this ticket. Its status becomes `resolved` when
+that PR merges.
