@@ -20,7 +20,7 @@ Start with an index in `examples/` linking a complete `.orcvs` Source File and a
 
 **Agreed scaling contract (Q2).** Each entry demonstrates one musically meaningful way to grow. The guide identifies the edit and the expected audible result. A Sequencer entry might extend a phrase, a Tracker entry might add a voice, and a Kombine entry might change the accent period independently of pitch.
 
-**Agreed first entry (Q3).** Publish Kombine first. Three pitches cycle against four velocity steps. Shorten the accent cycle to three steps so the loud accent returns to C on each pass. The guide shows both the Clock period and Track count edits.
+**Agreed first entry (Q3).** Publish Kombine first. Three pitches cycle against four velocity steps. Shorten the accent cycle to three steps so the loud accent returns to C on each pass. The guide shows both the Clock `steps` and Track `count` edits.
 
 **Agreed worked transfer (Q4).** Demonstrate copying the accent Region into Tracker and connecting it to the velocity operand of one voice. Give the placement, wiring edits and expected accents. The other voices keep their existing behaviour.
 
@@ -87,7 +87,7 @@ This consolidation covers the repository note and two documents supplied outside
 
 ## Four grids you can try
 
-Each block is a separate grid. Paste it at the top-left of an empty Source, preserving indentation and blank rows. All four ran for 32 consecutive Ticks from Tick 0 on Orcvs revision `c8cc197c` without execution diagnostics. The observations below are from emitted commands. The two examples using `&$` address absolute Cells, so moving the block requires updating their coordinates. [Function reference](../functions.md) · [Source execution used for the check](../../orcvs/tests/function_reference_doc.rs)
+Each block is a separate grid. Paste it at the top-left of an empty Source, preserving indentation and blank rows. All four ran for 32 consecutive Ticks from Tick 0 on Orcvs revision `c8cc197c` without execution diagnostics. That run was a one-off: no test holds these Grids, and the linked test shows only how Source was executed for it. The observations below are from emitted commands. The two examples using `&$` address absolute Cells, so moving the block requires updating their coordinates. [Function reference](../functions.md) · [Source execution used for the check](../../orcvs/tests/function_reference_doc.rs)
 
 ### Independent pitch and accent lanes
 
