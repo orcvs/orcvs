@@ -10,6 +10,7 @@ use orcvs::app::Orcvs;
 use orcvs::grid::Grid;
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::render_frame::PortalRole;
+use orcvs::source::rows::cell;
 use orcvs::source::{CellContent, CellWrite, LanguageMap, Source, SourceCommander, Tick, file};
 use std::hint::black_box;
 use std::sync::OnceLock;
@@ -69,8 +70,6 @@ const EDITED_VALID: &str = "3";
 /// A character that no operand accepts. Source is malformed for most of the
 /// keystrokes that produce it, and that revision is rebuilt and rendered too.
 const EDITED_INVALID: &str = "Z";
-
-use orcvs::source::rows::cell;
 
 /// One Cell per Grid Position. Each row tiles `EXPRESSIONS` from a different
 /// starting point, separated by a space so a row holds several Expression extents

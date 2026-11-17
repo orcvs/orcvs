@@ -13,9 +13,8 @@ use lang::{InputPortal, Output, Tick};
 use super::execution::{self, ComputationState};
 use super::{ComputationId, plan, plan_unshared, shared_schedule};
 use crate::grid::Grid;
-use crate::source::{CellContent, CellWrite, Cells, LanguageMap, Source, TickPlan};
-
 use crate::source::rows::cell;
+use crate::source::{CellContent, CellWrite, Cells, LanguageMap, Source, TickPlan};
 
 /// A Source holding `rows`, each padded to the Grid's width, written as one
 /// revision.

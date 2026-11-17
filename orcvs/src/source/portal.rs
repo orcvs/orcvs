@@ -638,6 +638,7 @@ mod test {
     use crate::grid::{CellIndex, Grid};
     use crate::source::Cells;
     use crate::source::language_map::{LanguageMap, occupied};
+    use crate::source::rows::cell;
 
     #[test]
     fn every_printable_cell_reaches_its_destination() {
@@ -650,8 +651,6 @@ mod test {
             vec![(cell(grid, 0), ' '), (cell(grid, 1), '~')]
         );
     }
-
-    use crate::source::rows::cell;
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {
         portal.language_unit(Cells::of(working), |cells| {

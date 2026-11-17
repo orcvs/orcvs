@@ -79,6 +79,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use orcvs::grid::{CellIndex, Grid};
+use orcvs::source::rows::cell;
 use orcvs::source::{CellContent, CellWrite, Source, SourceCommander, Tick, file};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -268,8 +269,6 @@ const RESTORED: &str = "0";
 /// A different digit in the same operand position: still a valid Expression,
 /// so the rebuild does the full parse an accepted edit pays for.
 const EDITED_VALID: &str = "3";
-
-use orcvs::source::rows::cell;
 
 /// One Cell per Grid Position, as `orcvs/benches/source.rs` builds it.
 fn source_text(cols: usize, rows: usize) -> String {

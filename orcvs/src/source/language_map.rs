@@ -942,6 +942,7 @@ mod tests {
 
     use crate::grid::Grid;
     use crate::source::Cells;
+    use crate::source::rows::cell;
 
     use lang::{Atom, Function, Token};
 
@@ -1396,8 +1397,6 @@ mod tests {
                 .any(|diagnostic| diagnostic.message.contains("#"))
         );
     }
-
-    use crate::source::rows::cell;
 
     fn span(grid: Grid, start: usize, end: usize) -> Span {
         Span::new(grid, cell(grid, start), cell(grid, end))

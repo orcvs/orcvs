@@ -196,10 +196,9 @@ impl Attempt<'_, '_> {
 mod tests {
     use super::{StalePlan, TickCommit};
     use crate::grid::Grid;
+    use crate::source::rows::cell;
     use crate::source::tick::observed::raw_c4;
     use crate::source::{OPTIMISTIC_TICK_ATTEMPTS, PortalEvent, SourceCommander, Tick};
-
-    use crate::source::rows::cell;
 
     fn type_at(source: &SourceCommander, start: usize, text: &str) {
         let grid = source.grid();

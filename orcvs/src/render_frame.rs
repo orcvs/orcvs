@@ -576,10 +576,8 @@ mod tests {
         opts::{CursorBloomRadius, SectorSeamSpacing},
         region::Region,
         render_frame::{PortalRole, PortalRoles, RenderFrame, RenderFrameConfig},
-        source::{OperandState, SourceCommander, SourcePaint, Span, Tick, Token},
+        source::{OperandState, SourceCommander, SourcePaint, Span, Tick, Token, rows::cell},
     };
-
-    use crate::source::rows::cell;
 
     fn cell_at(frame: &RenderFrame, position: crate::grid::Position) -> &super::RenderCell {
         frame.at(position)
