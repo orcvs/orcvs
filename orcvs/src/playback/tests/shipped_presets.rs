@@ -248,7 +248,7 @@ fn edited(text: &str, edits: &[(usize, usize, &str, &str)]) -> String {
 
 ///
 /// Before the first Tick the Language Map diagnoses nothing: the bassline's
-/// steps, the presets and each control's written values are Comment text,
+/// steps, the presets and the values the Functions write are Comment text,
 /// and every other Cell is part of a Function. The guide draws every row of
 /// the file as shipped.
 ///
@@ -267,8 +267,8 @@ fn presets_open_with_nothing_diagnosed_and_draw_as_shipped() {
 /// Preset `00` is in force from the first Tick: each control's Slew starts
 /// from the value its Comment holds, which is preset `00`'s target, so it
 /// sends that value on every Tick. Two loops of the bassline, with the
-/// Language Map diagnosing no Function on any Tick, and the Cells each Tick
-/// writes the ones the file ships.
+/// Language Map diagnosing nothing after any Tick, and each control's Comment
+/// holding after each Tick what the file ships there.
 ///
 #[test]
 fn preset_00_is_delivered_from_the_first_tick_and_holds() {
