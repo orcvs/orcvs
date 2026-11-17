@@ -686,10 +686,29 @@ fn clipboard(harness: &Harness<'_, Console>) -> Option<String> {
 }
 
 /// The channel, MIDI note and velocity of each note a Tick's Timed Plays
-/// start.
+/// start. Any other play command is a failure.
 fn timed_plays(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
+    timed_plays_skipping(plan, |_| false)
+}
+
+/// The channel, MIDI note and velocity of each note a Tick's Timed Plays
+/// start, leaving out the Control Changes. Any other play command is a
+/// failure.
+fn notes_beside_controls(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
+    timed_plays_skipping(plan, |command| {
+        matches!(command, PlayCommand::ControlChange { .. })
+    })
+}
+
+/// The channel, MIDI note and velocity of each Timed Play in `plan`, passing
+/// over each command `skipped` answers true for.
+fn timed_plays_skipping(
+    plan: &TickPlan,
+    skipped: impl Fn(&PlayCommand) -> bool,
+) -> Vec<(u8, u8, u8)> {
     plan.play_commands
         .iter()
+        .filter(|command| !skipped(command))
         .map(|command| match command {
             PlayCommand::Timed {
                 channel,
@@ -697,7 +716,7 @@ fn timed_plays(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
                 velocity,
                 ..
             } => (channel.value(), note.value(), velocity.value()),
-            other => panic!("the trackers play only Timed notes, not {other:?}"),
+            other => panic!("expected only Timed notes, not {other:?}"),
         })
         .collect()
 }
@@ -806,26 +825,6 @@ fn control_changes(plan: &TickPlan) -> Vec<(u8, u8)> {
                 Some((controller.value(), value.value()))
             }
             _ => None,
-        })
-        .collect()
-}
-
-///
-/// The channel, MIDI note and velocity of each note a Tick's Timed Plays
-/// start, leaving out its Control Changes.
-///
-fn notes_beside_controls(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
-    plan.play_commands
-        .iter()
-        .filter_map(|command| match command {
-            PlayCommand::Timed {
-                channel,
-                note,
-                velocity,
-                ..
-            } => Some((channel.value(), note.value(), velocity.value())),
-            PlayCommand::ControlChange { .. } => None,
-            other => panic!("the Presets play only Timed notes and Control Changes, not {other:?}"),
         })
         .collect()
 }

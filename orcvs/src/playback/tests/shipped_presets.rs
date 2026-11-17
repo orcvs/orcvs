@@ -9,9 +9,11 @@
 //! expected values are written out Tick by Tick rather than derived, so a
 //! misreading of the Slew shared by the test and Playback cannot pass both.
 
-use super::{HandDrivenRun, assert_guide_draws, note_on, replace_at, stop, tick_diagnostics};
+use super::{
+    HandDrivenRun, assert_guide_draws, control_change, edited, note_on, stop, tick_diagnostics,
+};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
-use crate::source::{ControlValue, Controller, MidiChannel, SourceCommander, file};
+use crate::source::{SourceCommander, file};
 
 /// The shipped Presets Source File's text.
 const PRESETS: &str = include_str!("../../../../examples/presets.orcvs");
@@ -45,11 +47,7 @@ const RES_ROW: usize = 25;
 
 /// The Control Change the acid channel is sent for `controller` at `value`.
 fn change(controller: u8, value: u8) -> OutputCommand {
-    OutputCommand::ControlChange {
-        channel: MidiChannel::try_from(ACID).expect("a MIDI channel"),
-        controller: Controller::try_from(controller).expect("a MIDI data byte"),
-        value: ControlValue::try_from(value).expect("a MIDI data byte"),
-    }
+    control_change(ACID, controller, value)
 }
 
 ///
@@ -117,10 +115,39 @@ impl Run {
     /// diagnosing what it diagnosed before it.
     ///
     fn expect(&mut self, values: &[(u8, u8)]) {
+        self.expect_diagnosed(values, vec![]);
+    }
+
+    ///
+    /// Runs the next Tick and asserts `CUT`'s Control Change is diagnosed for
+    /// its Slew's `value` and sends nothing, while the bassline plays and
+    /// `RES` sends `resonance`; the Language Map diagnoses what it did before.
+    ///
+    fn expect_cutoff_out_of_range(&mut self, value: &str, resonance: u8) {
+        self.expect_diagnosed(
+            &[(RESONANCE, resonance)],
+            vec![(
+                2,
+                CUT_ROW,
+                format!("MIDI value {value} is outside the range 00–7F"),
+            )],
+        );
+    }
+
+    ///
+    /// Runs the next Tick and asserts it diagnoses exactly `diagnostics`,
+    /// delivers the bassline's step and `values`, and leaves the Language Map
+    /// diagnosing what it diagnosed before it.
+    ///
+    fn expect_diagnosed(&mut self, values: &[(u8, u8)], diagnostics: Vec<(usize, usize, String)>) {
         let tick = self.next;
         let before = mapped(&self.source);
         let plan = self.run.run_tick(tick);
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
+        assert_eq!(
+            tick_diagnostics(&plan),
+            diagnostics,
+            "Tick {tick}'s diagnostics"
+        );
         assert_eq!(
             mapped(&self.source),
             before,
@@ -129,37 +156,6 @@ impl Run {
         assert_eq!(
             self.adapter.command_lists().last(),
             Some(&delivery(tick, values)),
-            "Tick {tick}'s delivery"
-        );
-        self.next += 1;
-        self.delivered += 1;
-        assert_eq!(
-            self.adapter.command_lists().len(),
-            self.delivered,
-            "deliveries after Tick {tick}"
-        );
-    }
-
-    ///
-    /// Runs the next Tick and asserts `CUT`'s Control Change is diagnosed for
-    /// its Slew's `value` and sends nothing, while the bassline plays and
-    /// `RES` sends `resonance`.
-    ///
-    fn expect_cutoff_out_of_range(&mut self, value: &str, resonance: u8) {
-        let tick = self.next;
-        let plan = self.run.run_tick(tick);
-        assert_eq!(
-            tick_diagnostics(&plan),
-            vec![(
-                2,
-                CUT_ROW,
-                format!("MIDI value {value} is outside the range 00–7F")
-            )],
-            "Tick {tick}'s diagnostics"
-        );
-        assert_eq!(
-            self.adapter.command_lists().last(),
-            Some(&delivery(tick, &[(RESONANCE, resonance)])),
             "Tick {tick}'s delivery"
         );
         self.next += 1;
@@ -226,24 +222,6 @@ impl Run {
         });
         line
     }
-}
-
-///
-/// `text` with each of `edits`, a row, a column, the Cells there and what
-/// replaces them, applied in order: edits the guide documents, applied to the
-/// shipped file. A row past the file's end is added empty first.
-///
-fn edited(text: &str, edits: &[(usize, usize, &str, &str)]) -> String {
-    let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
-    for &(row, column, before, after) in edits {
-        if rows.len() <= row {
-            rows.resize(row + 1, String::new());
-        }
-        replace_at(&mut rows, row, column, before, after);
-    }
-    let mut text = rows.join("\n");
-    text.push('\n');
-    text
 }
 
 ///

@@ -1727,6 +1727,36 @@ mod tests {
     }
 
     ///
+    /// The Control Change an adapter is handed for `controller` set to `value`
+    /// on `channel`, stated as the three Numbers a Source writes.
+    ///
+    fn control_change(channel: u8, controller: u8, value: u8) -> OutputCommand {
+        OutputCommand::ControlChange {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            controller: Controller::try_from(controller).expect("a MIDI data byte"),
+            value: ControlValue::try_from(value).expect("a MIDI data byte"),
+        }
+    }
+
+    ///
+    /// `text` with each of `edits`, a row, a column, the Cells there and what
+    /// replaces them, applied in order: edits a guide documents, applied to the
+    /// shipped file. A row past the file's end is added empty first.
+    ///
+    fn edited(text: &str, edits: &[(usize, usize, &str, &str)]) -> String {
+        let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
+        for &(row, column, before, after) in edits {
+            if rows.len() <= row {
+                rows.resize(row + 1, String::new());
+            }
+            replace_at(&mut rows, row, column, before, after);
+        }
+        let mut text = rows.join("\n");
+        text.push('\n');
+        text
+    }
+
+    ///
     /// `rows[row]` with `before` at `column` replaced by `after`, asserting
     /// `before` stands there first, so an edit a guide documents cannot land
     /// on Cells the shipped file has moved.
@@ -3657,11 +3687,15 @@ mod tests {
 
         engine.start(period).unwrap();
         settle(&engine).await;
-        assert_eq!(value(&source), "04", "Tick 0 began from an emptied value");
+        assert_eq!(
+            value(&source),
+            "04",
+            "the new run's Tick 0 moved the Slew on from the 03 it was left at"
+        );
         time::sleep(period).await;
         settle(&engine).await;
         assert_eq!(engine.observation().tick, Tick::new(1));
-        assert_eq!(value(&source), "05");
+        assert_eq!(value(&source), "05", "Tick 1 moved the Slew on again");
 
         engine.rewind();
         settle(&engine).await;
@@ -3670,7 +3704,7 @@ mod tests {
         assert_eq!(
             value(&source),
             "06",
-            "the live Rewind's Tick 0 began afresh"
+            "the live Rewind's Tick 0 moved the Slew on from the 05 it was left at"
         );
     }
 

@@ -10,8 +10,7 @@
 //! Playback cannot pass both.
 
 use super::{
-    HandDrivenRun, assert_guide_draws, functions_mapped, note_on, replace_at, stop,
-    tick_diagnostics,
+    HandDrivenRun, assert_guide_draws, edited, functions_mapped, note_on, stop, tick_diagnostics,
 };
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{SourceCommander, file};
@@ -58,21 +57,6 @@ fn assert_delivers(text: &str, expected: &[Vec<OutputCommand>]) {
         );
     }
     assert_eq!(adapter.command_lists().len(), expected.len(), "deliveries");
-}
-
-///
-/// `text` with each of `edits`, a row, a column, the Cells there and what
-/// replaces them, applied in order: edits the guide documents, applied to the
-/// shipped file.
-///
-fn edited(text: &str, edits: &[(usize, usize, &str, &str)]) -> String {
-    let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
-    for &(row, column, before, after) in edits {
-        replace_at(&mut rows, row, column, before, after);
-    }
-    let mut text = rows.join("\n");
-    text.push('\n');
-    text
 }
 
 ///
