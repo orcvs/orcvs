@@ -1,6 +1,6 @@
 # 01 — Publish Kombine with a worked Tracker transfer
 
-Status: ready-for-agent
+Status: ready-for-human
 Blocked by: None — can start immediately
 
 **What to build:** A musician opens Kombine from Help → Examples, hears three
@@ -58,12 +58,16 @@ Automated evidence:
 - `orcvs/src/playback/tests/shipped_kombine.rs` runs the shipped
   `examples/kombine.orcvs` through `HandDrivenRun`. It checks the twelve-Tick
   pitch and velocity cycle and its wrap at Ticks 12 and 13, and the three
-  accent steps, where the loud `70` lands on every C4. Each expected delivery
-  is written out Tick by Tick. No Tick diagnoses anything, the Language Map
-  diagnoses no Function at load, and the guide draws every row the tests run.
+  accent steps, where the loud `70` lands on every C4, and each of the two
+  single-operand edits the guide warns about. Each expected delivery is
+  written out Tick by Tick. No Tick diagnoses anything. At load the Language
+  Map diagnoses no Function, and diagnoses each Cell of the Tracks' data,
+  and nothing else, as an unknown Function and as a character that starts no
+  Language Unit. The guide draws every row the tests run.
 - `orcvs/src/playback/tests/shipped_trackers.rs` builds the transferred
   Tracker from both shipped files and the guide's edits, and checks that the
-  guide draws each changed row. Over two loops the hat plays `70 30 50 40` in
+  guide draws each changed row: rows 6, 7, 32 and 33, and row 34 empty, as
+  it stands before the first Tick. Over two loops the hat plays `70 30 50 40` in
   order, every other voice keeps `77`, and nothing is diagnosed. With the hat
   hit on step 2 cleared, step 4 still plays `50` and step 8 still plays `70`.
 - In the transferred Tracker, the hat's Play waits on the accent Track below
@@ -78,8 +82,10 @@ Console evidence (automated in a headless harness, not by a person):
   follows the transfer with the console's menus, keys and clipboard events:
   Help > Examples > Kombine, Shift-arrow Region, Copy, Help > Examples >
   Tracker, Paste at (2, 32), type `2`, cut and paste the hat's Every, then
-  Delete and retype the Play. Ticks run against the console's Source and
-  show the same accents.
+  Delete and retype the Play, pasting what the Copy and the Cut put on the
+  clipboard. Ticks run against the console's Source and show the same
+  accents, and every other voice plays the shipped Tracker's notes on the
+  same Ticks.
 - `three_kombine_accent_steps_typed_in_the_console_keep_the_loud_accent_on_c`
   types the three-step edit.
 - Following the guide in the harness found one discrepancy, which the guide
@@ -87,11 +93,13 @@ Console evidence (automated in a headless harness, not by a person):
   hat cannot be moved by typing a row that holds spaces. The guide now uses
   a cut and paste for the Every, and Delete then arrow keys for the Play.
 
-Offline render (not listening): a scratch program sent the delivered Notes
+Offline render (not listening evidence, and not reproducible from the
+repository): a scratch program, not committed, sent the delivered Notes
 through `synth::Synth`, the Rust Built-in Synth, to WAV. On the hat alone, the
 transferred Tracker's onset peaks are 0.196, 0.085, 0.141 and 0.113 for `70`,
 `30`, `50` and `40`, in proportion to velocity. The shipped Tracker's hat is
-0.209 on every hit. The program and the WAV files are not part of the change.
+0.209 on every hit. Neither the program nor the WAV files are in the
+repository, so these figures are a note, not evidence a reviewer can rerun.
 
 Remaining for a person:
 
@@ -99,6 +107,6 @@ Remaining for a person:
   three-step edit, follow the transfer into the Tracker and listen to the hat.
 - Record what you hear, and fix the guide or Source wherever the result
   differs.
-- In the full mix the kick dominates each step's peak. The loudest accent,
-  `70`, is also slightly below the shipped hat's `77`, so listen for whether
-  the accents stand out enough.
+- Listen for whether the accents stand out in the full mix, beside the kick
+  on the same steps. The loudest accent, `70`, is slightly below the shipped
+  hat's `77`.
