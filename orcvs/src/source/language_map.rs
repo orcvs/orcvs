@@ -1397,9 +1397,7 @@ mod tests {
         );
     }
 
-    fn cell(grid: Grid, idx: usize) -> crate::grid::CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
-    }
+    use crate::source::rows::cell;
 
     fn span(grid: Grid, start: usize, end: usize) -> Span {
         Span::new(grid, cell(grid, start), cell(grid, end))

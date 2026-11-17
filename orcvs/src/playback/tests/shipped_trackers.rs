@@ -408,7 +408,7 @@ fn a_half_typed_step_silences_only_its_own_voice() {
             .expect("the shipped file is a Source File"),
     );
     let grid = source.grid();
-    source.unset(super::cell(grid, 15 * grid.columns() + 13));
+    source.unset(crate::source::rows::at(grid, 13, 15));
 
     let plan = source.execute(Tick::ZERO);
 

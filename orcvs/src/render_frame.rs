@@ -572,20 +572,14 @@ mod tests {
     use std::sync::{Arc, Barrier};
 
     use crate::{
-        grid::{CellIndex, Grid},
+        grid::Grid,
         opts::{CursorBloomRadius, SectorSeamSpacing},
         region::Region,
         render_frame::{PortalRole, PortalRoles, RenderFrame, RenderFrameConfig},
         source::{OperandState, SourceCommander, SourcePaint, Span, Tick, Token},
     };
 
-    ///
-    /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
-    /// minted, so a test states the number and the Grid answers with the Cell.
-    ///
-    fn cell(grid: Grid, idx: usize) -> CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
-    }
+    use crate::source::rows::cell;
 
     fn cell_at(frame: &RenderFrame, position: crate::grid::Position) -> &super::RenderCell {
         frame.at(position)

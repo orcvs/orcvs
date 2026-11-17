@@ -195,13 +195,11 @@ impl Attempt<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::{StalePlan, TickCommit};
-    use crate::grid::{CellIndex, Grid};
+    use crate::grid::Grid;
     use crate::source::tick::observed::raw_c4;
     use crate::source::{OPTIMISTIC_TICK_ATTEMPTS, PortalEvent, SourceCommander, Tick};
 
-    fn cell(grid: Grid, idx: usize) -> CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
-    }
+    use crate::source::rows::cell;
 
     fn type_at(source: &SourceCommander, start: usize, text: &str) {
         let grid = source.grid();

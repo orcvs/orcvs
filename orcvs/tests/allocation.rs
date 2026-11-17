@@ -269,11 +269,7 @@ const RESTORED: &str = "0";
 /// so the rebuild does the full parse an accepted edit pays for.
 const EDITED_VALID: &str = "3";
 
-/// The index `grid` mints for `idx`. A Cell is named by an index its Grid
-/// minted, so a test states the number and the Grid answers with the Cell.
-fn cell(grid: Grid, idx: usize) -> CellIndex {
-    grid.cell_index(idx).expect("inside the Grid")
-}
+use orcvs::source::rows::cell;
 
 /// One Cell per Grid Position, as `orcvs/benches/source.rs` builds it.
 fn source_text(cols: usize, rows: usize) -> String {

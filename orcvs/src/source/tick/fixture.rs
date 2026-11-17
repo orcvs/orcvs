@@ -3,36 +3,11 @@
 //! readings of the plans they commit.
 
 use crate::grid::{CellIndex, Grid};
+pub(super) use crate::source::rows::{cell, rows_of, seeded_source, snapshot};
 use crate::source::{Diagnostic, TickPlan};
 use lang::Atom;
 
 use super::{Effect, Encoding, Portal, Tick, execution::ComputationState};
-
-///
-/// Builds one Source Snapshot from `rows`, padded to the Grid's width.
-///
-pub(super) fn snapshot(grid: Grid, rows: &[&str]) -> String {
-    let width = grid.count() / rows.len();
-    rows.iter().map(|row| format!("{row:width$}")).collect()
-}
-
-///
-/// One Source built from `rows`, its Cells set one at a time as an editor
-/// sets them.
-///
-/// Shared by every helper that runs a Tick against stated rows, so that
-/// comparing two of them compares what they do differently and never two
-/// ways of building a Source.
-///
-pub(super) fn seeded_source(grid: Grid, rows: &[&str]) -> crate::source::Source {
-    let mut source = crate::source::Source::new(grid);
-    for (index, byte) in snapshot(grid, rows).bytes().enumerate() {
-        source
-            .set(cell(grid, index), &char::from(byte).to_string())
-            .unwrap();
-    }
-    source
-}
 
 ///
 /// Runs one Tick against `rows` with the Portal destinations `outputs`
@@ -133,23 +108,6 @@ pub(super) fn carried_destinations(
             .push(grid.position_at(cell(grid, *output)));
     }
     carried
-}
-
-///
-/// The committed Source as one string per Grid row.
-///
-/// A Self-Banging Function is specified by where its Cells are, so a test
-/// of one states a Grid and compares a Grid. Reading the same fact off a
-/// list of Cell indices states the arithmetic instead of the geometry, and
-/// an expectation nobody can picture is one nobody can check.
-///
-pub(super) fn rows_of(grid: Grid, source: &crate::source::Source) -> Vec<String> {
-    source
-        .snapshot()
-        .into_bytes()
-        .chunks(grid.columns())
-        .map(|row| String::from_utf8(row.to_vec()).expect("ASCII Source"))
-        .collect()
 }
 
 ///
@@ -255,14 +213,6 @@ pub(super) fn stated_tick(
     );
     let plan = source.commit_tick(executed);
     (plan, states, source)
-}
-
-///
-/// The index `grid` mints for `idx`, so a test states an expected planned
-/// write in the same terms a Tick Plan carries.
-///
-pub(super) fn cell(grid: Grid, idx: usize) -> CellIndex {
-    grid.cell_index(idx).expect("inside the Grid")
 }
 
 ///

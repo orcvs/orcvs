@@ -651,13 +651,7 @@ mod test {
         );
     }
 
-    ///
-    /// The index `grid` mints for `idx`, so a test states a destination Cell
-    /// in the same terms a Tick Plan carries.
-    ///
-    fn cell(grid: Grid, idx: usize) -> CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
-    }
+    use crate::source::rows::cell;
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {
         portal.language_unit(Cells::of(working), |cells| {
