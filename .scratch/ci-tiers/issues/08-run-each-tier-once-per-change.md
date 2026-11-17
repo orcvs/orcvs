@@ -32,3 +32,9 @@ The change skips steps, never jobs: on `merge_group`, `changes`, `full-gate`, `m
 queue's ruleset requires still reports on every queued candidate, and the setting needs no change.
 The narrower guarantee this leaves is stated in `docs/tooling.md`: Linux-only and WASM-only
 conflicts between queued pull requests surface on the push run rather than in the queue.
+
+The queue rollout plan `docs/tooling.md` carried named these starting ruleset values: build
+concurrency 1, minimum and maximum merge group size 1, a 30-minute status-check timeout, and the
+strict up-to-date requirement disabled, because the queue validates against the current base
+itself. They are recorded here as that plan; the repository settings are the authority on what is
+configured now.

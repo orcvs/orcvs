@@ -52,3 +52,19 @@ What the engine owns is unchanged: one voice per channel, the generation token, 
 actions that clear them. Only the order of the messages a replacement sends, and whether it sends a
 Note Off at a pitch already sounding, depend on `legato`. An external synth slides only with its
 portamento on; a synth that retriggers on every Note On hears legato as an ordinary replacement.
+
+## Amendment, 2026-11-16: only the first Monophonic Play on a channel takes over
+
+Confirmed on 2026-11-16 at review of the takeover rule above. Two limits on taking over a
+due stop, which the rule did not state:
+
+- Only the first Monophonic Play to reach a channel in a Tick may take over that channel's due
+  stop. If it does not slide, the stop is delivered at the beginning of the Tick as any due stop
+  is, and a later legato Monophonic Play on that channel in the same Tick replaces the note the
+  first one started without taking over anything. Each Tick's message order on a channel is then
+  fixed by its first Mono command alone.
+- Only a Mono-owned stop can be taken over. A Timed note ending on the same channel at that Tick
+  is stopped at the beginning of the Tick whatever the `legato`, since the Mono voice never owned
+  it.
+
+Output does not change; this records what the engine already did.

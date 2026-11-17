@@ -79,7 +79,7 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
   console_web_build` and `mise run site_build`.
 - `.github/workflows/site.yml`, `.github/workflows/console-web.yml` or `mise.toml`: the tooling
   gates in `CLAUDE.md`.
-- `.scratch/`: the roadmap gates in `CLAUDE.md`.
+- `.scratch/`: `mise run check_docs`.
 
 An outside skill, such as a design skill, is read and pinned to a commit before it is used,
 never followed from an upstream branch.

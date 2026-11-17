@@ -627,7 +627,7 @@ impl<'a> Execution<'a> {
         match dependencies::refusal(&reached, written, delivery, &self.turns) {
             // The fact that differed, not the list of facts that could have.
             // Each is argued on `ReplacementChange`, and the wording is
-            // CONTEXT.md's, so the diagnostic continues the glossary's own
+            // EVAL-040's, so the diagnostic continues the rule's own
             // sentence about what a replacement may not change.
             Some(Refusal::Replacement(change)) => {
                 self.effects.push(Effect::Diagnose(diagnose(
