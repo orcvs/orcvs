@@ -55,7 +55,7 @@ function fail(reason: unknown) {
   failure = document.createElement("p");
   failure.className = "orcvs-small orcvs-small-failed";
   failure.setAttribute("role", "status");
-  failure.textContent = "The console didn't start. Press an example to try again.";
+  failure.textContent = "The console did not start. Press an example to try again.";
   document.body.append(failure);
 }
 

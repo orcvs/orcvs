@@ -21,9 +21,11 @@ const GITHUB_DOCS = "https://github.com/orcvs/orcvs/blob/main/docs/";
 /** Where a link in a rendered doc goes on the site. */
 function siteLink(url: string): string {
   if (/^[a-z]+:|^#|^\//.test(url)) return url;
-  const [file, fragment] = url.split(/(?=#)/);
-  if (file === "first-result.md") return "/learn/" + (fragment ?? "");
-  if (file === "functions.md") return "/reference/" + (fragment ?? "");
+  const hash = url.indexOf("#");
+  const file = hash === -1 ? url : url.slice(0, hash);
+  const fragment = hash === -1 ? "" : url.slice(hash);
+  if (file === "first-result.md") return "/learn/" + fragment;
+  if (file === "functions.md") return "/reference/" + fragment;
   return new URL(url, GITHUB_DOCS).href;
 }
 
@@ -36,8 +38,9 @@ function plugin(holdsSource: (lang: string | null | undefined) => boolean) {
     link(node, context) {
       context.setProperty(node, "url", siteLink(node.url));
     },
-    // A Source is drawn as a Grid. A starting Source, a block with no `tick` after its language,
-    // opens in the page's small console when pressed.
+    // A Source is drawn as a Grid. A starting Source, a block with nothing after its language,
+    // opens in the page's small console when pressed; any meta, such as the reference's `tick 0`
+    // or the lesson's `result`, marks a Grid that is drawn but does not open.
     code(node, context) {
       if (!holdsSource(node.lang)) return;
       context.replaceNode(node, { type: "html", value: gridHtml(node.value, !node.meta) });

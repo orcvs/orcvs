@@ -25,3 +25,8 @@ that Grid, unasked on the web, beside a Reference item that opens the page.
   replaces the reader's Grid without asking, where native asks. `docs/first-result.md`'s Next
   steps describes Help → Function Reference as replacing what is on the Grid; when this lands,
   point that line at the page and at Help → Examples → `Functions` instead.
+- 2026-11-18: The site's sidebar names the two pages "Your first result" and "Function
+  reference", after the docs' own titles, while Help names them Learn and Reference
+  (`console/src/console/menu_bar.rs`). This ticket already renames Reference to Function
+  Reference; when it lands, decide whether Learn becomes Your First Result too, so a reader who
+  follows Help sees the name the page carries.

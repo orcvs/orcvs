@@ -389,7 +389,7 @@ and D6, not the tones of `C413` an octave up.
 ## Pitch
 
 Each derives a Note or an Interval Set from the Notes and Interval Sets it reads, and runs every
-Tick. A `note` or `root` that does not spell a Note, such as `3C`, is refused. Up, Down and Pick
+Tick. A `note` or `root` that does not spell a Note, such as `3C`, is an error. Up, Down and Pick
 answer a Note: an answer outside `00` to `7F` is an error and writes nothing, so a Note never wraps.
 Stack answers an Interval Set: when no name holds the semitones it reaches, it is an error and writes
 nothing.
@@ -1016,7 +1016,8 @@ After Tick `0`:
 ### `@$` Absolute Write
 
 `@$ at value` writes `value` at a Position, two Numbers, column then row. A Read in its `value`, such as
-`@$0003&$0005`, copies one pair to another; an empty source pair is a Clear, which is an error.
+`@$0003&$0005`, copies one pair to another. For an empty source pair the Read answers a Clear,
+which leaves the Write in error.
 
 ```orcvs
 @$0002C4
@@ -1240,7 +1241,8 @@ After Tick `0`, the Add did not run:
 These perform an effect: each sends one MIDI message when a Bang reaches it, except a Chord Play,
 which sends one per tone, and writes nothing into the Source. Each is inert until a Bang reaches
 it. An operand outside its range is an error and sends nothing. Choose a MIDI destination under
-the Panel's **O** to hear them.
+the Panel's **O** to hear them; on the Orcvs site, the [Built-in Synth](#built-in-synth) plays
+them.
 
 | Operand | Range |
 |---|---|
