@@ -1,31 +1,282 @@
-//! The MIDI controller numbers that set a channel's effects, under the
-//! effects' Orcvs names, and the acid voice's own. ADR 0088's table gives each
-//! effect's MIDI name; on the acid channel `EQ` and `LN` are its cutoff and
-//! decay.
+//! What a Control Change does on a channel: the MIDI controller numbers the
+//! synth answers, under the effects' Orcvs names, what each one means for the
+//! channel's `Part`, and the value each loads at. ADR 0088's table gives
+//! each effect's MIDI name.
+
+use crate::Part;
 
 /// Modulation: vibrato on the channel.
-pub(crate) const MD: u8 = 1;
-/// Brightness: one tilt on the channel.
-pub(crate) const EQ: u8 = 74;
-/// Decay Time: how long each new sound on the channel decays.
-pub(crate) const LN: u8 = 75;
+pub const MD: u8 = 1;
+/// Brightness: one tilt on the channel. On the acid channel, the voice's
+/// cutoff.
+pub const EQ: u8 = 74;
+/// Decay Time: how long each new sound on the channel decays. On the acid
+/// channel, the voice's decay.
+pub const LN: u8 = 75;
 /// How far into its course each new sound on the channel starts.
-pub(crate) const OF: u8 = 85;
+pub const OF: u8 = 85;
 /// Effects 1 Depth: the send to the small reverb.
-pub(crate) const R1: u8 = 91;
+pub const R1: u8 = 91;
 /// Effects 2 Depth: the send to the large reverb.
-pub(crate) const R2: u8 = 92;
+pub const R2: u8 = 92;
 /// Effects 3 Depth: the send to the chorus.
-pub(crate) const CH: u8 = 93;
+pub const CH: u8 = 93;
 /// Effects 4 Depth: the send to the echo.
-pub(crate) const DL: u8 = 94;
+pub const DL: u8 = 94;
+/// All Sound Off: releases what the channel holds.
+pub const ALL_SOUND_OFF: u8 = 120;
 /// Reset All Controllers: clears `MD` on its channel and leaves the other
 /// effects as they are.
-pub(crate) const RESET: u8 = 121;
+pub const RESET: u8 = 121;
+/// All Notes Off: releases what the channel holds.
+pub const ALL_NOTES_OFF: u8 = 123;
 /// Sound Controller 1: the acid voice's waveform.
-pub(crate) const WAVEFORM: u8 = 70;
+pub const WAVEFORM: u8 = 70;
 /// Sound Controller 2 (Timbre/Harmonic Intensity): the acid voice's
 /// resonance.
-pub(crate) const RESONANCE: u8 = 71;
+pub const RESONANCE: u8 = 71;
 /// Sound Controller 10: the acid voice's envelope depth.
-pub(crate) const ENV_MOD: u8 = 79;
+pub const ENV_MOD: u8 = 79;
+
+/// What a Control Change means on a channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Control {
+    /// Releases what the channel holds.
+    Release,
+    /// Returns the channel's performance controllers to their load values.
+    Reset,
+    /// Sets one of the channel's own effects.
+    Effect(Effect),
+    /// Sets one of the acid voice's controls.
+    Acid(AcidControl),
+}
+
+/// One of a channel's own effects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Effect {
+    /// `MD`.
+    Vibrato,
+    /// `EQ`.
+    Tilt,
+    /// `LN`.
+    Length,
+    /// `OF`.
+    Offset,
+    /// `CH`, `DL`, `R1` or `R2`.
+    Send(Send),
+}
+
+/// One of the four shared effects a channel sends to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Send {
+    Chorus,
+    Delay,
+    Small,
+    Large,
+}
+
+/// One of the acid voice's controls. They are Sound Controllers, which Reset
+/// All Controllers leaves alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AcidControl {
+    Waveform,
+    Resonance,
+    Cutoff,
+    Decay,
+    EnvMod,
+}
+
+impl Control {
+    /// What `controller` means on a channel playing `part`, or `None` for a
+    /// controller that changes nothing there.
+    ///
+    /// The acid voice's own controls come first, so on its channel `EQ` and
+    /// `LN` are its cutoff and decay and never the channel's tilt and length.
+    pub(crate) fn of(part: Part, controller: u8) -> Option<Self> {
+        if part == Part::Acid
+            && let Some(control) = AcidControl::on(controller)
+        {
+            return Some(Self::Acid(control));
+        }
+        Some(match controller {
+            ALL_SOUND_OFF | ALL_NOTES_OFF => Self::Release,
+            RESET => Self::Reset,
+            MD => Self::Effect(Effect::Vibrato),
+            EQ => Self::Effect(Effect::Tilt),
+            LN => Self::Effect(Effect::Length),
+            OF => Self::Effect(Effect::Offset),
+            CH => Self::Effect(Effect::Send(Send::Chorus)),
+            DL => Self::Effect(Effect::Send(Send::Delay)),
+            R1 => Self::Effect(Effect::Send(Send::Small)),
+            R2 => Self::Effect(Effect::Send(Send::Large)),
+            _ => return None,
+        })
+    }
+}
+
+impl Effect {
+    /// The effects Reset All Controllers returns to their load values:
+    /// Modulation, a performance controller. The Sound and Effect
+    /// Controllers, and `OF` beside them, stay as they are, as RP-015 has it.
+    pub(crate) const RESET: [Self; 1] = [Self::Vibrato];
+
+    /// The Control Change value the effect holds until one is sent: no
+    /// vibrato, a flat tilt, a sound's whole length from its start, and
+    /// nothing sent.
+    pub(crate) const fn load(self) -> u8 {
+        match self {
+            Self::Tilt => 0x40,
+            Self::Length => 0x7F,
+            Self::Vibrato | Self::Offset | Self::Send(_) => 0x00,
+        }
+    }
+}
+
+impl AcidControl {
+    /// The control `controller` sets, if it is one of the voice's.
+    fn on(controller: u8) -> Option<Self> {
+        Some(match controller {
+            WAVEFORM => Self::Waveform,
+            RESONANCE => Self::Resonance,
+            EQ => Self::Cutoff,
+            LN => Self::Decay,
+            ENV_MOD => Self::EnvMod,
+            _ => return None,
+        })
+    }
+
+    /// The Control Change value the control holds until one is sent. Together
+    /// they make an acid sound with no Control Change.
+    pub(crate) const fn load(self) -> u8 {
+        match self {
+            Self::Waveform => 0x00,
+            Self::Resonance | Self::EnvMod => 0x50,
+            Self::Cutoff | Self::Decay => 0x30,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PARTS: [Part; 3] = [Part::Tone, Part::Acid, Part::Kit];
+
+    /// Every controller a channel's own effects answer, with its meaning.
+    const EFFECTS: [(u8, Effect); 8] = [
+        (MD, Effect::Vibrato),
+        (EQ, Effect::Tilt),
+        (LN, Effect::Length),
+        (OF, Effect::Offset),
+        (CH, Effect::Send(Send::Chorus)),
+        (DL, Effect::Send(Send::Delay)),
+        (R1, Effect::Send(Send::Small)),
+        (R2, Effect::Send(Send::Large)),
+    ];
+
+    /// Every controller the acid voice answers, with its meaning.
+    const ACID: [(u8, AcidControl); 5] = [
+        (WAVEFORM, AcidControl::Waveform),
+        (RESONANCE, AcidControl::Resonance),
+        (EQ, AcidControl::Cutoff),
+        (LN, AcidControl::Decay),
+        (ENV_MOD, AcidControl::EnvMod),
+    ];
+
+    #[test]
+    fn a_tone_or_kit_channel_answers_each_effect_controller_as_its_effect() {
+        for part in [Part::Tone, Part::Kit] {
+            for (controller, effect) in EFFECTS {
+                assert_eq!(
+                    Control::of(part, controller),
+                    Some(Control::Effect(effect)),
+                    "{part:?}, controller {controller}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_acid_channel_answers_its_voices_controllers_as_the_voices_controls() {
+        for (controller, control) in ACID {
+            assert_eq!(
+                Control::of(Part::Acid, controller),
+                Some(Control::Acid(control)),
+                "controller {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_acid_channel_answers_every_other_effect_controller_as_its_effect() {
+        for (controller, effect) in EFFECTS {
+            if ACID.iter().any(|&(taken, _)| taken == controller) {
+                continue;
+            }
+            assert_eq!(
+                Control::of(Part::Acid, controller),
+                Some(Control::Effect(effect)),
+                "controller {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_acid_voices_own_controllers_change_nothing_on_another_channel() {
+        for part in [Part::Tone, Part::Kit] {
+            for controller in [WAVEFORM, RESONANCE, ENV_MOD] {
+                assert_eq!(
+                    Control::of(part, controller),
+                    None,
+                    "{part:?}, controller {controller}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_channel_answers_the_channel_mode_controllers_alike() {
+        for part in PARTS {
+            assert_eq!(Control::of(part, ALL_SOUND_OFF), Some(Control::Release));
+            assert_eq!(Control::of(part, ALL_NOTES_OFF), Some(Control::Release));
+            assert_eq!(Control::of(part, RESET), Some(Control::Reset));
+        }
+    }
+
+    #[test]
+    fn every_controller_outside_the_table_changes_nothing() {
+        let known = [
+            MD,
+            EQ,
+            LN,
+            OF,
+            R1,
+            R2,
+            CH,
+            DL,
+            ALL_SOUND_OFF,
+            RESET,
+            ALL_NOTES_OFF,
+            WAVEFORM,
+            RESONANCE,
+            ENV_MOD,
+        ];
+        for part in PARTS {
+            for controller in (0..=0x7F).filter(|controller| !known.contains(controller)) {
+                assert_eq!(
+                    Control::of(part, controller),
+                    None,
+                    "{part:?}, controller {controller}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn each_control_loads_at_its_tables_value() {
+        let effects: Vec<u8> = EFFECTS.iter().map(|&(_, effect)| effect.load()).collect();
+        assert_eq!(effects, [0x00, 0x40, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        let acid: Vec<u8> = ACID.iter().map(|&(_, control)| control.load()).collect();
+        assert_eq!(acid, [0x00, 0x50, 0x30, 0x30, 0x50]);
+    }
+}

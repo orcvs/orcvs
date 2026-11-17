@@ -2,7 +2,7 @@
 //! them.
 
 use crate::chorus::Chorus;
-use crate::controller::{CH, DL, R1, R2};
+use crate::controller::Send;
 use crate::delay::Delay;
 use crate::reverb::Reverb;
 
@@ -19,25 +19,23 @@ pub(crate) struct Sends<C, D = C, S = C, L = S> {
 }
 
 impl<T> Sends<T> {
-    /// Four values, each made by `make`.
-    pub(crate) fn from_fn(mut make: impl FnMut() -> T) -> Self {
+    /// Four values, each made by `make` for its send.
+    pub(crate) fn from_fn(mut make: impl FnMut(Send) -> T) -> Self {
         Self {
-            chorus: make(),
-            delay: make(),
-            small: make(),
-            large: make(),
+            chorus: make(Send::Chorus),
+            delay: make(Send::Delay),
+            small: make(Send::Small),
+            large: make(Send::Large),
         }
     }
 
-    /// The one sent on `controller`, if it is a send's: `CH`, `DL`, `R1` or
-    /// `R2`.
-    pub(crate) fn on(&mut self, controller: u8) -> Option<&mut T> {
-        match controller {
-            CH => Some(&mut self.chorus),
-            DL => Some(&mut self.delay),
-            R1 => Some(&mut self.small),
-            R2 => Some(&mut self.large),
-            _ => None,
+    /// The one for `send`.
+    pub(crate) fn of(&mut self, send: Send) -> &mut T {
+        match send {
+            Send::Chorus => &mut self.chorus,
+            Send::Delay => &mut self.delay,
+            Send::Small => &mut self.small,
+            Send::Large => &mut self.large,
         }
     }
 

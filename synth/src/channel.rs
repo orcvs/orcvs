@@ -1,7 +1,7 @@
 //! One channel's strip: its own effects, how each new sound on it starts,
 //! and what it sends the shared effects.
 
-use crate::controller::{EQ, LN, MD, OF, RESET};
+use crate::controller::Effect;
 use crate::sends::{Mix, Sends};
 use crate::smoothing::Smoothing;
 use crate::tilt::Tilt;
@@ -13,6 +13,12 @@ const MAX_OFFSET: f32 = 0.1;
 /// The share of its own length a sound keeps at `LN` `00`; `7F` keeps all of
 /// it.
 const SHORTEST: f32 = 0.02;
+
+/// How much of the channel a send takes at a Control Change value, from `0`
+/// to `1`.
+fn gain(value: u8) -> f32 {
+    f32::from(value) / 127.0
+}
 
 /// How a new sound on a channel starts and decays, from its `OF` and `LN`.
 #[derive(Clone, Copy)]
@@ -51,31 +57,32 @@ pub(crate) struct Channel {
 impl Channel {
     pub(crate) fn new(sample_rate: f32) -> Self {
         Self {
-            vibrato: Vibrato::new(sample_rate),
-            tilt: Tilt::new(sample_rate),
-            offset: 0,
-            length: 0x7F,
-            sends: Sends::from_fn(|| Smoothing::new(sample_rate, 0.0)),
+            vibrato: Vibrato::new(sample_rate, Effect::Vibrato.load()),
+            tilt: Tilt::new(sample_rate, Effect::Tilt.load()),
+            offset: Effect::Offset.load(),
+            length: Effect::Length.load(),
+            sends: Sends::from_fn(|send| {
+                Smoothing::new(sample_rate, gain(Effect::Send(send).load()))
+            }),
             idle: false,
         }
     }
 
-    /// Sets the effect on `controller` from a Control Change value. Reset All
-    /// Controllers clears Modulation, a performance controller, and leaves
-    /// the rest, the Sound and Effect Controllers and `OF` beside them, as
-    /// RP-015 has it. Any other controller changes nothing.
-    pub(crate) fn set(&mut self, controller: u8, value: u8) {
-        match controller {
-            MD => self.vibrato.set(value),
-            EQ => self.tilt.set(value),
-            LN => self.length = value,
-            OF => self.offset = value,
-            RESET => self.vibrato.set(0),
-            _ => {
-                if let Some(send) = self.sends.on(controller) {
-                    send.set(f32::from(value) / 127.0);
-                }
-            }
+    /// Sets `effect` from a Control Change value.
+    pub(crate) fn set(&mut self, effect: Effect, value: u8) {
+        match effect {
+            Effect::Vibrato => self.vibrato.set(value),
+            Effect::Tilt => self.tilt.set(value),
+            Effect::Length => self.length = value,
+            Effect::Offset => self.offset = value,
+            Effect::Send(send) => self.sends.of(send).set(gain(value)),
+        }
+    }
+
+    /// Returns each effect Reset All Controllers clears to its load value.
+    pub(crate) fn reset(&mut self) {
+        for effect in Effect::RESET {
+            self.set(effect, effect.load());
         }
     }
 
@@ -127,7 +134,7 @@ impl Channel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::{CH, DL, R1, R2};
+    use crate::controller::Send;
 
     const RATE: f32 = 48_000.0;
 
@@ -148,13 +155,19 @@ mod tests {
 
     #[test]
     fn a_channel_with_an_effect_turned_is_not_skipped_with_no_voice() {
-        for controller in [MD, R1, R2, CH, DL] {
+        for effect in [
+            Effect::Vibrato,
+            Effect::Send(Send::Small),
+            Effect::Send(Send::Large),
+            Effect::Send(Send::Chorus),
+            Effect::Send(Send::Delay),
+        ] {
             let mut channel = Channel::new(RATE);
-            channel.set(controller, 0x40);
-            assert!(channel.process(None).is_some(), "controller {controller}");
+            channel.set(effect, 0x40);
+            assert!(channel.process(None).is_some(), "{effect:?}");
         }
         let mut channel = Channel::new(RATE);
-        channel.set(EQ, 0x20);
+        channel.set(Effect::Tilt, 0x20);
         assert!(channel.process(None).is_some());
     }
 
@@ -163,16 +176,20 @@ mod tests {
         // Skipping the channel adds `Mix::default()`, so a resting channel
         // given silence must add exactly that for the skip to change nothing,
         // including once an effect has been turned and returned to rest.
-        for turned in [None, Some((MD, 0x7F, 0x00)), Some((EQ, 0x00, 0x40))] {
+        for turned in [
+            None,
+            Some((Effect::Vibrato, 0x7F, 0x00)),
+            Some((Effect::Tilt, 0x00, 0x40)),
+        ] {
             let mut channel = Channel::new(RATE);
-            if let Some((controller, away, _)) = turned {
-                channel.set(controller, away);
+            if let Some((effect, away, _)) = turned {
+                channel.set(effect, away);
             }
             for n in 0..RATE as usize / 2 {
                 channel.process(Some(signal(n)));
             }
-            if let Some((controller, _, back)) = turned {
-                channel.set(controller, back);
+            if let Some((effect, _, back)) = turned {
+                channel.set(effect, back);
             }
             let mut n = 0;
             while !channel.rests() {
@@ -193,19 +210,15 @@ mod tests {
     fn going_idle_forgets_what_the_channel_played() {
         // A vibrato turned up reads back over its line, and a tilt turned
         // reads its low band: neither may bring back the voice it held.
-        for (controller, value) in [(MD, 0x7F), (EQ, 0x00)] {
+        for (effect, value) in [(Effect::Vibrato, 0x7F), (Effect::Tilt, 0x00)] {
             let mut channel = Channel::new(RATE);
             for n in 0..1_000 {
                 channel.process(Some(signal(n)));
             }
-            assert_eq!(channel.process(None), None, "controller {controller}");
-            channel.set(controller, value);
+            assert_eq!(channel.process(None), None, "{effect:?}");
+            channel.set(effect, value);
             for _ in 0..RATE as usize / 10 {
-                assert_eq!(
-                    channel.process(None),
-                    Some(Mix::default()),
-                    "controller {controller}"
-                );
+                assert_eq!(channel.process(None), Some(Mix::default()), "{effect:?}");
             }
         }
     }
@@ -231,8 +244,8 @@ mod tests {
             }
         );
 
-        channel.set(LN, 0x00);
-        channel.set(OF, 0x7F);
+        channel.set(Effect::Length, 0x00);
+        channel.set(Effect::Offset, 0x7F);
         assert_eq!(
             channel.onset(),
             Onset {
@@ -242,7 +255,7 @@ mod tests {
         );
 
         // Reset All Controllers leaves both alone.
-        channel.set(RESET, 0);
+        channel.reset();
         assert_eq!(channel.onset().offset, MAX_OFFSET);
         assert_eq!(channel.onset().length, SHORTEST);
     }
