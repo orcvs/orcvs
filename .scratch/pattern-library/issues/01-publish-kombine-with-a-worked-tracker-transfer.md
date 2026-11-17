@@ -10,19 +10,27 @@ establishes the library's first release.
 
 - [ ] Ship a playable Source File and sibling guide, register Kombine under
       Help → Examples, and provide an index beside the examples linking the
-      Source and guide.
+      Source and guide. Registration is two edits today: `EXAMPLES` in
+      `console/src/examples.rs` and the positional `EXAMPLE_CONFIRMATIONS` in
+      `console/src/console/files.rs`. `example-discard/01` removes the second
+      list and has no ordering against this ticket, so whichever lands second
+      adapts. A registered example also gains a web link name, as every
+      registered example does.
 - [ ] Cycle C4, E4 and G4 against four velocity steps with a distinct loud
       accent. Specify cadence, channel and Note lifetime. Verify the delivered
       twelve-Tick pitch/velocity cycle, including its wrap.
 - [ ] Document and verify shortening the accent cycle to three steps by editing
-      both Clock period and Track count. The loud accent then returns to C.
+      both Clock `steps` and Track `count`. The loud accent then returns to C.
 - [ ] Place an Accent Comment above the copyable Clock, Track and velocity
       data. A coordinate diagram gives the Region's corners, runtime write
       space and output pair.
 - [ ] Give a worked transfer into Tracker with the destination coordinates,
       address changes and connection to the closed hi-hat's velocity operand.
       Set the accent Clock division to two so successive hat hits sample all
-      four velocities.
+      four velocities. Replacing the hat Play's two-Cell velocity literal with
+      a Read widens that operand and moves the Read east of it, so the guide
+      names every Cell that moves to keep the hat's Read under its Add and in
+      its pattern column, or Writes into the literal's Cells instead.
 - [ ] Verify the actual transferred Source, all four velocities and unaffected
       neighbouring voices. Delete a hat hit and verify that later accents keep
       their absolute-Tick phase.
