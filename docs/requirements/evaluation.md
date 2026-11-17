@@ -2,7 +2,7 @@
 
 This document states how one Tick turns a Source Snapshot into a committed Tick Plan: Turns, Dependencies, Reservations, Portals and their writes, activation, placement, the Tick-family time and feedback inputs, error containment, the commit, and the Tick Portals record. It does not state Function spellings, operand types or what each Function reads ([language](language.md)), the Playback clock, the Tick period and Overrun (PLAY-180 Tick Grid and PLAY-190 Overrun in [playback](playback.md)), or output delivery ([playback](playback.md)), how the console paints Portals ([console](console.md)), or the site ([site](site.md)). Terms are defined in [CONTEXT.md](../../CONTEXT.md); decisions are argued in [the ADRs](../adr/).
 
-> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 870a78e4).
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 5517e858).
 > Source ADRs: 0001, 0002, 0003, 0004, 0006, 0009, 0012, 0014, 0020, 0028, 0032, 0034, 0036, 0057,
 > 0060, 0061, 0063, 0065, 0067 (scheduling amendments), 0068, 0071, 0072, 0073, 0076 (Tick count
 > only), 0077, 0110.

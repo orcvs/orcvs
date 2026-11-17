@@ -13,7 +13,7 @@ A Linked Console and the Small Console are as `CONTEXT.md` defines them. Here a 
 one whose address uses `?example=`, `#source=` or `?small`, and the Small Console opens at
 `/play/?small`.
 
-> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 870a78e4).
+> Snapshot: incorporates ADRs through 0113 and ADR changes dated through 2026-11-16 (adr 5517e858).
 > Source ADRs: 0054, 0086, 0087, 0088, 0089, 0091, 0093, 0094, 0097, 0099, 0101, 0102, 0113.
 
 ## Opening a Source by link
