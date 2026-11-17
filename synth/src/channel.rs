@@ -81,7 +81,7 @@ impl Channel {
 
     /// Returns each effect Reset All Controllers clears to its load value.
     pub(crate) fn reset(&mut self) {
-        for effect in Effect::RESET {
+        for effect in Effect::CLEARED_BY_RESET {
             self.set(effect, effect.load());
         }
     }
@@ -112,9 +112,10 @@ impl Channel {
         None
     }
 
-    /// Whether every effect is at its load value and staying there, so that
-    /// silence on the channel adds nothing to the mix. Its offset and length
-    /// shape only sounds still to start.
+    /// Whether every effect is at its pass-through value and staying there,
+    /// so that silence on the channel adds nothing to the mix. Each effect
+    /// loads at its pass-through value, so a fresh channel rests. Its offset
+    /// and length shape only sounds still to start.
     fn rests(&self) -> bool {
         self.vibrato.rests() && self.tilt.rests() && self.sends.all(|send| send.rests_at(0.0))
     }
@@ -134,7 +135,7 @@ impl Channel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::Send;
+    use crate::controller::SharedEffect;
 
     const RATE: f32 = 48_000.0;
 
@@ -154,13 +155,44 @@ mod tests {
     }
 
     #[test]
+    fn every_effects_load_value_passes_the_channel_unchanged() {
+        // A channel rests only at each effect's pass-through value, so a
+        // load value that changed the sound would keep a fresh channel from
+        // going idle; one that rested anywhere else would skip what it plays.
+        assert!(Channel::new(RATE).rests());
+        for effect in [
+            Effect::Vibrato,
+            Effect::Tilt,
+            Effect::Length,
+            Effect::Offset,
+            Effect::Send(SharedEffect::Small),
+            Effect::Send(SharedEffect::Large),
+            Effect::Send(SharedEffect::Chorus),
+            Effect::Send(SharedEffect::Delay),
+        ] {
+            let mut channel = Channel::new(RATE);
+            for away in [0x00, 0x7F] {
+                channel.set(effect, away);
+                for n in 0..RATE as usize / 10 {
+                    channel.process(Some(signal(n)));
+                }
+                channel.set(effect, effect.load());
+                for n in 0..RATE as usize / 10 {
+                    channel.process(Some(signal(n)));
+                }
+                assert!(channel.rests(), "{effect:?} from {away:#04x}");
+            }
+        }
+    }
+
+    #[test]
     fn a_channel_with_an_effect_turned_is_not_skipped_with_no_voice() {
         for effect in [
             Effect::Vibrato,
-            Effect::Send(Send::Small),
-            Effect::Send(Send::Large),
-            Effect::Send(Send::Chorus),
-            Effect::Send(Send::Delay),
+            Effect::Send(SharedEffect::Small),
+            Effect::Send(SharedEffect::Large),
+            Effect::Send(SharedEffect::Chorus),
+            Effect::Send(SharedEffect::Delay),
         ] {
             let mut channel = Channel::new(RATE);
             channel.set(effect, 0x40);

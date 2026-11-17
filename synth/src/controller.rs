@@ -63,12 +63,12 @@ pub(crate) enum Effect {
     /// `OF`.
     Offset,
     /// `CH`, `DL`, `R1` or `R2`.
-    Send(Send),
+    Send(SharedEffect),
 }
 
 /// One of the four shared effects a channel sends to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Send {
+pub(crate) enum SharedEffect {
     Chorus,
     Delay,
     Small,
@@ -105,10 +105,10 @@ impl Control {
             EQ => Self::Effect(Effect::Tilt),
             LN => Self::Effect(Effect::Length),
             OF => Self::Effect(Effect::Offset),
-            CH => Self::Effect(Effect::Send(Send::Chorus)),
-            DL => Self::Effect(Effect::Send(Send::Delay)),
-            R1 => Self::Effect(Effect::Send(Send::Small)),
-            R2 => Self::Effect(Effect::Send(Send::Large)),
+            CH => Self::Effect(Effect::Send(SharedEffect::Chorus)),
+            DL => Self::Effect(Effect::Send(SharedEffect::Delay)),
+            R1 => Self::Effect(Effect::Send(SharedEffect::Small)),
+            R2 => Self::Effect(Effect::Send(SharedEffect::Large)),
             _ => return None,
         })
     }
@@ -118,7 +118,7 @@ impl Effect {
     /// The effects Reset All Controllers returns to their load values:
     /// Modulation, a performance controller. The Sound and Effect
     /// Controllers, and `OF` beside them, stay as they are, as RP-015 has it.
-    pub(crate) const RESET: [Self; 1] = [Self::Vibrato];
+    pub(crate) const CLEARED_BY_RESET: [Self; 1] = [Self::Vibrato];
 
     /// The Control Change value the effect holds until one is sent: no
     /// vibrato, a flat tilt, a sound's whole length from its start, and
@@ -168,10 +168,10 @@ mod tests {
         (EQ, Effect::Tilt),
         (LN, Effect::Length),
         (OF, Effect::Offset),
-        (CH, Effect::Send(Send::Chorus)),
-        (DL, Effect::Send(Send::Delay)),
-        (R1, Effect::Send(Send::Small)),
-        (R2, Effect::Send(Send::Large)),
+        (CH, Effect::Send(SharedEffect::Chorus)),
+        (DL, Effect::Send(SharedEffect::Delay)),
+        (R1, Effect::Send(SharedEffect::Small)),
+        (R2, Effect::Send(SharedEffect::Large)),
     ];
 
     /// Every controller the acid voice answers, with its meaning.

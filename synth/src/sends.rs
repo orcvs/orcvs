@@ -2,7 +2,7 @@
 //! them.
 
 use crate::chorus::Chorus;
-use crate::controller::Send;
+use crate::controller::SharedEffect;
 use crate::delay::Delay;
 use crate::reverb::Reverb;
 
@@ -20,22 +20,22 @@ pub(crate) struct Sends<C, D = C, S = C, L = S> {
 
 impl<T> Sends<T> {
     /// Four values, each made by `make` for its send.
-    pub(crate) fn from_fn(mut make: impl FnMut(Send) -> T) -> Self {
+    pub(crate) fn from_fn(mut make: impl FnMut(SharedEffect) -> T) -> Self {
         Self {
-            chorus: make(Send::Chorus),
-            delay: make(Send::Delay),
-            small: make(Send::Small),
-            large: make(Send::Large),
+            chorus: make(SharedEffect::Chorus),
+            delay: make(SharedEffect::Delay),
+            small: make(SharedEffect::Small),
+            large: make(SharedEffect::Large),
         }
     }
 
     /// The one for `send`.
-    pub(crate) fn of(&mut self, send: Send) -> &mut T {
+    pub(crate) fn of(&mut self, send: SharedEffect) -> &mut T {
         match send {
-            Send::Chorus => &mut self.chorus,
-            Send::Delay => &mut self.delay,
-            Send::Small => &mut self.small,
-            Send::Large => &mut self.large,
+            SharedEffect::Chorus => &mut self.chorus,
+            SharedEffect::Delay => &mut self.delay,
+            SharedEffect::Small => &mut self.small,
+            SharedEffect::Large => &mut self.large,
         }
     }
 

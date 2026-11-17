@@ -93,7 +93,7 @@ pub struct Synth {
 /// What a channel plays. The channel layout lives here alone, so
 /// every route from a channel to a sound asks [`Part::of`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Part {
+enum Part {
     /// Channels `0`–`7`: a tone, its waveform picked by its channel.
     Tone,
     /// Channel `8`: the one 303-style acid voice.
@@ -380,8 +380,8 @@ impl Synth {
 mod tests {
     use super::*;
     use crate::controller::{
-        ALL_NOTES_OFF, ALL_SOUND_OFF, CH, DL, ENV_MOD, EQ, LN, MD, OF, R1, R2, RESET, RESONANCE,
-        WAVEFORM,
+        ALL_NOTES_OFF, ALL_SOUND_OFF, AcidControl, CH, DL, ENV_MOD, EQ, Effect, LN, MD, OF, R1, R2,
+        RESET, RESONANCE, WAVEFORM,
     };
 
     /// Every controller the acid voice answers on its own channel.
@@ -1300,6 +1300,31 @@ mod tests {
 
         assert!(period_spread(&reset(0)) < 1.03);
         assert!(period_spread(&reset(1)) > 1.08);
+    }
+
+    #[test]
+    fn controllers_74_and_75_on_the_acid_channel_set_its_cutoff_and_decay() {
+        let plain = acid_after(&[]);
+
+        // The tilt's and the length's load values would leave the note as it
+        // is: only the voice hears them.
+        assert_ne!(
+            acid_after(&[control_change(ACID, EQ, Effect::Tilt.load())]),
+            plain
+        );
+        assert_ne!(
+            acid_after(&[control_change(ACID, LN, Effect::Length.load())]),
+            plain
+        );
+        // The voice's own load values would darken and shorten the note as a
+        // tilt and a length: neither reaches them.
+        assert_eq!(
+            acid_after(&[
+                control_change(ACID, EQ, AcidControl::Cutoff.load()),
+                control_change(ACID, LN, AcidControl::Decay.load()),
+            ]),
+            plain
+        );
     }
 
     #[test]
