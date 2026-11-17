@@ -4,9 +4,9 @@
 resonance, and recalls their settings from two presets. Edit one selector and
 both controls move to the other preset, each at its own speed. Open it with
 **Help > Examples > Presets**, or as `?example=presets`, and press Space to
-start Playback. Choose the Built-in Synth, or any output, in the bottom
-Panel. The example opens Untitled, so **File > Save** asks where to keep your
-edits.
+start Playback. The first MIDI output is chosen for you; change it in the
+bottom Panel. The example opens Untitled, so **File > Save** asks where to keep
+your edits.
 
 It is an entry in the [examples index](README.md) built to be copied: each
 control works on its own in another piece, and this guide adds a third, decay,
@@ -47,9 +47,9 @@ col  0         1         2
 ```
 
 The Language Map diagnoses nothing in the file, as it opens or on any Tick
-after. The bassline's steps, the presets and every value a Function writes
-are Comment text, which any Function reads as data and nothing parses, and
-every other Cell belongs to a Function.
+after. The bassline's steps, the presets and every value a Function writes,
+other than the Everys' `**`, are Comment text, which any Function reads as
+data and nothing parses, and every other Cell belongs to a Function.
 
 ## The bassline
 
@@ -313,8 +313,9 @@ its first Tick. The same selector drives it: type `1` at (5, 15) and decay
 climbs `20 30 40 50 60 70`, one step a Tick, while `CUT` and `RES` move as
 before. The bassline and the other two controls play exactly as they did.
 
-Listen to the Notes' tails. At `10` the filter closes quickly after each Note
-starts, a short pluck; at `70` it stays open across the Note. Every Note of
+Listen to how each Note's brightness fades. At `10` the filter closes sooner
+after each Note starts, a shorter pluck; at `70` it stays open longer across
+the Note. Every Note of
 the bassline is at velocity `64`, below the accent, so every Note follows the
 decay control. An accented Note, at velocity `78` or above, takes the
 shortest decay whatever the control sends.
