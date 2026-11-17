@@ -19,7 +19,7 @@ pub(crate) struct Sends<C, D = C, S = C, L = S> {
 }
 
 impl<T> Sends<T> {
-    /// Four values, each made by `make` for its send.
+    /// Four values, each made by `make` for its shared effect.
     pub(crate) fn from_fn(mut make: impl FnMut(SharedEffect) -> T) -> Self {
         Self {
             chorus: make(SharedEffect::Chorus),
@@ -29,9 +29,9 @@ impl<T> Sends<T> {
         }
     }
 
-    /// The one for `send`.
-    pub(crate) fn of(&mut self, send: SharedEffect) -> &mut T {
-        match send {
+    /// The one for `effect`.
+    pub(crate) fn of(&mut self, effect: SharedEffect) -> &mut T {
+        match effect {
             SharedEffect::Chorus => &mut self.chorus,
             SharedEffect::Delay => &mut self.delay,
             SharedEffect::Small => &mut self.small,

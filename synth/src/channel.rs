@@ -61,8 +61,8 @@ impl Channel {
             tilt: Tilt::new(sample_rate, Effect::Tilt.load()),
             offset: Effect::Offset.load(),
             length: Effect::Length.load(),
-            sends: Sends::from_fn(|send| {
-                Smoothing::new(sample_rate, gain(Effect::Send(send).load()))
+            sends: Sends::from_fn(|shared| {
+                Smoothing::new(sample_rate, gain(Effect::Send(shared).load()))
             }),
             idle: false,
         }
@@ -75,7 +75,7 @@ impl Channel {
             Effect::Tilt => self.tilt.set(value),
             Effect::Length => self.length = value,
             Effect::Offset => self.offset = value,
-            Effect::Send(send) => self.sends.of(send).set(gain(value)),
+            Effect::Send(shared) => self.sends.of(shared).set(gain(value)),
         }
     }
 
@@ -155,27 +155,28 @@ mod tests {
     }
 
     #[test]
-    fn every_effects_load_value_passes_the_channel_unchanged() {
-        // A channel rests only at each effect's pass-through value, so a
-        // load value that changed the sound would keep a fresh channel from
-        // going idle; one that rested anywhere else would skip what it plays.
+    fn the_effects_a_channel_rests_on_rest_at_their_load_values() {
+        // A channel goes idle only while it rests, so an effect that did not
+        // rest at its load value would keep a fresh channel, or one returned
+        // to load, from ever going idle. The offset and length are not read
+        // by `rests`; `length_and_offset_shape_each_new_sound` covers theirs.
         assert!(Channel::new(RATE).rests());
         for effect in [
             Effect::Vibrato,
             Effect::Tilt,
-            Effect::Length,
-            Effect::Offset,
             Effect::Send(SharedEffect::Small),
             Effect::Send(SharedEffect::Large),
             Effect::Send(SharedEffect::Chorus),
             Effect::Send(SharedEffect::Delay),
         ] {
             let mut channel = Channel::new(RATE);
-            for away in [0x00, 0x7F] {
+            // Neither is any effect's load value, `00` or `40`.
+            for away in [0x20, 0x7F] {
                 channel.set(effect, away);
                 for n in 0..RATE as usize / 10 {
                     channel.process(Some(signal(n)));
                 }
+                assert!(!channel.rests(), "{effect:?} at {away:#04x}");
                 channel.set(effect, effect.load());
                 for n in 0..RATE as usize / 10 {
                     channel.process(Some(signal(n)));

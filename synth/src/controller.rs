@@ -12,9 +12,9 @@ pub const MD: u8 = 1;
 pub const EQ: u8 = 74;
 /// Decay Time: how long each new sound on the channel decays. On the acid
 /// channel, the voice's decay.
-pub const LN: u8 = 75;
+pub(crate) const LN: u8 = 75;
 /// How far into its course each new sound on the channel starts.
-pub const OF: u8 = 85;
+pub(crate) const OF: u8 = 85;
 /// Effects 1 Depth: the send to the small reverb.
 pub const R1: u8 = 91;
 /// Effects 2 Depth: the send to the large reverb.
@@ -23,25 +23,28 @@ pub const R2: u8 = 92;
 pub const CH: u8 = 93;
 /// Effects 4 Depth: the send to the echo.
 pub const DL: u8 = 94;
-/// All Sound Off: releases what the channel holds.
-pub const ALL_SOUND_OFF: u8 = 120;
+/// All Sound Off: releases the channel's tones and its acid voice. A drum
+/// rings out its own decay.
+pub(crate) const ALL_SOUND_OFF: u8 = 120;
 /// Reset All Controllers: clears `MD` on its channel and leaves the other
 /// effects as they are.
-pub const RESET: u8 = 121;
-/// All Notes Off: releases what the channel holds.
-pub const ALL_NOTES_OFF: u8 = 123;
+pub(crate) const RESET: u8 = 121;
+/// All Notes Off: releases the channel's tones and its acid voice. A drum
+/// rings out its own decay.
+pub(crate) const ALL_NOTES_OFF: u8 = 123;
 /// Sound Controller 1: the acid voice's waveform.
-pub const WAVEFORM: u8 = 70;
+pub(crate) const WAVEFORM: u8 = 70;
 /// Sound Controller 2 (Timbre/Harmonic Intensity): the acid voice's
 /// resonance.
-pub const RESONANCE: u8 = 71;
+pub(crate) const RESONANCE: u8 = 71;
 /// Sound Controller 10: the acid voice's envelope depth.
-pub const ENV_MOD: u8 = 79;
+pub(crate) const ENV_MOD: u8 = 79;
 
 /// What a Control Change means on a channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Control {
-    /// Releases what the channel holds.
+    /// Releases the channel's tones and its acid voice. A drum rings out its
+    /// own decay.
     Release,
     /// Returns the channel's performance controllers to their load values.
     Reset,
@@ -62,7 +65,7 @@ pub(crate) enum Effect {
     Length,
     /// `OF`.
     Offset,
-    /// `CH`, `DL`, `R1` or `R2`.
+    /// The channel's send to a shared effect: `CH`, `DL`, `R1` or `R2`.
     Send(SharedEffect),
 }
 
@@ -174,6 +177,24 @@ mod tests {
         (R2, Effect::Send(SharedEffect::Large)),
     ];
 
+    /// Every controller some channel answers.
+    const KNOWN: [u8; 14] = [
+        MD,
+        EQ,
+        LN,
+        OF,
+        R1,
+        R2,
+        CH,
+        DL,
+        ALL_SOUND_OFF,
+        RESET,
+        ALL_NOTES_OFF,
+        WAVEFORM,
+        RESONANCE,
+        ENV_MOD,
+    ];
+
     /// Every controller the acid voice answers, with its meaning.
     const ACID: [(u8, AcidControl); 5] = [
         (WAVEFORM, AcidControl::Waveform),
@@ -245,29 +266,35 @@ mod tests {
 
     #[test]
     fn every_controller_outside_the_table_changes_nothing() {
-        let known = [
-            MD,
-            EQ,
-            LN,
-            OF,
-            R1,
-            R2,
-            CH,
-            DL,
-            ALL_SOUND_OFF,
-            RESET,
-            ALL_NOTES_OFF,
-            WAVEFORM,
-            RESONANCE,
-            ENV_MOD,
-        ];
         for part in PARTS {
-            for controller in (0..=0x7F).filter(|controller| !known.contains(controller)) {
+            for controller in (0..=0x7F).filter(|controller| !KNOWN.contains(controller)) {
                 assert_eq!(
                     Control::of(part, controller),
                     None,
                     "{part:?}, controller {controller}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn every_controller_in_the_table_means_only_what_the_tests_list() {
+        // Each controller in `KNOWN` means something on some channel, and
+        // only what `EFFECTS`, `ACID` or the channel mode controllers list.
+        for controller in KNOWN {
+            let meanings: Vec<Control> = PARTS
+                .iter()
+                .filter_map(|&part| Control::of(part, controller))
+                .collect();
+            assert!(!meanings.is_empty(), "controller {controller}");
+            for meaning in meanings {
+                let listed = match meaning {
+                    Control::Release => [ALL_SOUND_OFF, ALL_NOTES_OFF].contains(&controller),
+                    Control::Reset => controller == RESET,
+                    Control::Effect(effect) => EFFECTS.contains(&(controller, effect)),
+                    Control::Acid(control) => ACID.contains(&(controller, control)),
+                };
+                assert!(listed, "controller {controller} as {meaning:?}");
             }
         }
     }
