@@ -59,17 +59,15 @@ index and its "Patterns to copy" table.
 
 Design decisions a reviewer should check:
 
-- Deviation from the research note, awaiting the author's confirmation: Q16
-  in `docs/research/pattern-library.md` says "Track wraps the numeric
+- Confirmed by the author on 18 November 2026, and Q16 amended to match: Q16
+  in `docs/research/pattern-library.md` first said "Track wraps the numeric
   selector by preset count", but the selector wraps with Modulo, `.%0002`,
   and the presets sit in Comment text read by a Read south whose distance an
   Add computes from the preset in force. The reason is that a Track's data
   pairs are ordinary Source the Language Map diagnoses (Kombine opens that
   way), whereas this mechanism lets the Source open, and stay on every Tick,
   with nothing diagnosed. The ticket box says only "wrap numeric selection
-  by preset count", which both satisfy. Neither the research note nor the
-  Source has been changed to follow Q16; if the author wants Track, the
-  Source's mechanism changes.
+  by preset count", which both satisfy.
 - Each control's Slew feedback, and every value a nested Function writes, is
   Comment text. A Slew reads and writes Comment text as it does any Cells, so
   preset `00` ships in each control's value and the first Tick delivers it.
