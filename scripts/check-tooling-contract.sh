@@ -244,6 +244,11 @@ assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node --test scrip
 # so the throws that catch tracker drift — a dangling `Blocked by:`, a dependency
 # cycle, an untagged release blocker — need the planner run against the real tree.
 assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/roadmap[.]ts > /dev/null$'
+# `docs/requirements/` restates accepted ADRs, and nothing else reads it
+# mechanically; the header of `scripts/check-requirements.ts` lists what would
+# otherwise land unnoticed.
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node --test scripts/tests/check-requirements[.]test[.]ts$'
+assert_toml_task_contains "$root_dir/mise.toml" 'check_docs' '^node scripts/check-requirements[.]ts$'
 # `audit_deps` had no caller at all. Dependabot's weekly grouped bumps are exactly
 # the pull requests an advisory, licence, and source audit exists for, and the
 # feature-resolved tree it prints was inspected only when a human typed it.

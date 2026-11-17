@@ -1437,7 +1437,7 @@ macro_rules! define_replacement_changes {
         }
 
         impl fmt::Display for ReplacementChange {
-            /// The fact, worded as CONTEXT.md's Function Replacement entry
+            /// The fact, worded as EVAL-040 (`docs/requirements/evaluation.md`)
             /// words it, so that a refusal reads as the rule's own sentence
             /// continued.
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

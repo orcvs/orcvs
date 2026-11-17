@@ -12,8 +12,8 @@
 //! an occupied Portal diagnoses, activates, locks, copies, or stays silent.
 //!
 //! Nothing in this module is reachable from the language crate, and nothing in
-//! it is serialized. That is the whole of CONTEXT.md's "a Portal is neither a
-//! language value, Source content, nor persistent state": a Portal cannot be
+//! it is serialized. That is the whole of EVAL-030's rule that a Portal is
+//! internal to the Tick that resolves it: a Portal cannot be
 //! spelled in Source because no Atom carries one, cannot survive a Tick
 //! because it is a local of the pass that resolved it, and cannot reach a save
 //! file because `PersistedSource` carries a Grid and character Cells and this
@@ -60,8 +60,8 @@ pub(super) struct Portal {
 /// working Source: it names the Language Unit the Snapshot parsed at the
 /// Cells, whatever a Turn has written there since.
 ///
-/// ADR 0006 and CONTEXT.md keep diagnose-versus-silent with the producer.
-/// Halt and a blocked Self-Banging move each read this answer and apply their
+/// Diagnose-versus-silent stays with the producer: Halt (EVAL-053) and a
+/// blocked Self-Banging move (EVAL-054) each read this answer and apply their
 /// own policy.
 ///
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

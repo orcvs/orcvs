@@ -3138,10 +3138,12 @@ mod tests {
     #[test]
     fn a_refused_submission_leaves_the_schedule_standing_for_the_next_tick() {
         // Both owning spellings, for the reason the lifecycle test loops them:
-        // the retry is a property of the one schedule they share, and a Tick
-        // resolved against a copy adopts or discards every claim in it at
-        // once. Asserting it of `!~` alone would leave the claim CONTEXT.md
-        // makes the same promise to untested.
+        // the retry is a property of the one schedule they share (PLAY-250),
+        // and a Tick resolved against a copy adopts or discards every claim in
+        // it at once. Asserting it of `!~` alone would leave the Mono claim,
+        // which the same retry covers, untested. The retry is where the code
+        // differs from PLAY-260: docs/requirements/playback.md lists it under
+        // "Accepted but not built, or built differently".
         for expression in ["!~007FC402", "!%007FC402  "] {
             let source = SourceCommander::new(Grid::with_shape(expression.len(), 9));
             write(&source, 2 * expression.len(), expression);
