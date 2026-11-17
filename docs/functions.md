@@ -1,10 +1,7 @@
 # Function reference
 
-Every Orcvs Function, with what it takes, what it does, and an example you can type into the
-console. For a first session, start with [Your first result](first-result.md). For what each term
-means, see [`CONTEXT.md`](../CONTEXT.md). The spellings and operands here come from the Function
-table in `lang/src/atom.rs`, and `orcvs/tests/function_reference_doc.rs` runs every example below
-against the language, so a change to a Function that this page does not follow fails a test.
+Every Orcvs Function: what it takes, what it does, and an example to try. New to Orcvs? Start with
+[Your first result](first-result.md). [`CONTEXT.md`](../CONTEXT.md), on GitHub, defines each term.
 
 The language is pre-release, so entries change with it.
 
@@ -22,13 +19,13 @@ spelling is the Function's anchor. The entry heading gives the spelling and a na
 | Note | Pitch letter then octave | Uppercase for a natural, lowercase for a sharp, then `/` for the octave below `0` or `0` to `9`: `C4`, `c4`, `C/`. A Note is MIDI note `00` to `7F`. |
 | Interval Set | A chord or scale name | One of 39 names, each filling both Cells, for a list of semitones above a root. Chords: `M_ M7 M9 MD M6 69 +M m_ m7 mM m6 m9 mB mD o_ o7 h7 b9 7_ 9_ 13 s2 s4 +_ a9`. Scales: `MA mi do ph ly mx lo hm mm p5 p3 bl wt ch`. A one-character chord name takes the filler `_`, and `B` and `D` stand for 11 and 13. `M ` is half-written, not a name. |
 | Voicing | A Voicing name | One of 8 names: `CL` close, `OP` open, `D2` `D3` `D5` `D6` drops, `SH` shell and `RL` rootless. |
-| Untyped | A Number, a Note, `**`, or a nested Function's answer | Carried unchanged; whatever reads them at the destination decides what they mean. Empty Cells, or Cells that form no unit, diagnose. |
+| Untyped | A Number, a Note, `**`, or a nested Function's answer | Carried unchanged; whatever reads them at the destination decides what they mean. Empty Cells, or Cells that form no unit, are errors. |
 | MIDI domains | `00` to `0F` or `00` to `7F` | Numbers that a MIDI output Function also checks against a range, named in its entry. |
 
 The same two Cells can be a Number in one operand and a Note in another: `C4` is Number `C4`
 where a Number is expected. In the same way `69` and `13` are Interval Sets where an Interval Set
 is expected and Numbers where a Number is, and `D2` is a Voicing, a Note or a Number by position.
-An empty operand diagnoses, except a Play's `note`, which is optional (see **An empty note**).
+An empty operand is an error, except a Play's `note`, which is optional (see **An empty note**).
 
 **Answer or effect.** A Function either answers a value or performs an effect, never both. A
 Function that answers a value writes it into its Output Portal, the two Cells one row south of its
@@ -44,17 +41,21 @@ immediately before or after it on its row. A `**` that touches another Function'
 play, because the Cells before the `**` are the operand `C4`, not the anchor `!>`. Each entry says
 which kind of Function it is.
 
-**Clear.** Some value Functions answer a Clear rather than a value: they write two empty Cells. An
-invalid Function writes nothing at all, so its last answer stays where it was. Nested, a Clear
-leaves its parent invalid, except in a Play's `note`, where it leaves the note empty.
+**Errors.** A Function whose operands do not fit its entry is an error: the console colours its
+Cells as an error, and it writes or sends nothing, so its last answer stays where it was.
+
+**Clear.** Some value Functions answer a Clear rather than a value: they write two empty Cells.
+Nested, a Clear leaves its parent in error, except in a Play's `note`, where it leaves the note
+empty.
 
 **Examples.** An example shows the Source before any Tick, then the Source after the Ticks named
-above each later block, counted from Tick `0`.
+above each later block, counted from Tick `0`. On this site, press the first block of an example
+to open it in the console.
 
 ## Arithmetic
 
 Each takes two Numbers, `left` and `right`, answers a Number, and runs every Tick. Cells that do not
-spell a Number, such as `G4`, diagnose. `C4` is read as the Number `C4`, not MIDI note 60; use
+spell a Number, such as `G4`, are errors. `C4` is read as the Number `C4`, not MIDI note 60; use
 [`.v`](#v-convert-to-number) for a Note's MIDI number.
 
 ### `.+` Add
@@ -119,7 +120,7 @@ After Tick `0`:
 
 ### `./` Divide
 
-Answers `left / right`, rounded down. A `right` of `00` diagnoses and writes nothing.
+Answers `left / right`, rounded down. A `right` of `00` is an error and writes nothing.
 
 ```orcvs
 ./0902
@@ -134,7 +135,7 @@ After Tick `0`:
 
 ### `.%` Modulo
 
-Answers the remainder of `left / right`. A `right` of `00` diagnoses and writes nothing.
+Answers the remainder of `left / right`. A `right` of `00` is an error and writes nothing.
 
 ```orcvs
 .%0902
@@ -215,7 +216,7 @@ After Tick `0`:
 
 ### `.^` Convert to Note
 
-`.^ number` answers the Note for a Number from `00` to `7F`. `80` to `FF` diagnoses and writes
+`.^ number` answers the Note for a Number from `00` to `7F`. `80` to `FF` is an error and writes
 nothing.
 
 ```orcvs
@@ -233,8 +234,8 @@ C4
 
 Each derives a Note or an Interval Set from the Notes and Interval Sets it reads, and runs every
 Tick. A `note` or `root` that does not spell a Note, such as `3C`, is refused. Up, Down and Pick
-answer a Note: an answer outside `00` to `7F` diagnoses and writes nothing, so a Note never wraps.
-Stack answers an Interval Set: when no name holds the semitones it reaches, it diagnoses and writes
+answer a Note: an answer outside `00` to `7F` is an error and writes nothing, so a Note never wraps.
+Stack answers an Interval Set: when no name holds the semitones it reaches, it is an error and writes
 nothing.
 
 ### `#+` Up
@@ -252,7 +253,7 @@ After Tick `0`:
 D4
 ```
 
-`G9` is the highest Note, so going above it diagnoses and writes nothing.
+`G9` is the highest Note, so going above it is an error and writes nothing.
 
 ```orcvs
 #+G901
@@ -297,7 +298,7 @@ After Tick `0`:
 C4
 ```
 
-`C/` is the lowest Note, so going below it diagnoses and writes nothing.
+`C/` is the lowest Note, so going below it is an error and writes nothing.
 
 ```orcvs
 #-C/01
@@ -345,7 +346,7 @@ A5
 C5
 ```
 
-An answer above `G9` diagnoses and writes nothing.
+An answer above `G9` is an error and writes nothing.
 
 ```orcvs
 #pG9M_01
@@ -374,7 +375,7 @@ After Tick `0`:
 M7
 ```
 
-When no name holds exactly those semitones, Stack diagnoses and writes nothing. A major pentatonic
+When no name holds exactly those semitones, Stack is an error and writes nothing. A major pentatonic
 stacked from `C` reads the semitones `0 4 9`, which no name holds.
 
 ```orcvs
@@ -415,7 +416,7 @@ Tick.
 
 `~. length steps` answers which step a cycle is on: each step lasts `length` Ticks, and the cycle
 holds `steps` steps, counted from `00`. It reads the Tick number, so a stopped and resumed
-Clock carries on from the same step. A `length` or `steps` of `00` diagnoses.
+Clock carries on from the same step. A `length` or `steps` of `00` is an error.
 
 ```orcvs
 ~.0204
@@ -436,7 +437,7 @@ After Tick `0`, then after Tick `2`:
 ### `~*` Delay
 
 `~* length steps` answers a Bang once every `length * steps` Ticks, starting at Tick `0`, and a
-Clear on every other Tick. A `length` or `steps` of `00` diagnoses.
+Clear on every other Tick. A `length` or `steps` of `00` is an error.
 
 ```orcvs
 ~*0102
@@ -457,7 +458,7 @@ After Tick `0`, then after Tick `1`:
 
 `~% hits steps` answers a Bang on `hits` Ticks spread as evenly as possible across each cycle of
 `steps` Ticks, and a Clear on the rest. `~%0308` gives the pattern `X..X..X.`. A `steps` of `00`,
-or more `hits` than `steps`, diagnoses.
+or more `hits` than `steps`, is an error.
 
 ```orcvs
 ~%0308
@@ -483,7 +484,7 @@ After Tick `0`, after Tick `1`, then after Tick `3`:
 
 `~+ amount modulus` reads the Number in its own Output Portal, adds `amount`, and answers the result
 modulo `modulus`. It reads back its last answer, so it counts up; empty Cells count as `00`, so it
-starts from `00`. A `modulus` of `00`, or anything other than a Number in its Output Portal, diagnoses.
+starts from `00`. A `modulus` of `00`, or anything other than a Number in its Output Portal, is an error.
 
 ```orcvs
 ~+0104
@@ -505,7 +506,7 @@ After Tick `0`, then after Tick `3`, where it wraps:
 
 `~> amount target` reads the Number in its own Output Portal and moves it toward `target` by at most
 `amount` each Tick, never past it. Empty Cells there count as `00`. An `amount` of `00` holds the
-value. Anything other than a Number in its Output Portal diagnoses.
+value. Anything other than a Number in its Output Portal is an error.
 
 ```orcvs
 ~>0205
@@ -545,7 +546,7 @@ After Tick `0`:
 
 A Copy copies one two-Cell pair from its Input Portal to its Output Portal every Tick. It takes
 whatever the pair holds, a value, a Bang answered that Tick or two empty Cells, and writes it over
-the whole Output Portal. Part of a Function, or Cells that do not form one unit, diagnoses. A copied
+the whole Output Portal. Part of a Function, or Cells that do not form one unit, is an error. A copied
 `**` activates the roots aligned with its Output Portal. A `**` standing in the Source is a Bang
 Function: it has taken its Turn by the time the Copy reads it, so the Copy reads its cleared Cells,
 or `**` while a Halt locks it.
@@ -640,7 +641,7 @@ C4
 
 A Read reads one pair of Source and answers it, writing it one row south, every Tick. The Cells it
 reads are ordinary Source rather than part of its Expression. A pair outside the Grid, cut short
-by the row's edge, or holding Cells that form no unit, diagnoses. Empty Cells answer a Clear, and a
+by the row's edge, or holding Cells that form no unit, is an error. Empty Cells answer a Clear, and a
 Function spelling is carried as it stands.
 
 ### `&>` Read East
@@ -729,7 +730,7 @@ E4
 ### `&t` Track
 
 `&t index count` reads one of the `count` pairs that follow its operands: the pair `index % count`,
-counted from zero. A `count` of `00` diagnoses.
+counted from zero. A `count` of `00` is an error.
 
 ```orcvs
 &t0103C4D4E4
@@ -809,7 +810,7 @@ After Tick `0`:
 ### `@$` Absolute Write
 
 `@$ at value` writes `value` at a Position, two Numbers, column then row. A Read in its `value`, such as
-`@$0003&$0005`, copies one pair to another; an empty source pair is a Clear, which diagnoses.
+`@$0003&$0005`, copies one pair to another; an empty source pair is a Clear, which is an error.
 
 ```orcvs
 @$0002C4
@@ -826,7 +827,7 @@ C4
 ### `@t` Push
 
 `@t index count value` writes `value` into one of `count` pairs on the row below, numbered from
-directly under its anchor: pair `index % count`. A `count` of `00` diagnoses.
+directly under its anchor: pair `index % count`. A `count` of `00` is an error.
 
 ```orcvs
 @t0103G4
@@ -1030,7 +1031,7 @@ After Tick `0`, the Add did not run:
 
 These perform an effect: each sends one MIDI message when a Bang reaches it, except a Chord Play,
 which sends one per tone, and writes nothing into the Source. Each is inert until a Bang reaches
-it. An operand outside its range diagnoses and sends nothing. Choose a MIDI destination under
+it. An operand outside its range is an error and sends nothing. Choose a MIDI destination under
 the Panel's **O** to hear them.
 
 | Operand | Range |
@@ -1048,9 +1049,9 @@ the Panel's **O** to hear them.
 whose note is empty sends nothing and reports nothing, so an empty step in a pattern is a quiet
 step. It does not matter how the note got empty. You can leave it empty, a Function above it can
 write two empty Cells into it, or a Function nested in it can answer a Clear. The Play's other
-operands are still checked: an empty or out-of-range channel, velocity or length is diagnosed
+operands are still checked: an empty or out-of-range channel, velocity or length is an error
 whether the note is there or not. A half-written or mistyped note, such as `C ` or `ZZ`, is an
-error: the Play is diagnosed and sends nothing. A Monophonic Play with no note leaves its channel's
+error, so the Play sends nothing. A Monophonic Play with no note leaves its channel's
 note sounding until that note's own length ends. A Chord Play's root is not optional.
 
 ```orcvs
@@ -1058,7 +1059,7 @@ note sounding until that note's own length ends. A Chord Play's root is not opti
 !>0064
 ```
 
-After Tick `0`, nothing plays and nothing is diagnosed:
+After Tick `0`, nothing plays and nothing is marked as an error:
 
 ```orcvs tick 0
 
@@ -1169,8 +1170,8 @@ moves tones:
 The digit in a drop voicing is the sum of the positions it drops, counted from the top: `D5` drops
 the 2nd and 3rd, and `D6` the 2nd and 4th.
 
-An Interval Set with too few tones for its Voicing, or any tone outside `00` to `7F`, diagnoses the
-whole chord and sends nothing.
+An Interval Set with too few tones for its Voicing, or any tone outside `00` to `7F`, is an error, and the
+whole chord sends nothing.
 
 `C4M7` dropped with `D5`, inverted once, plays G3, B3, E4 and C5:
 
@@ -1307,7 +1308,7 @@ After Tick `0`:
 ```
 
 An address that does not start with `/`, a type letter other than `i`, `f` or `s`, a type string
-whose length differs from the argument count, or a word that does not fit its type diagnoses and
+whose length differs from the argument count, or a word that does not fit its type is an error and
 sends nothing:
 
 ```orcvs
@@ -1321,3 +1322,9 @@ After Tick `0`:
 
 !osynth 40!
 ```
+
+## About this page
+
+The spellings and operands here come from the Function table in `lang/src/atom.rs`, and
+`orcvs/tests/function_reference_doc.rs` runs every example on this page against the language, so a
+change to a Function that this page does not follow fails a test.

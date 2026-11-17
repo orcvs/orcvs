@@ -45,7 +45,7 @@ test("a console that does not start says so, and the next press starts another",
   await grid.click();
   await expect(page.locator("iframe.orcvs-small")).toHaveCount(1);
   await page.clock.fastForward(30_000);
-  await expect(page.getByRole("status")).toHaveText("The console did not start.");
+  await expect(page.getByRole("status")).toHaveText("The console didn't start. Press an example to try again.");
   await expect(page.locator("iframe.orcvs-small")).toHaveCount(0);
 
   await page.unroute("**/play/?small");
