@@ -6,7 +6,10 @@
 //! handed. The expected notes are written out per voice beside the file they
 //! describe, so a change to either shows up here.
 
-use super::{HandDrivenRun, functions_mapped, note_on, stop, tick_diagnostics};
+use super::{
+    HandDrivenRun, assert_guide_draws, functions_mapped, note_on, replace_at, stop,
+    tick_diagnostics,
+};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, file};
 
@@ -453,21 +456,6 @@ fn a_half_typed_step_silences_only_its_own_voice() {
 /// Tracker.
 const KOMBINE_GUIDE: &str = include_str!("../../../../examples/kombine.md");
 
-///
-/// `rows[row]` with `before` at `column` replaced by `after`, asserting
-/// `before` stands there first, so an edit cannot land on Cells the shipped
-/// file has moved.
-///
-fn replace_at(rows: &mut [String], row: usize, column: usize, before: &str, after: &str) {
-    let line = &mut rows[row];
-    assert_eq!(
-        line.get(column..column + before.len()),
-        Some(before),
-        "row {row} holds {before:?} at column {column}"
-    );
-    line.replace_range(column..column + before.len(), after);
-}
-
 /// The Tracker row the Kombine's accent Region lands on: the guide pastes its
 /// top-left Cell at (2, 32), two rows below the last pattern row.
 const ACCENT_REGION_ROW: usize = 32;
@@ -488,7 +476,8 @@ const ACCENT_REGION_ROW: usize = 32;
 ///    four columns west, leaving the nested `&v`'s `distance` slot at
 ///    (26, 7), where the voice's Add writes it.
 ///
-/// Every row the transfer changes is drawn in the guide as it stands here.
+/// Every row the transfer changes, the empty row 34 among them, is drawn in
+/// the guide as it stands here, before the first Tick.
 ///
 fn transferred_tracker() -> String {
     let kombine = include_str!("../../../../examples/kombine.orcvs");
@@ -508,12 +497,14 @@ fn transferred_tracker() -> String {
     for row in &mut rows {
         row.truncate(row.trim_end().len());
     }
-    for row in [6, 7, ACCENT_REGION_ROW, ACCENT_REGION_ROW + 1] {
-        let drawn = format!("{row:>3}  {}", rows[row]);
-        assert!(
-            KOMBINE_GUIDE.lines().any(|line| line.trim_end() == drawn),
-            "the Kombine guide does not draw {drawn:?}"
-        );
+    for row in [
+        6,
+        7,
+        ACCENT_REGION_ROW,
+        ACCENT_REGION_ROW + 1,
+        ACCENT_REGION_ROW + 2,
+    ] {
+        assert_guide_draws(KOMBINE_GUIDE, row, &rows[row]);
     }
     let mut text = rows.join("\n");
     text.push('\n');

@@ -41,8 +41,10 @@ different lengths, so you can change one without the other.
 | (0, 10) `&t~.01040470305040` | Track with a nested Clock | The Clock `~.0104` counts `00` to `03`, and Track plays pair `index % 04` of the velocities `70 30 50 40` (112, 48, 80 and 64). Track writes the velocity at (0, 11), its Output Portal; the Clock writes its count at (2, 11). |
 
 Leave rows 4, 7 and 11 empty: the Functions above them write there every Tick.
-The Language Map marks the Notes and velocities after each Track as unknown
-Functions because nothing but the Track reads them; they play as written.
+The Language Map diagnoses each Cell of the Notes and velocities after each
+Track, as an unknown Function and as a character that starts no Language Unit.
+A Track claims only its operands, so the Cells it reads are ordinary Source,
+where a Note or Number standing on its own is invalid. They play as written.
 
 ## What you hear
 
@@ -129,10 +131,11 @@ The Tracker's closed hat, voice 2, plays `f2` on every second step on channel
    plays every second Tick, so a Clock that steps every second Tick gives each
    hit the next velocity. At `01` the hits would land only on `70` and `50`.
 4. Replace the hat Play's velocity `77` with `&$0222`. The Read is six Cells
-   where `77` is two, so the rest of the Play would shift four columns east,
-   and its nested `&v` would leave (26, 7), the Cell its Add writes the
-   pattern row into. Move the Every and the Play four columns west instead,
-   so the `&v` stays at (24, 7) and its slot at (26, 7):
+   where `77` is two, so the rest of the Play would shift four columns east.
+   Its nested `&v`, at (24, 7), would move to (28, 7), and its `distance`
+   slot would leave (26, 7), the Cell its Add writes the pattern row into,
+   for (30, 7). Move the Every and the Play four columns west instead, so the
+   `&v` stays at (24, 7) and its slot at (26, 7):
    1. Drag a Region over the hat's Every, (16, 6) to (21, 6), cut it, put
       the Cursor on (12, 6) and paste.
    2. Drag a Region over the hat's Play, (18, 7) to (29, 7), and press
@@ -162,8 +165,12 @@ col  0         1         2         3         4         5         6
  ...
  32    || Accent ||
  33    &t~.02040470305040
- 34    ooCC
+ 34
 ```
+
+Row 34 is drawn as it stands before the first Tick, after copying from a
+Kombine that has not played. From the first Tick the Track writes the velocity
+at (2, 34) and the Clock its count at (4, 34).
 
 | Positions | What is there |
 | --- | --- |

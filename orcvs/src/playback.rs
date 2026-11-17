@@ -1726,6 +1726,35 @@ mod tests {
     }
 
     ///
+    /// `rows[row]` with `before` at `column` replaced by `after`, asserting
+    /// `before` stands there first, so an edit a guide documents cannot land
+    /// on Cells the shipped file has moved.
+    ///
+    fn replace_at(rows: &mut [String], row: usize, column: usize, before: &str, after: &str) {
+        let line = &mut rows[row];
+        assert_eq!(
+            line.get(column..column + before.len()),
+            Some(before),
+            "row {row} holds {before:?} at column {column}"
+        );
+        line.replace_range(column..column + before.len(), after);
+    }
+
+    ///
+    /// Asserts `guide` draws `row`, holding `line`, as the example guides'
+    /// diagrams draw every row: the row number right-aligned in three columns,
+    /// two spaces, then the row, with trailing spaces ignored.
+    ///
+    fn assert_guide_draws(guide: &str, row: usize, line: &str) {
+        let drawn = format!("{row:>3}  {line}");
+        let drawn = drawn.trim_end();
+        assert!(
+            guide.lines().any(|line| line.trim_end() == drawn),
+            "the guide does not draw {drawn:?}"
+        );
+    }
+
+    ///
     /// One Playback Engine, whose task is spawned on the test's own runtime.
     ///
     /// `new` is fallible because a task needs a runtime to be spawned on, and

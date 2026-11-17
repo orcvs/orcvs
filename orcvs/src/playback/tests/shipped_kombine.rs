@@ -9,7 +9,10 @@
 //! rather than derived, so a misreading of the Tracks shared by the test and
 //! Playback cannot pass both.
 
-use super::{HandDrivenRun, functions_mapped, note_on, stop, tick_diagnostics};
+use super::{
+    HandDrivenRun, assert_guide_draws, functions_mapped, note_on, replace_at, stop,
+    tick_diagnostics,
+};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{SourceCommander, file};
 
@@ -54,65 +57,104 @@ fn assert_delivers(text: &str, expected: &[Vec<OutputCommand>]) {
             "Tick {tick}'s delivery"
         );
     }
+    assert_eq!(adapter.command_lists().len(), expected.len(), "deliveries");
 }
 
 ///
-/// `text` with `row`'s Cells from `column` replaced by `after`, which must
-/// replace `before` there: an edit the guide documents, applied to the shipped
-/// file, so a file that moved its Cells fails here rather than editing the
-/// wrong ones.
+/// `text` with each of `edits`, a row, a column, the Cells there and what
+/// replaces them, applied in order: edits the guide documents, applied to the
+/// shipped file.
 ///
-fn edited(text: &str, row: usize, column: usize, before: &str, after: &str) -> String {
+fn edited(text: &str, edits: &[(usize, usize, &str, &str)]) -> String {
     let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
-    let line = &mut rows[row];
-    assert_eq!(
-        line.get(column..column + before.len()),
-        Some(before),
-        "row {row} holds {before:?} at column {column}"
-    );
-    line.replace_range(column..column + before.len(), after);
+    for &(row, column, before, after) in edits {
+        replace_at(&mut rows, row, column, before, after);
+    }
     let mut text = rows.join("\n");
     text.push('\n');
     text
 }
 
 ///
-/// Asserts the guide draws `row` of `text` as its diagrams draw every row:
-/// the row number right-aligned in three columns, two spaces, then the row.
+/// The Cells of the Tracks' data, as column and row in Grid order: the pairs
+/// east of each Track's `count`, the pitch Track's six Cells and the accent
+/// Track's eight.
 ///
-fn assert_guide_draws(text: &str, row: usize) {
-    let line = format!("{row:>3}  {}", text.lines().nth(row).unwrap_or_default());
-    let line = line.trim_end();
-    assert!(
-        GUIDE.lines().any(|drawn| drawn.trim_end() == line),
-        "the guide does not draw {line:?}"
-    );
+fn track_data() -> Vec<(usize, usize)> {
+    (10..16)
+        .map(|column| (column, PITCH_ROW))
+        .chain((10..18).map(|column| (column, ACCENT_ROW)))
+        .collect()
 }
 
 ///
-/// Before the first Tick the Language Map diagnoses no Function: what it
-/// diagnoses is only the Tracks' data, the pairs east of each `count`, which
-/// are Ordinary Source the Tracks read rather than Functions. The guide draws
-/// every row of the file as shipped.
+/// Asserts the Language Map diagnoses `text` before its first Tick exactly
+/// as it diagnoses the shipped file: no Function, and each Cell of the
+/// Tracks' data twice, once as a character that starts no Language Unit and
+/// once as an unknown Function.
 ///
-#[test]
-fn kombine_opens_with_no_function_diagnosed_and_draws_as_shipped() {
+fn assert_diagnoses_only_the_track_data(text: &str) {
     let source = SourceCommander::with_source(
-        file::read(KOMBINE.as_bytes()).expect("the Kombine is a Source File"),
+        file::read(text.as_bytes()).expect("the Kombine is a Source File"),
     );
     assert_eq!(functions_mapped(&source), vec![]);
     source.read_source(|source| {
-        assert!(
-            source
-                .language_map()
-                .diagnostics()
-                .all(|d| [PITCH_ROW, ACCENT_ROW].contains(&d.anchor().y()) && d.anchor().x() >= 10),
-            "a diagnosis outside the Tracks' data"
+        let map = source.language_map();
+        let in_grid_order = |mut anchors: Vec<(usize, usize)>| {
+            anchors.sort_by_key(|&(column, row)| (row, column));
+            anchors
+        };
+        let lexical = in_grid_order(
+            map.lexical_diagnostics()
+                .map(|d| (d.anchor().x(), d.anchor().y()))
+                .collect(),
+        );
+        assert_eq!(lexical, track_data(), "the characters diagnosed");
+        let unknown = in_grid_order(
+            map.diagnostics()
+                .filter(|d| d.message.starts_with("unknown function"))
+                .map(|d| (d.anchor().x(), d.anchor().y()))
+                .collect(),
+        );
+        assert_eq!(unknown, track_data(), "the unknown Functions diagnosed");
+        assert_eq!(
+            map.diagnostics().count(),
+            2 * track_data().len(),
+            "every diagnosis"
         );
     });
-    for row in 0..KOMBINE.lines().count() {
-        assert_guide_draws(KOMBINE, row);
+}
+
+///
+/// Before the first Tick the Language Map diagnoses no Function. It
+/// diagnoses each Cell of the Tracks' data, the pairs east of each `count`,
+/// as a character that starts no Language Unit and as an unknown Function: a
+/// Track claims only its operands, so the Cells it reads are ordinary Source,
+/// where a standalone Note or Number is invalid. The guide draws every row of
+/// the file as shipped.
+///
+#[test]
+fn kombine_opens_diagnosing_only_the_track_data_and_draws_as_shipped() {
+    assert_diagnoses_only_the_track_data(KOMBINE);
+    for (row, line) in KOMBINE.lines().enumerate() {
+        assert_guide_draws(GUIDE, row, line);
     }
+}
+
+///
+/// A Kombine whose Tracks hold no data is diagnosed differently, so the
+/// assertion above cannot pass on a Map that diagnoses nothing.
+///
+#[test]
+#[should_panic(expected = "the characters diagnosed")]
+fn kombine_without_track_data_is_diagnosed_differently() {
+    assert_diagnoses_only_the_track_data(&edited(
+        KOMBINE,
+        &[
+            (PITCH_ROW, 10, "C4E4G4", ""),
+            (ACCENT_ROW, 10, "70305040", ""),
+        ],
+    ));
 }
 
 ///
@@ -148,15 +190,67 @@ fn kombine_cycles_three_pitches_against_four_velocities_for_twelve_ticks() {
 ///
 #[test]
 fn three_accent_steps_keep_the_loud_accent_on_c() {
-    let text = edited(KOMBINE, ACCENT_ROW, 7, "4", "3");
-    let text = edited(&text, ACCENT_ROW, 9, "4", "3");
-    let text = edited(&text, ACCENT_ROW, 16, "40", "");
-    assert_guide_draws(&text, ACCENT_ROW);
+    let text = edited(
+        KOMBINE,
+        &[
+            (ACCENT_ROW, 7, "4", "3"),
+            (ACCENT_ROW, 9, "4", "3"),
+            (ACCENT_ROW, 16, "40", ""),
+        ],
+    );
+    let accent = text.lines().nth(ACCENT_ROW).unwrap_or_default();
+    assert_guide_draws(GUIDE, ACCENT_ROW, accent);
     let expected: [Vec<OutputCommand>; 10] = [
         vec![note_on(SINE, 0x70, C4)],
         vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
         vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
         vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+    ];
+    assert_delivers(&text, &expected);
+}
+
+///
+/// The guide's warning about changing only `count`: the Clock still counts
+/// `00` to `03` and the Track plays pair `index % 03`, so the velocities run
+/// `70 30 50 70`, the loud accent twice in a row, and drift across the triad.
+///
+#[test]
+fn only_count_at_three_plays_the_loud_accent_twice_in_a_row() {
+    let text = edited(KOMBINE, &[(ACCENT_ROW, 9, "4", "3")]);
+    let expected: [Vec<OutputCommand>; 13] = [
+        vec![note_on(SINE, 0x70, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x70, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x30, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x50, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x70, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x70, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x30, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x50, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x70, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+    ];
+    assert_delivers(&text, &expected);
+}
+
+///
+/// The guide's note about changing only `steps`: the Clock counts `00` to
+/// `02`, so the Track plays `70 30 50` and the loud accent stays on C4, and
+/// the fourth pair `count` still names never plays.
+///
+#[test]
+fn only_steps_at_three_keeps_the_loud_accent_on_c() {
+    let text = edited(KOMBINE, &[(ACCENT_ROW, 7, "4", "3")]);
+    let expected: [Vec<OutputCommand>; 7] = [
+        vec![note_on(SINE, 0x70, C4)],
         vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
         vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
         vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
