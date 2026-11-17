@@ -2631,13 +2631,14 @@ mod tests {
 
     #[test]
     fn a_tick_hands_the_adapter_how_late_it_is_submitted() {
-        let source = commander(&["", "", ".+0102", "", "", "", ".=0101"]);
+        let source = commander(&["", "", ".+0102", "", "", "", ".=0101", ""]);
         let mut run = HandDrivenRun::new(source, RecordingAdapter::default());
         run.begin_run();
         let late = Duration::from_millis(300);
         let epoch = ClockInstant::now() - late;
 
-        run.tick(scheduled_from(epoch, Duration::ZERO, late));
+        let first = run.tick(scheduled_from(epoch, Duration::ZERO, late));
+        assert_eq!(first.expect("a late Tick still runs").diagnostics, vec![]);
         run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
 
         let since_due = &run.inner.outputs.midi.since_due;
@@ -4340,13 +4341,14 @@ mod tests {
     #[test]
     fn the_observation_says_whether_the_last_midi_delivery_failed() {
         let adapter = InMemoryOutputAdapter::default();
-        let source = commander(&[".=0101"]);
+        let source = commander(&[".=0101", ""]);
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
         assert!(!run.observation().midi_failed);
 
         adapter.fail_next_submission("device lost");
-        run.run_tick(0);
+        // The Source is clean, so the adapter's refusal is the only failure.
+        assert_eq!(run.run_tick(0).diagnostics, vec![]);
         assert!(run.observation().midi_failed);
 
         // Only a delivery answers whether the device recovered, so the

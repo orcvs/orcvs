@@ -4,6 +4,9 @@
 //! reader would see and addresses a later edit by column and row. The Grid's
 //! width and every flat index follow from the rows, so an Expression that
 //! grows by an operand changes the row that holds it and nothing else.
+//!
+//! A Cell holds one ASCII character, so a row is measured in bytes and each
+//! entry point refuses a row outside ASCII rather than miscount it.
 
 use super::{Source, SourceCommander};
 use crate::grid::{CellIndex, Grid};
@@ -32,6 +35,16 @@ pub fn at(grid: Grid, column: usize, row: usize) -> CellIndex {
 }
 
 ///
+/// Refuses `text` unless it is ASCII, the one character set a Cell holds.
+///
+fn assert_ascii(text: &str) {
+    assert!(
+        text.is_ascii(),
+        "{text:?} is not ASCII, and a Cell holds one ASCII character"
+    );
+}
+
+///
 /// The smallest Grid that holds `rows`: as wide as the widest of them and as
 /// tall as their count.
 ///
@@ -41,19 +54,44 @@ pub fn at(grid: Grid, column: usize, row: usize) -> CellIndex {
 ///
 /// # Panics
 ///
-/// If `rows` is empty or every row is.
+/// If a row is not ASCII, if `rows` is empty or every row is, or if the rows
+/// are wider or more than [`Grid::with_shape`] allows.
 ///
 pub fn grid_of(rows: &[&str]) -> Grid {
+    assert!(!rows.is_empty(), "a Grid of no rows holds nothing");
+    rows.iter().for_each(|row| assert_ascii(row));
     let width = rows.iter().map(|row| row.len()).max().unwrap_or(0);
     Grid::with_shape(width, rows.len())
 }
 
 ///
-/// Builds one Source Snapshot from `rows`, padded to the Grid's width.
+/// Builds one Source Snapshot of `grid` from `rows`: each row padded to the
+/// Grid's width, and every Grid row past the last one stated left blank.
+///
+/// # Panics
+///
+/// If a row is not ASCII or is wider than the Grid, or if `rows` states more
+/// rows than the Grid has.
 ///
 pub fn snapshot(grid: Grid, rows: &[&str]) -> String {
-    let width = grid.count() / rows.len();
-    rows.iter().map(|row| format!("{row:width$}")).collect()
+    let width = grid.columns();
+    assert!(
+        rows.len() <= grid.rows(),
+        "{} rows are more rows than the Grid's {}",
+        rows.len(),
+        grid.rows()
+    );
+    let mut snapshot = String::with_capacity(grid.count());
+    for row in rows {
+        assert_ascii(row);
+        assert!(
+            row.len() <= width,
+            "row {row:?} is wider than the Grid's {width} columns"
+        );
+        snapshot.push_str(&format!("{row:width$}"));
+    }
+    snapshot.push_str(&" ".repeat(grid.count() - snapshot.len()));
+    snapshot
 }
 
 ///
@@ -66,7 +104,7 @@ pub fn snapshot(grid: Grid, rows: &[&str]) -> String {
 ///
 /// # Panics
 ///
-/// If a row holds a character a Cell refuses.
+/// As [`snapshot`] does, or if a row holds a character a Cell refuses.
 ///
 pub fn seeded_source(grid: Grid, rows: &[&str]) -> Source {
     let mut source = Source::new(grid);
@@ -100,15 +138,15 @@ pub fn rows_of(grid: Grid, source: &Source) -> Vec<String> {
 }
 
 ///
-/// Row `row` of `snapshot`, a Source Snapshot of `grid`.
+/// Row `index` of `snapshot`, a Source Snapshot of `grid`.
 ///
 /// # Panics
 ///
 /// If `snapshot` has no such row.
 ///
-pub fn row(grid: Grid, snapshot: &str, row: usize) -> &str {
+pub fn row(grid: Grid, snapshot: &str, index: usize) -> &str {
     let width = grid.columns();
-    &snapshot[row * width..(row + 1) * width]
+    &snapshot[index * width..(index + 1) * width]
 }
 
 ///
@@ -116,7 +154,7 @@ pub fn row(grid: Grid, snapshot: &str, row: usize) -> &str {
 ///
 /// # Panics
 ///
-/// If a row holds a character a Cell refuses.
+/// As [`grid_of`] does, or if a row holds a character a Cell refuses.
 ///
 pub fn commander(rows: &[&str]) -> SourceCommander {
     let source = SourceCommander::new(grid_of(rows));
@@ -132,9 +170,11 @@ pub fn commander(rows: &[&str]) -> SourceCommander {
 ///
 /// # Panics
 ///
-/// If `content` runs past the row's end or holds a character a Cell refuses.
+/// If `content` is not ASCII, runs past the row's end, or holds a character
+/// a Cell refuses.
 ///
 pub fn write_at(source: &SourceCommander, column: usize, row: usize, content: &str) {
+    assert_ascii(content);
     let grid = source.grid();
     for (offset, content) in content.chars().enumerate() {
         source
@@ -178,6 +218,73 @@ mod tests {
         let source = commander(&[".=0101", "", "!>007FC4"]);
         assert_eq!(row(source.grid(), &source.snapshot(), 2), "!>007FC4");
         assert_eq!(row(source.grid(), &source.snapshot(), 0), ".=0101  ");
+    }
+
+    #[test]
+    fn a_snapshot_is_as_wide_as_its_grid_whatever_its_rows_state() {
+        let grid = Grid::with_shape(10, 4);
+        let snapshot = snapshot(grid, &["", "ab", "", ""]);
+        assert_eq!(row(grid, &snapshot, 1), "ab        ");
+        assert_eq!(snapshot.len(), grid.count());
+    }
+
+    #[test]
+    fn rows_a_snapshot_does_not_state_are_blank() {
+        let grid = Grid::with_shape(4, 3);
+        assert_eq!(snapshot(grid, &["ab"]), format!("ab{}", " ".repeat(10)));
+    }
+
+    #[test]
+    fn a_seeded_source_holds_its_rows_at_the_grids_width() {
+        let grid = Grid::with_shape(10, 4);
+        let source = seeded_source(grid, &["", "ab"]);
+        assert_eq!(
+            rows_of(grid, &source),
+            ["          ", "ab        ", "          ", "          "]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "wider than the Grid")]
+    fn a_row_wider_than_its_grid_is_refused() {
+        snapshot(Grid::with_shape(4, 2), &["abcde", ""]);
+    }
+
+    #[test]
+    #[should_panic(expected = "more rows than the Grid")]
+    fn more_rows_than_the_grid_holds_are_refused() {
+        snapshot(Grid::with_shape(4, 1), &["a", "b"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "not ASCII")]
+    fn a_grid_of_a_row_outside_ascii_is_refused() {
+        grid_of(&["é"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "not ASCII")]
+    fn a_snapshot_of_a_row_outside_ascii_is_refused() {
+        snapshot(Grid::with_shape(4, 1), &["é"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "not ASCII")]
+    fn an_edit_outside_ascii_is_refused() {
+        let source = commander(&["ab"]);
+        write_at(&source, 0, 0, "é");
+    }
+
+    #[test]
+    #[should_panic(expected = "a Grid of no rows")]
+    fn a_grid_of_no_rows_is_refused() {
+        grid_of(&[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "cols must be greater than zero")]
+    fn a_grid_of_only_empty_rows_is_refused() {
+        grid_of(&["", ""]);
     }
 
     #[test]
