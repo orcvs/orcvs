@@ -130,7 +130,8 @@ col  0         1         2
 | (18, 20) `PP` | the Absolute Read | The preset it read. |
 
 The file ships each of them holding what Tick 0 writes under preset `00`, so
-the Source looks the same before and after the first Tick. `RES`, from
+its Comment rows look the same before and after the first Tick. The Everys'
+`**` is the one change: each writes it at the start of its row on every Tick. `RES`, from
 (0, 24) to (23, 28), is the same control with controller `47` (71), its own
 `amount` and its own targets.
 
@@ -141,10 +142,11 @@ the Source looks the same before and after the first Tick. `RES`, from
 | `CUT`, cutoff | `4A` (74) | `08` | `20` (32) | `60` (96) | 8 |
 | `RES`, resonance | `47` (71) | `05` | `20` (32) | `50` (80) | 10 |
 
-Preset `00` is darker and plainer, preset `01` brighter and sharper at the
-cutoff. Each control sends on channel `08` on every Tick its Every bangs it,
-which is every Tick, so the acid voice hears each control sixteen times a bar
-whether it is moving or not, after the bassline's Note on the same Tick.
+Preset `00` holds the cutoff and resonance lower (`20` for both), preset `01`
+higher (`60` and `50`). Listen for what the cutoff and resonance do as `CUT`
+and `RES` climb. Each control sends on channel `08` on every Tick its Every
+bangs it, which is every Tick, so the acid voice hears each control sixteen
+times a bar whether it is moving or not, after the bassline's Note on the same Tick.
 
 The file opens with preset `00` already in each control's value at (8, 20)
 and (8, 26), so the first Tick sends `20` to both and they hold there. Type
@@ -202,11 +204,13 @@ other controls and the bassline play on.
 ## Rewind and reopening
 
 The controls' values live in the Source, in their Comments. Stopping and
-Rewinding Playback, with the Panel's `R` or Command Shift R on native, changes
-no Cell: the next run begins the bassline at its first step, and each control
+Rewinding Playback, with the Panel's `R` or Command Shift R (Ctrl Shift R
+outside macOS), changes no Cell: the next run begins the bassline at its first step, and each control
 carries on from the value its Comment holds toward the preset the selector
 holds. To return to the file as it opens, preset `00` with both controls at
-`20`, open it again from **Help > Examples > Presets**.
+`20`, open it again from **Help > Examples > Presets**. The console asks first
+whether to discard the changed Source; discard it and the file opens as
+shipped.
 
 ## The control Region
 
@@ -232,8 +236,10 @@ col  0         1         2
 | (14, 21) and (14, 22) | The targets, read relative to the Region. |
 
 Everything else in the Region is relative to it, so it works wherever it
-lands as long as `&$0210` still names the preset in force. Paste it anywhere
-in this file and nothing changes. In another piece, copy the Preset block,
+lands as long as `&$0210` still names the preset in force. Pasted onto empty
+Cells of this file it needs no address edit, though the copy sends its own
+controller, so a second `4A` control is a second Control Change with its own
+Slew. In another piece, copy the Region holding the selector,
 (0, 14) to (11, 16), as well. If its Modulo lands at (x, y), the preset in
 force is at (x, y + 1), and each control's Absolute Read needs that Position,
 column then row, each as a two-Cell hexadecimal Number. The move into the
@@ -245,7 +251,7 @@ The [Tracker](tracker.md)'s bassline, its fourth voice, plays on channel `08`
 at velocity `77` (119), just below the accent, so the controls work on it as
 they do here. Move both controls and the selector into it:
 
-1. In Presets, drag a Region from (0, 14) to (23, 28), the Preset block and
+1. In Presets, drag a Region from (0, 14) to (23, 28), the selector and
    both controls, and copy it.
 2. Open **Help > Examples > Tracker**, put the Cursor on (0, 36) and paste.
    The Region lands from (0, 36) to (23, 50), clear of the rows the
@@ -313,11 +319,10 @@ its first Tick. The same selector drives it: type `1` at (5, 15) and decay
 climbs `20 30 40 50 60 70`, one step a Tick, while `CUT` and `RES` move as
 before. The bassline and the other two controls play exactly as they did.
 
-Listen to how each Note's brightness fades. At `10` the filter closes sooner
-after each Note starts, a shorter pluck; at `70` it stays open longer across
-the Note. Every Note of
-the bassline is at velocity `64`, below the accent, so every Note follows the
-decay control. An accented Note, at velocity `78` or above, takes the
+Listen for how long each Note's filter stays open. At `10` the control asks
+the filter to close sooner after each Note starts, and at `70` to stay open
+longer. Every Note of the bassline is at velocity `64`, below the accent, so
+every Note follows the decay control. An accented Note, at velocity `78` or above, takes the
 shortest decay whatever the control sends.
 
 ## On another output

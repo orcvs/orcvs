@@ -580,7 +580,7 @@ fn the_decay_control_follows_the_selector_and_leaves_the_rest_as_shipped() {
 /// The shipped Tracker, which the guide moves the controls into.
 const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
 
-/// The row the guide pastes the copied Preset block and controls onto in the
+/// The row the guide pastes the copied selector and controls onto in the
 /// Tracker, and the rows their selector and Control Changes land on.
 const TRACKER_PASTE_ROW: usize = 36;
 const TRACKER_SELECTOR_ROW: usize = TRACKER_PASTE_ROW + SELECTOR_ROW - 14;
@@ -589,7 +589,7 @@ const TRACKER_RES_ROW: usize = TRACKER_PASTE_ROW + RES_ROW - 14;
 
 ///
 /// The Tracker with the guide's transfer: the Presets' rows 14 to 28, the
-/// Preset block and both controls, pasted at (0, 36), and each control's
+/// selector and both controls, pasted at (0, 36), and each control's
 /// Absolute Read retyped to name the preset in force at (2, 38).
 ///
 fn tracker_with_presets() -> String {
@@ -617,6 +617,9 @@ fn the_controls_moved_into_the_tracker_are_drawn_and_add_no_diagnosis() {
     let rows: Vec<&str> = text.lines().collect();
     assert_eq!(rows[..31], TRACKER.lines().collect::<Vec<_>>()[..]);
     assert_eq!(rows.len(), TRACKER_PASTE_ROW + 15);
+    // The Kombine transfer pastes into rows 32 to 34 of the Tracker, which
+    // the Presets transfer leaves empty.
+    assert!(rows[31..TRACKER_PASTE_ROW].iter().all(|row| row.is_empty()));
     for (row, line) in rows.iter().enumerate().skip(TRACKER_PASTE_ROW) {
         assert_guide_draws(GUIDE, row, line);
     }
