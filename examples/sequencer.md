@@ -16,29 +16,31 @@ col  0         1         2         3         4         5         6         7    
   1    || SEQUENCER ||
   2                     ||0               1               2               3               ||
   3    ~*0101    .+04~.0120
-  4      !~0877&>  01  ||C2      C2      C2      C2      C2      C2      C2      C2      ||
+  4      !~0977&>  01  ||C2      C2      C2      C2      C2      C2      C2      C2      ||
   5
   6    ~*0101    .+04~.0120
-  7      !~0877&>  01  ||        D2              D2              D2              D2      ||
+  7      !~0977&>  01  ||        D2              D2              D2              D2      ||
   8
   9    ~*0101    .+04~.0120
- 10      !~0877&>  01  ||f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  ||
+ 10      !~0977&>  01  ||f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  f2  ||
  ...
  30    ~*0101    .+04~.0120
- 31      !~0977&>  01  ||A1A1A2A1C2A1G2A1A1E2A1A2C3A1G2E2A1A1A2A1C2A1G2A1A1E2A1A2C3A1G2E2||
+ 31      !~0877&>  01  ||A1A1A2A1C2A1G2A1A1E2A1A2C3A1G2E2A1A1A2A1C2A1G2A1A1E2A1A2C3A1G2E2||
 ```
 
 The first three voices play the basic 4/4 808 beat over both bars, the beat the
 Beat example plays: the kick `C2` on every beat, the snare `D2` on beats 2 and 4,
-and the closed hat `f2` on every eighth. They play on channel `08`, where the
-Built-in Synth's kit picks each instrument from the Note's pitch class. The
-last voice plays a sixteen-step bassline twice on channel `09`, the Built-in
+and the closed hat `f2` on every eighth. They play on channel `09`, where the
+Built-in Synth's kit plays General MIDI drum keys: `C2` is key 36 (`24`), the
+kick, `D2` key 38 (`26`), the snare, and `f2` key 42 (`2A`), the closed hat. The
+last voice plays a sixteen-step bassline twice on channel `08`, the Built-in
 Synth's 303-style voice, which sweeps its filter on every Note (ADR 0099). Every
-other voice ships empty, on its Learn Orca channel, `03` to `08`. Each voice's
-steps are one `||` Comment, so the Notes in it are text the Reads select rather
-than Functions. Step `s` of every voice is the pair at columns `20 + 2s` and
-`21 + 2s`, and the Comment on row 2 numbers every eighth step, `0` to `3`, as
-Orca's labels do. Keep each row's `||` at both ends.
+other voice ships empty: the fourth to the eighth on their Learn Orca channels,
+`03` to `07`, and the ninth on the kit's `09`. Each voice's steps are one `||`
+Comment, so the Notes in it are text the Reads select rather than Functions.
+Step `s` of every voice is the pair at columns `20 + 2s` and `21 + 2s`, and the
+Comment on row 2 numbers every eighth step, `0` to `3`, as Orca's labels do.
+Keep each row's `||` at both ends.
 
 ## From Orca to Orcvs
 
@@ -50,7 +52,7 @@ Each voice is the same machine in both languages.
 | `A` add | `.+` Add | Adds `04` to the count and writes it into the Read's `n` slot below. |
 | `O` read, `T` track | `&>` Read east | Reads the Note `n` pairs east of its `n` slot, nested in the Timed Play's note slot. |
 | `V` variable | nothing | Each voice reads its own row, so nothing is shared. |
-| `H` over `*` | `~*0101` Delay | Bangs every Tick, which activates the Timed Play east of its `**`. |
+| `H` over `*` | `~*0101` Every | Bangs every Tick, which activates the Timed Play east of its `**`. |
 | `:` MIDI | `!~` Timed Play | Plays the Note the Read returns on the voice's channel, velocity `77` (119, the byte Orca's default velocity `f` sends), for `01` Tick. |
 | `#` comment | `\|\|` Comment | The title, the step numbers, and each voice's steps from end to end. The Reads see through it. |
 
@@ -60,9 +62,9 @@ For voice 0, the kick, with its machine at rows 3 and 4:
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (2, 3) `~*0101` | Delay | Writes `**` at (2, 4) every Tick, which activates the Timed Play at (4, 4). |
+| (2, 3) `~*0101` | Every | Writes `**` at (2, 4) every Tick, which activates the Timed Play at (4, 4). |
 | (12, 3) `.+04~.0120` | Add, with a nested Clock | Adds `04` to the step and writes the sum into the Read's `n` slot at (12, 4). The nested Clock also writes its count at (16, 4). |
-| (4, 4) `!~0877&>  01` | Timed Play with a nested Read east | Channel `08` (MIDI channel 9 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&>`, whose `n` operand at (12, 4) is the Add's sum. |
+| (4, 4) `!~0977&>  01` | Timed Play with a nested Read east | Channel `09` (MIDI channel 10 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&>`, whose `n` operand at (12, 4) is the Add's sum. |
 | (20, 4) to (83, 4) | Comment text | The voice's thirty-two steps, one Note to a pair. An empty step sends nothing and reports nothing. |
 
 `&> n` reads the pair `n` pairs east of its own `n` operand, so with the offset
@@ -70,7 +72,7 @@ For voice 0, the kick, with its machine at rows 3 and 4:
 Comment's `||`. The nested Read also writes the Note it reads one row south of
 itself, at (10, 5), which shows the step being played.
 
-Voice `v` has its Delay at `(2, 3 + 3v)`, its Play one row down and two columns
+Voice `v` has its Every at `(2, 3 + 3v)`, its Play one row down and two columns
 east, and its steps on that row.
 
 At the default 120 BPM a Tick is 125 ms, so each step is a sixteenth note and
@@ -96,11 +98,11 @@ voice sends nothing that Tick.
 - Learn Orca's sequencer ships every step empty. This one ships the 808 beat
   on its first three voices and an acid bassline on its last.
 - Orca's tenth voice plays on channel `a`, and no voice plays on `9`. Here the
-  beat's three voices share channel `08` and the others are on channels `03`
-  to `09`.
+  beat's three voices and the ninth share the kit's channel `09`, the last
+  plays the acid voice on `08`, and the others are on channels `03` to `07`.
 - Orca's `H` halts the `*` below it, so the `*` stays and keeps banging. Orcvs's
   Halt `*!` locks only while a Bang activates it, and a locked `**` does not
-  fire, so a Delay that bangs every Tick takes their place.
+  fire, so an Every that bangs every Tick takes their place.
 - An Orcvs step is two Cells wide, so each voice's steps take sixty-four
   columns where Orca's take thirty-two.
 - The web console has no Rewind, because the browser keeps Command Shift R for

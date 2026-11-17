@@ -7,7 +7,7 @@
 //! identical Source Snapshot interpreted at an identical Tick produce an
 //! identical Tick Plan.
 //!
-//! Clock, Delay, and Euclidean read the Tick from [`FunctionInputs`]. Random
+//! Clock, Every, and Euclidean read the Tick from [`FunctionInputs`]. Random
 //! reads the anchor from the same bundle. Working Source at a Portal travels
 //! there too and binds at Turn. `functions::tick` is where the seam is consumed, so severing
 //! the threading from the Playback Engine to `Interpreter::execute_function`
@@ -58,7 +58,7 @@ impl Tick {
     /// period is many orders of magnitude longer than that. The behaviour is
     /// still chosen rather than left implicit, because the two candidates
     /// differ in what they would do to the language. Wrapping would return a
-    /// Playback run to Tick `0` and re-fire every Delay and Euclidean at once;
+    /// Playback run to Tick `0` and re-fire each Every and Euclidean at once;
     /// saturating instead stops time, which is the failure a listener can
     /// recognise.
     ///

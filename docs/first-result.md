@@ -105,7 +105,7 @@ last values, and the next **Space** carries on from the following Tick. To begin
 - The [Function reference](functions.md) describes every Function, with an example to try.
 - To hear something, use a Function that plays a note, such as `!>`, which the Function
   reference's MIDI output section describes. On this site the Panel's **O** shows Built-in Synth,
-  which plays it in the browser. On your desktop, choose a MIDI destination under **O**.
+  which plays it in the browser; [its channels](functions.md#built-in-synth) pick the sound. On your desktop, choose a MIDI destination under **O**.
 - In the full console, **Help > Function Reference** replaces what is on the Grid with one worked
   example of every Function. Play it to watch each answer being written.
 - [`CONTEXT.md`](../CONTEXT.md), on GitHub, defines each term this walkthrough used: Source, Grid,

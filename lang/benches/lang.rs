@@ -81,7 +81,7 @@ fn execute_function(c: &mut Criterion) {
 /// Stack, the bind, the Function body and the answer.
 fn execute_function_operands(c: &mut Criterion) {
     let inputs = TickInputs::new(Tick::ZERO, Anchor::new(0, 0));
-    let turns: [(&str, Function, Vec<Option<Atom>>); 3] = [
+    let turns: [(&str, Function, Vec<Option<Atom>>); 4] = [
         (
             "Add",
             Function::Add,
@@ -96,6 +96,13 @@ fn execute_function_operands(c: &mut Criterion) {
             "Subtract",
             Function::Subtract,
             vec![Some(Atom::Number(3)), Some(Atom::Number(1))],
+        ),
+        // Seven hits in sixteen steps, a pattern whose pairing runs several
+        // levels deep.
+        (
+            "Euclidean",
+            Function::Euclidean,
+            vec![Some(Atom::Number(0x07)), Some(Atom::Number(0x10))],
         ),
     ];
 

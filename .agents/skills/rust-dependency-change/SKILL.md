@@ -9,5 +9,5 @@ description: Change or review Rust dependencies, features, Cargo.lock, build scr
 2. Inspect release notes, MSRV, maintenance, advisories, licenses, default features, build scripts, proc macros, and source registry.
 3. Select the narrowest explicit feature set and preserve the supported native and WASM targets.
 4. Review `cargo tree -e features`, the complete manifest diff, and every `Cargo.lock` change.
-5. Run the scoped gate, `mise run check`, `mise run audit_deps`, explicit feature combinations, and WASM checks when affected.
+5. Run the scoped gate and the dependency, feature and WASM risk gates from `AGENTS.md` § Verification that the change reaches.
 6. Report the rationale, transitive impact, commands run, omitted checks, and remaining supply-chain risk.

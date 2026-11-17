@@ -33,7 +33,7 @@ make_fixture() {
   fi
   fixture_dir="$(mktemp -d)"
   fixture_dirs+=("$fixture_dir")
-  mkdir -p "$fixture_dir/scripts/tests" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/console/assets" "$fixture_dir/orcvs" "$fixture_dir/lang"
+  mkdir -p "$fixture_dir/scripts/tests" "$fixture_dir/.github/workflows" "$fixture_dir/.vscode" "$fixture_dir/console/assets" "$fixture_dir/orcvs" "$fixture_dir/lang" "$fixture_dir/synth"
   # The contract asks git whether the proptest regression files are ignored, so a
   # fixture has to be a work tree or that check cannot run against it at all.
   git -C "$fixture_dir" init --quiet
@@ -47,6 +47,7 @@ make_fixture() {
   cp "$repo_root/console/assets/sw.js" "$fixture_dir/console/assets/"
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
+  cp "$repo_root/synth/Cargo.toml" "$fixture_dir/synth/"
   # `miri.yml` and `release-captures.yml` are copied like the other three. The
   # contract's Miri and capture rules are stated over whichever workflow runs the
   # task rather than over a file name, so without the files here nothing in the
@@ -125,9 +126,15 @@ test_unbenchmarked_console_is_rejected() {
   assert_rejected "a benchmark workflow that ignores changes to the benchmarked console crate"
 }
 
+test_unbenchmarked_synth_is_rejected() {
+  make_fixture
+  perl -pi -e "s/^(      - 'synth\\/\\*\\*')\$/# \$1/" "$fixture_dir/.github/workflows/bench.yml"
+  assert_rejected "a benchmark workflow that ignores changes to the benchmarked synth crate"
+}
+
 test_lang_only_bench_task_is_rejected() {
   make_fixture
-  perl -pi -e 's/cargo bench --package lang --package orcvs --package console --benches/cargo bench --package lang/' "$fixture_dir/mise.toml"
+  perl -pi -e 's/cargo bench --package lang --package orcvs --package console --package synth --benches/cargo bench --package lang/' "$fixture_dir/mise.toml"
   assert_rejected "a benchmark task that measures only the lang crate"
 }
 
@@ -135,6 +142,12 @@ test_lang_orcvs_only_bench_task_is_rejected() {
   make_fixture
   perl -pi -e 's/ --package console//' "$fixture_dir/mise.toml"
   assert_rejected "a benchmark task that omits the console crate"
+}
+
+test_synthless_bench_task_is_rejected() {
+  make_fixture
+  perl -pi -e 's/ --package synth//' "$fixture_dir/mise.toml"
+  assert_rejected "a benchmark task that omits the synth crate"
 }
 
 test_defaulted_bench_budget_is_rejected() {
@@ -192,6 +205,24 @@ test_shipped_orcvs_criterion_is_rejected() {
   make_fixture
   perl -pi -e 's/^\[dev-dependencies\]$/[dependencies]/' "$fixture_dir/orcvs/Cargo.toml"
   assert_rejected "a criterion dependency that ships in the orcvs library"
+}
+
+test_missing_synth_criterion_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^criterion = /# criterion = /' "$fixture_dir/synth/Cargo.toml"
+  assert_rejected "a synth crate without the criterion dev-dependency"
+}
+
+test_shipped_synth_criterion_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^\[dev-dependencies\]$/[dependencies]/' "$fixture_dir/synth/Cargo.toml"
+  assert_rejected "a criterion dependency that ships in the synth library"
+}
+
+test_synth_lib_as_bench_is_rejected() {
+  make_fixture
+  perl -pi -e 's/^bench = false$/# bench = false/' "$fixture_dir/synth/Cargo.toml"
+  assert_rejected "a synth library that hands criterion's arguments to libtest"
 }
 
 test_missing_console_criterion_is_rejected() {
@@ -1229,12 +1260,17 @@ case "${1:-all}" in
   disabled-feature-tree) test_audit_without_the_disabled_tree_check_is_rejected ;;
   unbenchmarked-orcvs) test_unbenchmarked_orcvs_is_rejected ;;
   unbenchmarked-console) test_unbenchmarked_console_is_rejected ;;
+  unbenchmarked-synth) test_unbenchmarked_synth_is_rejected ;;
   lang-only-bench) test_lang_only_bench_task_is_rejected ;;
   lang-orcvs-only-bench) test_lang_orcvs_only_bench_task_is_rejected ;;
+  synthless-bench) test_synthless_bench_task_is_rejected ;;
   missing-orcvs-criterion) test_missing_orcvs_criterion_is_rejected ;;
   shipped-orcvs-criterion) test_shipped_orcvs_criterion_is_rejected ;;
   missing-console-criterion) test_missing_console_criterion_is_rejected ;;
   shipped-console-criterion) test_shipped_console_criterion_is_rejected ;;
+  missing-synth-criterion) test_missing_synth_criterion_is_rejected ;;
+  shipped-synth-criterion) test_shipped_synth_criterion_is_rejected ;;
+  synth-lib-as-bench) test_synth_lib_as_bench_is_rejected ;;
   console-bin-as-bench) test_console_bin_as_bench_is_rejected ;;
   bench-native-dependencies) test_bench_without_native_dependencies_is_rejected ;;
   unlocked-check-deny) test_unlocked_check_deny_is_rejected ;;
@@ -1345,8 +1381,10 @@ case "${1:-all}" in
     test_unlocked_check_deny_is_rejected
     test_unbenchmarked_orcvs_is_rejected
     test_unbenchmarked_console_is_rejected
+    test_unbenchmarked_synth_is_rejected
     test_lang_only_bench_task_is_rejected
     test_lang_orcvs_only_bench_task_is_rejected
+    test_synthless_bench_task_is_rejected
     test_defaulted_bench_budget_is_rejected
     test_measuring_warmup_run_is_rejected
     test_asymmetric_bench_warmup_is_rejected
@@ -1355,6 +1393,9 @@ case "${1:-all}" in
     test_shipped_orcvs_criterion_is_rejected
     test_missing_console_criterion_is_rejected
     test_shipped_console_criterion_is_rejected
+    test_missing_synth_criterion_is_rejected
+    test_shipped_synth_criterion_is_rejected
+    test_synth_lib_as_bench_is_rejected
     test_console_bin_as_bench_is_rejected
     test_bench_without_native_dependencies_is_rejected
     test_unlocked_audit_deny_is_rejected

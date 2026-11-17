@@ -64,7 +64,8 @@ pub enum PlayCommand {
         length: Length,
     },
     ///
-    /// Monophonic Play, carrying the same operands Timed Play does.
+    /// Monophonic Play, carrying Timed Play's operands and how the note
+    /// follows the one its channel sounds.
     ///
     /// A variant of its own rather than a flag on `Timed`, because the two
     /// differ in what they own rather than in what they carry: Timed Play is
@@ -73,11 +74,16 @@ pub enum PlayCommand {
     /// variant would put that difference in a field every consumer had to
     /// branch on, where a variant makes the match arms the branch.
     ///
+    /// How the note follows the one it replaces is an [`Articulation`], a
+    /// field rather than a variant: it does not change what the command
+    /// owns, only how a replacement is phrased.
+    ///
     Mono {
         channel: MidiChannel,
         velocity: Velocity,
         note: Note,
         length: Length,
+        articulation: Articulation,
     },
     /// Control Change: a controller and the value sent to it, each
     /// carrying the role it plays rather than the data-byte domain the two
@@ -102,6 +108,21 @@ pub enum PlayCommand {
         lsb: BendLsb,
         msb: BendMsb,
     },
+}
+
+///
+/// How a Monophonic Play's note follows the note its channel is sounding:
+/// what the Source's `legato` operand says.
+///
+/// An enum rather than a `bool`, so a consumer's match names the two cases
+/// and a `true` cannot be read as either.
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Articulation {
+    /// `legato` `00`, or blank: the note starts afresh.
+    Retrigger,
+    /// Any other `legato`: the note is played legato from the one before.
+    Legato,
 }
 
 ///

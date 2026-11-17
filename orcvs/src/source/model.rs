@@ -114,7 +114,8 @@ pub struct CellWrite {
 /// MIDI. A chord is several roots one Bang activates, each contributing one
 /// command to the Tick Plan's ordered list.
 pub use lang::{
-    BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note, PlayCommand, Velocity,
+    Articulation, BendLsb, BendMsb, ControlValue, Controller, Length, MidiChannel, Note,
+    PlayCommand, Velocity,
 };
 
 /// What a UDP or OSC Function contributes to a Tick Plan: one datagram or one
@@ -1972,10 +1973,11 @@ mod test {
 
     #[test]
     fn test_root_monophonic_play_function_emits_one_command_of_its_own_kind() {
-        let mut src = source();
+        let play = "!%017FC403  ";
+        let mut src = SourceUnderTest::new(Grid::with_shape(play.len(), 6));
         let at = src.cells();
         src.write(at(0), ".=0101");
-        src.write(at(20), "!%017FC403");
+        src.write(at(2 * play.len()), play);
 
         let tick = src.execute();
 
@@ -1990,11 +1992,12 @@ mod test {
                 velocity: Velocity::try_from(0x7F).unwrap(),
                 note: Note::try_from(60).unwrap(),
                 length: Length::from(3),
+                articulation: lang::Articulation::Retrigger,
             }]
         );
-        assert_writes_only_bangs(&tick, src.grid, &[10]);
+        assert_writes_only_bangs(&tick, src.grid, &[play.len()]);
         assert!(tick.diagnostics.is_empty());
-        assert_eq!(src.row(1), "**        ");
+        assert_eq!(src.row(1), format!("**{}", " ".repeat(play.len() - 2)));
     }
 
     #[test]
@@ -2087,23 +2090,23 @@ mod test {
                 "MIDI velocity 80 is outside the range 00\u{2013}7F",
             ),
             (
-                "!%107FC403",
+                "!%107FC403  ",
                 "MIDI channel 10 is outside the range 00\u{2013}0F",
             ),
             (
-                "!%0080C403",
+                "!%0080C403  ",
                 "MIDI velocity 80 is outside the range 00\u{2013}7F",
             ),
         ] {
-            let mut src = source();
+            let mut src = SourceUnderTest::new(Grid::with_shape(expression.len(), 6));
             let at = src.cells();
             src.write(at(0), ".=0101");
-            src.write(at(20), expression);
+            src.write(at(2 * expression.len()), expression);
 
             let tick = src.execute();
 
             assert!(tick.play_commands.is_empty(), "{expression}");
-            assert_writes_only_bangs(&tick, src.grid, &[10]);
+            assert_writes_only_bangs(&tick, src.grid, &[expression.len()]);
             assert_eq!(tick.diagnostics.len(), 1, "{expression}");
             assert_eq!(tick.diagnostics[0].message, message, "{expression}");
         }

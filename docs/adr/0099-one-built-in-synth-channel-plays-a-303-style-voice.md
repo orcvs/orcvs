@@ -5,7 +5,12 @@ Status: accepted. Settled with Toby on 2026-10-31 in `.scratch/acid-channel/`. I
 envelope and which ignores every Control Change but All Sound Off and All Notes Off: on the acid
 channel the synth also acts on CC 70, 71, 74, 75 and 79 and on Reset All Controllers (CC 121).
 [ADR 0088](0088-the-sound-module-shows-the-synths-channels-and-effects-as-cells.md)'s global
-effects stay as they are, and CC 121 leaves them alone.
+effects stay as they are, and CC 121 leaves them alone, until the second 2026-11-14 amendment,
+under which it clears each channel's Modulation. The 2026-11-13 amendment below moves the
+acid voice to channel `08` and the kit to `09`–`0F`; the 2026-11-14 amendment has the acid voice's
+CC 74 and 75 win over the per-channel tilt and length on its channel; the second 2026-11-14
+amendment has Reset All Controllers follow RP-015, leaving the voice's sound alone; the third
+2026-11-14 amendment lets Monophonic Play slide.
 
 Acid basslines are the music a reader expects a sequencer like Orcvs to make, and the Built-in
 Synth cannot make one. A 303's sound is its filter: a resonant lowpass swept down by an envelope on
@@ -19,7 +24,7 @@ adds nothing today; the kit stays on `08` and `0A`–`0F`, and every tone channe
 Toby chose `09` on 2026-10-31.
 
 - **One voice, mono.** It takes one of ADR 0087's sixteen voices while it sounds, and a chord
-  played on the channel sounds as its last note, legato from the one before. A Note On while the channel's note is still held is legato: the pitch glides
+  played on the channel sounds as its last note, slid into from the one before. A Note On while the channel's note is still held is a slide: the pitch moves
   to the new note over about 60 ms and neither envelope restarts. A Note On with nothing held starts
   both envelopes. A Note Off for a note that is no longer the one sounding changes nothing, so a
   Timed Play's late Note Off cannot cut the note that replaced it.
@@ -82,3 +87,65 @@ moving, which a sample cannot follow.
   and 75 are resonance, cutoff and decay on most synths, and 70 and 79 vary by device. A Source
   written for the acid channel usually only changes timbre elsewhere.
 - ADR 0087's Status line and `CONTEXT.md`'s Built-in Synth entry name the acid channel.
+
+## Amendment, 2026-11-13: the acid voice is on `08` and the kit on `09`–`0F`
+
+Settled with Toby in `.scratch/musical-terminology/` (ticket 08). The acid voice plays on channel
+`08`, MIDI channel 9, and the 808-style kit on `09` to `0F`, MIDI channels 10 to 16; the tone
+channels `00` to `07` are unchanged. `09` is MIDI channel 10, the channel General MIDI gives to
+drums, so a drum part a DAW sends there played basslines; on `08` the acid voice still takes no tone
+channel's slot, and channel 10 plays drums as on any General MIDI module. Read the Decision and
+Consequences above with `08` for the acid channel and `09` for the kit channel it repeats. Every
+shipped example moved with it: the Knobs bassline and its acid knobs, the Tracker's fourth voice
+and the Sequencer's last play on `08`, and the beat in Beat, Tracker and Sequencer plays on `09`.
+
+## Amendment, 2026-11-14: the acid voice's controllers win on its channel
+
+Settled with Toby on 2026-11-13 in `.scratch/musical-terminology/` (ticket 10). ADR 0088's
+2026-11-14 amendment sets every effect per channel, with the tilt on CC 74 (Brightness) and the
+length on CC 75 (Decay Time). On the acid channel those two controllers stay the voice's cutoff and
+decay, so the tilt and the length do not apply to `08`; CC 74 there still brightens and CC 75 still
+lengthens, as on every other channel. The channel's other effects, on CC 1, 85 and 91 to 94, apply
+to the acid voice as to any channel. Read "ADR 0088's global effects" above as the channel's own
+effects; the next amendment says which of them Reset All Controllers clears.
+
+## Amendment, 2026-11-14: Reset All Controllers follows RP-015
+
+Settled with Toby on 2026-11-13 in `.scratch/musical-terminology/` (ticket 11). Reset All
+Controllers (CC 121) no longer returns the acid voice's five controls to their load values. Stop's
+safety action sends it on every channel, so a stop wiped the sound a Source had set up, and a DAW
+that sends it on loading a song did the same.
+
+The MIDI Manufacturers Association's recommended practice RP-015, "Response to Reset All
+Controllers", defines what a receiver resets. The MIDI Association lists it among the MIDI 1.0
+addenda as defining "a consistent response to the Reset All Controllers Channel Mode message
+(#121)" (<https://midi.org/response-to-reset-all-controllers/>), and its table of Control Change
+messages marks controller 121 "Reset All Controllers (See MMA RP-015)"
+(<https://midi.org/midi-1-0-control-change-messages>). The document itself is available to members
+only and was not read for this amendment. What it resets is taken from receivers that implement
+it, such as Roland's, whose MIDI implementations reset pitch bend, channel and polyphonic pressure,
+Modulation, Expression and the pedals, clear the parameter number, and leave everything else,
+including the Sound Controllers (CC 70 to 79) and the Effect Controllers (CC 91 to 95).
+
+On the Built-in Synth, Reset All Controllers on a channel:
+
+- clears its Modulation, `MD` on CC 1, to `00`, the one performance controller the synth acts on;
+- leaves the acid voice's controls on CC 70, 71, 74, 75 and 79, which are Sound Controllers;
+- leaves every other effect: the tilt and length on CC 74 and 75, the sends on CC 91 to 94, and
+  `OF` on CC 85, Orcvs's own control that mirrors CC 73 Attack Time, a Sound Controller.
+
+Read the Decision's "Reset All Controllers ... returns these five to their load values" and the
+Status line's "and on Reset All Controllers" with this list. The Sound Module shows `MD` at `00` on
+a channel that receives it. The Decision's description of the voice says "slide" for what it
+called legato and a glide, the vocabulary `CONTEXT.md` uses for the acid voice; the behaviour is
+unchanged.
+
+## Amendment, 2026-11-14: Monophonic Play slides with `legato`
+
+Requested by ticket 13 of `.scratch/musical-terminology/`, from the decision settled with Toby on
+2026-11-13; ADR 0016's 2026-11-14 amendment gives the rules, some of them the implementer's for
+Toby to confirm. Monophonic Play takes a last operand, `legato`. With a `legato` other than `00` it
+sends the new note's Note On before the prior note's Note Off, so on `08` the acid voice slides into
+the new note, as it does under an overlapping Timed Play. Read the Decision's "Monophonic Play stops
+the prior note before it starts the next one, so it never slides" as true of a `legato` of `00` or
+blank only. The language gains that operand and nothing else; the voice is unchanged.

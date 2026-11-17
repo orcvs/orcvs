@@ -53,9 +53,9 @@
 //! a stopped mover's Span into `**` for one Tick and then clears it to blank
 //! forever, exactly the vanishing this reference should not show while it
 //! plays — each mover that can be walled in comes to rest directly south of
-//! an already-active Halt Function (CONTEXT.md's Halt entry). Halt locks its
-//! target's Turn before it runs, so a Cell it protects is never overwritten
-//! at all: the mover's own glyph stands forever once it arrives.
+//! an already-active Halt (EVAL-053). Halt locks its target's Turn before it
+//! runs, so a Cell it protects is never overwritten at all: the mover's own
+//! glyph stands forever once it arrives.
 //!
 //! Halt only ever locks the root directly south of itself, and that geometry
 //! decides which movers can be walled and which cannot:
@@ -65,7 +65,7 @@
 //!   is either fully occupied or not there yet, never partly one and partly
 //!   the other, so an already-active Halt several rows north locks it the
 //!   moment it arrives, with room to spare for the Directional Bang's own
-//!   one-shot Delay well away from Halt's own neighbourhood.
+//!   `~*` that Bangs once in the run, well away from Halt's own neighbourhood.
 //! - **West and East**, placed at rest from the outset (`<<`, `>>`), are
 //!   walled the same way — Halt is active before the mover ever exists, so
 //!   its own driving Equality has the whole neighbourhood to itself. Real
@@ -81,8 +81,8 @@
 //!   immediately south of its own Halt from Tick 0, the one Cell Halt can
 //!   reach without ever touching it.
 //! - **The Directional Bang South, West, and East Functions cannot be
-//!   walled at all**, in flight or at rest. Each needs its own one-shot
-//!   Delay touching it to emit exactly once, and that Delay's four-digit
+//!   walled at all**, in flight or at rest. Each needs its own `~*` that
+//!   Bangs once in the run touching it to emit exactly once, and that `~*`'s four-digit
 //!   operand always reaches into the same one or two Cells a second,
 //!   permanently active Bang source would need in order to keep the
 //!   mover's own Halt lit — every placement that avoids one collision runs
@@ -95,14 +95,15 @@
 //!
 //! # MIDI activation needs no area, only a Bang source
 //!
-//! A Terminal Output Function "never writes a Cell result" (CONTEXT.md's
-//! Terminal Output Function entry), so nothing about a `!`-spelled
-//! Expression itself ever changes once checked in, and no row is set aside
-//! south of it the way a value-answering group sets one aside for its result.
+//! A Terminal Output Function answers no value and writes no Cell (the
+//! Terminal Output Function entry in `CONTEXT.md`), so nothing about a
+//! `!`-spelled Expression itself ever changes once checked in, and no row is
+//! set aside south of it the way a value-answering group sets one aside for
+//! its result.
 //! What changes is each example's own Bang source: a Euclidean, `~%0104`
 //! (the `X...` pattern), Bangs once every four Ticks — slow enough to hear
 //! each event distinctly at the default tempo — and clears to blank between
-//! Bangs the same way Tick's own Delay and Euclidean examples do.
+//! Bangs the same way Tick's own Every and Euclidean examples do.
 //!
 //! Activation is vertical, the same alignment
 //! `orcvs::source::tick::a_bang_activates_its_aligned_neighbours_and_no_further_root`
@@ -313,25 +314,25 @@ mod tests {
             // on row 10).
             result(16, 12, "D4"), // #+C402
             result(16, 14, "C4"), // #-D402
-            result(16, 16, "G4"), // #pC4MA04: MA's fifth entry is 7 above C4
-            result(16, 18, "M7"), // #sMA0004: MA's positions 0 2 4 6 are 0 4 7 11
-            // Tick (column 32). Clock, Delay, Euclidean, and Random depend
+            result(16, 16, "G4"), // #pC4io04: io's fifth entry is 7 above C4
+            result(16, 18, "M7"), // #sio0004: io's positions 0 2 4 6 are 0 4 7 11
+            // Tick (column 32). Clock, Every, Euclidean, and Random depend
             // only on their operands, the absolute Tick, and (for Random)
             // this Function's own Grid Position — never on a previously
             // written Cell — so the checked-in result row already holds
             // what Tick 0 writes, exactly like Arithmetic.
             //
-            // Increment and Interpolation are different: each reads its own
+            // Increment and Slew are different: each reads its own
             // result Cell as the previous value before it writes a new one.
             // The checked-in text therefore holds a pre-Tick previous chosen
-            // to make the change visible (Increment's `03`, Interpolation's
+            // to make the change visible (Increment's `03`, Slew's
             // `00`), and this table asserts the value Tick 0 overwrites it
             // with — the two are deliberately not the same string.
             result(32, 2, "00"), // ~.0204 (Clock: step 0 of a 2-Tick, 4-step cycle)
-            result(32, 5, "**"), // ~*0302 (Delay: every cycle Bangs at Tick 0)
+            result(32, 5, "**"), // ~*0302 (Every: every cycle Bangs at Tick 0)
             result(32, 8, "**"), // ~%0308 (Euclidean: 03-08's pattern Bangs its first step)
             result(32, 11, "00"), // ~+0104 (Increment: previous 03 -> (03+01)%04)
-            result(32, 14, "02"), // ~>0210 (Interpolation: previous 00 -> steps by 02 toward 10)
+            result(32, 14, "02"), // ~>0210 (Slew: previous 00 -> steps by 02 toward 10)
             result(32, 17, "0F"), // ~?010010 (Random: seed 01 at this Function's own Grid Position, Tick 0)
             // The absolute Copy (column 48) copies the `F4` at Position
             // `34 13`, below its operands, to `34 14`, directly below that,
@@ -409,7 +410,7 @@ mod tests {
 
     /// The `(column, row)` of each result row that reads its own Cells as the
     /// previous value before Tick 0 overwrites them: Increment's and
-    /// Interpolation's. Every other result row's checked-in text is what
+    /// Slew's. Every other result row's checked-in text is what
     /// Tick 0 writes.
     const RESULTS_READING_THEIR_PREVIOUS: [(usize, usize); 2] = [(32, 11), (32, 14)];
 
@@ -593,19 +594,19 @@ mod tests {
                 directional_north: Area {
                     columns: 64..74,
                     rows: 1..6,
-                }, // *^: Equality, Halt, target, Delay, *^
+                }, // *^: Equality, Halt, target, Every, *^
                 directional_south: Area {
                     columns: 64..70,
                     rows: 7..11,
-                }, // *v: Delay, *v, emission, blocker (cannot be walled; alternates — see module doc)
+                }, // *v: Every, *v, emission, blocker (cannot be walled; alternates — see module doc)
                 directional_west: Area {
                     columns: 64..76,
                     rows: 12..14,
-                }, // *<: blocker, *<, emission, Delay (cannot be walled)
+                }, // *<: blocker, *<, emission, Every (cannot be walled)
                 directional_east: Area {
                     columns: 64..72,
                     rows: 15..17,
-                }, // *>: Delay, *>, emission, blocker (cannot be walled)
+                }, // *>: Every, *>, emission, blocker (cannot be walled)
                 self_banging_north: Area {
                     columns: 64..70,
                     rows: 18..23,
@@ -667,8 +668,8 @@ mod tests {
 
     /// The Tick group's own six dynamic result Cells (column 32), derived
     /// from [`expected_results`] rather than a second hand-kept coordinate
-    /// list: Clock, Delay, Euclidean, and Random change with the absolute
-    /// Tick, Increment and Interpolation with their own previous value, so
+    /// list: Clock, Every, Euclidean, and Random change with the absolute
+    /// Tick, Increment and Slew with their own previous value, so
     /// all six can change on any Tick by that group's own design and are excluded from
     /// the "no Cell outside an area changes" sweep below for a reason that
     /// has nothing to do with Source Functions.
@@ -694,7 +695,7 @@ mod tests {
     /// proves this pattern from the same `~%` formula this module's own
     /// Euclidean examples use), so each of these Cells reads `**` on every
     /// fourth Tick starting at Tick 0 and clears to blank on the three Ticks
-    /// between — the same clearing behaviour Tick's own Delay and Euclidean
+    /// between — the same clearing behaviour Tick's own Every and Euclidean
     /// examples already rely on — which is why these nine Cells, and no
     /// others in the band, are excluded from "no Cell outside an
     /// example's own area changes" below. Every Terminal Output Function's
@@ -889,7 +890,7 @@ mod tests {
     /// to.
     /// Channel, velocity, note, controller, value, and bend operands were
     /// chosen to be plausible MIDI content (a mid-velocity Middle C on
-    /// channel `00`, a Volume Control Change (`07`), a Pitch Bend above
+    /// channel `00`, a reverb send Control Change (`5B`), a Pitch Bend above
     /// centre (`40`)) rather than boundary values, since this is a worked
     /// example and not a domain-boundary test — those already live in
     /// `lang`. Timed Play's and Monophonic Play's lengths (`04` Ticks each)
@@ -929,12 +930,13 @@ mod tests {
                 velocity: Velocity::try_from(0x64).unwrap(),
                 note: Note::try_from(0x43).unwrap(),
                 length: Length::from(0x04),
+                articulation: lang::Articulation::Retrigger,
             },
-            // !c000764 — Control Change: channel 00, controller 07 (Volume),
-            // value 64.
+            // !c005B64 — Control Change: channel 00, controller 5B (91, the
+            // reverb send), value 64.
             PlayCommand::ControlChange {
                 channel: MidiChannel::try_from(0x00).unwrap(),
-                controller: Controller::try_from(0x07).unwrap(),
+                controller: Controller::try_from(0x5B).unwrap(),
                 value: ControlValue::try_from(0x64).unwrap(),
             },
             // !b000050 — Pitch Bend: channel 00, lsb 00, msb 50 (above
@@ -949,7 +951,7 @@ mod tests {
             raw_tone(0x40),
             raw_tone(0x43),
             raw_tone(0x47),
-            // !#0064C4M_CL0004 — Timed Chord Play: C4, E4 and G4, each for
+            // !#0064C4MACL0004 — Timed Chord Play: C4, E4 and G4, each for
             // 04 Ticks.
             timed_tone(0x3C),
             timed_tone(0x40),
@@ -977,12 +979,12 @@ mod tests {
     /// Output Function `lang::Function` has; the module doc says why `!$` is
     /// not among them), each gated by its own Euclidean Bang source, `~%0104`.
     ///
-    /// Every Terminal Output Function "never writes a Cell result"
-    /// (CONTEXT.md's Terminal Output Function entry), so no row is set aside
-    /// south of any of these nine Expressions — unlike every value-answering
-    /// group's own result row — and the only Cells that ever change while
-    /// ticking this group are the Euclidean sources' own Bang Cells,
-    /// [`midi_bang_result_areas`], which this test names explicitly and
+    /// Every Terminal Output Function answers no value and writes no Cell
+    /// (the Terminal Output Function entry in `CONTEXT.md`), so no row is set
+    /// aside south of any of these nine Expressions — unlike every
+    /// value-answering group's own result row — and the only Cells that ever
+    /// change while ticking this group are the Euclidean sources' own Bang
+    /// Cells, [`midi_bang_result_areas`], which this test names explicitly and
     /// excludes rather than asserting fixed content for, since each toggles
     /// between `**` and blank forever rather than settling.
     ///

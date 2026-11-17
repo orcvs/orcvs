@@ -35,3 +35,12 @@ test("pressing two Grids opens each in the one small console, stopped", async ({
   // Stopped: no Tick runs, so the Grid does not change.
   expect(await holdsStill(frame, page, 1_500)).toBe(true);
 });
+
+test("a link to a section of another doc stays on the site", async ({ page }) => {
+  await page.goto("/learn/");
+  const link = page.locator('.sl-markdown-content a[href="/reference/#built-in-synth"]');
+  await expect(link).toHaveCount(1);
+  await link.click();
+  await expect(page).toHaveURL(/\/reference\/#built-in-synth$/);
+  await expect(page.locator("#built-in-synth")).toBeInViewport();
+});

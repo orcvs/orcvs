@@ -1249,9 +1249,9 @@ mod tests {
         // Both owning spellings, because a destination change clears the one
         // schedule they share and a test of `!~` alone would pass on a clear
         // that reached the Timed claims and left the Mono ones standing.
-        for expression in ["!~007FC402", "!%007FC402"] {
+        for expression in ["!~007FC402", "!%007FC402  "] {
             let state = Arc::new(Mutex::new(FakeState::default()));
-            let grid = Grid::with_shape(10, 4);
+            let grid = Grid::with_shape(expression.len(), 4);
             let source = SourceCommander::new(grid);
             // A note stopped two Ticks after it starts, and the comparison
             // whose output one row above the root activates it.
@@ -1260,7 +1260,10 @@ mod tests {
             }
             for (index, content) in expression.chars().enumerate() {
                 source
-                    .set(cell(grid, 20 + index), &content.to_string())
+                    .set(
+                        cell(grid, 2 * expression.len() + index),
+                        &content.to_string(),
+                    )
                     .unwrap();
             }
             let mut backend = FakeBackend {
@@ -1310,9 +1313,9 @@ mod tests {
     async fn a_destination_change_that_fails_to_connect_clears_the_scheduled_stop() {
         // Both owning spellings, for the reason the successful change tests
         // both: the clear is the one the two schedules share.
-        for expression in ["!~007FC402", "!%007FC402"] {
+        for expression in ["!~007FC402", "!%007FC402  "] {
             let state = Arc::new(Mutex::new(FakeState::default()));
-            let grid = Grid::with_shape(10, 4);
+            let grid = Grid::with_shape(expression.len(), 4);
             let source = SourceCommander::new(grid);
             // The same Play the successful change uses: a note stopped two
             // Ticks after it starts, and the comparison that generates its
@@ -1322,7 +1325,10 @@ mod tests {
             }
             for (index, content) in expression.chars().enumerate() {
                 source
-                    .set(cell(grid, 20 + index), &content.to_string())
+                    .set(
+                        cell(grid, 2 * expression.len() + index),
+                        &content.to_string(),
+                    )
                     .unwrap();
             }
             let mut backend = FakeBackend {

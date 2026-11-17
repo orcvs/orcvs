@@ -8,7 +8,8 @@ on:
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition, including the floor check's figures and checker.
     # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
-    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # `console/**` covers Paint derivation and the background-run fold.
+    # `synth/**` covers the Built-in Synth's render block. The memory
     # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
@@ -16,6 +17,7 @@ on:
       - 'lang/**'
       - 'orcvs/**'
       - 'console/**'
+      - 'synth/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -29,7 +31,8 @@ on:
     # resolved dependency versions they compile under, the toolchain, the command, and
     # the gate's own definition, including the floor check's figures and checker.
     # `orcvs/**` covers the Source, the Language Map, and the Render Frame.
-    # `console/**` covers Paint derivation and the background-run fold. The memory
+    # `console/**` covers Paint derivation and the background-run fold.
+    # `synth/**` covers the Built-in Synth's render block. The memory
     # series needs no entry of its own: it is measured by
     # `lang/tests/allocation.rs` and `orcvs/tests/allocation.rs`, which the two crate
     # globs already cover. Repeated because Actions does not support YAML anchors.
@@ -37,6 +40,7 @@ on:
       - 'lang/**'
       - 'orcvs/**'
       - 'console/**'
+      - 'synth/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -93,7 +97,7 @@ jobs:
       # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}
@@ -328,7 +332,7 @@ jobs:
       # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}

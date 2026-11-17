@@ -21,8 +21,9 @@ const GITHUB_DOCS = "https://github.com/orcvs/orcvs/blob/main/docs/";
 /** Where a link in a rendered doc goes on the site. */
 function siteLink(url: string): string {
   if (/^[a-z]+:|^#|^\//.test(url)) return url;
-  if (url === "first-result.md") return "/learn/";
-  if (url === "functions.md") return "/reference/";
+  const [file, fragment] = url.split(/(?=#)/);
+  if (file === "first-result.md") return "/learn/" + (fragment ?? "");
+  if (file === "functions.md") return "/reference/" + (fragment ?? "");
   return new URL(url, GITHUB_DOCS).href;
 }
 

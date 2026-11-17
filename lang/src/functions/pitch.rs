@@ -33,23 +33,26 @@ pub(crate) fn note_at(value: i16) -> Option<Note> {
         .and_then(|value| Note::try_from(value).ok())
 }
 
-/// Up: `#+ note number`.
+/// Up: `#+ note semitones`.
 ///
-/// Answers the Note `number` semitones above `note`.
+/// Answers `note` raised by `semitones` semitones.
 #[inline(always)]
 pub fn up(ctx: &mut Context) -> Result<Atom, Error> {
-    ctx.stack.apply(|Up { note, number }: Up| {
-        answer(Function::Up, i16::from(note.value()) + i16::from(number))
+    ctx.stack.apply(|Up { note, semitones }: Up| {
+        answer(Function::Up, i16::from(note.value()) + i16::from(semitones))
     })
 }
 
-/// Down: `#- note number`.
+/// Down: `#- note semitones`.
 ///
-/// Answers the Note `number` semitones below `note`.
+/// Answers `note` lowered by `semitones` semitones.
 #[inline(always)]
 pub fn down(ctx: &mut Context) -> Result<Atom, Error> {
-    ctx.stack.apply(|Down { note, number }: Down| {
-        answer(Function::Down, i16::from(note.value()) - i16::from(number))
+    ctx.stack.apply(|Down { note, semitones }: Down| {
+        answer(
+            Function::Down,
+            i16::from(note.value()) - i16::from(semitones),
+        )
     })
 }
 
@@ -58,7 +61,7 @@ pub fn down(ctx: &mut Context) -> Result<Atom, Error> {
 ///
 /// `i16` holds every value Pick and Stack reach through here, for any entry
 /// a byte can hold. Pick's index is a byte, and Stack reads positions up to
-/// `FF + 2 * (MAX_TONES - 1)` from its degree, 277 while the longest set
+/// `FF + 2 * (MAX_TONES - 1)` from its index, 277 while the longest set
 /// holds twelve tones, so no position is past that. A set holds at least one
 /// tone, so a tone is at most `FF + 12 * 277`, 3579 semitones above its root.
 /// Pick adds a root no higher than `7F`, reaching 3706, and Stack subtracts
@@ -92,16 +95,16 @@ pub fn pick(ctx: &mut Context) -> Result<Atom, Error> {
     })
 }
 
-/// Stack: `#s set degree size`.
+/// Stack: `#s set index size`.
 ///
 /// Answers the Interval Set with the semitones of `size` tones of `set` from
-/// `degree`, each two positions on from the last, less the first; or diagnoses
+/// `index`, each two positions on from the last, less the first; or diagnoses
 /// when no name holds exactly those. The build refuses a table in which two
 /// names hold the same semitones, so the answer is never a choice.
 #[inline(always)]
 pub fn stack(ctx: &mut Context) -> Result<Atom, Error> {
-    ctx.stack.apply(|Stack { set, degree, size }: Stack| {
-        stacked(set, usize::from(degree), usize::from(size))
+    ctx.stack.apply(|Stack { set, index, size }: Stack| {
+        stacked(set, usize::from(index), usize::from(size))
             .and_then(|stacked| {
                 IntervalSet::ALL.iter().copied().find(|name| {
                     name.semitones()
@@ -115,7 +118,7 @@ pub fn stack(ctx: &mut Context) -> Result<Atom, Error> {
                 InterpretationError::NoIntervalSet {
                     function: Function::Stack,
                     set,
-                    degree,
+                    index,
                     size,
                 }
                 .into()
@@ -126,11 +129,11 @@ pub fn stack(ctx: &mut Context) -> Result<Atom, Error> {
 /// Stack's tones as semitones above the first, read once; or `None` when
 /// `size` is past the longest name, so that no name could hold them.
 #[inline(always)]
-fn stacked(set: IntervalSet, degree: usize, size: usize) -> Option<ArrayVec<i16, MAX_TONES>> {
+fn stacked(set: IntervalSet, index: usize, size: usize) -> Option<ArrayVec<i16, MAX_TONES>> {
     (size <= MAX_TONES).then(|| {
-        let first = tone(set, degree);
+        let first = tone(set, index);
         (0..size)
-            .map(|step| tone(set, degree + 2 * step) - first)
+            .map(|step| tone(set, index + 2 * step) - first)
             .collect()
     })
 }
@@ -155,8 +158,8 @@ mod test {
     const BODIES: [(Function, Body); 2] = [(Function::Up, up), (Function::Down, down)];
 
     /// Exercises Function dispatch with resolved operands in signature order.
-    fn evaluate(function: Function, note: Atom, number: Atom) -> Result<Interpretation, Error> {
-        Interpreter::execute_function(function, [note, number].map(Some), inputs().into())
+    fn evaluate(function: Function, note: Atom, semitones: Atom) -> Result<Interpretation, Error> {
+        Interpreter::execute_function(function, [note, semitones].map(Some), inputs().into())
     }
 
     fn note(value: u8) -> Atom {
@@ -166,11 +169,15 @@ mod test {
     /// Evaluates `outer` with the Return of the flat Source text `inner` in
     /// its note operand: `lang` evaluates one Function per Turn, so the inner
     /// Turn's two-Cell answer reaches the outer one decoded by its signature.
-    fn nested(outer: Function, inner: &str, number: u8) -> Result<Interpretation, Error> {
+    fn nested(outer: Function, inner: &str, semitones: u8) -> Result<Interpretation, Error> {
         let [token, _] = outer.signature() else {
             panic!("{outer:?} declares two operands");
         };
-        evaluate(outer, token.decode(&returned(inner))?, Atom::Number(number))
+        evaluate(
+            outer,
+            token.decode(&returned(inner))?,
+            Atom::Number(semitones),
+        )
     }
 
     /// Asserts the Source text answers Note `expected`.
@@ -242,18 +249,18 @@ mod test {
 
     #[test]
     fn pick_answers_the_tone_at_an_index_inside_the_interval_set() {
-        answers("#pC4MA00", 0x3C); // C4, the root
-        answers("#pC4MA04", 0x43); // G4, MA's fifth entry is 7
-        answers("#pC4MA06", 0x47); // B4, MA's last entry is 11
-        answers("#pC4M_02", 0x43); // G4, a chord as well as a scale
+        answers("#pC4io00", 0x3C); // C4, the root
+        answers("#pC4io04", 0x43); // G4, io's fifth entry is 7
+        answers("#pC4io06", 0x47); // B4, io's last entry is 11
+        answers("#pC4MA02", 0x43); // G4, a chord as well as a scale
     }
 
     #[test]
     fn pick_wraps_an_index_past_the_end_of_the_set_up_an_octave() {
-        answers("#pC4MA07", 0x48); // C5: index 7 is entry 0, one octave up
-        answers("#pC4MA08", 0x4A); // D5: entry 1 is 2, one octave up
-        answers("#pC4M_03", 0x48); // C5
-        answers("#pC4M_07", 0x58); // E6: 7 % 3 is entry 1, two octaves up
+        answers("#pC4io07", 0x48); // C5: index 7 is entry 0, one octave up
+        answers("#pC4io08", 0x4A); // D5: entry 1 is 2, one octave up
+        answers("#pC4MA03", 0x48); // C5
+        answers("#pC4MA07", 0x58); // E6: 7 % 3 is entry 1, two octaves up
     }
 
     #[test]
@@ -271,10 +278,10 @@ mod test {
         answers("#pC/ch7F", 0x7F);
         diagnoses("#pC/ch80", Function::Pick, 128);
         // `G9` is 7F, so any tone above the root leaves the range.
-        answers("#pG9M_00", 0x7F);
-        diagnoses("#pG9M_01", Function::Pick, 131);
+        answers("#pG9MA00", 0x7F);
+        diagnoses("#pG9MA01", Function::Pick, 131);
         // The largest reach: index FF in a three-tone set is 85 octaves up.
-        diagnoses("#pG9M_FF", Function::Pick, 1147);
+        diagnoses("#pG9MAFF", Function::Pick, 1147);
     }
 
     /// Asserts the Source text answers the Interval Set spelled `expected`.
@@ -288,50 +295,50 @@ mod test {
 
     #[test]
     fn stack_answers_the_chord_built_on_a_scale_degree() {
-        // Positions 0 2 4 of MA are 0 4 7.
-        stacks("#sMA0003", "M_");
+        // Positions 0 2 4 of io are 0 4 7.
+        stacks("#sio0003", "MA");
         // Positions 1 3 5 are 2 5 9, which less the first are 0 3 7.
-        stacks("#sMA0103", "m_");
+        stacks("#sio0103", "mi");
         // Positions 0 2 4 6 and on through 8, wrapping up an octave.
-        stacks("#sMA0004", "M7");
-        stacks("#sMA0005", "M9");
+        stacks("#sio0004", "M7");
+        stacks("#sio0005", "M9");
     }
 
     #[test]
     fn stack_answers_every_seventh_of_the_major_scale() {
-        stacks("#sMA0204", "m7"); // E G B D: 4 7 11 14
-        stacks("#sMA0304", "M7"); // F A C E: 5 9 12 16
-        stacks("#sMA0404", "7_"); // G B D F: 7 11 14 17
-        stacks("#sMA0504", "m7"); // A C E G: 9 12 16 19
-        stacks("#sMA0604", "h7"); // B D F A: 11 14 17 21
-        stacks("#sMA0603", "o_"); // B D F: 11 14 17
+        stacks("#sio0204", "m7"); // E G B D: 4 7 11 14
+        stacks("#sio0304", "M7"); // F A C E: 5 9 12 16
+        stacks("#sio0404", "07"); // G B D F: 7 11 14 17
+        stacks("#sio0504", "m7"); // A C E G: 9 12 16 19
+        stacks("#sio0604", "h7"); // B D F A: 11 14 17 21
+        stacks("#sio0603", "di"); // B D F: 11 14 17
     }
 
     #[test]
     fn stack_wraps_up_octaves_as_pick_does_past_the_end_of_the_set() {
-        stacks("#sMA0703", "M_"); // Position 7 is the root an octave up.
+        stacks("#sio0703", "MA"); // Position 7 is the root an octave up.
         // Positions FF, 101 and 103 are 437, 441 and 444: a position runs past
         // a byte, where a byte's wrap would read positions FF, 01 and 03.
-        stacks("#sMAFF03", "M_");
+        stacks("#sioFF03", "MA");
     }
 
     #[test]
     fn stack_answers_a_scale_name_when_the_tones_spell_one() {
         stacks("#sch0006", "wt"); // Every second chromatic tone.
         stacks("#sch0106", "wt"); // The same steps from one semitone up.
-        stacks("#swt0003", "+_"); // A chord name from a non-diatonic scale.
+        stacks("#swt0003", "+5"); // A chord name from a non-diatonic scale.
     }
 
     /// Asserts the Source text diagnoses that no name fits Stack's operands.
-    fn no_name(source: &str, expected_degree: u8, expected_size: u8) {
+    fn no_name(source: &str, expected_index: u8, expected_size: u8) {
         assert!(
             matches!(
                 crate::interpret_source(source),
                 Err(Error::Interpretation(InterpretationError::NoIntervalSet {
-                    degree,
+                    index,
                     size,
                     ..
-                })) if degree == expected_degree && size == expected_size
+                })) if index == expected_index && size == expected_size
             ),
             "{source}"
         );
@@ -339,17 +346,17 @@ mod test {
 
     #[test]
     fn stack_diagnoses_a_major_pentatonic_stacked_from_c() {
-        // Positions 0 2 4 of p5 are 0 4 9, which is no name: a Major Triad is
+        // Positions 0 2 4 of pM are 0 4 9, which is no name: a Major Triad is
         // 0 4 7 and a Sixth 0 4 7 9.
-        no_name("#sp50003", 0, 3);
+        no_name("#spM0003", 0, 3);
     }
 
     #[test]
     fn stack_diagnoses_when_no_name_fits_rather_than_answering_a_near_one() {
         // A Major Eleventh is 0 4 7 11 14 17, and no name holds it.
-        no_name("#sMA0006", 0, 6);
+        no_name("#sio0006", 0, 6);
         // Positions 0 2 4 of a chord read 0 7 16, which no name holds.
-        no_name("#sM_0003", 0, 3);
+        no_name("#sMA0003", 0, 3);
         // Positions 5, 7 and 9 of MD are 21, 16 and 23, and no name descends.
         no_name("#sMD0503", 5, 3);
     }
@@ -357,31 +364,31 @@ mod test {
     #[test]
     fn stack_diagnoses_a_size_outside_every_name() {
         // No name is empty or a single tone, and none is longer than twelve.
-        no_name("#sMA0000", 0, 0);
-        no_name("#sMA0001", 0, 1);
+        no_name("#sio0000", 0, 0);
+        no_name("#sio0001", 0, 1);
         no_name("#sch000D", 0, 13);
         no_name("#schFFFF", 0xFF, 0xFF);
     }
 
     #[test]
-    fn up_and_down_move_every_note_by_every_number_and_never_wrap() {
+    fn up_and_down_move_every_note_by_every_semitone_count_and_never_wrap() {
         // The whole operand square, against an expectation stated by the
         // range's bounds: an answer inside `00`–`7F` is that Note, and any
         // other answer diagnoses the Function and the semitone it reached.
         for (function, direction) in [(Function::Up, 1), (Function::Down, -1)] {
             for start in 0x00..=0x7F {
-                for number in 0x00..=u8::MAX {
-                    let semitone = i16::from(start) + direction * i16::from(number);
-                    let answer = evaluate(function, note(start), Atom::Number(number));
+                for semitones in 0x00..=u8::MAX {
+                    let semitone = i16::from(start) + direction * i16::from(semitones);
+                    let answer = evaluate(function, note(start), Atom::Number(semitones));
                     match semitone {
                         0x00..=0x7F => assert_eq!(
                             answer.unwrap(),
                             Interpretation::Cell(note(semitone as u8)),
-                            "{function:?} {start:02X} {number:02X}"
+                            "{function:?} {start:02X} {semitones:02X}"
                         ),
                         _ => assert!(
                             out_of_range(&answer, function, semitone),
-                            "{function:?} {start:02X} {number:02X}: {answer:?}"
+                            "{function:?} {start:02X} {semitones:02X}: {answer:?}"
                         ),
                     }
                 }
@@ -394,20 +401,20 @@ mod test {
         // Over the whole Note and Number domains, Down inverts every Up that
         // answers, and an Up that refuses refuses as out of range.
         for start in 0x00..=0x7F {
-            for number in 0x00..=u8::MAX {
-                let raised = evaluate(Function::Up, note(start), Atom::Number(number));
+            for semitones in 0x00..=u8::MAX {
+                let raised = evaluate(Function::Up, note(start), Atom::Number(semitones));
                 let Ok(Interpretation::Cell(raised)) = raised else {
-                    let semitone = i16::from(start) + i16::from(number);
+                    let semitone = i16::from(start) + i16::from(semitones);
                     assert!(
                         out_of_range(&raised, Function::Up, semitone),
-                        "{start:02X} {number:02X}: {raised:?}"
+                        "{start:02X} {semitones:02X}: {raised:?}"
                     );
                     continue;
                 };
                 assert_eq!(
-                    evaluate(Function::Down, raised, Atom::Number(number)).unwrap(),
+                    evaluate(Function::Down, raised, Atom::Number(semitones)).unwrap(),
                     Interpretation::Cell(note(start)),
-                    "{start:02X} {number:02X}"
+                    "{start:02X} {semitones:02X}"
                 );
             }
         }
@@ -433,7 +440,7 @@ mod test {
     }
 
     #[test]
-    fn a_note_in_the_number_operand_is_refused() {
+    fn a_note_in_the_semitones_operand_is_refused() {
         for (function, _) in BODIES {
             assert!(
                 matches!(
@@ -462,16 +469,16 @@ mod test {
                         evaluate(function, note(0x3C), value),
                         Err(Error::Type(TypeError::Number(found))) if found == spelling
                     ),
-                    "{function:?} number {spelling}"
+                    "{function:?} semitones {spelling}"
                 );
             }
         }
     }
 
     #[test]
-    fn the_number_operand_reads_a_note_spelling_as_the_number_it_spells() {
+    fn the_semitones_operand_reads_a_note_spelling_as_the_number_it_spells() {
         // A Cell pair is typed by the slot it stands in, so `C4` in the
-        // number slot is Number C4, and either direction passes the range.
+        // semitones slot is Number C4, and either direction passes the range.
         diagnoses("#+C4C4", Function::Up, 256);
         diagnoses("#-C4C4", Function::Down, -136);
     }
@@ -511,7 +518,7 @@ mod test {
     }
 
     fn scale() -> Atom {
-        Atom::IntervalSet(IntervalSet::MajorScale)
+        Atom::IntervalSet(IntervalSet::IonianScale)
     }
 
     /// Pick and Stack, which each read three operands, with arguments the
@@ -524,10 +531,10 @@ mod test {
         )
     }
 
-    fn evaluate_stack(set: Atom, degree: Atom, size: Atom) -> Result<Interpretation, Error> {
+    fn evaluate_stack(set: Atom, index: Atom, size: Atom) -> Result<Interpretation, Error> {
         Interpreter::execute_function(
             Function::Stack,
-            [set, degree, size].map(Some),
+            [set, index, size].map(Some),
             inputs().into(),
         )
     }
@@ -548,7 +555,7 @@ mod test {
         ));
         assert!(matches!(
             evaluate_pick(note(0x3C), scale(), scale()),
-            Err(Error::Type(TypeError::Number(found))) if found == "MA"
+            Err(Error::Type(TypeError::Number(found))) if found == "io"
         ));
         assert!(matches!(
             evaluate_pick(note(0x3C), Atom::Bang, Atom::Number(0)),
@@ -679,10 +686,10 @@ mod test {
     #[test]
     fn pick_and_stack_nest_and_compose() {
         // Stack's answer reaches Pick's set slot decoded by Pick's signature:
-        // `#sMA0003` answers M_, and index 02 of it is the fifth.
-        assert_eq!(returned("#sMA0003"), "M_");
+        // `#sio0003` answers MA, and index 02 of it is the fifth.
+        assert_eq!(returned("#sio0003"), "MA");
         let set = Function::Pick.signature()[1]
-            .decode(&returned("#sMA0003"))
+            .decode(&returned("#sio0003"))
             .unwrap();
         assert_eq!(
             evaluate_pick(note(0x3C), set, Atom::Number(2)).unwrap(),
@@ -690,7 +697,7 @@ mod test {
         );
         // Pick's Note answer serves another Note operand.
         assert_eq!(
-            nested(Function::Up, "#pC4MA04", 2).unwrap(),
+            nested(Function::Up, "#pC4io04", 2).unwrap(),
             Interpretation::Cell(note(0x45))
         );
         // `.^3C` answers C4 to Pick's root.
@@ -710,10 +717,10 @@ mod test {
             Function::Stack.signature()[0].decode(&returned(".^3C")),
             Err(Error::Type(TypeError::IntervalSet(found))) if found == "C4"
         ));
-        // `#sMA0003` answers a name, which spells no Note.
+        // `#sio0003` answers a name, which spells no Note.
         assert!(matches!(
-            Function::Pick.signature()[0].decode(&returned("#sMA0003")),
-            Err(Error::Type(TypeError::Note(found))) if found == "M_"
+            Function::Pick.signature()[0].decode(&returned("#sio0003")),
+            Err(Error::Type(TypeError::Note(found))) if found == "MA"
         ));
     }
 

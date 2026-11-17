@@ -17,16 +17,16 @@ col  0         1         2         3         4         5         6         7
   1    || TRACKER ||
   2
   3                         ~*0101    .+0B~.0110        ~*0101    .+0B~.0110
-  4                           !~0977&v  01                !~0777&v  01
+  4                           !~0877&v  01                !~0777&v  01
   5
   6                  ~*0101    .+08~.0110        ~*0101    .+08~.0110
-  7                    !~0877&v  01                !~0677&v  01
+  7                    !~0977&v  01                !~0677&v  01
   8
   9           ~*0101    .+05~.0110        ~*0101    .+05~.0110
- 10             !~0877&v  01                !~0577&v  01
+ 10             !~0977&v  01                !~0577&v  01
  11
  12    ~*0101    .+02~.0110        ~*0101    .+02~.0110
- 13      !~0877&v  01                !~0477&v  01
+ 13      !~0977&v  01                !~0477&v  01
  14
  15            ||C2|   |  |   |f2|   |A1|   |  |   |  |   |  |   |  ||
  16            ||  |   |  |   |  |   |A1|   |  |   |  |   |  |   |  ||
@@ -40,9 +40,10 @@ col  0         1         2         3         4         5         6         7
 The pattern holds the basic 4/4 808 beat, the beat the Beat example plays: the
 kick `C2` on every beat, steps 0, 4, 8 and 12; the snare `D2` on beats 2 and 4,
 steps 4 and 12; and the closed hat `f2` on every eighth, every even step. The
-three voices that play it, in columns 12, 19 and 26, play on channel `08`, where
-the Built-in Synth's kit picks each instrument from the Note's pitch class.
-The fourth voice, in column 33, plays a sixteen-step bassline on channel `09`,
+three voices that play it, in columns 12, 19 and 26, play on channel `09`, where
+the Built-in Synth's kit plays General MIDI drum keys: `C2` is key 36 (`24`),
+the kick, `D2` key 38 (`26`), the snare, and `f2` key 42 (`2A`), the closed hat.
+The fourth voice, in column 33, plays a sixteen-step bassline on channel `08`,
 the Built-in Synth's 303-style voice, which sweeps its filter on every Note
 (ADR 0099). Every other voice ships empty, on its Learn Orca channel, `04` to
 `07`.
@@ -62,7 +63,7 @@ Each voice is the same machine in both languages.
 | `Cg` clock | `~.0110` Clock | Counts `00` to `0F`, one step a Tick. |
 | `A` add | `.+` Add | Adds the voice's offset to the count and writes it into the Read's `n` slot below. |
 | `Q` query | `&v` Read south | Reads the Note `n` rows south of its `n` slot, nested in the Timed Play's note slot. |
-| `H` over `*` | `~*0101` Delay | Bangs every Tick, which activates the Timed Play east of its `**`. |
+| `H` over `*` | `~*0101` Every | Bangs every Tick, which activates the Timed Play east of its `**`. |
 | `:` MIDI | `!~` Timed Play | Plays the Note the Read returns on the voice's channel, velocity `77` (119, the byte Orca's default velocity `f` sends), for `01` Tick. |
 | `#` comment | `\|\|` Comment | The title, and each pattern row from end to end. The Reads see through it. |
 
@@ -80,16 +81,16 @@ For voice 0, the kick, with its machine at rows 12 and 13:
 
 | Cells | Function | Role |
 | --- | --- | --- |
-| (2, 12) `~*0101` | Delay | Writes `**` at (2, 13) every Tick, which activates the Timed Play at (4, 13). |
+| (2, 12) `~*0101` | Every | Writes `**` at (2, 13) every Tick, which activates the Timed Play at (4, 13). |
 | (12, 12) `.+02~.0110` | Add, with a nested Clock | Adds `02` to the step and writes the sum into the Read's `n` slot at (12, 13). The nested Clock also writes its count at (16, 13). |
-| (4, 13) `!~0877&v  01` | Timed Play with a nested Read south | Channel `08` (MIDI channel 9 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&v`, whose `n` operand at (12, 13) is the Add's sum. |
+| (4, 13) `!~0977&v  01` | Timed Play with a nested Read south | Channel `09` (MIDI channel 10 in most DAWs), velocity `77` (119), length `01` Tick. Its note slot holds `&v`, whose `n` operand at (12, 13) is the Add's sum. |
 | (12, 15) to (13, 30) | Comment text | The voice's sixteen steps, one Note per row. An empty row sends nothing and reports nothing. |
 
 `&v n` reads the pair `n` rows south of its own `n` operand, so with the offset
 `02` step 0 is row 15. The nested Read also writes the Note it reads one row
 south of itself, at (10, 14), which shows the step being played.
 
-Voice `v` of the staircase starting at column `c` has its Delay at
+Voice `v` of the staircase starting at column `c` has its Every at
 `(c + 7v, 12 - 3v)`, its Play one row down and two columns east, and its steps
 in columns `c + 7v + 10` and `c + 7v + 11`. That puts the columns at 12, 19,
 26, 33, 40, 47, 54 and 61 for voices 0 to 7.
@@ -107,17 +108,17 @@ Orca's `3c` is `c4`, C♯4. A step holding half a Note, such as `C ` while you
 type `C4`, is partial input: the Read is diagnosed and that voice sends nothing
 that Tick.
 
-Each voice has its own Clock, as in Orca. Change a voice's modulus, for example
+Each voice has its own Clock, as in Orca. Change a voice's `steps`, for example
 `~.0108`, to give it an eight-step loop against the others' sixteen.
 
 ## Where it differs from Orca
 
 - Learn Orca's tracker ships one Note, `3C` on channel `1`, and its voices play
-  channels `0` to `7`. This one ships the 808 beat on channel `08` in place of
-  channels `00` to `02`, and an acid bassline on channel `09` in place of `03`.
+  channels `0` to `7`. This one ships the 808 beat on channel `09` in place of
+  channels `00` to `02`, and an acid bassline on channel `08` in place of `03`.
 - Orca's `H` halts the `*` below it, so the `*` stays and keeps banging. Orcvs's
   Halt `*!` locks only while a Bang activates it, and a locked `**` does not
-  fire, so a Delay that bangs every Tick takes their place.
+  fire, so an Every that bangs every Tick takes their place.
 - An Orcvs Function is two Cells wide, so each voice's machine is wider than
   Orca's and the layout spreads further east and south.
 - Orca frames each voice's step in its own `#..#`. Orcvs needs only one Comment
@@ -130,5 +131,5 @@ Each voice has its own Clock, as in Orca. Change a voice's modulus, for example
   on every channel, rather than a Note Off for each sounding note.
 - Orca colours every operator's ports. Orcvs lights the Cells each Function
   read and wrote on the last Tick, so a voice's Read steps along its pattern as
-  Orca's does, and marks the Function each Halt locked. The Delay that stands in
+  Orca's does, and marks the Function each Halt locked. The Every that stands in
   for Orca's `H` over `*` locks nothing, so the tracker shows no locked Cells.

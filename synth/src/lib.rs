@@ -6,11 +6,14 @@
 use std::collections::VecDeque;
 
 mod acid;
+mod channel;
 mod chorus;
+mod controller;
 mod delay;
 mod drum;
-mod glide;
 mod reverb;
+mod sends;
+mod smoothing;
 mod tilt;
 mod tone;
 mod vibrato;
@@ -18,16 +21,19 @@ mod vibrato;
 mod web;
 
 use acid::{Acid, Controls};
+use channel::{Channel, Onset};
 use chorus::Chorus;
 use delay::Delay;
 use drum::{Drum, Instrument};
 use reverb::{Reverb, Room};
-use tilt::Tilt;
+use sends::{Mix, Sends};
 use tone::Tone;
-use vibrato::Vibrato;
 
 /// How many voices sound at once.
 pub const VOICES: usize = 16;
+
+/// How many MIDI channels the synth answers.
+const CHANNELS: usize = 16;
 
 /// The scale a voice's velocity and its own envelope multiply into the mix.
 /// Tones are quieter than drums, which spend most of their life decaying.
@@ -35,8 +41,6 @@ const TONE_LEVEL: f32 = 0.2;
 const DRUM_LEVEL: f32 = 0.35;
 const ACID_LEVEL: f32 = 0.3;
 
-/// How far into its course `OF` starts each new sound at `7F`, in seconds.
-const MAX_OFFSET: f32 = 0.1;
 /// `R1`'s room: about two thirds of a second to fall 60 dB.
 const SMALL: Room = Room {
     size: 0.6,
@@ -48,24 +52,29 @@ const LARGE: Room = Room {
     feedback: 0.92,
 };
 
-/// The share of its own length a sound keeps at `LN` `00`; `7F` keeps all of
-/// it.
-const SHORTEST: f32 = 0.02;
 /// How long an offset sound fades in over, in seconds, so a sound joined
 /// at full loudness does not click.
 const FADE: f32 = 0.005;
 
 /// The synth: sixteen voices, a frame clock, and the messages still to come.
 ///
-/// Channels `0`–`7` play tones, `9` the acid voice (ADR 0099), and `8` and
-/// `10`–`15` the 808-style kit. Velocity is the only level. Control Change 1 to
-/// 8 on any channel set the effects (ADR 0088): `MD`, vibrato on the whole mix,
-/// `OF`, how far into its course each new sound starts, `LN`, how long it
-/// decays, `DL`, an echo of the whole mix, `CH`, a chorus on it, `EQ`, one
-/// tilt, and `R1` and `R2`, a small and a large reverb. All Sound Off and All Notes
-/// Off release a channel's tones and its acid voice. The acid channel's own
-/// Control Changes and Reset All Controllers set its controls; every other
-/// Control Change, Pitch Bend and Program Change is ignored.
+/// Channels `0`–`7` play tones, `8` the acid voice (ADR 0099), and `9`–`15`
+/// the 808-style kit, which answers General MIDI drum keys, so MIDI channel
+/// 10 plays drums as on a General MIDI module.
+/// Velocity is the only level. Each channel's effects are its own, set by
+/// Control Changes on that channel (ADR 0088): `MD` on CC 1 (Modulation),
+/// vibrato; `EQ` on CC 74 (Brightness), one tilt; `LN` on CC 75 (Decay
+/// Time), how long each new sound decays; `OF` on CC 85, an undefined
+/// controller, how far into its course each new sound starts; and its sends
+/// to the shared effects, `R1` on CC 91 and `R2` on CC 92, a small and a
+/// large reverb, `CH` on CC 93, a chorus, and `DL` on CC 94, an echo. On the
+/// acid channel CC 74 and 75 are the acid voice's cutoff and decay instead,
+/// so neither the tilt nor the length applies there. All Sound Off and All
+/// Notes Off release a channel's tones and its acid voice. Reset All
+/// Controllers clears the channel's Modulation and leaves its sound and every
+/// other effect alone (ADR 0099). The acid channel's own Control Changes set
+/// its controls; every other Control Change, Pitch Bend and Program Change is
+/// ignored.
 pub struct Synth {
     sample_rate: f32,
     frame: u64,
@@ -75,17 +84,32 @@ pub struct Synth {
     /// Messages not yet applied, in frame order; equal frames keep the order
     /// they were scheduled in.
     queue: VecDeque<(u64, [u8; 3])>,
-    vibrato: Vibrato,
-    tilt: Tilt,
-    chorus: Chorus,
-    delay: Delay,
-    small: Reverb,
-    large: Reverb,
-    /// `OF`, `00`–`7F`.
-    offset: u8,
-    /// `LN`, `00`–`7F`.
-    length: u8,
+    channels: [Channel; CHANNELS],
+    effects: Sends<Chorus, Delay, Reverb>,
     acid: Controls,
+}
+
+/// What a channel plays. The channel layout lives here alone, so
+/// every route from a channel to a sound asks [`Part::of`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Part {
+    /// Channels `0`–`7`: a tone, its waveform picked by its channel.
+    Tone,
+    /// Channel `8`: the one 303-style acid voice.
+    Acid,
+    /// Channels `9`–`15`: the 808-style kit, so MIDI channel 10 plays drums as
+    /// in General MIDI.
+    Kit,
+}
+
+impl Part {
+    fn of(channel: u8) -> Self {
+        match channel {
+            0..=7 => Self::Tone,
+            8 => Self::Acid,
+            _ => Self::Kit,
+        }
+    }
 }
 
 struct Voice {
@@ -159,14 +183,13 @@ impl Synth {
             // Room for several Ticks of messages, so scheduling on the
             // audio thread rarely allocates.
             queue: VecDeque::with_capacity(64),
-            vibrato: Vibrato::new(sample_rate),
-            tilt: Tilt::new(sample_rate),
-            chorus: Chorus::new(sample_rate),
-            delay: Delay::new(sample_rate),
-            small: Reverb::new(sample_rate, SMALL),
-            large: Reverb::new(sample_rate, LARGE),
-            offset: 0,
-            length: 0x7F,
+            channels: std::array::from_fn(|_| Channel::new(sample_rate)),
+            effects: Sends {
+                chorus: Chorus::new(sample_rate),
+                delay: Delay::new(sample_rate),
+                small: Reverb::new(sample_rate, SMALL),
+                large: Reverb::new(sample_rate, LARGE),
+            },
             acid: Controls::default(),
         }
     }
@@ -195,23 +218,26 @@ impl Synth {
                 self.queue.pop_front();
                 self.apply(message);
             }
-            let mut mix = 0.0;
+            let mut parts = [None; CHANNELS];
             for slot in &mut self.voices {
                 let Some(voice) = slot else { continue };
                 match voice.sound.sample(dt, &self.acid) {
                     Some(value) => {
                         voice.fade = (voice.fade + dt / FADE).min(1.0);
-                        mix += value * voice.level * voice.fade;
+                        let channel = usize::from(voice.channel);
+                        *parts[channel].get_or_insert(0.0) += value * voice.level * voice.fade;
                     }
                     None => *slot = None,
                 }
             }
-            let mix = self.vibrato.process(mix);
-            let mix = self.tilt.process(mix);
-            let mix = self.chorus.process(mix);
-            let mix = self.delay.process(mix);
-            let mix = self.small.process(mix);
-            *sample = self.large.process(mix).tanh();
+            let mut mix = Mix::default();
+            for (channel, part) in self.channels.iter_mut().zip(parts) {
+                if let Some(added) = channel.process(part) {
+                    mix += added;
+                }
+            }
+            let out = self.effects.process(mix);
+            *sample = out.tanh();
             self.frame += 1;
         }
     }
@@ -221,17 +247,20 @@ impl Synth {
         match status & 0xF0 {
             0x90 if data2 > 0 => self.note_on(channel, data1, data2),
             0x80 | 0x90 => self.release_note(channel, data1),
-            0xB0 if data1 == 1 => self.vibrato.set(data2),
-            0xB0 if data1 == 2 => self.offset = data2,
-            0xB0 if data1 == 3 => self.length = data2,
-            0xB0 if data1 == 4 => self.delay.set(data2),
-            0xB0 if data1 == 5 => self.chorus.set(data2),
-            0xB0 if data1 == 6 => self.tilt.set(data2),
-            0xB0 if data1 == 7 => self.small.set(data2),
-            0xB0 if data1 == 8 => self.large.set(data2),
             // All Sound Off and All Notes Off.
             0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
-            0xB0 if channel == acid::CHANNEL => self.acid.set(data1, data2),
+            // The acid voice's own controllers come first, so on its channel
+            // CC 74 and 75 are its cutoff and decay.
+            0xB0 => {
+                let taken = if Part::of(channel) == Part::Acid {
+                    self.acid.take(data1, data2)
+                } else {
+                    false
+                };
+                if !taken {
+                    self.channels[usize::from(channel)].set(data1, data2);
+                }
+            }
             _ => {}
         }
     }
@@ -263,25 +292,29 @@ impl Synth {
 
     fn note_on(&mut self, channel: u8, note: u8, velocity: u8) {
         self.started += 1;
-        // `SHORTEST` at `00`, rising exponentially to exactly `1` at `7F`.
-        let length = SHORTEST.powf(1.0 - f32::from(self.length) / 127.0);
-        let mut sound = if channel < 8 {
-            Sound::Tone(Tone::new(channel, note, length))
-        } else if channel == acid::CHANNEL {
-            if self.play_acid(note, velocity, length) {
-                return;
+        let Onset { length, offset } = self.channels[usize::from(channel)].onset();
+        let mut sound = match Part::of(channel) {
+            Part::Tone => Sound::Tone(Tone::new(channel, note, length)),
+            Part::Acid => {
+                if self.play_acid(note, velocity) {
+                    return;
+                }
+                Sound::Acid(Acid::new(note, velocity))
             }
-            Sound::Acid(Acid::new(note, velocity, length))
-        } else {
-            let instrument = Instrument::of(note);
-            if instrument == Instrument::ClosedHat {
-                self.choke_open_hats(channel);
+            Part::Kit => {
+                let Some(instrument) = Instrument::of(note) else {
+                    return;
+                };
+                // The closed and pedal hats choke the open hat, as General
+                // MIDI's exclusive class does.
+                if instrument == Instrument::ClosedHat {
+                    self.choke_open_hats(channel);
+                }
+                Sound::Drum(Drum::new(instrument, self.sample_rate, length))
             }
-            Sound::Drum(Drum::new(instrument, self.sample_rate, length))
         };
         // `OF` jumps the sound into its course. A sound that ends there never
         // sounds.
-        let offset = MAX_OFFSET * f32::from(self.offset) / 127.0;
         if !sound.jump(offset, &self.acid) {
             return;
         }
@@ -301,8 +334,8 @@ impl Synth {
 
     /// Plays `note` on the acid voice if it is still sounding, and answers
     /// whether it was. The note counts as the newest voice and takes its own
-    /// velocity, slid into or struck afresh; struck afresh, it takes `length`.
-    fn play_acid(&mut self, note: u8, velocity: u8, length: f32) -> bool {
+    /// velocity, slid into or struck afresh.
+    fn play_acid(&mut self, note: u8, velocity: u8) -> bool {
         let Some(Voice {
             note: playing,
             started,
@@ -317,7 +350,7 @@ impl Synth {
         else {
             return false;
         };
-        acid.play(note, velocity, length);
+        acid.play(note, velocity);
         *playing = note;
         *started = self.started;
         *level = f32::from(velocity) / 127.0;
@@ -350,8 +383,15 @@ impl Synth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::controller::{CH, DL, EQ, LN, MD, OF, R1, R2, RESET};
 
     const RATE: f32 = 48_000.0;
+
+    /// The acid voice's channel, `08`: MIDI channel 9.
+    const ACID: u8 = 8;
+    /// The kit's first channel, `09`: MIDI channel 10, General MIDI's drum
+    /// channel.
+    const KIT: u8 = 9;
 
     fn note_on(channel: u8, note: u8, velocity: u8) -> [u8; 3] {
         [0x90 | channel, note, velocity]
@@ -359,6 +399,10 @@ mod tests {
 
     fn note_off(channel: u8, note: u8) -> [u8; 3] {
         [0x80 | channel, note, 0]
+    }
+
+    fn control_change(channel: u8, controller: u8, value: u8) -> [u8; 3] {
+        [0xB0 | channel, controller, value]
     }
 
     fn seconds(seconds: f32) -> usize {
@@ -380,6 +424,17 @@ mod tests {
             .windows(2)
             .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
             .count()
+    }
+
+    #[test]
+    fn channels_zero_to_seven_play_tones_eight_the_acid_voice_and_nine_to_fifteen_the_kit() {
+        for channel in 0..ACID {
+            assert_eq!(Part::of(channel), Part::Tone, "channel {channel}");
+        }
+        assert_eq!(Part::of(ACID), Part::Acid);
+        for channel in KIT..16 {
+            assert_eq!(Part::of(channel), Part::Kit, "channel {channel}");
+        }
     }
 
     #[test]
@@ -512,12 +567,12 @@ mod tests {
         for controller in [120, 123] {
             let mut synth = Synth::new(RATE);
             synth.schedule(0, note_on(0, 60, 100));
-            synth.schedule(0, note_on(8, 36, 100));
+            synth.schedule(0, note_on(KIT, 36, 100));
             synth.schedule(10, [0xB0, controller, 0]);
-            synth.schedule(10, [0xB8, controller, 0]);
+            synth.schedule(10, control_change(KIT, controller, 0));
             render(&mut synth, seconds(0.2));
 
-            assert_eq!(synth.sounding(), vec![(8, 36)], "controller {controller}");
+            assert_eq!(synth.sounding(), vec![(KIT, 36)], "controller {controller}");
         }
     }
 
@@ -537,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn modulation_on_any_channel_makes_a_steady_tone_waver() {
+    fn modulation_makes_a_steady_tone_on_its_channel_waver() {
         let tone = |modulation: Option<[u8; 3]>| {
             let mut synth = Synth::new(RATE);
             if let Some(message) = modulation {
@@ -548,8 +603,9 @@ mod tests {
         };
 
         assert!(period_spread(&tone(None)) < 1.03);
-        assert!(period_spread(&tone(Some([0xB5, 1, 0x7F]))) > 1.08);
-        assert_eq!(tone(Some([0xB0, 1, 0x00])), tone(None));
+        assert!(period_spread(&tone(Some(control_change(0, MD, 0x7F)))) > 1.08);
+        assert_eq!(tone(Some(control_change(0, MD, 0x00))), tone(None));
+        assert_eq!(tone(Some(control_change(5, MD, 0x7F))), tone(None));
     }
 
     #[test]
@@ -567,9 +623,9 @@ mod tests {
         synth.schedule(0, note_on(0, 69, 100));
         // A quarter of the way through the vibrato's cycle, where its delay is
         // at its longest.
-        synth.schedule(0, [0xB0, 1, 0x7F]);
-        synth.schedule(seconds(0.25) as u64, [0xB0, 1, 0x00]);
-        synth.schedule(seconds(0.35) as u64, [0xB0, 1, 0x7F]);
+        synth.schedule(0, control_change(0, MD, 0x7F));
+        synth.schedule(seconds(0.25) as u64, control_change(0, MD, 0x00));
+        synth.schedule(seconds(0.35) as u64, control_change(0, MD, 0x7F));
 
         let out = render(&mut synth, seconds(0.5));
 
@@ -584,8 +640,9 @@ mod tests {
         let mut plain = Synth::new(RATE);
         plain.schedule(0, note_on(0, 69, 100));
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
-        // The acid controls act on the acid channel alone.
-        for controller in [70, 71, 74, 75, 79, 121] {
+        // The acid controls act on the acid channel alone, and controllers 2
+        // to 8 are ones no effect answers.
+        for controller in [2, 3, 4, 5, 6, 7, 8, 70, 71, 79, 121] {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
         synth.schedule(0, [0xC0, 5, 0]);
@@ -605,9 +662,14 @@ mod tests {
 
     #[test]
     fn offset_at_its_load_value_changes_nothing() {
-        for (channel, note) in [(0, 69), (8, 36), (9, 45)] {
+        for (channel, note) in [(0, 69), (KIT, 36), (ACID, 45)] {
             assert_eq!(
-                after(&[[0xB0, 2, 0x00]], channel, note, seconds(0.3)),
+                after(
+                    &[control_change(channel, OF, 0x00)],
+                    channel,
+                    note,
+                    seconds(0.3)
+                ),
                 after(&[], channel, note, seconds(0.3)),
                 "channel {channel}"
             );
@@ -616,8 +678,8 @@ mod tests {
 
     #[test]
     fn offset_starts_a_kick_past_its_punch() {
-        let plain = after(&[], 8, 36, seconds(0.5));
-        let offset = after(&[[0xB3, 2, 0x7F]], 8, 36, seconds(0.5));
+        let plain = after(&[], KIT, 36, seconds(0.5));
+        let offset = after(&[control_change(KIT, OF, 0x7F)], KIT, 36, seconds(0.5));
 
         assert!(offset.iter().all(|s| s.is_finite()));
         assert!(rms(&offset[..seconds(0.02)]) < 0.9 * rms(&plain[..seconds(0.02)]));
@@ -626,7 +688,7 @@ mod tests {
 
     #[test]
     fn an_offset_tone_fades_in_rather_than_clicks() {
-        let out = after(&[[0xB0, 2, 0x7F]], 0, 69, seconds(0.1));
+        let out = after(&[control_change(0, OF, 0x7F)], 0, 69, seconds(0.1));
 
         assert!(out[0].abs() < 0.01, "{}", out[0]);
         assert!(rms(&out[seconds(0.05)..]) > 0.05);
@@ -635,9 +697,9 @@ mod tests {
     #[test]
     fn a_sound_that_ends_within_the_offset_takes_no_voice() {
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, [0xB0, 2, 0x7F]);
+        synth.schedule(0, control_change(KIT, OF, 0x7F));
         // The rim shot decays to silence well inside 100 ms.
-        synth.schedule(0, note_on(8, 37, 100));
+        synth.schedule(0, note_on(KIT, 37, 100));
         render(&mut synth, 10);
 
         assert!(synth.sounding().is_empty());
@@ -645,9 +707,14 @@ mod tests {
 
     #[test]
     fn length_at_its_load_value_changes_nothing() {
-        for (channel, note) in [(0, 69), (8, 36), (9, 45)] {
+        for (channel, note) in [(0, 69), (KIT, 36)] {
             assert_eq!(
-                after(&[[0xB0, 3, 0x7F]], channel, note, seconds(0.3)),
+                after(
+                    &[control_change(channel, LN, 0x7F)],
+                    channel,
+                    note,
+                    seconds(0.3)
+                ),
                 after(&[], channel, note, seconds(0.3)),
                 "channel {channel}"
             );
@@ -657,20 +724,20 @@ mod tests {
     #[test]
     fn a_short_length_cuts_a_kick_to_a_blip() {
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, [0xB4, 3, 0x00]);
-        synth.schedule(0, note_on(8, 36, 100));
+        synth.schedule(0, control_change(KIT, LN, 0x00));
+        synth.schedule(0, note_on(KIT, 36, 100));
         let out = render(&mut synth, seconds(0.1));
 
         assert!(rms(&out[..seconds(0.005)]) > 0.01);
         assert!(synth.sounding().is_empty());
-        let full = after(&[], 8, 36, seconds(0.1));
+        let full = after(&[], KIT, 36, seconds(0.1));
         assert!(rms(&full[seconds(0.05)..]) > 0.05);
     }
 
     #[test]
     fn a_short_length_shortens_a_tones_release() {
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, [0xB0, 3, 0x00]);
+        synth.schedule(0, control_change(0, LN, 0x00));
         synth.schedule(0, note_on(0, 60, 100));
         synth.schedule(seconds(0.1) as u64, note_off(0, 60));
         let out = render(&mut synth, seconds(0.2));
@@ -679,18 +746,7 @@ mod tests {
         assert_eq!(rms(&out[seconds(0.11)..]), 0.0);
     }
 
-    #[test]
-    fn a_short_length_closes_the_acid_filter_sooner() {
-        let full = after(&[], 9, 45, seconds(0.4));
-        let short = after(&[[0xB9, 3, 0x00]], 9, 45, seconds(0.4));
-
-        assert!(short.iter().all(|s| s.is_finite()));
-        let late = seconds(0.1)..;
-        let brightness = |samples: &[f32]| amplitude_at(samples, 4.0 * 110.0);
-        assert!(brightness(&short[late.clone()]) < 0.5 * brightness(&full[late]));
-    }
-
-    /// A 50 ms tone after `messages`, then `frames` in all.
+    /// A 50 ms tone on channel `00` after `messages`, then `frames` in all.
     fn blip(messages: &[[u8; 3]], frames: usize) -> Vec<f32> {
         let mut synth = Synth::new(RATE);
         for &message in messages {
@@ -704,7 +760,7 @@ mod tests {
     #[test]
     fn delay_at_its_load_value_changes_nothing() {
         assert_eq!(
-            blip(&[[0xB0, 4, 0x00]], seconds(1.0)),
+            blip(&[control_change(0, DL, 0x00)], seconds(1.0)),
             blip(&[], seconds(1.0))
         );
     }
@@ -712,7 +768,7 @@ mod tests {
     #[test]
     fn delay_echoes_the_mix_and_the_echoes_die_away() {
         let dry = blip(&[], seconds(1.0));
-        let wet = blip(&[[0xB2, 4, 0x7F]], seconds(6.0));
+        let wet = blip(&[control_change(0, DL, 0x7F)], seconds(6.0));
 
         assert!(wet.iter().all(|s| s.is_finite()));
         let echo = seconds(0.375)..seconds(0.425);
@@ -732,7 +788,7 @@ mod tests {
     #[test]
     fn chorus_at_its_load_value_changes_nothing() {
         assert_eq!(
-            after(&[[0xB0, 5, 0x00]], 0, 69, seconds(0.5)),
+            after(&[control_change(0, CH, 0x00)], 0, 69, seconds(0.5)),
             after(&[], 0, 69, seconds(0.5))
         );
     }
@@ -741,7 +797,7 @@ mod tests {
     fn chorus_makes_a_steady_tone_shimmer() {
         let steady = 0.1..;
         let dry = after(&[], 0, 69, seconds(2.0));
-        let wet = after(&[[0xB6, 5, 0x7F]], 0, 69, seconds(2.0));
+        let wet = after(&[control_change(0, CH, 0x7F)], 0, 69, seconds(2.0));
 
         assert!(wet.iter().all(|s| s.is_finite()));
         assert!(loudness_spread(&dry[seconds(steady.start)..]) < 1.05);
@@ -758,7 +814,7 @@ mod tests {
     #[test]
     fn eq_at_its_load_value_changes_nothing() {
         assert_eq!(
-            after(&[[0xB0, 6, 0x40]], 2, 45, seconds(0.5)),
+            after(&[control_change(2, EQ, 0x40)], 2, 45, seconds(0.5)),
             after(&[], 2, 45, seconds(0.5))
         );
     }
@@ -766,7 +822,7 @@ mod tests {
     #[test]
     fn eq_tilts_the_mix_darker_below_40_and_brighter_above() {
         let tilted = |value| {
-            let out = after(&[[0xB7, 6, value]], 2, 45, seconds(0.5));
+            let out = after(&[control_change(2, EQ, value)], 2, 45, seconds(0.5));
             assert!(out.iter().all(|s| s.is_finite()));
             brightness(&out[seconds(0.1)..])
         };
@@ -779,7 +835,7 @@ mod tests {
     #[test]
     fn the_small_reverb_at_its_load_value_changes_nothing() {
         assert_eq!(
-            blip(&[[0xB0, 7, 0x00]], seconds(1.0)),
+            blip(&[control_change(0, R1, 0x00)], seconds(1.0)),
             blip(&[], seconds(1.0))
         );
     }
@@ -787,7 +843,7 @@ mod tests {
     #[test]
     fn the_small_reverb_rings_after_the_mix_and_dies_away() {
         let dry = blip(&[], seconds(1.0));
-        let wet = blip(&[[0xB1, 7, 0x7F]], seconds(4.0));
+        let wet = blip(&[control_change(0, R1, 0x7F)], seconds(4.0));
 
         assert!(wet.iter().all(|s| s.is_finite()));
         let tone = rms(&dry[..seconds(0.05)]);
@@ -800,7 +856,7 @@ mod tests {
     #[test]
     fn the_large_reverb_at_its_load_value_changes_nothing() {
         assert_eq!(
-            blip(&[[0xB0, 8, 0x00]], seconds(1.0)),
+            blip(&[control_change(0, R2, 0x00)], seconds(1.0)),
             blip(&[], seconds(1.0))
         );
     }
@@ -808,8 +864,8 @@ mod tests {
     #[test]
     fn the_large_reverb_rings_longer_than_the_small_and_dies_away() {
         let tone = rms(&blip(&[], seconds(0.05)));
-        let small = blip(&[[0xB0, 7, 0x7F]], seconds(1.2));
-        let large = blip(&[[0xBE, 8, 0x7F]], seconds(10.0));
+        let small = blip(&[control_change(0, R1, 0x7F)], seconds(1.2));
+        let large = blip(&[control_change(0, R2, 0x7F)], seconds(10.0));
 
         assert!(large.iter().all(|s| s.is_finite()));
         let late = seconds(1.0)..seconds(1.2);
@@ -818,12 +874,120 @@ mod tests {
         assert!(rms(&large[seconds(9.5)..]) < 1e-5 * tone);
     }
 
+    /// Every effect's controller at a value away from its load value.
+    const TURNED: [(u8, u8); 8] = [
+        (MD, 0x7F),
+        (EQ, 0x00),
+        (LN, 0x00),
+        (OF, 0x7F),
+        (R1, 0x7F),
+        (R2, 0x7F),
+        (CH, 0x7F),
+        (DL, 0x7F),
+    ];
+
+    #[test]
+    fn each_effect_changes_the_channel_it_is_set_on() {
+        let plain = blip(&[], seconds(1.0));
+
+        for (controller, value) in TURNED {
+            assert_ne!(
+                blip(&[control_change(0, controller, value)], seconds(1.0)),
+                plain,
+                "controller {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_effect_turned_on_a_channel_whose_voice_was_stolen_replays_nothing() {
+        // Channel 0's A4 is stolen mid-note by sixteen notes on channel 1,
+        // released a frame later. Its effects rest, so it is skipped from
+        // then on, and turning one afterwards must not sound what the
+        // effect held when the voice was cut.
+        for (controller, value) in [(MD, 0x7F), (EQ, 0x00)] {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, note_on(0, 69, 100));
+            for note in 0..16 {
+                synth.schedule(1000, note_on(1, 40 + note, 100));
+                synth.schedule(1001, note_off(1, 40 + note));
+            }
+            render(&mut synth, seconds(1.0));
+            let peak = |out: &[f32]| out.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+            assert_eq!(
+                peak(&render(&mut synth, seconds(0.5))),
+                0.0,
+                "before {controller}"
+            );
+            synth.schedule(synth.frame, control_change(0, controller, value));
+            assert_eq!(
+                peak(&render(&mut synth, seconds(0.5))),
+                0.0,
+                "after {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_effect_set_on_one_channel_leaves_another_alone() {
+        let plain = blip(&[], seconds(1.0));
+
+        for (controller, value) in TURNED {
+            assert_eq!(
+                blip(&[control_change(1, controller, value)], seconds(1.0)),
+                plain,
+                "controller {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_send_returns_only_what_its_own_channel_plays() {
+        // A 50 ms tone on channel `01` sent to `send`, alone or beside the
+        // same tone on channel `00`, which sends nothing.
+        let tail = |send: u8, beside: bool| {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, control_change(1, send, 0x7F));
+            for channel in [0, 1] {
+                if channel == 1 || beside {
+                    synth.schedule(0, note_on(channel, 69, 100));
+                    synth.schedule(seconds(0.05) as u64, note_off(channel, 69));
+                }
+            }
+            render(&mut synth, seconds(1.0))[seconds(0.3)..].to_vec()
+        };
+
+        for send in [R1, R2, DL] {
+            assert!(rms(&tail(send, false)) > 0.0, "controller {send}");
+            assert_eq!(tail(send, true), tail(send, false), "controller {send}");
+        }
+    }
+
+    #[test]
+    fn controllers_74_and_75_on_the_acid_channel_set_its_cutoff_and_decay() {
+        let plain = acid_after(&[]);
+
+        // `40` is the tilt's load value and `7F` the length's, so either
+        // effect would leave the note as it is: only the voice hears them.
+        assert_ne!(acid_after(&[control_change(ACID, EQ, 0x40)]), plain);
+        assert_ne!(acid_after(&[control_change(ACID, LN, 0x7F)]), plain);
+        // `30` is the voice's cutoff and decay at load, and would darken and
+        // shorten the note as a tilt and a length: neither reaches them.
+        assert_eq!(
+            acid_after(&[
+                control_change(ACID, EQ, 0x30),
+                control_change(ACID, LN, 0x30)
+            ]),
+            plain
+        );
+    }
+
     #[test]
     fn every_drum_sounds_ignores_note_off_and_falls_silent() {
-        for note in 36..48 {
+        for note in KIT_KEYS.iter().flat_map(|family| family.iter().copied()) {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(10, note, 127));
-            synth.schedule(1, note_off(10, note));
+            synth.schedule(0, note_on(KIT, note, 127));
+            synth.schedule(1, note_off(KIT, note));
             let out = render(&mut synth, seconds(8.0));
 
             assert!(out.iter().all(|s| s.is_finite()), "note {note}");
@@ -832,59 +996,128 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_drum_is_picked_by_pitch_class_whatever_the_octave() {
-        let hit = |note| {
-            let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(8, note, 100));
-            render(&mut synth, seconds(0.5))
-        };
+    /// The kit's General MIDI keys, one family to a row: kick, side stick,
+    /// snare, hand clap, closed and pedal hats, open hat, low, mid and high
+    /// toms, crash and ride cymbals, cowbell, and congas.
+    const KIT_KEYS: [&[u8]; 12] = [
+        &[35, 36],
+        &[37],
+        &[38, 40],
+        &[39],
+        &[42, 44],
+        &[46],
+        &[41, 43],
+        &[45, 47],
+        &[48, 50],
+        &[49, 51, 57],
+        &[56],
+        &[62, 63, 64],
+    ];
 
-        assert_eq!(hit(36), hit(60));
-        assert_ne!(hit(36), hit(38));
+    fn drum_hit(note: u8) -> Vec<f32> {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(KIT, note, 100));
+        render(&mut synth, seconds(0.5))
+    }
+
+    #[test]
+    fn the_keys_of_a_family_sound_alike() {
+        for family in KIT_KEYS {
+            let first = drum_hit(family[0]);
+            assert!(rms(&first) > 0.0, "key {}", family[0]);
+            for &key in &family[1..] {
+                assert_eq!(drum_hit(key), first, "key {key} against {}", family[0]);
+            }
+        }
+    }
+
+    #[test]
+    fn each_family_sounds_different() {
+        let hits: Vec<Vec<f32>> = KIT_KEYS.iter().map(|family| drum_hit(family[0])).collect();
+        for (index, hit) in hits.iter().enumerate() {
+            for (other, against) in hits.iter().enumerate().skip(index + 1) {
+                assert_ne!(
+                    hit, against,
+                    "keys {} and {}",
+                    KIT_KEYS[index][0], KIT_KEYS[other][0]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_key_outside_the_kit_is_silent() {
+        for key in [0, 34, 52, 60, 65, 127] {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, note_on(KIT, key, 100));
+            let out = render(&mut synth, seconds(0.1));
+
+            assert!(out.iter().all(|&s| s == 0.0), "key {key}");
+            assert!(synth.sounding().is_empty(), "key {key}");
+        }
     }
 
     #[test]
     fn the_kick_is_low_and_the_closed_hat_is_bright() {
         let hit = |note| {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(8, note, 100));
+            synth.schedule(0, note_on(KIT, note, 100));
             render(&mut synth, seconds(0.04))
         };
 
-        let kick = rising_zero_crossings(&hit(36)) as f32 / 0.04;
+        let kick = hit(36);
+        // Silence has no zero crossings, so the pitch check alone would pass
+        // on a kick that never sounded.
+        assert!(rms(&kick) > 0.02);
+        let kick = rising_zero_crossings(&kick) as f32 / 0.04;
         let hat = rising_zero_crossings(&hit(42)) as f32 / 0.04;
         assert!(kick < 200.0, "{kick} Hz");
         assert!(hat > 3_000.0, "{hat} Hz");
     }
 
     #[test]
-    fn a_closed_hat_chokes_an_open_hat_on_its_channel() {
-        let mut synth = Synth::new(RATE);
-        synth.schedule(0, note_on(8, 46, 100));
-        synth.schedule(seconds(0.05) as u64, note_on(8, 42, 100));
-        synth.schedule(0, note_on(10, 46, 100));
-        render(&mut synth, seconds(0.1));
+    fn a_closed_or_pedal_hat_chokes_an_open_hat_on_its_channel_only() {
+        for hat in [42, 44] {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, note_on(KIT, 46, 100));
+            synth.schedule(seconds(0.05) as u64, note_on(KIT, hat, 100));
+            synth.schedule(0, note_on(KIT + 1, 46, 100));
+            render(&mut synth, seconds(0.1));
 
-        assert_eq!(synth.sounding(), vec![(10, 46), (8, 42)]);
+            assert_eq!(
+                synth.sounding(),
+                vec![(KIT + 1, 46), (KIT, hat)],
+                "key {hat}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_drum_on_the_kit_channel_rings_out_past_its_note_off() {
+        let mut synth = Synth::new(RATE);
+        synth.schedule(0, note_on(KIT, 36, 100));
+        synth.schedule(10, note_off(KIT, 36));
+        render(&mut synth, seconds(0.05));
+
+        assert_eq!(synth.sounding(), vec![(KIT, 36)]);
     }
 
     /// The acid channel, with its filter opened all the way and no resonance,
     /// so the voice's pitch is plain to count.
     fn open_acid(synth: &mut Synth) {
-        synth.schedule(0, [0xB9, 74, 0x7F]);
-        synth.schedule(0, [0xB9, 71, 0x00]);
+        synth.schedule(0, control_change(ACID, 74, 0x7F));
+        synth.schedule(0, control_change(ACID, 71, 0x00));
     }
 
     #[test]
-    fn channel_nine_holds_one_note_at_its_pitch() {
+    fn the_acid_channel_holds_one_note_at_its_pitch() {
         let mut synth = Synth::new(RATE);
         open_acid(&mut synth);
-        synth.schedule(0, note_on(9, 45, 100));
+        synth.schedule(0, note_on(ACID, 45, 100));
 
         let out = render(&mut synth, seconds(1.0));
 
-        assert_eq!(synth.sounding(), vec![(9, 45)]);
+        assert_eq!(synth.sounding(), vec![(ACID, 45)]);
         let crossings = rising_zero_crossings(&out[seconds(0.5)..]);
         assert!(
             (53..=57).contains(&crossings),
@@ -897,28 +1130,28 @@ mod tests {
     fn a_chord_on_the_acid_channel_sounds_as_its_last_note_in_one_voice() {
         let mut synth = Synth::new(RATE);
         for note in [45, 48, 52] {
-            synth.schedule(0, note_on(9, note, 100));
+            synth.schedule(0, note_on(ACID, note, 100));
         }
         render(&mut synth, 10);
 
-        assert_eq!(synth.sounding(), vec![(9, 52)]);
+        assert_eq!(synth.sounding(), vec![(ACID, 52)]);
     }
 
     #[test]
-    fn a_note_struck_while_the_last_is_held_glides_to_its_pitch() {
+    fn a_note_struck_while_the_last_is_held_slides_to_its_pitch() {
         let mut synth = Synth::new(RATE);
         open_acid(&mut synth);
-        synth.schedule(0, note_on(9, 45, 100));
-        synth.schedule(seconds(0.5) as u64, note_on(9, 57, 100));
+        synth.schedule(0, note_on(ACID, 45, 100));
+        synth.schedule(seconds(0.5) as u64, note_on(ACID, 57, 100));
 
         let out = render(&mut synth, seconds(1.0));
 
         let pitch = |from: f32, to: f32| {
             rising_zero_crossings(&out[seconds(from)..seconds(to)]) as f32 / (to - from)
         };
-        // Partway through the glide, between 110 Hz and 220 Hz.
-        let gliding = pitch(0.5, 0.53);
-        assert!(gliding > 120.0 && gliding < 210.0, "{gliding} Hz");
+        // Partway through the slide, between 110 Hz and 220 Hz.
+        let sliding = pitch(0.5, 0.53);
+        assert!(sliding > 120.0 && sliding < 210.0, "{sliding} Hz");
         let arrived = pitch(0.75, 1.0);
         assert!((216.0..=224.0).contains(&arrived), "{arrived} Hz");
     }
@@ -927,10 +1160,10 @@ mod tests {
     fn a_late_note_off_for_the_note_slid_from_changes_nothing() {
         let slide = |late_note_off: bool| {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(9, 45, 100));
-            synth.schedule(seconds(0.2) as u64, note_on(9, 57, 100));
+            synth.schedule(0, note_on(ACID, 45, 100));
+            synth.schedule(seconds(0.2) as u64, note_on(ACID, 57, 100));
             if late_note_off {
-                synth.schedule(seconds(0.25) as u64, note_off(9, 45));
+                synth.schedule(seconds(0.25) as u64, note_off(ACID, 45));
             }
             render(&mut synth, seconds(0.5))
         };
@@ -941,8 +1174,8 @@ mod tests {
     #[test]
     fn the_note_off_of_the_note_sounding_silences_the_acid_voice() {
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, note_on(9, 45, 100));
-        synth.schedule(seconds(0.2) as u64, note_off(9, 45));
+        synth.schedule(0, note_on(ACID, 45, 100));
+        synth.schedule(seconds(0.2) as u64, note_off(ACID, 45));
 
         let out = render(&mut synth, seconds(0.5));
 
@@ -955,11 +1188,11 @@ mod tests {
     /// filter.
     fn closed_acid(controls: &[(u8, u8)]) -> Synth {
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, [0xB9, 74, 0x00]);
+        synth.schedule(0, control_change(ACID, 74, 0x00));
         for &(controller, value) in controls {
-            synth.schedule(0, [0xB9, controller, value]);
+            synth.schedule(0, control_change(ACID, controller, value));
         }
-        synth.schedule(0, note_on(9, 45, 100));
+        synth.schedule(0, note_on(ACID, 45, 100));
         synth
     }
 
@@ -989,9 +1222,9 @@ mod tests {
     #[test]
     fn a_slide_leaves_the_envelope_decaying_and_a_fresh_note_restarts_it() {
         let mut synth = closed_acid(&[]);
-        synth.schedule(seconds(1.0) as u64, note_on(9, 45, 100));
-        synth.schedule(seconds(1.5) as u64, note_off(9, 45));
-        synth.schedule(seconds(1.6) as u64, note_on(9, 45, 100));
+        synth.schedule(seconds(1.0) as u64, note_on(ACID, 45, 100));
+        synth.schedule(seconds(1.5) as u64, note_off(ACID, 45));
+        synth.schedule(seconds(1.6) as u64, note_on(ACID, 45, 100));
 
         let out = render(&mut synth, seconds(2.0));
 
@@ -1005,9 +1238,9 @@ mod tests {
         // With no envelope depth, only accent opens the closed filter.
         let early = |velocity| {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, [0xB9, 74, 0x00]);
-            synth.schedule(0, [0xB9, 79, 0x00]);
-            synth.schedule(0, note_on(9, 45, velocity));
+            synth.schedule(0, control_change(ACID, 74, 0x00));
+            synth.schedule(0, control_change(ACID, 79, 0x00));
+            synth.schedule(0, note_on(ACID, 45, velocity));
             rms(&render(&mut synth, seconds(0.1))[seconds(0.05)..])
         };
 
@@ -1020,8 +1253,8 @@ mod tests {
         let note = |waveform| {
             let mut synth = Synth::new(RATE);
             open_acid(&mut synth);
-            synth.schedule(0, [0xB9, 70, waveform]);
-            synth.schedule(0, note_on(9, 45, 100));
+            synth.schedule(0, control_change(ACID, 70, waveform));
+            synth.schedule(0, note_on(ACID, 45, 100));
             render(&mut synth, seconds(0.2))
         };
         let saw = note(0x00);
@@ -1036,15 +1269,15 @@ mod tests {
         for &message in messages {
             synth.schedule(0, message);
         }
-        synth.schedule(0, note_on(9, 45, 100));
+        synth.schedule(0, note_on(ACID, 45, 100));
         render(&mut synth, seconds(0.2))
     }
 
     #[test]
-    fn reset_all_controllers_returns_the_acid_controls_and_leaves_the_effects() {
+    fn reset_all_controllers_leaves_the_acid_voices_sound_alone() {
         let turned: Vec<[u8; 3]> = [70, 71, 74, 75, 79]
             .into_iter()
-            .map(|controller| [0xB9, controller, 0x7F])
+            .map(|controller| control_change(ACID, controller, 0x7F))
             .collect();
         let plain = acid_after(&[]);
 
@@ -1052,13 +1285,38 @@ mod tests {
             assert_ne!(acid_after(&[*message]), plain, "{message:?}");
         }
         assert_eq!(
-            acid_after(&[turned.as_slice(), &[[0xB9, 121, 0]]].concat()),
-            plain
+            acid_after(&[turned.as_slice(), &[control_change(ACID, RESET, 0)]].concat()),
+            acid_after(&turned)
         );
-        assert_eq!(
-            acid_after(&[[0xB9, 1, 0x7F], [0xB9, 121, 0]]),
-            acid_after(&[[0xB9, 1, 0x7F]])
-        );
+    }
+
+    #[test]
+    fn reset_all_controllers_leaves_every_effect_but_modulation_alone() {
+        for (controller, value) in TURNED
+            .into_iter()
+            .filter(|&(controller, _)| controller != MD)
+        {
+            let turned = control_change(0, controller, value);
+            assert_eq!(
+                blip(&[turned, control_change(0, RESET, 0)], seconds(1.0)),
+                blip(&[turned], seconds(1.0)),
+                "controller {controller}"
+            );
+        }
+    }
+
+    #[test]
+    fn reset_all_controllers_clears_modulation_on_its_channel_only() {
+        let reset = |channel| {
+            let mut synth = Synth::new(RATE);
+            synth.schedule(0, control_change(0, MD, 0x7F));
+            synth.schedule(0, control_change(channel, RESET, 0));
+            synth.schedule(0, note_on(0, 69, 100));
+            render(&mut synth, seconds(1.0))
+        };
+
+        assert!(period_spread(&reset(0)) < 1.03);
+        assert!(period_spread(&reset(1)) > 1.08);
     }
 
     #[test]
@@ -1067,7 +1325,7 @@ mod tests {
 
         for controller in [70, 71, 74, 75, 79, 121] {
             assert_eq!(acid_after(&[[0xB0, controller, 0x7F]]), plain);
-            assert_eq!(acid_after(&[[0xBA, controller, 0x7F]]), plain);
+            assert_eq!(acid_after(&[control_change(KIT, controller, 0x7F)]), plain);
         }
     }
 
@@ -1075,8 +1333,8 @@ mod tests {
     fn all_notes_off_silences_the_acid_voice() {
         for controller in [120, 123] {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, note_on(9, 45, 100));
-            synth.schedule(10, [0xB9, controller, 0]);
+            synth.schedule(0, note_on(ACID, 45, 100));
+            synth.schedule(10, control_change(ACID, controller, 0));
             render(&mut synth, seconds(0.2));
 
             assert!(synth.sounding().is_empty(), "controller {controller}");
@@ -1088,12 +1346,12 @@ mod tests {
         for value in [0x00, 0x7F] {
             let mut synth = Synth::new(RATE);
             for controller in [70, 71, 74, 75, 79] {
-                synth.schedule(0, [0xB9, controller, value]);
+                synth.schedule(0, control_change(ACID, controller, value));
             }
             for step in 0..16u64 {
                 let note = 24 + 6 * step as u8;
-                synth.schedule(step * 6_000, note_on(9, note, 0x7F));
-                synth.schedule(step * 6_000 + 5_000, note_off(9, note));
+                synth.schedule(step * 6_000, note_on(ACID, note, 0x7F));
+                synth.schedule(step * 6_000 + 5_000, note_off(ACID, note));
             }
             let out = render(&mut synth, seconds(3.0));
 
@@ -1109,7 +1367,7 @@ mod tests {
 
     #[test]
     fn resonance_keeps_the_note_about_as_loud() {
-        let loudness = |resonance| rms(&acid_after(&[[0xB9, 71, resonance]]));
+        let loudness = |resonance| rms(&acid_after(&[control_change(ACID, 71, resonance)]));
 
         let ratio = loudness(0x7F) / loudness(0x00);
         assert!((0.7..1.4).contains(&ratio), "{ratio}");
@@ -1130,7 +1388,12 @@ mod tests {
 
     #[test]
     fn raising_the_cutoff_opens_the_filter() {
-        let loudness = |cutoff| rms(&acid_after(&[[0xB9, 79, 0x00], [0xB9, 74, cutoff]]));
+        let loudness = |cutoff| {
+            rms(&acid_after(&[
+                control_change(ACID, 79, 0x00),
+                control_change(ACID, 74, cutoff),
+            ]))
+        };
 
         assert!(loudness(0x7F) > loudness(0x00) * 4.0);
     }
@@ -1139,7 +1402,11 @@ mod tests {
     fn raising_the_resonance_sharpens_the_peak_at_the_cutoff() {
         // Cutoff `40` is about 330 Hz, the sixth harmonic of A1's 55 Hz.
         let peak = |resonance| {
-            let out = acid_after(&[[0xB9, 79, 0x00], [0xB9, 74, 0x40], [0xB9, 71, resonance]]);
+            let out = acid_after(&[
+                control_change(ACID, 79, 0x00),
+                control_change(ACID, 74, 0x40),
+                control_change(ACID, 71, resonance),
+            ]);
             let harmonic = |n: f32| amplitude_at(&out[seconds(0.05)..], 55.0 * n);
             harmonic(6.0) / harmonic(1.0)
         };
@@ -1156,8 +1423,8 @@ mod tests {
     fn an_accented_note_takes_the_shortest_decay() {
         let closing = |velocity| {
             let mut synth = closed_acid(&[(79, 0x7F), (75, 0x7F)]);
-            synth.schedule(0, note_off(9, 45));
-            synth.schedule(1, note_on(9, 45, velocity));
+            synth.schedule(0, note_off(ACID, 45));
+            synth.schedule(1, note_on(ACID, 45, velocity));
             let out = render(&mut synth, seconds(0.6));
             rms(&out[seconds(0.5)..]) / rms(&out[seconds(0.05)..seconds(0.1)])
         };
@@ -1170,8 +1437,8 @@ mod tests {
         // C7's twenty-third harmonic, 48 139 Hz, would fold back to 139 Hz,
         // below the note and inside the filter's passband.
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, [0xB9, 74, 0x7F]);
-        synth.schedule(0, note_on(9, 96, 100));
+        synth.schedule(0, control_change(ACID, 74, 0x7F));
+        synth.schedule(0, note_on(ACID, 96, 100));
         let out = render(&mut synth, seconds(1.0));
 
         let note = 440.0 * 2f32.powf(27.0 / 12.0);
@@ -1189,28 +1456,28 @@ mod tests {
         for note in 40..56 {
             synth.schedule(u64::from(note), note_on(1, note, 100));
         }
-        synth.schedule(100, note_on(9, 45, 100));
+        synth.schedule(100, note_on(ACID, 45, 100));
         render(&mut synth, 200);
 
         let sounding = synth.sounding();
         assert_eq!(sounding.len(), VOICES);
         assert!(!sounding.contains(&(1, 40)));
-        assert_eq!(sounding.last(), Some(&(9, 45)));
+        assert_eq!(sounding.last(), Some(&(ACID, 45)));
     }
 
     #[test]
     fn a_slide_keeps_the_acid_voice_from_being_the_oldest() {
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, note_on(9, 45, 100));
+        synth.schedule(0, note_on(ACID, 45, 100));
         for note in 40..55 {
             synth.schedule(u64::from(note), note_on(1, note, 100));
         }
-        synth.schedule(100, note_on(9, 48, 100));
+        synth.schedule(100, note_on(ACID, 48, 100));
         synth.schedule(110, note_on(1, 80, 100));
         render(&mut synth, 200);
 
         let sounding = synth.sounding();
-        assert!(sounding.contains(&(9, 48)), "{sounding:?}");
+        assert!(sounding.contains(&(ACID, 48)), "{sounding:?}");
         assert!(!sounding.contains(&(1, 40)), "{sounding:?}");
     }
 
@@ -1218,9 +1485,9 @@ mod tests {
     fn a_note_slid_into_takes_its_own_velocity() {
         let slid_into = |velocity| {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, [0xB9, 79, 0x00]);
-            synth.schedule(0, note_on(9, 45, 0x40));
-            synth.schedule(seconds(0.2) as u64, note_on(9, 47, velocity));
+            synth.schedule(0, control_change(ACID, 79, 0x00));
+            synth.schedule(0, note_on(ACID, 45, 0x40));
+            synth.schedule(seconds(0.2) as u64, note_on(ACID, 47, velocity));
             rms(&render(&mut synth, seconds(0.4))[seconds(0.3)..])
         };
 

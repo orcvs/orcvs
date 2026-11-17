@@ -1,13 +1,12 @@
-//! `R1` and `R2`, Control Change 7 and 8: two reverbs on the whole mix.
-
-use crate::glide::Glide;
+//! `R1` and `R2`, Control Change 91 (Reverb Send) and 92 (Effects 2 Depth):
+//! two reverbs every channel sends to.
 
 /// The comb filters' delays, in samples at 44.1 kHz, at size `1`. Their
 /// lengths share no factor, so their echoes do not pile up on one beat.
 const COMBS: [f32; 4] = [1116.0, 1188.0, 1277.0, 1356.0];
 /// The allpass filters' delays, in samples at 44.1 kHz, at every size.
 const ALLPASSES: [f32; 2] = [556.0, 441.0];
-/// How much of the mix each comb takes in.
+/// How much of what the channels send each comb takes in.
 const INPUT: f32 = 0.25;
 /// The lowpass inside each comb: the share of each echo's change it keeps,
 /// so the room's tail darkens as it fades.
@@ -22,12 +21,11 @@ pub(crate) struct Room {
 }
 
 /// A Schroeder reverb: four damped combs side by side, then two allpasses in
-/// a row, added to the mix at its level. At level zero the mix passes
-/// unchanged.
+/// a row. It answers the room's ring alone, so what no channel sends it never
+/// rings.
 pub(crate) struct Reverb {
     combs: [Comb; 4],
     allpasses: [Allpass; 2],
-    level: Glide,
 }
 
 impl Reverb {
@@ -36,16 +34,10 @@ impl Reverb {
         Self {
             combs: COMBS.map(|delay| Comb::new(samples(delay * room.size), room.feedback)),
             allpasses: ALLPASSES.map(|delay| Allpass::new(samples(delay))),
-            level: Glide::new(sample_rate, 0.0),
         }
     }
 
-    /// Sets the reverb's level from a Control Change value, `00`–`7F`.
-    pub(crate) fn set(&mut self, value: u8) {
-        self.level.set(f32::from(value) / 127.0);
-    }
-
-    /// The mix's next sample with the room's ring.
+    /// The room's ring for the next sample the channels send it.
     pub(crate) fn process(&mut self, input: f32) -> f32 {
         let mut ring: f32 = self
             .combs
@@ -55,7 +47,7 @@ impl Reverb {
         for allpass in &mut self.allpasses {
             ring = allpass.process(ring);
         }
-        input + self.level.next() * ring
+        ring
     }
 }
 

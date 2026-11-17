@@ -1,9 +1,9 @@
-//! The acid channel, `9` (ADR 0099): one 303-style voice.
+//! The acid channel's one 303-style voice ([`Part::Acid`](crate::Part::Acid);
+//! ADR 0099).
 
 use std::f32::consts::TAU;
 
-/// The channel the acid voice plays on.
-pub(crate) const CHANNEL: u8 = 9;
+use crate::controller::{ENV_MOD, EQ, LN, RESONANCE, WAVEFORM};
 
 /// The time constant of the gate's rise and fall, in seconds: short enough to
 /// sound percussive, long enough not to click.
@@ -41,18 +41,19 @@ impl Default for Controls {
 }
 
 impl Controls {
-    /// Sets `controller` to `value`. Reset All Controllers returns every
-    /// control to its load value; any other controller changes nothing.
-    pub(crate) fn set(&mut self, controller: u8, value: u8) {
+    /// Takes `value` for `controller` if `controller` is one of the voice's,
+    /// and answers whether it was. They are Sound Controllers, which Reset
+    /// All Controllers leaves alone; any other controller changes nothing.
+    pub(crate) fn take(&mut self, controller: u8, value: u8) -> bool {
         match controller {
-            70 => self.waveform = value,
-            71 => self.resonance = value,
-            74 => self.cutoff = value,
-            75 => self.decay = value,
-            79 => self.env_mod = value,
-            121 => *self = Self::default(),
-            _ => {}
+            WAVEFORM => self.waveform = value,
+            RESONANCE => self.resonance = value,
+            EQ => self.cutoff = value,
+            LN => self.decay = value,
+            ENV_MOD => self.env_mod = value,
+            _ => return false,
         }
+        true
     }
 }
 
@@ -69,13 +70,11 @@ pub(crate) struct Acid {
     gate: f32,
     envelope: f32,
     accented: bool,
-    /// The share of its decay the filter envelope keeps.
-    length: f32,
     stages: [f32; 4],
 }
 
 impl Acid {
-    pub(crate) fn new(note: u8, velocity: u8, length: f32) -> Self {
+    pub(crate) fn new(note: u8, velocity: u8) -> Self {
         Self {
             frequency: pitch(note),
             target: pitch(note),
@@ -84,20 +83,18 @@ impl Acid {
             gate: 0.0,
             envelope: 1.0,
             accented: velocity >= ACCENT,
-            length,
             stages: [0.0; 4],
         }
     }
 
-    /// Plays `note`: legato from the note held, or struck afresh, with
-    /// `length`, once the last has been released.
-    pub(crate) fn play(&mut self, note: u8, velocity: u8, length: f32) {
+    /// Plays `note`: slid into from the note held, or struck afresh once the last
+    /// has been released.
+    pub(crate) fn play(&mut self, note: u8, velocity: u8) {
         self.target = pitch(note);
         if !self.held {
             self.frequency = self.target;
             self.envelope = 1.0;
             self.accented = velocity >= ACCENT;
-            self.length = length;
         }
         self.held = true;
     }
@@ -120,14 +117,14 @@ impl Acid {
     }
 
     /// The filter envelope's time constant under `controls`: 200 ms at decay
-    /// `0` to 2 s at `127`, times the note's length.
+    /// `0` to 2 s at `127`. The voice's decay is its own CC 75, so the
+    /// channel's `LN` never shortens it.
     fn decay(&self, controls: &Controls) -> f32 {
-        self.length
-            * if self.accented {
-                0.2
-            } else {
-                0.2 * 10f32.powf(f32::from(controls.decay) / 127.0)
-            }
+        if self.accented {
+            0.2
+        } else {
+            0.2 * 10f32.powf(f32::from(controls.decay) / 127.0)
+        }
     }
 
     /// The next sample under `controls`, or `None` once the gate has closed.
@@ -213,10 +210,10 @@ mod tests {
 
     #[test]
     fn an_acid_note_jumped_past_its_decay_plays_with_its_filter_closed() {
-        let fresh = brightness(&mut Acid::new(45, 100, 1.0));
+        let fresh = brightness(&mut Acid::new(45, 100));
 
         // An hour costs what a tenth of a second does.
-        let mut acid = Acid::new(45, 100, 1.0);
+        let mut acid = Acid::new(45, 100);
         acid.jump(3_600.0, &Controls::default());
         assert!(acid.is_held());
         let jumped = brightness(&mut acid);

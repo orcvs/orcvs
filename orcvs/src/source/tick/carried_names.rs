@@ -7,7 +7,7 @@ use crate::grid::Grid;
 
 /// One name of each shape: a chord, a scale, the names that also spell a
 /// Number or a Note, and the Voicings.
-const NAMES: [&str; 8] = ["M7", "MA", "69", "13", "a9", "CL", "RL", "D2"];
+const NAMES: [&str; 10] = ["M7", "io", "69", "13", "07", "d7", "a9", "CL", "RL", "D2"];
 
 /// Half-written Interval Set and Voicing names: one Cell of a name and a
 /// blank.

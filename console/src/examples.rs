@@ -14,7 +14,7 @@ pub(crate) struct Example {
 
 ///
 /// Knobs: an acid bassline on the Built-in Synth's 303-style voice, with knobs
-/// sweeping the voice and the synth's effects.
+/// sweeping the voice and its channel's effects.
 ///
 pub(crate) const KNOBS: Example = Example {
     name: "Knobs",

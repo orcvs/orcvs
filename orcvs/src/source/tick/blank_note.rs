@@ -449,24 +449,35 @@ fn a_play_with_a_blank_note_costs_no_other_expression_its_turn() {
     }
 }
 
-/// Every Bang-driven MIDI output, with an operand list each Turn sounds, and
-/// the index of the operand that admits a blank: a Play's note, and nothing
-/// on Control Change or Pitch Bend.
-const OUTPUTS: [(&str, &[&str], Option<usize>); 5] = [
-    ("!>", &["01", "7F", "C4"], Some(2)),
-    ("!~", &["01", "7F", "C4", "04"], Some(2)),
-    ("!%", &["01", "7F", "C4", "04"], Some(2)),
-    ("!c", &["01", "07", "40"], None),
-    ("!b", &["01", "00", "40"], None),
+/// A Bang-driven output's spelling, operands, absent-binding index and
+/// `00`-binding index, as [`OUTPUTS`] lists them.
+type Output = (
+    &'static str,
+    &'static [&'static str],
+    Option<usize>,
+    Option<usize>,
+);
+
+/// Every Bang-driven MIDI output, with an operand list each Turn sounds, the
+/// index of the operand whose blank binds to no value — a Play's note — and
+/// the index of the operand whose blank binds as `00` — Monophonic Play's
+/// `legato`. Control Change and Pitch Bend admit neither.
+const OUTPUTS: [Output; 5] = [
+    ("!>", &["01", "7F", "C4"], Some(2), None),
+    ("!~", &["01", "7F", "C4", "04"], Some(2), None),
+    ("!%", &["01", "7F", "C4", "04", "01"], Some(2), Some(4)),
+    ("!c", &["01", "07", "40"], None, None),
+    ("!b", &["01", "00", "40"], None, None),
 ];
 
 #[test]
-fn a_nested_clear_under_a_bang_driven_output_binds_to_absent_only_in_a_plays_note() {
+fn a_nested_clear_under_a_bang_driven_output_binds_absent_in_a_note_and_as_00_in_legato() {
     // Each operand in turn is a `&v01`, which reads the blank pair south of
     // it and answers a Clear. The output is activated by the Equality above
-    // it, or by a Bang written beside it.
+    // it, or by a Bang written beside it. A cleared note sends nothing; a
+    // cleared `legato` sends what a written `00` does.
     let grid = Grid::with_shape(24, 4);
-    for (spelling, operands, admitted) in OUTPUTS {
+    for (spelling, operands, absent, defaulted) in OUTPUTS {
         for (above, beside) in [(".=0101", "  "), ("", "**")] {
             let first_tick = |written: &str| {
                 let row = format!("{beside}{spelling}{written}");
@@ -481,13 +492,23 @@ fn a_nested_clear_under_a_bang_driven_output_binds_to_absent_only_in_a_plays_not
                 let mut nested = operands.to_vec();
                 nested[index] = "&v01";
                 let (row, commands, diagnostics) = first_tick(&nested.concat());
-                let expected = if admitted == Some(index) {
-                    vec![]
+                if absent == Some(index) {
+                    assert_eq!(commands, vec![], "{row:?}");
+                    assert_eq!(diagnostics, vec![], "{row:?}");
+                } else if defaulted == Some(index) {
+                    let mut zero = operands.to_vec();
+                    zero[index] = "00";
+                    assert_eq!(commands.len(), 1, "{row:?}: {diagnostics:?}");
+                    assert_eq!(commands, first_tick(&zero.concat()).1, "{row:?}");
+                    assert_eq!(diagnostics, vec![], "{row:?}");
                 } else {
-                    vec![cleared(2 + spelling.len() + 2 * index)]
-                };
-                assert_eq!(commands, vec![], "{row:?}");
-                assert_eq!(diagnostics, expected, "{row:?}");
+                    assert_eq!(commands, vec![], "{row:?}");
+                    assert_eq!(
+                        diagnostics,
+                        vec![cleared(2 + spelling.len() + 2 * index)],
+                        "{row:?}"
+                    );
+                }
             }
         }
     }
