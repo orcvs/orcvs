@@ -85,8 +85,8 @@ wrap every three Ticks, so C4 plays at `70` on Ticks 0, 3, 6 and 9, E4 at
 
 Change both operands together. With only `count` at `03`, the Clock still
 counts four steps and the Track plays `70 30 50 70`, the loud accent twice in a
-row and drifting across the triad. With only `steps` at `03`, the Track still
-names four pairs it never plays.
+row and drifting across the triad. With only `steps` at `03`, the accent
+already stays on C, but `count` still names a fourth pair that never plays.
 
 ## The accent Region
 
