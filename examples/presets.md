@@ -236,7 +236,50 @@ lands as long as `&$0210` still names the preset in force. Paste it anywhere
 in this file and nothing changes. In another piece, copy the Preset block,
 (0, 14) to (11, 16), as well. If its Modulo lands at (x, y), the preset in
 force is at (x, y + 1), and each control's Absolute Read needs that Position,
-column then row, each as a two-Cell hexadecimal Number.
+column then row, each as a two-Cell hexadecimal Number. The move into the
+Tracker below does exactly this.
+
+## Moving the controls into the Tracker
+
+The [Tracker](tracker.md)'s bassline, its fourth voice, plays on channel `08`
+at velocity `77` (119), just below the accent, so the controls work on it as
+they do here. Move both controls and the selector into it:
+
+1. In Presets, drag a Region from (0, 14) to (23, 28), the Preset block and
+   both controls, and copy it.
+2. Open **Help > Examples > Tracker**, put the Cursor on (0, 36) and paste.
+   The Region lands from (0, 36) to (23, 50), clear of the rows the
+   [Kombine](kombine.md) transfer pastes into, and the preset in force is now
+   at (2, 38).
+3. Type `26` over the `10` at (22, 41), `CUT`'s Absolute Read, and over the
+   `10` at (22, 47), `RES`'s: each becomes `&$0226`, column `02`, row `26`
+   (38).
+
+```text
+col  0         1         2
+     012345678901234567890123
+ 36  || Preset ||
+ 37    .%0002
+ 38  ||00||
+ 39
+ 40  ~*0101  || CUT ||
+ 41    !c084A~>08&v.+02&$0226
+ 42        ||20  2002  00||
+ 43  ||preset 00   20||
+ 44  ||preset 01   60||
+ 45
+ 46  ~*0101  || RES ||
+ 47    !c0847~>05&v.+02&$0226
+ 48        ||20  2002  00||
+ 49  ||preset 00   20||
+ 50  ||preset 01   50||
+```
+
+Press Space. Every voice plays the Notes it played before, and on each Tick
+the two controls send after them. The selector is now at (4, 37): type `1`
+over the `0` at (5, 37) and the Tracker's bassline opens up exactly as the
+Presets' does, `CUT` in 8 Ticks and `RES` in 10. The transfer adds nothing
+to what the Language Map diagnoses in the Tracker.
 
 ## Adding decay
 

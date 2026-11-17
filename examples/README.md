@@ -13,6 +13,7 @@ with a hyphen for each space, so Kombine opens at `/play/?example=kombine`.
 | Sequencer | [sequencer.orcvs](sequencer.orcvs) | [sequencer.md](sequencer.md) | Learn Orca's ten-voice sequencer, playing the 808 beat and an acid bassline over two bars. |
 | Knobs | [knobs.orcvs](knobs.orcvs) | [knobs.md](knobs.md) | An acid bassline with knobs sweeping the voice and its effects. |
 | Kombine | [kombine.orcvs](kombine.orcvs) | [kombine.md](kombine.md) | Three pitches against four velocities. |
+| Presets | [presets.orcvs](presets.orcvs) | [presets.md](presets.md) | An acid bassline whose cutoff and resonance slew between two presets. |
 
 ## Patterns to copy
 
@@ -22,3 +23,4 @@ that changes how it plays, and walk through moving it.
 | Entry | Region | Edit | Moved into |
 | --- | --- | --- | --- |
 | [Kombine](kombine.md) | [The accent Track](kombine.md#the-accent-region) | [Three accent steps](kombine.md#three-accent-steps) | [The Tracker's closed hat](kombine.md#moving-the-accents-into-the-tracker) |
+| [Presets](presets.md) | [One control](presets.md#the-control-region) | [Adding decay](presets.md#adding-decay) | [The Tracker's bassline](presets.md#moving-the-controls-into-the-tracker) |

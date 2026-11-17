@@ -598,3 +598,105 @@ fn the_decay_control_follows_the_selector_and_leaves_the_rest_as_shipped() {
     }
     assert_eq!(run.row(DEC_ROW + 2), "      ||70  7003  01||");
 }
+
+/// The shipped Tracker, which the guide moves the controls into.
+const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
+
+/// The row the guide pastes the copied Preset block and controls onto in the
+/// Tracker, and the rows their selector and Control Changes land on.
+const TRACKER_PASTE_ROW: usize = 36;
+const TRACKER_SELECTOR_ROW: usize = TRACKER_PASTE_ROW + SELECTOR_ROW - 14;
+const TRACKER_CUT_ROW: usize = TRACKER_PASTE_ROW + CUT_ROW - 14;
+const TRACKER_RES_ROW: usize = TRACKER_PASTE_ROW + RES_ROW - 14;
+
+///
+/// The Tracker with the guide's transfer: the Presets' rows 14 to 28, the
+/// Preset block and both controls, pasted at (0, 36), and each control's
+/// Absolute Read retyped to name the preset in force at (2, 38).
+///
+fn tracker_with_presets() -> String {
+    let region: Vec<&str> = PRESETS.lines().skip(14).take(15).collect();
+    let mut edits: Vec<(usize, usize, &str, &str)> = region
+        .iter()
+        .enumerate()
+        .map(|(offset, &line)| (TRACKER_PASTE_ROW + offset, 0, "", line))
+        .collect();
+    edits.extend([
+        (TRACKER_CUT_ROW, 22, "10", "26"),
+        (TRACKER_RES_ROW, 22, "10", "26"),
+    ]);
+    edited(TRACKER, &edits)
+}
+
+///
+/// The guide draws the Tracker's pasted rows as the transfer leaves them, and
+/// the Language Map diagnoses exactly what it diagnoses in the shipped
+/// Tracker: the transfer adds no diagnosis.
+///
+#[test]
+fn the_controls_moved_into_the_tracker_are_drawn_and_add_no_diagnosis() {
+    let text = tracker_with_presets();
+    let rows: Vec<&str> = text.lines().collect();
+    assert_eq!(rows[..31], TRACKER.lines().collect::<Vec<_>>()[..]);
+    assert_eq!(rows.len(), TRACKER_PASTE_ROW + 15);
+    for (row, line) in rows.iter().enumerate().skip(TRACKER_PASTE_ROW) {
+        assert_guide_draws(GUIDE, row, line);
+    }
+    let tracker = Run::open(TRACKER);
+    let shipped = mapped(&tracker.source);
+    assert_eq!(shipped.len(), 8, "the shipped Tracker's diagnoses");
+    assert_eq!(mapped(&Run::open(&text).source), shipped);
+}
+
+///
+/// In the Tracker the controls send after every voice's Notes on each Tick,
+/// and every voice plays what it plays in the shipped Tracker. The selector
+/// at (5, 37) turns both controls toward preset `01` as it does in the
+/// Presets, and nothing is diagnosed on any Tick.
+///
+#[test]
+fn the_controls_moved_into_the_tracker_slew_its_bassline_and_leave_its_notes() {
+    let mut transferred = Run::open(&tracker_with_presets());
+    let mut shipped = Run::open(TRACKER);
+    let cutoffs = [
+        0x20, 0x20, 0x20, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60, 0x60, 0x60, 0x60,
+        0x60, 0x60, 0x60,
+    ];
+    let resonances = [
+        0x20, 0x20, 0x20, 0x20, 0x25, 0x2A, 0x2F, 0x34, 0x39, 0x3E, 0x43, 0x48, 0x4D, 0x50, 0x50,
+        0x50, 0x50, 0x50,
+    ];
+    for (tick, (&cutoff, &resonance)) in cutoffs.iter().zip(&resonances).enumerate() {
+        if tick == 4 {
+            transferred.type_at(SELECTOR_COLUMN + 1, TRACKER_SELECTOR_ROW, "1");
+        }
+        let tick = tick as u64;
+        let notes = shipped.run.run_tick(tick);
+        assert_eq!(
+            tick_diagnostics(&notes),
+            vec![],
+            "the shipped Tracker's Tick {tick}"
+        );
+        let plan = transferred.run.run_tick(tick);
+        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
+        let mut expected = shipped
+            .adapter
+            .command_lists()
+            .last()
+            .cloned()
+            .expect("the shipped Tracker delivers every Tick");
+        assert!(
+            expected
+                .iter()
+                .any(|command| matches!(command, OutputCommand::NoteOn { .. })),
+            "Tick {tick} starts a Note"
+        );
+        expected.extend([change(CUTOFF, cutoff), change(RESONANCE, resonance)]);
+        assert_eq!(
+            transferred.adapter.command_lists().last(),
+            Some(&expected),
+            "Tick {tick}'s delivery"
+        );
+    }
+    assert_eq!(transferred.adapter.command_lists().len(), cutoffs.len());
+}
