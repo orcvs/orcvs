@@ -13,6 +13,7 @@ use crate::grid::Grid;
 use crate::opts::{CursorBloomRadius, SectorSeamSpacing};
 use crate::region::Region;
 use crate::render_frame::{PortalRole, RenderFrame, RenderFrameConfig};
+pub(super) use crate::source::rows::rows_of;
 use crate::source::{Cells, Freshness, Source, SourceCommander, Span, TickPlan};
 
 /// The diagnostic for a Bang that reaches a root after its Turn.
@@ -66,16 +67,6 @@ pub(super) fn source_of(grid: Grid, rows: &[&str]) -> Source {
             .unwrap();
     }
     source
-}
-
-/// Every row of `source`'s Grid as it stands.
-pub(super) fn rows_of(source: &Source) -> Vec<String> {
-    source
-        .snapshot()
-        .into_bytes()
-        .chunks(source.grid().columns())
-        .map(|row| String::from_utf8(row.to_vec()).expect("ASCII Source"))
-        .collect()
 }
 
 /// `source` after it applied `plan`.

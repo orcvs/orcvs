@@ -639,7 +639,7 @@ fn a_late_spatial_write_keeps_its_ordering_reason_in_the_record_and_paints_nothi
     let mut expected = painted(
         seeded_source(
             grid,
-            &rows_of(grid, &source)
+            &rows_of(&source)
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),

@@ -2639,7 +2639,11 @@ mod tests {
 
         let first = run.tick(scheduled_from(epoch, Duration::ZERO, late));
         assert_eq!(first.expect("a late Tick still runs").diagnostics, vec![]);
-        run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
+        let second = run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
+        assert_eq!(
+            second.expect("a Tick due in the future runs").diagnostics,
+            vec![]
+        );
 
         let since_due = &run.inner.outputs.midi.since_due;
         assert!(

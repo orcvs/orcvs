@@ -193,13 +193,13 @@ fn a_value_function_whose_operand_a_portal_empties_leaves_its_last_note_to_repla
     let first = source.execute(Tick::ZERO);
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
     assert_eq!(first.play_commands, vec![raw(0, 0x7F, 67)]);
-    assert_eq!(&rows_of(grid, &source)[2][..8], "!>007FG4");
+    assert_eq!(&rows_of(&source)[2][..8], "!>007FG4");
 
     source.set(cell(grid, 11), "1").unwrap();
     let replay = source.execute(Tick::new(1));
 
-    assert_eq!(&rows_of(grid, &source)[1][6..10], ".^  ");
-    assert_eq!(&rows_of(grid, &source)[2][..8], "!>007FG4");
+    assert_eq!(&rows_of(&source)[1][6..10], ".^  ");
+    assert_eq!(&rows_of(&source)[2][..8], "!>007FG4");
     assert_eq!(replay.play_commands, vec![raw(0, 0x7F, 67)]);
     assert_eq!(
         replay

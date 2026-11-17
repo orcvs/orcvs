@@ -44,7 +44,7 @@ fn an_unwritten_operand_in_the_source_blocks_its_function_as_the_map_reports() {
     let plan = source.execute(Tick::ZERO);
 
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(rows_of(grid, &source)[1], "xxG4    ");
+    assert_eq!(rows_of(&source)[1], "xxG4    ");
 }
 
 #[test]

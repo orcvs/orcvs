@@ -129,7 +129,7 @@ pub(super) fn tick_by_tick(
     let mut grids = Vec::new();
     for tick in 0..ticks {
         plans.push(source.execute(Tick::new(tick)));
-        grids.push(rows_of(grid, &source));
+        grids.push(rows_of(&source));
     }
     (plans, grids, source)
 }

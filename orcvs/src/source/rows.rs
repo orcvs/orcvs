@@ -5,8 +5,10 @@
 //! width and every flat index follow from the rows, so an Expression that
 //! grows by an operand changes the row that holds it and nothing else.
 //!
-//! A Cell holds one ASCII character, so a row is measured in bytes and each
-//! entry point refuses a row outside ASCII rather than miscount it.
+//! A Cell holds one ASCII character, so a row is measured in bytes. Each
+//! entry point that takes text ([`grid_of`], [`snapshot`] and the helpers
+//! built on them, and [`write_at`]) refuses text outside ASCII rather than
+//! miscount it.
 
 use super::{Source, SourceCommander};
 use crate::grid::{CellIndex, Grid};
@@ -54,19 +56,22 @@ fn assert_ascii(text: &str) {
 ///
 /// # Panics
 ///
-/// If a row is not ASCII, if `rows` is empty or every row is, or if the rows
-/// are wider or more than [`Grid::with_shape`] allows.
+/// If a row is not ASCII, if there are no rows, if there are only empty
+/// rows, or if the rows are wider or more than [`Grid::with_shape`] allows.
 ///
 pub fn grid_of(rows: &[&str]) -> Grid {
-    assert!(!rows.is_empty(), "a Grid of no rows holds nothing");
     rows.iter().for_each(|row| assert_ascii(row));
-    let width = rows.iter().map(|row| row.len()).max().unwrap_or(0);
+    let Some(width) = rows.iter().map(|row| row.len()).max() else {
+        panic!("a Grid of no rows holds nothing");
+    };
+    assert!(width > 0, "a Grid of only empty rows holds nothing");
     Grid::with_shape(width, rows.len())
 }
 
 ///
 /// Builds one Source Snapshot of `grid` from `rows`: each row padded to the
-/// Grid's width, and every Grid row past the last one stated left blank.
+/// Grid's width, and every Grid row past the last one stated left blank, so
+/// no rows at all is a blank Snapshot.
 ///
 /// # Panics
 ///
@@ -117,7 +122,7 @@ pub fn seeded_source(grid: Grid, rows: &[&str]) -> Source {
 }
 
 ///
-/// The committed Source as one string per Grid row.
+/// The committed Source as one string per row of its own Grid.
 ///
 /// A Self-Banging Function is specified by where its Cells are, so a test
 /// of one states a Grid and compares a Grid. Reading the same fact off a
@@ -128,11 +133,11 @@ pub fn seeded_source(grid: Grid, rows: &[&str]) -> Source {
 ///
 /// If the Source holds a byte outside ASCII.
 ///
-pub fn rows_of(grid: Grid, source: &Source) -> Vec<String> {
+pub fn rows_of(source: &Source) -> Vec<String> {
     source
         .snapshot()
         .into_bytes()
-        .chunks(grid.columns())
+        .chunks(source.grid().columns())
         .map(|row| String::from_utf8(row.to_vec()).expect("ASCII Source"))
         .collect()
 }
@@ -142,7 +147,8 @@ pub fn rows_of(grid: Grid, source: &Source) -> Vec<String> {
 ///
 /// # Panics
 ///
-/// If `snapshot` has no such row.
+/// If `snapshot` is shorter than row `index` of `grid` needs, as it is when
+/// `index` is past the Grid's last row.
 ///
 pub fn row(grid: Grid, snapshot: &str, index: usize) -> &str {
     let width = grid.columns();
@@ -170,8 +176,9 @@ pub fn commander(rows: &[&str]) -> SourceCommander {
 ///
 /// # Panics
 ///
-/// If `content` is not ASCII, runs past the row's end, or holds a character
-/// a Cell refuses.
+/// If `content` is not ASCII, if `row` or `column` is outside the Grid, if
+/// `content` runs past the row's end, or if it holds a character a Cell
+/// refuses.
 ///
 pub fn write_at(source: &SourceCommander, column: usize, row: usize, content: &str) {
     assert_ascii(content);
@@ -239,7 +246,7 @@ mod tests {
         let grid = Grid::with_shape(10, 4);
         let source = seeded_source(grid, &["", "ab"]);
         assert_eq!(
-            rows_of(grid, &source),
+            rows_of(&source),
             ["          ", "ab        ", "          ", "          "]
         );
     }
@@ -282,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "cols must be greater than zero")]
+    #[should_panic(expected = "a Grid of only empty rows")]
     fn a_grid_of_only_empty_rows_is_refused() {
         grid_of(&["", ""]);
     }
