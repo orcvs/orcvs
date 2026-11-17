@@ -26,7 +26,7 @@ pub(crate) const KNOBS: Example = Example {
 pub(crate) const FIRST_VISIT: &Example = &KNOBS;
 
 /// Every shipped example, in the order `Help → Examples` lists them.
-pub(crate) const EXAMPLES: [Example; 5] = [
+pub(crate) const EXAMPLES: [Example; 6] = [
     Example {
         name: "Beat",
         text: include_bytes!("../../examples/beat.orcvs"),
@@ -44,6 +44,10 @@ pub(crate) const EXAMPLES: [Example; 5] = [
         text: include_bytes!("../../examples/sequencer.orcvs"),
     },
     KNOBS,
+    Example {
+        name: "Kombine",
+        text: include_bytes!("../../examples/kombine.orcvs"),
+    },
 ];
 
 impl Example {
@@ -94,7 +98,10 @@ mod tests {
     #[test]
     fn each_example_links_by_its_name() {
         let links: Vec<String> = EXAMPLES.iter().map(super::Example::link_name).collect();
-        assert_eq!(links, ["beat", "melody", "tracker", "sequencer", "knobs"]);
+        assert_eq!(
+            links,
+            ["beat", "melody", "tracker", "sequencer", "knobs", "kombine"]
+        );
     }
 
     #[test]

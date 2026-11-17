@@ -3,8 +3,9 @@
 //! file workflows.
 //!
 //! Each test opens a copy of `examples/melody.orcvs`,
-//! `examples/tracker.orcvs` or a one-Play Source through the Open path, edits
-//! it with the keys, clipboard events and menu items a viewer uses, and runs
+//! `examples/tracker.orcvs` or a one-Play Source through the Open path, or
+//! opens the Kombine and the Tracker from `Help → Examples`, edits it with
+//! the keys, clipboard events and menu items a viewer uses, and runs
 //! Ticks against the Source the console owns. A Tick here is
 //! `SourceCommander::execute`, the call Playback makes for each Tick it runs,
 //! so the assertions read the Play Commands and diagnostics Playback would be
@@ -569,4 +570,169 @@ async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
         .map(|step| notes_on(&tick(&reopened, step), CHANNEL))
         .collect();
     assert_eq!(played, [vec![72], vec![64], vec![]]);
+}
+
+///
+/// The Kombine guide's transfer, followed with the console's own menus, keys
+/// and clipboard events: copy the accent Region from (0, 9) to (17, 11), paste
+/// it into the Tracker at (2, 32), make the pasted Clock's `division` `02`,
+/// move the closed hat's Every four columns west with a cut and a paste, and
+/// retype its Play four columns west with `&$0222` for its velocity. The hat then plays `70`, `30`, `50` and `40` on
+/// its hits at steps 0, 2, 4 and 6, the other voices keep `77`, and nothing is
+/// diagnosed.
+///
+#[tokio::test]
+async fn the_kombine_accent_region_pasted_into_the_tracker_accents_the_closed_hat() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+
+    super::choose_example(&mut harness, "Kombine");
+    go_to(&mut harness, 0, 9);
+    for _ in 0..17 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowRight);
+    }
+    for _ in 0..2 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowDown);
+    }
+    harness.event(Event::Copy);
+    harness.step();
+    let copied = harness
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|command| match command {
+            egui::OutputCommand::CopyText(copied) => Some(copied.clone()),
+            _ => None,
+        })
+        .expect("Copy put the Region on the clipboard");
+    harness.run_steps(1);
+
+    super::choose_example(&mut harness, "Tracker");
+    go_to(&mut harness, 2, 32);
+    harness.event(Event::Paste(copied));
+    harness.step();
+    harness.run_steps(1);
+    go_to(&mut harness, 7, 33);
+    type_text(&mut harness, "2");
+    // Space asks for Playback rather than typing an empty Cell, so the guide
+    // moves the Every with a cut and a paste, and empties the Play's Cells
+    // with Delete before retyping it.
+    go_to(&mut harness, 16, 6);
+    for _ in 0..5 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowRight);
+    }
+    harness.event(Event::Cut);
+    harness.step();
+    harness.run_steps(1);
+    go_to(&mut harness, 12, 6);
+    harness.event(Event::Paste("~*0101".to_owned()));
+    harness.step();
+    harness.run_steps(1);
+    go_to(&mut harness, 18, 7);
+    for _ in 0..11 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowRight);
+    }
+    press(&mut harness, Key::Delete, 1);
+    go_to(&mut harness, 14, 7);
+    type_text(&mut harness, "!~09&$0222&v");
+    press(&mut harness, Key::ArrowRight, 2);
+    type_text(&mut harness, "01");
+
+    let rows: Vec<String> = [6, 7, 32, 33, 34]
+        .into_iter()
+        .map(|row| text(&harness, row, 0..30).trim_end().to_owned())
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "            ~*0101        .+08",
+            "              !~09&$0222&v  01",
+            "  || Accent ||",
+            "  &t~.02040470305040",
+            "",
+        ]
+    );
+
+    let mut hat = Vec::new();
+    for step in 0..16 {
+        let plan = tick(&harness, step);
+        assert_eq!(diagnostics(&plan), [], "Tick {step}");
+        for command in &plan.play_commands {
+            let PlayCommand::Timed {
+                channel,
+                velocity,
+                note,
+                ..
+            } = command
+            else {
+                panic!("the Tracker plays only Timed notes, not {command:?}");
+            };
+            if (channel.value(), note.value()) == (9, 42) {
+                hat.push((step, velocity.value()));
+            } else {
+                assert_eq!(velocity.value(), 0x77, "Tick {step}: {command:?}");
+            }
+        }
+    }
+    assert_eq!(
+        hat,
+        [
+            (0, 0x70),
+            (2, 0x30),
+            (4, 0x50),
+            (6, 0x40),
+            (8, 0x70),
+            (10, 0x30),
+            (12, 0x50),
+            (14, 0x40),
+        ]
+    );
+}
+
+///
+/// The Kombine guide's three accent steps, typed as the guide gives them:
+/// `3` over the accent Clock's `steps` at (7, 10) and over the Track's
+/// `count` at (9, 10), then Backspace twice from (17, 10) to clear the fourth
+/// velocity. The loud `70` then plays on every C4.
+///
+#[tokio::test]
+async fn three_kombine_accent_steps_typed_in_the_console_keep_the_loud_accent_on_c() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    super::choose_example(&mut harness, "Kombine");
+
+    go_to(&mut harness, 7, 10);
+    type_text(&mut harness, "3");
+    go_to(&mut harness, 9, 10);
+    type_text(&mut harness, "3");
+    go_to(&mut harness, 17, 10);
+    press(&mut harness, Key::Backspace, 2);
+    assert_eq!(
+        text(&harness, 10, 0..18).trim_end(),
+        "&t~.010303703050",
+        "the accent Track"
+    );
+
+    let played: Vec<(u8, u8)> = (0..6)
+        .map(|step| {
+            let plan = tick(&harness, step);
+            assert_eq!(diagnostics(&plan), [], "Tick {step}");
+            match plan.play_commands.as_slice() {
+                [PlayCommand::Timed { velocity, note, .. }] => (note.value(), velocity.value()),
+                other => panic!("Tick {step} plays one Timed note, not {other:?}"),
+            }
+        })
+        .collect();
+    assert_eq!(
+        played,
+        [
+            (60, 0x70),
+            (64, 0x30),
+            (67, 0x50),
+            (60, 0x70),
+            (64, 0x30),
+            (67, 0x50),
+        ]
+    );
 }
