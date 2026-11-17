@@ -19,19 +19,23 @@ establishes the library's first release.
 - [ ] Cycle C4, E4 and G4 against four velocity steps with a distinct loud
       accent. Specify cadence, channel and Note lifetime. Verify the delivered
       twelve-Tick pitch/velocity cycle, including its wrap.
-- [ ] Document and verify shortening the accent cycle to three steps by editing
-      both Clock `steps` and Track `count`. The loud accent then returns to C.
+- [ ] Ship four distinct velocities so each step can be told apart, replacing
+      the study's `70 40 30 40`, which repeats `40`. Document and verify
+      shortening the accent cycle to three steps by editing both Clock `steps`
+      and Track `count`. The loud accent then returns to C.
 - [ ] Place an Accent Comment above the copyable Clock, Track and velocity
-      data. A coordinate diagram gives the Region's corners, runtime write
-      space and output pair.
-- [ ] Give a worked transfer into Tracker with the destination coordinates,
-      address changes and connection to the closed hi-hat's velocity operand.
+      data. A diagram gives the Region's corners, runtime write space, output pair
+      and its destination in Tracker. Q10 confirms it for this Region.
+- [ ] Give a worked transfer into Tracker with the destination Position,
+      address changes, connection to the closed hi-hat's velocity operand and
+      the expected accents after transfer.
       Set the accent Clock division to two so successive hat hits sample all
       four velocities. Replacing the hat Play's two-Cell velocity literal with
       a Read widens that operand and moves the Read east of it, so the guide
       names every Cell that moves to keep the hat's Read under its Add and in
       its pattern column, or Writes into the literal's Cells instead.
-- [ ] Verify the actual transferred Source, all four velocities and unaffected
+- [ ] Verify the actual transferred Source, the four distinct velocities, observed in
+      order on the hat's four successive scheduled steps, and unaffected
       neighbouring voices. Delete a hat hit and verify that later accents keep
       their absolute-Tick phase.
 - [ ] Follow the published instructions in the console and listen on the

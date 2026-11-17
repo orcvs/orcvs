@@ -2,7 +2,7 @@
 
 Research dated 17 November 2026 · Design confirmed 18 November 2026 · Orcvs `c8cc197c`
 
-**Agreed release sequence.** Publish Kombine as the first complete library entry, with a playable example, a copyable accent Region, a worked transfer into Tracker, and the checks recorded below. Follow it with preset recall for the Built-in Synth’s bass voice. Each entry demonstrates one meaningful way to grow and appears in Help → Examples with a sibling Markdown guide.
+**Agreed release sequence.** Publish Kombine as the first complete library entry, with a playable example, a copyable accent Region, a worked transfer into Tracker, and the checks recorded below. Follow it with preset recall for the Built-in Synth’s acid voice. Each entry demonstrates one meaningful way to grow and appears in Help → Examples with a sibling Markdown guide.
 
 The user confirmed shared understanding of Q1–Q16 on 18 November 2026. These decisions define the agreed first release and second entry. The remaining survey candidates are future possibilities. Implementation and publication checks are pending. The approved delivery tickets are recorded in the [patterns library effort](../../.scratch/pattern-library/spec.md).
 
@@ -12,9 +12,9 @@ Start with an index in `examples/` linking a complete `.orcvs` Source File and a
 
 | Seed | Edit to try | What has to move together |
 | --- | --- | --- |
-| One Sequencer voice | Extend the Note row, change its Clock length, then add a second voice playing at a different division. Match its trigger cadence if held Notes should sound only once. | Each step occupies two Cells. Copy the reader, trigger, Play and data row. Melody shows the compact Track version. [Sequencer](../../examples/sequencer.md) · [Melody](../../examples/melody.md) |
-| One Tracker voice | Shorten one column to eight steps against a sixteen-step neighbour. | A whole-block translation preserves a relative Read distance. Inserting rows between the Read and the first Note changes that distance. The guide already gives the staircase offsets. [Tracker](../../examples/tracker.md) |
-| One Knobs control | Put a cutoff sweep beside a bassline, then add a second controller at a slower rate. | Keep each Slew’s feedback Cells available and route its CC to the sounding channel. Beat supplies a simpler reference for a periodic trigger and a single selected step. [Knobs](../../examples/knobs.md) · [Beat](../../examples/beat.md) |
+| One Sequencer voice | Extend the Note row, change its Clock `steps`, then add a second voice playing at a different division. Match its Bang cadence if held Notes should sound only once. | Each step occupies two Cells. Copy the reader, trigger, Play and data row. Melody shows the compact Track version. [Sequencer](../../examples/sequencer.md) · [Melody](../../examples/melody.md) |
+| One Tracker voice | Shorten one column to eight steps against a sixteen-step neighbour. | A whole-Region translation preserves a relative Read distance. Inserting rows between the Read and the first Note changes that distance. The guide already gives the staircase offsets. [Tracker](../../examples/tracker.md) |
+| One Knobs control | Put a cutoff sweep beside a bassline, then add a second controller with a smaller Slew `amount`. | Keep each Slew’s feedback Cells available and route its CC to the sounding channel. Beat supplies a simpler reference for a periodic Bang and a single selected step. [Knobs](../../examples/knobs.md) · [Beat](../../examples/beat.md) |
 
 **Agreed reuse contract (Q1).** Each entry opens as a playable example and marks a Region a musician can copy into an existing piece. The guide identifies the Cells to connect or edit after placement, including any absolute addresses. For a controller-only Region, the complete example supplies a voice so the musician can hear the change.
 
@@ -34,9 +34,9 @@ Start with an index in `examples/` linking a complete `.orcvs` Source File and a
 
 **Agreed first release (Q9, 18 November 2026).** Publish the library with one complete Kombine entry after its standalone example, worked Tracker transfer, guide and listening check pass. Use the first transfer’s results to refine subsequent entries.
 
-**Agreed selection documentation (Q10).** A coordinate diagram gives the copyable Region’s two corners, its output pair and the destination in Tracker. Include blank Cells used for runtime writes. A short `Accent` Comment above the block identifies it in the playable Source.
+**Agreed Region documentation (Q10).** A diagram gives the copyable Region’s two corners, its output pair and the destination in Tracker. Include blank Cells used for runtime writes. A short `Accent` Comment above the Region identifies it in the playable Source.
 
-**Agreed second entry (Q11).** Follow Kombine with preset recall. One selection changes several controller targets, each approaching its target at its own slew rate.
+**Agreed second entry (Q11).** Follow Kombine with preset recall. One selection changes several controller targets, each approaching its target at its own Slew `amount`.
 
 ## 2. Assemble one voice from independent pitch, accent and rhythm rows
 
@@ -46,21 +46,21 @@ The first study below proves a three-pitch, four-velocity voice with a moving ac
 
 **For a later masked voice:** With mask `1001` and pitches C, D, E, G, should the two hits play **C, G** (time advances through rests) or **C, D** (only hits advance)? The recommendation is elapsed Ticks for the first entry. Counting accepted hits needs a separate state transition and a defined first hit. Decide whether a second voice must share live pitch edits or can start with a private copy. [Tidal struct](https://userbase.tidalcycles.org/struct.html) · [Orcvs Function reference](../functions.md)
 
-## 3. Recall a bank of controller settings with independent glides
+## 3. Recall a bank of controller settings with independent slews
 
 Knobs already automates its targets. Its Orca ancestor recalls target settings. The second study below demonstrates one CC and two targets. The library entry extends this to a shared selector and separate feedback for each control. [Orca Knobs](../reference/learn-orca/examples/setups/knobs.orca) · [Orcvs Knobs](../../examples/knobs.md) · [Control playback tests](../../orcvs/src/playback/tests/shipped_knobs.rs)
 
 **Agreed live selection (Q12).** The musician edits one selector. Changing `00` to `01` changes every controller’s target on the next Tick.
 
-**Agreed transition behaviour (Q13).** A new selection during a glide redirects each controller from its current value toward the new target. Each retains its fixed slew rate, so completion time depends on distance.
+**Agreed transition behaviour (Q13).** A new selection during a slew redirects each controller from its current value toward the new target. Each retains its fixed Slew `amount`, so completion time depends on distance.
 
-**Agreed size and growth (Q14).** Start with two presets controlling cutoff and resonance on the Built-in Synth’s bass voice. Demonstrate scaling by adding decay as a third control driven by the same selector while the bassline plays.
+**Agreed size and growth (Q14).** Start with two presets controlling cutoff and resonance on the Built-in Synth’s acid voice. Demonstrate scaling by adding decay as a third control driven by the same selector while the bassline plays.
 
-**Agreed initialization and restart (Q15).** Open with preset `00` established in the control values. Switching to `01` demonstrates the glide. Rewind follows the existing Source-retaining behaviour. Reopening the example restores its initial settings.
+**Agreed initialization and restart (Q15).** Open with preset `00` established in the control values. Switching to `01` demonstrates the slew. Rewind keeps the Source’s Cell values, so the controls stay where the Source holds them. No ADR or test states this: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md) settles only that a Rewind makes Tick `0` the next Tick, and ticket 02 requires the test that holds it. Reopening the example restores its initial settings.
 
 **Agreed selector range (Q16).** Track wraps the numeric selector by preset count. With two presets, `02` selects the first and `03` the second. Document the MIDI target range and use existing diagnostics for malformed input.
 
-The completed entry should exercise initialization, reopening, rewind, selector wrap, a mid-glide change, a zero slew amount (hold), a stable target, and delivery on the intended channel. [Slew](../functions.md) · [Rewind](../adr/0076-stopping-playback-holds-its-tick.md)
+The completed entry should exercise initialization, reopening, rewind, selector wrap, a mid-slew change, a zero Slew `amount` (hold), a stable target, and delivery on the intended channel. [Slew](../functions.md) · [Rewind and the held Tick](../adr/0076-stopping-playback-holds-its-tick.md)
 
 ## 4. Vary a phrase by changing which step plays
 
@@ -87,7 +87,7 @@ This consolidation covers the repository note and two documents supplied outside
 
 ## Four grids you can try
 
-Each block is a separate grid. Paste it at the top-left of an empty Source, preserving indentation and blank rows. All four ran for 32 consecutive Ticks from Tick 0 on Orcvs revision `c8cc197c` without execution diagnostics. That run was a one-off: no test holds these Grids, and the linked test shows only how Source was executed for it. The observations below are from emitted commands. The two examples using `&$` address absolute Cells, so moving the block requires updating their coordinates. [Function reference](../functions.md) · [Source execution used for the check](../../orcvs/tests/function_reference_doc.rs)
+Each block is a separate grid. Paste it at the top-left of an empty Source, preserving indentation and blank rows. All four ran for 32 consecutive Ticks from Tick 0 on Orcvs revision `c8cc197c` without execution diagnostics. That run was a one-off: no test holds these Grids, and the linked test shows only how Source was executed for it. The observations below are from emitted commands. The two examples using `&$` address absolute Cells, so moving the Region requires updating their Positions. [Function reference](../functions.md) · [Source execution used for the check](../../orcvs/tests/function_reference_doc.rs)
 
 ### Independent pitch and accent lanes
 
@@ -102,14 +102,14 @@ Each block is a separate grid. Paste it at the top-left of an empty Source, pres
 
 Listen for the accent moving across the triad. The upper Track cycles through C4, E4 and G4. The lower one supplies four hexadecimal velocities. The loud `70` lands on C4 at Tick 0, E4 at 4, G4 at 8 and C4 again at 12. The Play reads velocity from row 6 and pitch from row 4. Orca's *Kombine* assembles octave, note and velocity at three clock divisions. This version folds octave into the Note and varies the lane lengths. For the original's slower pitch changes, change the pitch Clock from `~.0103` to `~.0203`. [Kombine grid](../reference/learn-orca/examples/misc/kombine.orca) · [Orcvs Track and Timed Play](../functions.md)
 
-### Two filter presets with a glide
+### Two filter presets with a slew
 
 ```orcvs
 ~*0101
   !c084A~>10&t~.0402022040
 ```
 
-Run alongside a bassline on channel `08` to hear the filter. This grid sends controller commands on its own. Track chooses cutoff targets `20` and `40`, holding each for four Ticks. From a blank start, Slew sends `10 20 20 20 | 30 40 40 40 | 30 20 …` (hex). Change the Slew amount from `10` to `20` to reach the next preset in one Tick. For a bank of scenes, duplicate the lane with different targets and CC numbers, leaving their Clocks identical so the settings change together. [Original Knobs grid](../reference/learn-orca/examples/setups/knobs.orca) · [Orcvs Knobs](../../examples/knobs.md)
+Run alongside a bassline on channel `08` to hear the filter. This grid sends controller commands on its own. Track chooses cutoff targets `20` and `40`, holding each for four Ticks. From a blank start, Slew sends `10 20 20 20 | 30 40 40 40 | 30 20 …` (hex). Change the Slew `amount` from `10` to `20` to reach the next preset in one Tick. For a bank of scenes, duplicate the lane with different targets and CC numbers, leaving their Clocks identical so the settings change together. [Original Knobs grid](../reference/learn-orca/examples/setups/knobs.orca) · [Orcvs Knobs](../../examples/knobs.md)
 
 ### A sparse rhythm sampling a triad
 
@@ -129,4 +129,4 @@ The three-in-eight rhythm samples a three-step pitch Clock. The first eight Tick
 &t.+~.0104.x04./~.04040308C4  G4  C4D4E4G4
 ```
 
-Read the eight pairs at the right as two phrases: `C4 · G4 ·` and `C4 D4 E4 G4`, where each dot represents two blank Cells. The first phrase plays three times. Ticks 12–15 play the fill, then Tick 16 returns to the first phrase. The fast Clock gives the step within the phrase. The slow Clock counts phrases 0–3. Integer division by three and multiplication by four give a bank offset of 0, 0, 0 or 4. Add the step and Track has its index. The separate output row leaves the lookup table clear of nested Functions' writes. Edit just the last four pairs to replace the fill. This borrows Tidal's conditional variation and explicitly chooses the **fourth** phrase as the fill. [Tidal cycle conditions and phase offsets](https://tidalcycles.org/docs/reference/conditions/) · [Orcvs arithmetic and Track](../functions.md)
+Read the eight pairs at the right as two phrases: `C4 · G4 ·` and `C4 D4 E4 G4`, where each dot represents two blank Cells. The first phrase plays three times. Ticks 12–15 play the fill, then Tick 16 returns to the first phrase. The fast Clock gives the step within the phrase. The slow Clock counts phrases 0–3. Integer division by three and multiplication by four give a bank offset of 0, 0, 0 or 4. Add the step and Track has its index. The separate output row leaves the Track’s data clear of nested Functions' writes. Edit just the last four pairs to replace the fill. This borrows Tidal's conditional variation and explicitly chooses the **fourth** phrase as the fill. [Tidal cycle conditions and phase offsets](https://tidalcycles.org/docs/reference/conditions/) · [Orcvs arithmetic and Track](../functions.md)
