@@ -59,18 +59,22 @@ index and its "Patterns to copy" table.
 
 Design decisions a reviewer should check:
 
-- The selector wraps with Modulo, `.%0002`, rather than Track. A Track's data
+- Deviation from the research note, awaiting the author's confirmation: Q16
+  in `docs/research/pattern-library.md` says "Track wraps the numeric
+  selector by preset count", but the selector wraps with Modulo, `.%0002`,
+  and the presets sit in Comment text read by a Read south whose distance an
+  Add computes from the preset in force. The reason is that a Track's data
   pairs are ordinary Source the Language Map diagnoses (Kombine opens that
-  way). Keeping the presets in Comment text, read by a Read south whose
-  distance an Add computes from the preset in force, lets the Source open,
-  and stay on every Tick, with nothing diagnosed. Q16 says "Track wraps the
-  numeric selector"; the ticket box says only "wrap numeric selection by
-  preset count".
+  way), whereas this mechanism lets the Source open, and stay on every Tick,
+  with nothing diagnosed. The ticket box says only "wrap numeric selection
+  by preset count", which both satisfy. Neither the research note nor the
+  Source has been changed to follow Q16; if the author wants Track, the
+  Source's mechanism changes.
 - Each control's Slew feedback, and every value a nested Function writes, is
   Comment text. A Slew reads and writes Comment text as it does any Cells, so
   preset `00` ships in each control's value and the first Tick delivers it.
 - The decay control is added by copying the `CUT` Region, the copyable
-  Region the guide marks. The guide also moves the Preset block and both
+  Region the guide marks. The guide also moves the selector and both
   controls into the Tracker, whose bassline is on channel `08` at velocity
   `77`, to work the address edit through.
 
@@ -79,7 +83,11 @@ Automated evidence:
 - `orcvs/src/playback/tests/shipped_presets.rs` runs the shipped file through
   `HandDrivenRun`, with each expected value written out Tick by Tick, the
   number of delivered command lists checked, and every edited Source built
-  from the shipped file by `replace_at`. It holds: nothing diagnosed at load
+  from the shipped file: edits made before the run opens go through the
+  shared `edited` helper, which applies each with `replace_at` and so
+  asserts the Cells it replaces, and edits made between Ticks, as a person
+  types while it plays, are typed Cell by Cell by the test's `type_at`
+  without that assertion. It holds: nothing diagnosed at load
   or on any Tick, and every shipped row drawn by the guide; preset `00`
   delivered from Tick 0 for two bassline loops; the selector to `01`
   turning both controls on the next Tick, `CUT` by `08` to `60` in 8 Ticks
