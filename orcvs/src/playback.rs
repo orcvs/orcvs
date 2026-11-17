@@ -1656,6 +1656,7 @@ mod tests {
     mod chord_play;
     mod shipped_knobs;
     mod shipped_kombine;
+    mod shipped_presets;
     mod shipped_trackers;
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -3621,6 +3622,56 @@ mod tests {
             "the expiry the rewound run owed was delivered to the next run"
         );
         assert_eq!(engine.observation().tick, Tick::new(9));
+    }
+
+    ///
+    /// A Rewind moves the absolute Tick and changes no Cell: a Slew's value,
+    /// which it keeps in the Source, carries on from where the last run left
+    /// it, whether the Rewind finds the engine stopped or playing.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_keeps_the_cells_the_runs_before_it_wrote() {
+        let period = Duration::from_secs(1);
+        let source = SourceCommander::new(Grid::with_shape(10, 9));
+        // A Slew of `01` a Tick toward `40`, whose value is the pair below it.
+        write(&source, 0, "~>0140");
+        let value = |source: &SourceCommander| {
+            let grid = source.grid();
+            (10..12)
+                .map(|idx| source.get(cell(grid, idx)).unwrap_or_default())
+                .collect::<String>()
+        };
+        let engine = engine(source.clone(), InMemoryOutputAdapter::default());
+
+        engine.start(period).unwrap();
+        time::sleep(period * 2).await;
+        settle(&engine).await;
+        engine.stop();
+        settle(&engine).await;
+        assert_eq!(value(&source), "03", "Ticks 0 to 2 each moved the Slew");
+
+        engine.rewind();
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::ZERO);
+        assert_eq!(value(&source), "03", "the stopped Rewind wrote a Cell");
+
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(value(&source), "04", "Tick 0 began from an emptied value");
+        time::sleep(period).await;
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::new(1));
+        assert_eq!(value(&source), "05");
+
+        engine.rewind();
+        settle(&engine).await;
+        assert_eq!(engine.state(), PlaybackState::Playing);
+        assert_eq!(engine.observation().tick, Tick::ZERO);
+        assert_eq!(
+            value(&source),
+            "06",
+            "the live Rewind's Tick 0 began afresh"
+        );
     }
 
     ///
