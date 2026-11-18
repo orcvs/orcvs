@@ -1977,8 +1977,28 @@ mod tests {
             self.inner.begin_run();
         }
 
+        ///
+        /// Runs the Tick `timing` schedules, and refuses one the Source
+        /// diagnoses.
+        ///
+        /// A run is driven through a Source that plays as written. A Source
+        /// stated as rows sits in a Grid exactly as large as those rows, so a
+        /// Function with no Cell to write to, or an Expression with no Cell
+        /// for an operand it leaves blank, is diagnosed and sends nothing, and
+        /// a test that reads only what the adapter received would pass on that
+        /// other path. A test whose subject is a diagnosed Tick runs it through
+        /// `SourceCommander::execute` and reads the plan.
+        ///
         fn tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
-            self.inner.execute_tick(timing)
+            let plan = self.inner.execute_tick(timing);
+            if let Some(plan) = &plan {
+                assert_eq!(
+                    tick_diagnostics(plan),
+                    vec![],
+                    "the Source a run is driven through diagnoses its Tick"
+                );
+            }
+            plan
         }
 
         ///
@@ -2740,13 +2760,8 @@ mod tests {
         let late = Duration::from_millis(300);
         let epoch = ClockInstant::now() - late;
 
-        let first = run.tick(scheduled_from(epoch, Duration::ZERO, late));
-        assert_eq!(first.expect("a late Tick still runs").diagnostics, vec![]);
-        let second = run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
-        assert_eq!(
-            second.expect("a Tick due in the future runs").diagnostics,
-            vec![]
-        );
+        run.tick(scheduled_from(epoch, Duration::ZERO, late));
+        run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
 
         let since_due = &run.inner.outputs.midi.since_due;
         assert!(
@@ -4507,8 +4522,7 @@ mod tests {
         assert!(!run.observation().midi_failed);
 
         adapter.fail_next_submission("device lost");
-        // The Source is clean, so the adapter's refusal is the only failure.
-        assert_eq!(run.run_tick(0).diagnostics, vec![]);
+        run.run_tick(0);
         assert!(run.observation().midi_failed);
 
         // Only a delivery answers whether the device recovered, so the
