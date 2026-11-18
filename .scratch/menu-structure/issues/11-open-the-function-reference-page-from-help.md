@@ -18,3 +18,16 @@ that Grid, unasked on the web, beside a Reference item that opens the page.
 - [ ] The Function reference Source keeps its checked-in text and its test against the Function
       table.
 - [ ] `docs/requirements/console.md` no longer lists CONS-133 as built differently.
+
+## Comments
+
+- 2026-11-18: The web case is the one readers meet first: on the site, Help → Function Reference
+  replaces the reader's Grid without asking, where native asks. `docs/first-result.md`'s Next
+  steps describes Help → Function Reference as replacing what is on the Grid; when this lands,
+  point that line at the page and at Help → Examples → `Functions` instead.
+- 2026-11-18: The site's sidebar names the two pages "Your first result" and "Function
+  reference", after the docs' own titles, while Help names them Learn and Reference
+  (`console/src/console/menu_bar.rs`). This ticket drops the Reference item and repoints the
+  existing Function Reference item at the page, so that name already matches; when it lands,
+  decide whether Learn becomes Your First Result too, so a reader who follows Help sees the name
+  the page carries.

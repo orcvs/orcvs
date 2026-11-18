@@ -34,7 +34,7 @@ button.orcvs-grid:hover,
 button.orcvs-grid:focus-visible {
   outline: 1px solid var(--orcvs-function);
 }
-/* The page's small console (`small.ts`), docked over the page's bottom right. */
+/* The page's Small Console (`small.ts`), docked over the page's bottom right. */
 .orcvs-small {
   position: fixed;
   right: 1rem;
