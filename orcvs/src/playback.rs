@@ -1652,11 +1652,12 @@ async fn run_engine<A: OutputAdapter, D>(
 mod tests {
     use super::*;
     use crate::grid::Grid;
-    use crate::source::rows::{commander, row, write_at};
+    use crate::source::rows::{at, commander, row, write_at};
 
     mod chord_play;
     mod shipped_knobs;
     mod shipped_kombine;
+    mod shipped_presets;
     mod shipped_trackers;
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1715,6 +1716,18 @@ mod tests {
         OutputCommand::NoteOff {
             channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
             note: Note::try_from(note).expect("a MIDI note"),
+        }
+    }
+
+    ///
+    /// The Control Change an adapter is handed for `controller` set to `value`
+    /// on `channel`, stated as the three Numbers a Source writes.
+    ///
+    fn control_change(channel: u8, controller: u8, value: u8) -> OutputCommand {
+        OutputCommand::ControlChange {
+            channel: MidiChannel::try_from(channel).expect("a MIDI channel"),
+            controller: Controller::try_from(controller).expect("a MIDI data byte"),
+            value: ControlValue::try_from(value).expect("a MIDI data byte"),
         }
     }
 
@@ -3639,6 +3652,59 @@ mod tests {
             "the expiry the rewound run owed was delivered to the next run"
         );
         assert_eq!(engine.observation().tick, Tick::new(9));
+    }
+
+    ///
+    /// A Rewind moves the absolute Tick and changes no Cell: a Slew's value,
+    /// which it keeps in the Source, carries on from where the last run left
+    /// it, whether the Rewind finds the engine stopped or playing.
+    ///
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_keeps_the_cells_the_runs_before_it_wrote() {
+        let period = Duration::from_secs(1);
+        // A Slew of `01` a Tick toward `40`, whose value is the pair below it.
+        let source = commander(&["~>0140", ""]);
+        let value = |source: &SourceCommander| {
+            let grid = source.grid();
+            (0..2)
+                .map(|column| source.get(at(grid, column, 1)).unwrap_or_default())
+                .collect::<String>()
+        };
+        let engine = engine(source.clone(), InMemoryOutputAdapter::default());
+
+        engine.start(period).unwrap();
+        time::sleep(period * 2).await;
+        settle(&engine).await;
+        engine.stop();
+        settle(&engine).await;
+        assert_eq!(value(&source), "03", "Ticks 0 to 2 each moved the Slew");
+
+        engine.rewind();
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::ZERO);
+        assert_eq!(value(&source), "03", "the stopped Rewind wrote a Cell");
+
+        engine.start(period).unwrap();
+        settle(&engine).await;
+        assert_eq!(
+            value(&source),
+            "04",
+            "the new run's Tick 0 moved the Slew on from the 03 it was left at"
+        );
+        time::sleep(period).await;
+        settle(&engine).await;
+        assert_eq!(engine.observation().tick, Tick::new(1));
+        assert_eq!(value(&source), "05", "Tick 1 moved the Slew on again");
+
+        engine.rewind();
+        settle(&engine).await;
+        assert_eq!(engine.state(), PlaybackState::Playing);
+        assert_eq!(engine.observation().tick, Tick::ZERO);
+        assert_eq!(
+            value(&source),
+            "06",
+            "the live Rewind's Tick 0 moved the Slew on from the 05 it was left at"
+        );
     }
 
     ///

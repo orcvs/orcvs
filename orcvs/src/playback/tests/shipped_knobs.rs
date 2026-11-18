@@ -8,9 +8,9 @@
 //! at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
 
-use super::{HandDrivenRun, functions_mapped, note_on, stop, tick_diagnostics};
+use super::{HandDrivenRun, control_change, functions_mapped, note_on, stop, tick_diagnostics};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
-use crate::source::{ControlValue, Controller, MidiChannel, SourceCommander, file};
+use crate::source::{SourceCommander, file};
 
 /// How a step is played: its velocity and how many Ticks it holds its note.
 #[derive(Clone, Copy)]
@@ -113,11 +113,7 @@ const RATE: u8 = 0x08;
 /// The Control Change a knob sends to `controller` with `value` on the acid
 /// channel.
 fn knob_change(controller: u8, value: u8) -> OutputCommand {
-    OutputCommand::ControlChange {
-        channel: MidiChannel::try_from(ACID).expect("a MIDI channel"),
-        controller: Controller::try_from(controller).expect("a MIDI data byte"),
-        value: ControlValue::try_from(value).expect("a MIDI data byte"),
-    }
+    control_change(ACID, controller, value)
 }
 
 /// `value` moved toward `target` by at most [`RATE`], never past it.

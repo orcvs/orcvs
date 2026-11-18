@@ -58,7 +58,7 @@ Knobs already automates its targets. Its Orca ancestor recalls target settings. 
 
 **Agreed initialization and restart (Q15).** Open with preset `00` established in the control values. Switching to `01` demonstrates the slew. Rewind keeps the Source’s Cell values, so the controls stay where the Source holds them. No ADR or test states this: [ADR 0076](../adr/0076-stopping-playback-holds-its-tick.md) settles only that a Rewind makes Tick `0` the next Tick, and ticket 02 requires the test that holds it. Reopening the example restores its initial settings.
 
-**Agreed selector range (Q16).** Track wraps the numeric selector by preset count. With two presets, `02` selects the first and `03` the second. Document the MIDI target range and use existing diagnostics for malformed input.
+**Agreed selector range (Q16, amended 18 November 2026).** Modulo wraps the numeric selector by preset count. The decision first named Track; the author chose Modulo when the entry was built, because a Track's data pairs are ordinary Source that the Language Map diagnoses, and Modulo with the presets in Comment text opens with nothing diagnosed. With two presets, `02` selects the first and `03` the second. Document the MIDI target range and use existing diagnostics for malformed input.
 
 The completed entry should exercise initialization, reopening, rewind, selector wrap, a mid-slew change, a zero Slew `amount` (hold), a stable target, and delivery on the intended channel. [Slew](../functions.md) · [Rewind and the held Tick](../adr/0076-stopping-playback-holds-its-tick.md)
 

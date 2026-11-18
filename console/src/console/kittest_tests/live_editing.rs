@@ -4,9 +4,9 @@
 //!
 //! Each test opens a copy of `examples/melody.orcvs`,
 //! `examples/tracker.orcvs` or a one-Play Source through the Open path, or
-//! opens the Kombine and the Tracker from `Help → Examples`, edits it with
-//! the keys, clipboard events and menu items a viewer uses, and runs
-//! Ticks against the Source the console owns. A Tick here is
+//! opens the Kombine, the Presets and the Tracker from `Help → Examples`,
+//! edits it with the keys, clipboard events and menu items a viewer uses, and
+//! runs Ticks against the Source the console owns. A Tick here is
 //! `SourceCommander::execute`, the call Playback makes for each Tick it runs,
 //! so the assertions read the Play Commands and diagnostics Playback would be
 //! handed without waiting on its clock. Playback stays stopped, which keeps the
@@ -683,10 +683,29 @@ fn clipboard(harness: &Harness<'_, Console>) -> Option<String> {
 }
 
 /// The channel, MIDI note and velocity of each note a Tick's Timed Plays
-/// start.
+/// start. Any other play command is a failure.
 fn timed_plays(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
+    timed_plays_skipping(plan, |_| false)
+}
+
+/// The channel, MIDI note and velocity of each note a Tick's Timed Plays
+/// start, leaving out the Control Changes. Any other play command is a
+/// failure.
+fn notes_beside_controls(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
+    timed_plays_skipping(plan, |command| {
+        matches!(command, PlayCommand::ControlChange { .. })
+    })
+}
+
+/// The channel, MIDI note and velocity of each Timed Play in `plan`, passing
+/// over each command `skipped` answers true for.
+fn timed_plays_skipping(
+    plan: &TickPlan,
+    skipped: impl Fn(&PlayCommand) -> bool,
+) -> Vec<(u8, u8, u8)> {
     plan.play_commands
         .iter()
+        .filter(|command| !skipped(command))
         .map(|command| match command {
             PlayCommand::Timed {
                 channel,
@@ -694,7 +713,7 @@ fn timed_plays(plan: &TickPlan) -> Vec<(u8, u8, u8)> {
                 velocity,
                 ..
             } => (channel.value(), note.value(), velocity.value()),
-            other => panic!("the trackers play only Timed notes, not {other:?}"),
+            other => panic!("expected only Timed notes, not {other:?}"),
         })
         .collect()
 }
@@ -779,4 +798,291 @@ async fn three_kombine_accent_steps_typed_in_the_console_keep_the_loud_accent_on
             (67, 0x50),
         ]
     );
+}
+
+/// The acid channel's cutoff, resonance and decay controllers.
+const CUTOFF: u8 = 0x4A;
+const RESONANCE: u8 = 0x47;
+const DECAY: u8 = 0x4B;
+
+///
+/// The controller and value of each Control Change a Tick sends, all on the
+/// acid channel `08`.
+///
+fn control_changes(plan: &TickPlan) -> Vec<(u8, u8)> {
+    plan.play_commands
+        .iter()
+        .filter_map(|command| match command {
+            PlayCommand::ControlChange {
+                channel,
+                controller,
+                value,
+            } => {
+                assert_eq!(channel.value(), 8, "a control sent off the acid channel");
+                Some((controller.value(), value.value()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+///
+/// Runs `ticks` on the console's Source and answers each Tick's
+/// Control Changes, asserting the bassline plays its step at velocity `64`
+/// on the acid channel and nothing is diagnosed.
+///
+fn presets_controls(
+    harness: &Harness<'_, Console>,
+    ticks: std::ops::Range<u64>,
+) -> Vec<Vec<(u8, u8)>> {
+    const BASS: [u8; 8] = [33, 33, 45, 33, 36, 33, 43, 40];
+    ticks
+        .map(|step| {
+            let plan = tick(harness, step);
+            assert_eq!(diagnostics(&plan), [], "Tick {step}");
+            assert_eq!(
+                notes_beside_controls(&plan),
+                [(8, BASS[(step % 8) as usize], 0x64)],
+                "Tick {step}'s bassline"
+            );
+            control_changes(&plan)
+        })
+        .collect()
+}
+
+/// Each Tick's cutoff and resonance, as `presets_controls` answers them.
+fn cutoff_and_resonance(cutoffs: &[u8], resonances: &[u8]) -> Vec<Vec<(u8, u8)>> {
+    cutoffs
+        .iter()
+        .zip(resonances)
+        .map(|(&cutoff, &resonance)| vec![(CUTOFF, cutoff), (RESONANCE, resonance)])
+        .collect()
+}
+
+///
+/// The Presets guide's preset change, typed in the console: `1` over the
+/// selector's `0` at (5, 15) before Tick 4 turns cutoff and resonance toward
+/// preset `01` from Tick 4, each at its own `amount`.
+///
+#[tokio::test]
+async fn a_preset_typed_in_the_console_turns_both_presets_controls() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    super::choose_example(&mut harness, "Presets");
+
+    assert_eq!(
+        presets_controls(&harness, 0..4),
+        cutoff_and_resonance(&[0x20; 4], &[0x20; 4])
+    );
+    go_to(&mut harness, 5, 15);
+    type_text(&mut harness, "1");
+    assert_eq!(text(&harness, 15, 0..8), "  .%0102");
+    assert_eq!(
+        presets_controls(&harness, 4..15),
+        cutoff_and_resonance(
+            &[
+                0x28, 0x30, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60, 0x60, 0x60, 0x60
+            ],
+            &[
+                0x25, 0x2A, 0x2F, 0x34, 0x39, 0x3E, 0x43, 0x48, 0x4D, 0x50, 0x50
+            ],
+        )
+    );
+}
+
+///
+/// Opening the Presets again from `Help → Examples` after a preset change
+/// asks before discarding it and, confirmed, restores the file as shipped:
+/// preset `00`, with both controls sending `20` from the first Tick.
+///
+#[tokio::test]
+async fn reopening_the_presets_restores_preset_00() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    super::choose_example(&mut harness, "Presets");
+    go_to(&mut harness, 5, 15);
+    type_text(&mut harness, "1");
+    presets_controls(&harness, 0..6);
+    assert_eq!(text(&harness, 20, 0..22), "      ||50  6003  01||");
+
+    super::choose_example(&mut harness, "Presets");
+    assert!(
+        super::asking(&harness),
+        "the preset change was discarded unasked"
+    );
+    super::answer(&mut harness, super::DISCARD);
+    harness.run_steps(1);
+    let presets = crate::examples::EXAMPLES
+        .iter()
+        .find(|example| example.name == "Presets")
+        .expect("Presets is registered");
+    assert_eq!(
+        harness.state().orcvs.source().snapshot(),
+        presets.source().snapshot()
+    );
+    assert_eq!(
+        presets_controls(&harness, 0..3),
+        cutoff_and_resonance(&[0x20; 3], &[0x20; 3])
+    );
+}
+
+///
+/// The Presets guide's decay control, followed with the console's keys and
+/// clipboard: copy the `CUT` Region from (0, 18) to (23, 22), paste it at
+/// (0, 30), and type `DEC`, `B`, `10`, `1` and `7` where the guide says.
+/// Decay then follows the selector beside cutoff and resonance, which send as
+/// they did before.
+///
+#[tokio::test]
+async fn the_presets_decay_control_pasted_in_the_console_follows_the_selector() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    super::choose_example(&mut harness, "Presets");
+
+    go_to(&mut harness, 0, 18);
+    for _ in 0..23 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowRight);
+    }
+    for _ in 0..4 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowDown);
+    }
+    harness.event(Event::Copy);
+    harness.step();
+    let copied = clipboard(&harness).expect("Copy put the Region on the clipboard");
+    harness.run_steps(1);
+    go_to(&mut harness, 0, 30);
+    harness.event(Event::Paste(copied));
+    harness.step();
+    harness.run_steps(1);
+    for (x, y, typed) in [
+        (11, 30, "DEC"),
+        (7, 31, "B"),
+        (10, 31, "10"),
+        (14, 33, "1"),
+        (14, 34, "7"),
+    ] {
+        go_to(&mut harness, x, y);
+        type_text(&mut harness, typed);
+    }
+    let rows: Vec<String> = (30..35)
+        .map(|row| text(&harness, row, 0..24).trim_end().to_owned())
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "~*0101  || DEC ||",
+            "  !c084B~>10&v.+02&$0210",
+            "      ||20  2002  00||",
+            "||preset 00   10||",
+            "||preset 01   70||",
+        ]
+    );
+
+    let mut controls = presets_controls(&harness, 0..4);
+    go_to(&mut harness, 5, 15);
+    type_text(&mut harness, "1");
+    controls.extend(presets_controls(&harness, 4..11));
+    let expected: Vec<Vec<(u8, u8)>> = [
+        (0x20, 0x20, 0x10),
+        (0x20, 0x20, 0x10),
+        (0x20, 0x20, 0x10),
+        (0x20, 0x20, 0x10),
+        (0x28, 0x25, 0x20),
+        (0x30, 0x2A, 0x30),
+        (0x38, 0x2F, 0x40),
+        (0x40, 0x34, 0x50),
+        (0x48, 0x39, 0x60),
+        (0x50, 0x3E, 0x70),
+        (0x58, 0x43, 0x70),
+    ]
+    .into_iter()
+    .map(|(cutoff, resonance, decay)| {
+        vec![(CUTOFF, cutoff), (RESONANCE, resonance), (DECAY, decay)]
+    })
+    .collect();
+    assert_eq!(controls, expected);
+}
+
+///
+/// The Presets guide's move into the Tracker, followed with the console's
+/// menus, keys and clipboard: copy (0, 14) to (23, 28) in the Presets, paste
+/// it into the Tracker at (0, 36) and type `26` over each control's `10` at
+/// (22, 41) and (22, 47). Every voice then plays the shipped Tracker's Notes,
+/// and the selector at (5, 37) turns both controls toward preset `01`.
+///
+#[tokio::test]
+async fn the_presets_controls_pasted_into_the_tracker_slew_its_bassline() {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    super::choose_example(&mut harness, "Presets");
+    go_to(&mut harness, 0, 14);
+    for _ in 0..23 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowRight);
+    }
+    for _ in 0..14 {
+        harness.key_press_modifiers(Modifiers::SHIFT, Key::ArrowDown);
+    }
+    harness.event(Event::Copy);
+    harness.step();
+    let copied = clipboard(&harness).expect("Copy put the Region on the clipboard");
+    harness.run_steps(1);
+
+    super::choose_example(&mut harness, "Tracker");
+    go_to(&mut harness, 0, 36);
+    harness.event(Event::Paste(copied));
+    harness.step();
+    harness.run_steps(1);
+    for row in [41, 47] {
+        go_to(&mut harness, 22, row);
+        type_text(&mut harness, "26");
+    }
+    assert_eq!(text(&harness, 41, 0..24), "  !c084A~>08&v.+02&$0226");
+    assert_eq!(text(&harness, 47, 0..24), "  !c0847~>05&v.+02&$0226");
+
+    let mut plays = Vec::new();
+    let mut controls = Vec::new();
+    for step in 0..16 {
+        if step == 4 {
+            go_to(&mut harness, 5, 37);
+            type_text(&mut harness, "1");
+        }
+        let plan = tick(&harness, step);
+        assert_eq!(diagnostics(&plan), [], "Tick {step}");
+        plays.push(notes_beside_controls(&plan));
+        controls.push(control_changes(&plan));
+    }
+    assert_eq!(plays, shipped_tracker_plays());
+    assert_eq!(
+        controls,
+        cutoff_and_resonance(
+            &[
+                0x20, 0x20, 0x20, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60, 0x60, 0x60,
+                0x60, 0x60
+            ],
+            &[
+                0x20, 0x20, 0x20, 0x20, 0x25, 0x2A, 0x2F, 0x34, 0x39, 0x3E, 0x43, 0x48, 0x4D, 0x50,
+                0x50, 0x50
+            ],
+        )
+    );
+}
+
+///
+/// The shipped Tracker's first sixteen Ticks in a console of its own, every
+/// voice's Notes on each Tick.
+///
+fn shipped_tracker_plays() -> Vec<Vec<(u8, u8, u8)>> {
+    let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
+    harness.run_steps(2);
+    super::choose_example(&mut harness, "Tracker");
+    let plays: Vec<Vec<(u8, u8, u8)>> = (0..16)
+        .map(|step| timed_plays(&tick(&harness, step)))
+        .collect();
+    // The bassline, on the acid channel, plays on each of the sixteen Ticks.
+    let bassline = plays
+        .iter()
+        .filter(|tick| tick.iter().any(|&(channel, _, _)| channel == 8))
+        .count();
+    assert_eq!(bassline, 16);
+    plays
 }

@@ -26,7 +26,7 @@ pub(crate) const KNOBS: Example = Example {
 pub(crate) const FIRST_VISIT: &Example = &KNOBS;
 
 /// Every shipped example, in the order `Help → Examples` lists them.
-pub(crate) const EXAMPLES: [Example; 6] = [
+pub(crate) const EXAMPLES: [Example; 7] = [
     Example {
         name: "Beat",
         text: include_bytes!("../../examples/beat.orcvs"),
@@ -47,6 +47,10 @@ pub(crate) const EXAMPLES: [Example; 6] = [
     Example {
         name: "Kombine",
         text: include_bytes!("../../examples/kombine.orcvs"),
+    },
+    Example {
+        name: "Presets",
+        text: include_bytes!("../../examples/presets.orcvs"),
     },
 ];
 
@@ -100,7 +104,15 @@ mod tests {
         let links: Vec<String> = EXAMPLES.iter().map(super::Example::link_name).collect();
         assert_eq!(
             links,
-            ["beat", "melody", "tracker", "sequencer", "knobs", "kombine"]
+            [
+                "beat",
+                "melody",
+                "tracker",
+                "sequencer",
+                "knobs",
+                "kombine",
+                "presets"
+            ]
         );
     }
 
