@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use crate::controller::{ENV_MOD, EQ, LN, RESONANCE, WAVEFORM};
+use crate::controller::AcidControl;
 
 /// The time constant of the gate's rise and fall, in seconds: short enough to
 /// sound percussive, long enough not to click.
@@ -28,32 +28,28 @@ pub(crate) struct Controls {
 }
 
 impl Default for Controls {
-    /// The load values, which make an acid sound with no Control Change.
+    /// Each control at its load value.
     fn default() -> Self {
         Self {
-            waveform: 0x00,
-            resonance: 0x50,
-            cutoff: 0x30,
-            decay: 0x30,
-            env_mod: 0x50,
+            waveform: AcidControl::Waveform.load(),
+            resonance: AcidControl::Resonance.load(),
+            cutoff: AcidControl::Cutoff.load(),
+            decay: AcidControl::Decay.load(),
+            env_mod: AcidControl::EnvMod.load(),
         }
     }
 }
 
 impl Controls {
-    /// Takes `value` for `controller` if `controller` is one of the voice's,
-    /// and answers whether it was. They are Sound Controllers, which Reset
-    /// All Controllers leaves alone; any other controller changes nothing.
-    pub(crate) fn take(&mut self, controller: u8, value: u8) -> bool {
-        match controller {
-            WAVEFORM => self.waveform = value,
-            RESONANCE => self.resonance = value,
-            EQ => self.cutoff = value,
-            LN => self.decay = value,
-            ENV_MOD => self.env_mod = value,
-            _ => return false,
+    /// Sets `control` from a Control Change value.
+    pub(crate) fn set(&mut self, control: AcidControl, value: u8) {
+        match control {
+            AcidControl::Waveform => self.waveform = value,
+            AcidControl::Resonance => self.resonance = value,
+            AcidControl::Cutoff => self.cutoff = value,
+            AcidControl::Decay => self.decay = value,
+            AcidControl::EnvMod => self.env_mod = value,
         }
-        true
     }
 }
 

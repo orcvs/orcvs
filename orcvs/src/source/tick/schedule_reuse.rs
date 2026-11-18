@@ -12,12 +12,9 @@ use lang::{InputPortal, Output, Tick};
 
 use super::execution::{self, ComputationState};
 use super::{ComputationId, plan, plan_unshared, shared_schedule};
-use crate::grid::{CellIndex, Grid};
+use crate::grid::Grid;
+use crate::source::rows::cell;
 use crate::source::{CellContent, CellWrite, Cells, LanguageMap, Source, TickPlan};
-
-fn cell(grid: Grid, idx: usize) -> CellIndex {
-    grid.cell_index(idx).expect("inside the Grid")
-}
 
 /// A Source holding `rows`, each padded to the Grid's width, written as one
 /// revision.

@@ -42,3 +42,16 @@ impl Smoothing {
         self.value
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_value_starts_where_it_is_built_without_moving() {
+        let mut smoothing = Smoothing::new(48_000.0, 0.75);
+        assert!(smoothing.rests_at(0.75));
+        assert_eq!(smoothing.next(), 0.75);
+        assert!(smoothing.rests_at(0.75));
+    }
+}

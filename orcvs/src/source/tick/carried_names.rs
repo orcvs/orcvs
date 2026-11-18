@@ -2,8 +2,9 @@
 //! Language Unit, Tick by Tick. Each name is two Cells, and whichever Function
 //! moves them leaves them exactly as written.
 
-use super::observed::{diagnostic, first, quiet, source_of};
+use super::observed::{diagnostic, first, quiet};
 use crate::grid::Grid;
+use crate::source::rows::seeded_source;
 
 /// One name of each shape: a chord, a scale, the names that also spell a
 /// Number or a Note, and the Voicings.
@@ -109,7 +110,7 @@ fn a_write_or_push_refuses_a_half_written_name_and_writes_nothing() {
     for partial in PARTIALS {
         for row in [format!("@$0601{partial}"), format!("@t0102{partial}")] {
             let rows = [row.as_str(), "xxxxxxxx"];
-            let source = source_of(Grid::with_shape(8, 2), &rows);
+            let source = seeded_source(Grid::with_shape(8, 2), &rows);
             assert!(
                 source
                     .language_map()

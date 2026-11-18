@@ -79,6 +79,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use orcvs::grid::{CellIndex, Grid};
+use orcvs::source::rows::cell;
 use orcvs::source::{CellContent, CellWrite, Source, SourceCommander, Tick, file};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -268,12 +269,6 @@ const RESTORED: &str = "0";
 /// A different digit in the same operand position: still a valid Expression,
 /// so the rebuild does the full parse an accepted edit pays for.
 const EDITED_VALID: &str = "3";
-
-/// The index `grid` mints for `idx`. A Cell is named by an index its Grid
-/// minted, so a test states the number and the Grid answers with the Cell.
-fn cell(grid: Grid, idx: usize) -> CellIndex {
-    grid.cell_index(idx).expect("inside the Grid")
-}
 
 /// One Cell per Grid Position, as `orcvs/benches/source.rs` builds it.
 fn source_text(cols: usize, rows: usize) -> String {

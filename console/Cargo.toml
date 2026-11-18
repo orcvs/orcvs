@@ -290,7 +290,8 @@ lang = { path = "../lang", version = "0.1.0" }
 # feature selection. A dev-dependency never reaches a normal build.
 console = { path = ".", default-features = false, features = ["test-source-shapes"] }
 # `test-grid-shapes` lets the console's tests build a Grid smaller than the one
-# 256 by 256 shape, and `test-output-adapter` gives the WASM tests and the paint
+# 256 by 256 shape and state a Source as rows (`orcvs::source::rows`), and
+# `test-output-adapter` gives the WASM tests and the paint
 # bench an output to drive Playback over (`orcvs/Cargo.toml` states why each
 # feature exists). Declared here only, so a `cargo build` of the console never
 # enables them; `persistence` still reaches `orcvs` through this crate's own

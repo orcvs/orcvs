@@ -4,7 +4,8 @@
 use crate::grid::Grid;
 use lang::Atom;
 
-use super::fixture::{carried_source, seeded_source, snapshot, stated_source};
+use super::fixture::{carried_source, stated_source};
+use crate::source::rows::{seeded_source, snapshot};
 
 /// Naming a Cell for a silent Terminal Output Function cannot mint a
 /// Portal. The Tick's only diagnostic is the row-edge layout `.+01` owes.

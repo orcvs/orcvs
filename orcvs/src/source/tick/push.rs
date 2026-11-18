@@ -9,10 +9,9 @@
 
 use lang::Tick;
 
-use super::observed::{
-    MISSED_BANG, diagnostic, first, observe_at, quiet, raw, rows_of, source_of, turn_before, turns,
-};
+use super::observed::{MISSED_BANG, diagnostic, first, observe_at, quiet, raw, turn_before, turns};
 use crate::grid::Grid;
+use crate::source::rows::{rows_of, seeded_source};
 
 #[test]
 fn push_writes_its_value_into_the_selected_pair_of_the_lane_below_it() {
@@ -35,7 +34,7 @@ fn push_writes_its_value_into_the_selected_pair_of_the_lane_below_it() {
 fn a_bang_pushed_overwrites_its_whole_pair_and_activates_the_roots_aligned_with_it() {
     // Pair 01 is (2, 1); the `**` replaces the `xx` there and activates Raw
     // Play C4 south of it.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(10, 3),
         &["@t0103**", "xxxxxx", "  !>007FC4"],
     );
@@ -114,7 +113,7 @@ fn an_empty_or_partially_written_operand_makes_push_invalid() {
         "@t0103xyC4",
     ] {
         let rows = [row, "xxxxxxxxxx"];
-        let source = source_of(Grid::with_shape(10, 2), &rows);
+        let source = seeded_source(Grid::with_shape(10, 2), &rows);
         assert!(
             source
                 .language_map()

@@ -16,8 +16,9 @@ use std::ops::Range;
 
 use lang::{PlayCommand, Tick};
 
-use super::observed::{Observed, diagnostic, first, observed, source_of};
+use super::observed::{Observed, diagnostic, first, observed};
 use crate::grid::Grid;
+use crate::source::rows::seeded_source;
 
 /// Diagnostics by anchor column, row and message, as [`Observed`] holds them.
 type Diagnostics = Vec<(usize, usize, String)>;
@@ -33,7 +34,7 @@ fn executed(
     rows: &[&str],
     ticks: Range<u64>,
 ) -> Vec<(Vec<PlayCommand>, Observed, Diagnostics)> {
-    let mut source = source_of(grid, rows);
+    let mut source = seeded_source(grid, rows);
     ticks
         .map(|tick| {
             let plan = source.execute(Tick::new(tick));
@@ -68,7 +69,7 @@ fn banged(play: &str) -> (Vec<PlayCommand>, Diagnostics) {
 
 /// Every Language Map diagnostic for `rows`, with its message.
 fn mapped(grid: Grid, rows: &[&str]) -> Diagnostics {
-    source_of(grid, rows)
+    seeded_source(grid, rows)
         .language_map()
         .diagnostics()
         .map(|d| diagnostic(d.anchor().x(), d.anchor().y(), &d.message))
@@ -357,7 +358,7 @@ fn a_partly_written_note_names_the_read_that_refused_it() {
         )
     );
     // Written at the slot itself, the Parser reports it before any Turn.
-    let source = source_of(Grid::with_shape(16, 3), &[".=0101", "  !~017FC 04"]);
+    let source = seeded_source(Grid::with_shape(16, 3), &[".=0101", "  !~017FC 04"]);
     assert!(source.language_map().diagnostics().next().is_some());
 }
 

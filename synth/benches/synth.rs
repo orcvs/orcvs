@@ -7,6 +7,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 use synth::Synth;
+use synth::controller::{CH, DL, EQ, MD, R1, R2};
 
 /// The rate the site's AudioWorklet runs the synth at.
 const RATE: f32 = 48_000.0;
@@ -19,11 +20,9 @@ const BLOCK: usize = 128;
 /// state rather than the onset.
 const PREROLL: usize = 4 * RATE as usize;
 
-/// Modulation, Brightness, and the four sends on CC 91–94: the per-channel
-/// effects a sounding channel runs on every sample once any is turned.
-const MD: u8 = 1;
-const EQ: u8 = 74;
-const SENDS: [u8; 4] = [91, 92, 93, 94];
+/// The four sends: with Modulation and Brightness, the per-channel effects a
+/// sounding channel runs on every sample once any is turned.
+const SENDS: [u8; 4] = [R1, R2, CH, DL];
 
 /// A synth with one held note on each of `channels`, each channel's effects
 /// turned when `effects` is set, rendered through its preroll.

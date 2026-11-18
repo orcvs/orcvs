@@ -35,6 +35,11 @@ persistence = ["dep:serde"]
 # console's. No shipped build selects it, so no shipped function takes a
 # dimension only a test supplies. It adds no dependency and no code to a build
 # that does not name it.
+#
+# It also gates `source::rows`, which states a Source as rows and addresses an
+# edit by column and row. Rows are how a smaller Grid gets filled, so the two
+# travel together, and the integration tests and benchmarks, which are separate
+# crates, reach the module the same way they reach `Grid::with_shape`.
 test-grid-shapes = []
 # Test-only. `playback::InMemoryOutputAdapter` records the Output Commands it is
 # handed and refuses one submission on request, which is what a test asserts
