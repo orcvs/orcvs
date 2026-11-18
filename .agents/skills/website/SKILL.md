@@ -46,8 +46,9 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
   small console, `/play/?small`, and posts it `{ type: "orcvs.open", source }` (`small.ts`, ADR
   0086). Nothing opens a new tab or window.
 - **Links.** `/play/?example=<link-name>` opens a shipped example (`beat`, `melody`,
-  `tracker`, `sequencer`, `knobs`, `kombine`); `/play/#source=<percent-encoded Source File>`
-  opens text, up to 16 KiB of fragment; `/play/?small` opens the small console. Each opens
+  `tracker`, `sequencer`, `knobs`, `kombine`, `presets`);
+  `/play/#source=<percent-encoded Source File>` opens text, up to 16 KiB of fragment;
+  `/play/?small` opens the small console. Each opens
   stopped, none reads or writes saved work, and none registers the service worker
   (`console/src/linked_source.rs`, `console/index.html`). `/` frames `/play/` with its own query
   and fragment, so a link to share is `/?example=<link-name>`, which also plays through the page's
