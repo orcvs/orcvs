@@ -21,8 +21,8 @@ pub(crate) struct Tilt {
 
 /// The tilt at a Control Change value, from `-1` to just under `1`: `40` is
 /// flat, lower is darker and higher is brighter.
-fn amount(value: u8) -> f32 {
-    (f32::from(value) - 64.0) / 64.0
+pub(crate) const fn amount(value: u8) -> f32 {
+    (value as f32 - 64.0) / 64.0
 }
 
 impl Tilt {

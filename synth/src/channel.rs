@@ -16,8 +16,8 @@ const SHORTEST: f32 = 0.02;
 
 /// How much of the channel a send takes at a Control Change value, from `0`
 /// to `1`.
-fn gain(value: u8) -> f32 {
-    f32::from(value) / 127.0
+pub(crate) const fn gain(value: u8) -> f32 {
+    value as f32 / 127.0
 }
 
 /// How a new sound on a channel starts and decays, from its `OF` and `LN`.
@@ -135,9 +135,17 @@ impl Channel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::SharedEffect;
+    use crate::controller::tests::EFFECTS;
 
     const RATE: f32 = 48_000.0;
+
+    /// The effects `rests` reads: every effect but the offset and length.
+    fn resting() -> impl Iterator<Item = Effect> {
+        EFFECTS
+            .into_iter()
+            .map(|(_, effect)| effect)
+            .filter(|effect| !matches!(effect, Effect::Offset | Effect::Length))
+    }
 
     /// A tone-like input, never silent for long.
     fn signal(n: usize) -> f32 {
@@ -161,16 +169,10 @@ mod tests {
         // to load, from ever going idle. The offset and length are not read
         // by `rests`; `length_and_offset_shape_each_new_sound` covers theirs.
         assert!(Channel::new(RATE).rests());
-        for effect in [
-            Effect::Vibrato,
-            Effect::Tilt,
-            Effect::Send(SharedEffect::Small),
-            Effect::Send(SharedEffect::Large),
-            Effect::Send(SharedEffect::Chorus),
-            Effect::Send(SharedEffect::Delay),
-        ] {
+        for effect in resting() {
             let mut channel = Channel::new(RATE);
-            // Neither is any effect's load value, `00` or `40`.
+            // Neither is the load value of an effect `rests` reads, `00` or
+            // `40`.
             for away in [0x20, 0x7F] {
                 channel.set(effect, away);
                 for n in 0..RATE as usize / 10 {
@@ -188,20 +190,12 @@ mod tests {
 
     #[test]
     fn a_channel_with_an_effect_turned_is_not_skipped_with_no_voice() {
-        for effect in [
-            Effect::Vibrato,
-            Effect::Send(SharedEffect::Small),
-            Effect::Send(SharedEffect::Large),
-            Effect::Send(SharedEffect::Chorus),
-            Effect::Send(SharedEffect::Delay),
-        ] {
+        // `20` is not the load value of an effect `rests` reads.
+        for effect in resting() {
             let mut channel = Channel::new(RATE);
-            channel.set(effect, 0x40);
+            channel.set(effect, 0x20);
             assert!(channel.process(None).is_some(), "{effect:?}");
         }
-        let mut channel = Channel::new(RATE);
-        channel.set(Effect::Tilt, 0x20);
-        assert!(channel.process(None).is_some());
     }
 
     #[test]
@@ -224,8 +218,10 @@ mod tests {
             if let Some((effect, _, back)) = turned {
                 channel.set(effect, back);
             }
+            // Every effect settles well within a second of being returned.
             let mut n = 0;
             while !channel.rests() {
+                assert!(n < RATE as usize, "{turned:?} does not come to rest");
                 channel.process(Some(signal(n)));
                 n += 1;
             }

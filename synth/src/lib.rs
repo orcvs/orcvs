@@ -385,7 +385,11 @@ mod tests {
     };
 
     /// Every controller the acid voice answers on its own channel.
-    const ACID_CONTROLS: [u8; 5] = [WAVEFORM, RESONANCE, EQ, LN, ENV_MOD];
+    fn acid_controls() -> impl Iterator<Item = u8> {
+        controller::tests::ACID
+            .into_iter()
+            .map(|(controller, _)| controller)
+    }
 
     const RATE: f32 = 48_000.0;
 
@@ -966,6 +970,25 @@ mod tests {
     }
 
     #[test]
+    fn controllers_74_and_75_on_the_acid_channel_set_its_cutoff_and_decay() {
+        let plain = acid_after(&[]);
+
+        // `40` is the tilt's load value and `7F` the length's, so either
+        // effect would leave the note as it is: only the voice hears them.
+        assert_ne!(acid_after(&[control_change(ACID, EQ, 0x40)]), plain);
+        assert_ne!(acid_after(&[control_change(ACID, LN, 0x7F)]), plain);
+        // `30` is the voice's cutoff and decay at load, and would darken and
+        // shorten the note as a tilt and a length: neither reaches them.
+        assert_eq!(
+            acid_after(&[
+                control_change(ACID, EQ, 0x30),
+                control_change(ACID, LN, 0x30)
+            ]),
+            plain
+        );
+    }
+
+    #[test]
     fn every_drum_sounds_ignores_note_off_and_falls_silent() {
         for note in KIT_KEYS.iter().flat_map(|family| family.iter().copied()) {
             let mut synth = Synth::new(RATE);
@@ -1258,8 +1281,7 @@ mod tests {
 
     #[test]
     fn reset_all_controllers_leaves_the_acid_voices_sound_alone() {
-        let turned: Vec<[u8; 3]> = ACID_CONTROLS
-            .into_iter()
+        let turned: Vec<[u8; 3]> = acid_controls()
             .map(|controller| control_change(ACID, controller, 0x7F))
             .collect();
         let plain = acid_after(&[]);
@@ -1303,29 +1325,10 @@ mod tests {
     }
 
     #[test]
-    fn controllers_74_and_75_on_the_acid_channel_set_its_cutoff_and_decay() {
-        let plain = acid_after(&[]);
-
-        // `40` is the tilt's load value and `7F` the length's, so either
-        // effect would leave the note as it is: only the voice hears them.
-        assert_ne!(acid_after(&[control_change(ACID, EQ, 0x40)]), plain);
-        assert_ne!(acid_after(&[control_change(ACID, LN, 0x7F)]), plain);
-        // `30` is the voice's cutoff and decay at load, and would darken and
-        // shorten the note as a tilt and a length: neither reaches them.
-        assert_eq!(
-            acid_after(&[
-                control_change(ACID, EQ, 0x30),
-                control_change(ACID, LN, 0x30)
-            ]),
-            plain
-        );
-    }
-
-    #[test]
     fn the_acid_controls_on_another_channel_change_nothing() {
         let plain = acid_after(&[]);
 
-        for controller in ACID_CONTROLS.into_iter().chain([RESET]) {
+        for controller in acid_controls().chain([RESET]) {
             assert_eq!(acid_after(&[[0xB0, controller, 0x7F]]), plain);
             assert_eq!(acid_after(&[control_change(KIT, controller, 0x7F)]), plain);
         }
@@ -1347,7 +1350,7 @@ mod tests {
     fn the_acid_voice_stays_finite_and_falls_silent_at_any_setting() {
         for value in [0x00, 0x7F] {
             let mut synth = Synth::new(RATE);
-            for controller in ACID_CONTROLS {
+            for controller in acid_controls() {
                 synth.schedule(0, control_change(ACID, controller, value));
             }
             for step in 0..16u64 {

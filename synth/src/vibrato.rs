@@ -29,8 +29,8 @@ pub(crate) struct Vibrato {
 }
 
 /// The delay swing at a Control Change value, `00`–`7F`.
-fn swing(value: u8) -> f32 {
-    MAX_SWING * f32::from(value) / 127.0
+pub(crate) const fn swing(value: u8) -> f32 {
+    MAX_SWING * value as f32 / 127.0
 }
 
 impl Vibrato {

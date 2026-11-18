@@ -1,7 +1,6 @@
 //! What a Control Change does on a channel: the MIDI controller numbers the
 //! synth answers, under the effects' Orcvs names, what each one means for the
-//! channel's `Part`, and the value each loads at. ADR 0088's table gives
-//! each effect's MIDI name.
+//! channel's `Part`, and the value each loads at.
 
 use crate::Part;
 
@@ -41,7 +40,8 @@ pub(crate) const RESONANCE: u8 = 71;
 pub(crate) const ENV_MOD: u8 = 79;
 
 /// What a Control Change means on a channel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum Control {
     /// Releases the channel's tones and its acid voice. A drum rings out its
     /// own decay.
@@ -55,7 +55,8 @@ pub(crate) enum Control {
 }
 
 /// One of a channel's own effects.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum Effect {
     /// `MD`.
     Vibrato,
@@ -70,7 +71,8 @@ pub(crate) enum Effect {
 }
 
 /// One of the four shared effects a channel sends to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum SharedEffect {
     Chorus,
     Delay,
@@ -80,7 +82,8 @@ pub(crate) enum SharedEffect {
 
 /// One of the acid voice's controls. They are Sound Controllers, which Reset
 /// All Controllers leaves alone.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum AcidControl {
     Waveform,
     Resonance,
@@ -135,6 +138,17 @@ impl Effect {
     }
 }
 
+// Each effect a channel's rest reads loads at the value that passes its input
+// unchanged, so a fresh channel rests and is skipped while silent.
+const _: () = assert!(
+    crate::vibrato::swing(Effect::Vibrato.load()) == 0.0
+        && crate::tilt::amount(Effect::Tilt.load()) == 0.0
+        && crate::channel::gain(Effect::Send(SharedEffect::Chorus).load()) == 0.0
+        && crate::channel::gain(Effect::Send(SharedEffect::Delay).load()) == 0.0
+        && crate::channel::gain(Effect::Send(SharedEffect::Small).load()) == 0.0
+        && crate::channel::gain(Effect::Send(SharedEffect::Large).load()) == 0.0
+);
+
 impl AcidControl {
     /// The control `controller` sets, if it is one of the voice's.
     fn on(controller: u8) -> Option<Self> {
@@ -160,13 +174,13 @@ impl AcidControl {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const PARTS: [Part; 3] = [Part::Tone, Part::Acid, Part::Kit];
 
     /// Every controller a channel's own effects answer, with its meaning.
-    const EFFECTS: [(u8, Effect); 8] = [
+    pub(crate) const EFFECTS: [(u8, Effect); 8] = [
         (MD, Effect::Vibrato),
         (EQ, Effect::Tilt),
         (LN, Effect::Length),
@@ -196,7 +210,7 @@ mod tests {
     ];
 
     /// Every controller the acid voice answers, with its meaning.
-    const ACID: [(u8, AcidControl); 5] = [
+    pub(crate) const ACID: [(u8, AcidControl); 5] = [
         (WAVEFORM, AcidControl::Waveform),
         (RESONANCE, AcidControl::Resonance),
         (EQ, AcidControl::Cutoff),
@@ -301,9 +315,38 @@ mod tests {
 
     #[test]
     fn each_control_loads_at_its_tables_value() {
-        let effects: Vec<u8> = EFFECTS.iter().map(|&(_, effect)| effect.load()).collect();
-        assert_eq!(effects, [0x00, 0x40, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        let acid: Vec<u8> = ACID.iter().map(|&(_, control)| control.load()).collect();
-        assert_eq!(acid, [0x00, 0x50, 0x30, 0x30, 0x50]);
+        let effects = [
+            (Effect::Vibrato, 0x00),
+            (Effect::Tilt, 0x40),
+            (Effect::Length, 0x7F),
+            (Effect::Offset, 0x00),
+            (Effect::Send(SharedEffect::Chorus), 0x00),
+            (Effect::Send(SharedEffect::Delay), 0x00),
+            (Effect::Send(SharedEffect::Small), 0x00),
+            (Effect::Send(SharedEffect::Large), 0x00),
+        ];
+        for (_, effect) in EFFECTS {
+            let value = effects.iter().find(|&&(listed, _)| listed == effect);
+            assert_eq!(
+                value.map(|&(_, value)| value),
+                Some(effect.load()),
+                "{effect:?}"
+            );
+        }
+        let acid = [
+            (AcidControl::Waveform, 0x00),
+            (AcidControl::Resonance, 0x50),
+            (AcidControl::Cutoff, 0x30),
+            (AcidControl::Decay, 0x30),
+            (AcidControl::EnvMod, 0x50),
+        ];
+        for (_, control) in ACID {
+            let value = acid.iter().find(|&&(listed, _)| listed == control);
+            assert_eq!(
+                value.map(|&(_, value)| value),
+                Some(control.load()),
+                "{control:?}"
+            );
+        }
     }
 }
