@@ -6,9 +6,10 @@
 //! handed. The expected notes are written out per voice beside the file they
 //! describe, so a change to either shows up here.
 
+use super::shipped_kombine::{ACCENT_REGION, GUIDE as KOMBINE_GUIDE, KOMBINE};
 use super::{
-    HandDrivenRun, assert_guide_draws, functions_mapped, note_on, replace_at, stop,
-    tick_diagnostics,
+    HandDrivenRun, assert_delivers, assert_guide_draws, edited, functions_mapped, map_diagnostics,
+    note_on, stop, tick_diagnostics,
 };
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, file};
@@ -164,25 +165,9 @@ fn the_melody_delivers_its_first_loop_as_written_out() {
         vec![],
         vec![stop(0, 72), note_on(0, 0x64, 60)],
     ];
-    let source = SourceCommander::with_source(
-        file::read(include_bytes!("../../../../examples/melody.orcvs"))
-            .expect("the shipped file is a Source File"),
-    );
-    let adapter = InMemoryOutputAdapter::default();
-    let mut run = HandDrivenRun::new(source, adapter.clone());
-    run.begin_run();
-
-    for (tick, delivery) in expected.into_iter().enumerate() {
-        let plan = run.run_tick(tick as u64);
-        // The Play is banged with an empty note on steps 2, 4 and 7, which
-        // sends nothing and reports nothing.
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
-        assert_eq!(
-            adapter.command_lists().last(),
-            Some(&delivery),
-            "Tick {tick}'s delivery"
-        );
-    }
+    // The Play is banged with an empty note on steps 2, 4 and 7, which
+    // sends nothing and reports nothing.
+    assert_delivers(include_str!("../../../../examples/melody.orcvs"), &expected);
 }
 
 #[test]
@@ -452,9 +437,8 @@ fn a_half_typed_step_silences_only_its_own_voice() {
     assert_eq!(played, [(8, 33), (9, 42)]);
 }
 
-/// The Kombine guide, which documents moving its accent Region into the
-/// Tracker.
-const KOMBINE_GUIDE: &str = include_str!("../../../../examples/kombine.md");
+/// The shipped Tracker Source File's text.
+const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
 
 /// The Tracker row the Kombine's accent Region lands on: the guide pastes its
 /// top-left Cell at (2, 32), two rows below the last pattern row.
@@ -481,37 +465,43 @@ const ACCENT_REGION_ROW: usize = 32;
 /// there as the shipped Tracker holds them too, before the transfer.
 ///
 fn transferred_tracker() -> String {
-    let kombine = include_str!("../../../../examples/kombine.orcvs");
-    let mut rows: Vec<String> = include_str!("../../../../examples/tracker.orcvs")
+    for (row, line) in TRACKER.lines().enumerate().skip(6).take(2) {
+        assert_guide_draws(KOMBINE_GUIDE, row, line);
+    }
+    assert!(
+        TRACKER.lines().count() <= ACCENT_REGION_ROW,
+        "the Tracker ends above the rows the Region is pasted on"
+    );
+    let (first, height, width) = ACCENT_REGION;
+    let region: Vec<String> = KOMBINE
         .lines()
-        .map(str::to_owned)
+        .chain(std::iter::repeat(""))
+        .skip(first)
+        .take(height)
+        .map(|line| {
+            assert!(line.len() <= width, "the Region holds all of {line:?}");
+            // A row the Region holds only empty Cells on stays empty.
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("  {line}")
+            }
+        })
         .collect();
-    for row in [6, 7] {
-        assert_guide_draws(KOMBINE_GUIDE, row, &rows[row]);
+    let mut edits: Vec<(usize, usize, &str, &str)> = (ACCENT_REGION_ROW..)
+        .zip(&region)
+        .map(|(row, line)| (row, 0, "", line.as_str()))
+        .collect();
+    edits.extend([
+        (ACCENT_REGION_ROW + 1, 2, "&t~.01", "&t~.02"),
+        (6, 12, "    ~*0101", "~*0101    "),
+        (7, 14, "    !~0977&v  01", "!~09&$0222&v  01"),
+    ]);
+    let text = edited(TRACKER, &edits);
+    for row in (6..8).chain(ACCENT_REGION_ROW..ACCENT_REGION_ROW + height) {
+        let line = text.lines().nth(row).expect("the transfer holds the row");
+        assert_guide_draws(KOMBINE_GUIDE, row, line);
     }
-    rows.resize(ACCENT_REGION_ROW + 3, String::new());
-    let region = kombine.lines().chain(std::iter::repeat("")).skip(9).take(3);
-    for (row, line) in (ACCENT_REGION_ROW..).zip(region) {
-        assert_eq!(rows[row], "", "row {row} is empty before the paste");
-        rows[row] = format!("  {line:<18}");
-    }
-    replace_at(&mut rows, ACCENT_REGION_ROW + 1, 2, "&t~.01", "&t~.02");
-    replace_at(&mut rows, 6, 12, "    ~*0101", "~*0101    ");
-    replace_at(&mut rows, 7, 14, "    !~0977&v  01", "!~09&$0222&v  01");
-    for row in &mut rows {
-        row.truncate(row.trim_end().len());
-    }
-    for row in [
-        6,
-        7,
-        ACCENT_REGION_ROW,
-        ACCENT_REGION_ROW + 1,
-        ACCENT_REGION_ROW + 2,
-    ] {
-        assert_guide_draws(KOMBINE_GUIDE, row, &rows[row]);
-    }
-    let mut text = rows.join("\n");
-    text.push('\n');
     text
 }
 
@@ -570,15 +560,46 @@ fn a_deleted_hat_hit_leaves_the_later_accents_on_their_tick() {
     // Clearing the `f2` of step 2 rests that hit. The accent Clock follows the
     // absolute Tick rather than counting hits, so step 4 still plays `50` and
     // step 8 the loud `70`.
-    let mut rows: Vec<String> = transferred_tracker().lines().map(str::to_owned).collect();
-    replace_at(&mut rows, 17, 26, "f2", "  ");
+    let text = edited(&transferred_tracker(), &[(17, 26, "f2", "  ")]);
     let notes: Vec<(u8, usize, u8)> = [beat(16), bassline(3, 16)]
         .concat()
         .into_iter()
         .filter(|&(voice, step, _)| (voice, step) != (2, 2))
         .collect();
     let voices = transferred_voices(&notes, HAT_ACCENTS);
-    assert_two_loops(rows.join("\n").as_bytes(), &transferred_patch(&voices));
+    assert_two_loops(text.as_bytes(), &transferred_patch(&voices));
+}
+
+///
+/// Before the first Tick the Language Map diagnoses the transferred Tracker
+/// as it diagnoses the shipped one, with the closed hat's Play diagnosed
+/// where it now stands, and each Cell of the pasted velocities twice, as an
+/// unknown Function and as a character that starts no Language Unit: the
+/// Track data Kombine itself opens diagnosed with.
+///
+#[test]
+fn the_transferred_tracker_opens_diagnosing_the_pasted_velocities() {
+    let diagnosed = |text: &str| -> Vec<(usize, usize)> {
+        let source = SourceCommander::with_source(
+            file::read(text.as_bytes()).expect("the text is a Source File"),
+        );
+        map_diagnostics(&source)
+            .into_iter()
+            .map(|(column, row, _)| (column, row))
+            .collect()
+    };
+    let shipped = diagnosed(TRACKER);
+    assert!(
+        shipped.contains(&(18, 7)),
+        "the hat's Play waits on its note"
+    );
+    let mut expected: Vec<(usize, usize)> = shipped
+        .into_iter()
+        .map(|anchor| if anchor == (18, 7) { (14, 7) } else { anchor })
+        .chain((12..20).flat_map(|column| [(column, ACCENT_REGION_ROW + 1); 2]))
+        .collect();
+    expected.sort_by_key(|&(column, row)| (row, column));
+    assert_eq!(diagnosed(&transferred_tracker()), expected);
 }
 
 /// The channel each Sequencer voice plays on: the beat's three voices and the

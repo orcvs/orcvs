@@ -568,7 +568,7 @@ async fn the_tracker_edits_saves_and_reopens_a_voices_steps() {
 /// retype its Play four columns west with `&$0222` for its velocity. The hat
 /// then plays `70`, `30`, `50` and `40` on its hits at steps 0, 2, 4 and 6,
 /// every other voice plays the shipped Tracker's channels, notes, steps and
-/// velocity `77`, and nothing is diagnosed.
+/// velocity `77`, and no Tick diagnoses anything.
 ///
 #[tokio::test]
 async fn the_kombine_accent_region_pasted_into_the_tracker_accents_the_closed_hat() {

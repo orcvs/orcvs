@@ -10,7 +10,8 @@
 //! misreading of the Slew shared by the test and Playback cannot pass both.
 
 use super::{
-    HandDrivenRun, assert_guide_draws, control_change, edited, note_on, stop, tick_diagnostics,
+    HandDrivenRun, assert_guide_draws, control_change, edited, map_diagnostics, note_on, stop,
+    tick_diagnostics,
 };
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{SourceCommander, file};
@@ -141,7 +142,7 @@ impl Run {
     ///
     fn expect_diagnosed(&mut self, values: &[(u8, u8)], diagnostics: Vec<(usize, usize, String)>) {
         let tick = self.next;
-        let before = mapped(&self.source);
+        let before = map_diagnostics(&self.source);
         let plan = self.run.run_tick(tick);
         assert_eq!(
             tick_diagnostics(&plan),
@@ -149,7 +150,7 @@ impl Run {
             "Tick {tick}'s diagnostics"
         );
         assert_eq!(
-            mapped(&self.source),
+            map_diagnostics(&self.source),
             before,
             "the Cells Tick {tick} wrote changed the Language Map"
         );
@@ -253,7 +254,11 @@ fn preset_00_is_delivered_from_the_first_tick_and_holds() {
     let mut run = Run::open(PRESETS);
     for tick in 0..16 {
         run.expect(&[(CUTOFF, 0x20), (RESONANCE, 0x20)]);
-        assert_eq!(mapped(&run.source), vec![], "Tick {tick}'s Language Map");
+        assert_eq!(
+            map_diagnostics(&run.source),
+            vec![],
+            "Tick {tick}'s Language Map"
+        );
         for row in [CUT_ROW + 1, RES_ROW + 1] {
             assert_eq!(run.row(row), "      ||20  2002  00||", "Tick {tick}");
         }
@@ -347,23 +352,6 @@ fn the_selector_wraps_by_the_number_of_presets() {
 }
 
 ///
-/// The Language Map's diagnoses of the Source as it stands, as anchor
-/// column, anchor row and message, in Grid order.
-///
-fn mapped(source: &SourceCommander) -> Vec<(usize, usize, String)> {
-    let mut diagnosed = Vec::new();
-    source.read_source(|source| {
-        diagnosed = source
-            .language_map()
-            .diagnostics()
-            .map(|d| (d.anchor().x(), d.anchor().y(), d.message.clone()))
-            .collect();
-    });
-    diagnosed.sort_by_key(|&(column, row, _)| (row, column));
-    diagnosed
-}
-
-///
 /// A selector that is not a Number is diagnosed on the Modulo, by the
 /// diagnostics any Number operand gets: `0G`, and a selector whose second
 /// Cell is emptied. The Modulo writes nothing, so the preset in force stays
@@ -394,7 +382,10 @@ fn a_selector_that_is_not_a_number_is_diagnosed_and_keeps_the_preset_in_force() 
         ));
         diagnosed
     };
-    assert_eq!(mapped(&run.source), diagnosed("0G", '0', Some('G')));
+    assert_eq!(
+        map_diagnostics(&run.source),
+        diagnosed("0G", '0', Some('G'))
+    );
     run.expect_controls(&[0x30, 0x38], &[0x2A, 0x2F]);
     assert_eq!(run.row(SELECTOR_ROW + 1), "||01||");
 
@@ -405,12 +396,12 @@ fn a_selector_that_is_not_a_number_is_diagnosed_and_keeps_the_preset_in_force() 
         .position(SELECTOR_COLUMN + 1, SELECTOR_ROW)
         .expect("inside the Grid");
     run.source.unset(grid.index(second));
-    assert_eq!(mapped(&run.source), diagnosed("0 ", '0', None));
+    assert_eq!(map_diagnostics(&run.source), diagnosed("0 ", '0', None));
     run.expect_controls(&[0x28, 0x20], &[0x25, 0x20]);
     assert_eq!(run.row(SELECTOR_ROW + 1), "||00||");
 
     run.select("01");
-    assert_eq!(mapped(&run.source), vec![]);
+    assert_eq!(map_diagnostics(&run.source), vec![]);
     run.expect_controls(&[0x28], &[0x25]);
 }
 
@@ -541,7 +532,7 @@ fn the_decay_control_is_drawn_as_the_guide_draws_it_and_diagnosed_nowhere() {
         assert_guide_draws(GUIDE, row, line);
     }
     let run = Run::open(&text);
-    assert_eq!(mapped(&run.source), vec![]);
+    assert_eq!(map_diagnostics(&run.source), vec![]);
 }
 
 ///
@@ -624,9 +615,9 @@ fn the_controls_moved_into_the_tracker_are_drawn_and_add_no_diagnosis() {
         assert_guide_draws(GUIDE, row, line);
     }
     let tracker = Run::open(TRACKER);
-    let shipped = mapped(&tracker.source);
+    let shipped = map_diagnostics(&tracker.source);
     assert_eq!(shipped.len(), 8, "the shipped Tracker's diagnoses");
-    assert_eq!(mapped(&Run::open(&text).source), shipped);
+    assert_eq!(map_diagnostics(&Run::open(&text).source), shipped);
 }
 
 ///
