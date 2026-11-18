@@ -363,8 +363,9 @@ impl OutputAdapter for MidiOutputAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::{CellIndex, Grid};
+    use crate::grid::Grid;
     use crate::playback::{OutputAdapter, OutputCommand, PlaybackEngine};
+    use crate::source::rows::{commander, write_at};
 
     use crate::source::{
         BendLsb, BendMsb, ControlValue, Controller, MidiChannel, Note, SourceCommander, Velocity,
@@ -463,14 +464,6 @@ mod tests {
     }
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-
-    ///
-    /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
-    /// minted, so a test states the number and the Grid answers with the Cell.
-    ///
-    fn cell(grid: Grid, idx: usize) -> CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
-    }
 
     #[derive(Default)]
     struct FakeState {
@@ -718,18 +711,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_source_control_change_and_pitch_bend_reach_the_wire_as_their_bytes() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::with_shape(10, 6);
-        let source = SourceCommander::new(grid);
         // The whole path in one run: two terminal roots, each activated by the
         // producer one row above it, delivered through the Playback Engine to
         // the bytes a device would receive. Per ADR 0032 a produced Bang's
         // north anchor is its own producer, so each terminal needs its own.
-        for (index, content) in ".=0101              !c010207  .=0101              !b032A33  "
-            .chars()
-            .enumerate()
-        {
-            source.set(cell(grid, index), &content.to_string()).unwrap();
-        }
+        let source = commander(&[".=0101", "", "!c010207", ".=0101", "", "!b032A33"]);
         let mut backend = FakeBackend {
             state: state.clone(),
         };
@@ -967,18 +953,11 @@ mod tests {
         const SOURCE_MESSAGES: usize = 2;
 
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::with_shape(10, 6);
-        let source = SourceCommander::new(grid);
         // Controller `40` is sustain and value `7F` latches it down; the bend
         // on channel `03` is deflected to its top. Neither is a note, so
         // neither ends when the Source stops writing it: what the device is
         // left holding is decided by the safety action alone.
-        for (index, content) in ".=0101              !c01407F  .=0101              !b03007F  "
-            .chars()
-            .enumerate()
-        {
-            source.set(cell(grid, index), &content.to_string()).unwrap();
-        }
+        let source = commander(&[".=0101", "", "!c01407F", ".=0101", "", "!b03007F"]);
         let mut backend = FakeBackend {
             state: state.clone(),
         };
@@ -1167,13 +1146,9 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn selecting_a_destination_after_disconnect_restores_output() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::with_shape(10, 4);
-        let source = SourceCommander::new(grid);
         // The comparison produces a fresh Bang one row above the Raw Play
         // each Tick; displayed or manually entered Bangs do not activate it.
-        for (index, content) in ".=0101              !>007FC4".chars().enumerate() {
-            source.set(cell(grid, index), &content.to_string()).unwrap();
-        }
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let mut backend = FakeBackend {
             state: state.clone(),
         };
@@ -1213,13 +1188,9 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn disconnected_output_reports_delivery_failure_once() {
         let state = Arc::new(Mutex::new(FakeState::default()));
-        let grid = Grid::with_shape(10, 4);
-        let source = SourceCommander::new(grid);
         // The comparison generates a fresh Bang for every attempted delivery, including
         // repeated attempts after the adapter has disconnected.
-        for (index, content) in ".=0101              !>007FC4".chars().enumerate() {
-            source.set(cell(grid, index), &content.to_string()).unwrap();
-        }
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let mut backend = FakeBackend {
             state: state.clone(),
         };
@@ -1251,21 +1222,9 @@ mod tests {
         // that reached the Timed claims and left the Mono ones standing.
         for expression in ["!~007FC402", "!%007FC402  "] {
             let state = Arc::new(Mutex::new(FakeState::default()));
-            let grid = Grid::with_shape(expression.len(), 4);
-            let source = SourceCommander::new(grid);
             // A note stopped two Ticks after it starts, and the comparison
             // whose output one row above the root activates it.
-            for (index, content) in ".=0101".chars().enumerate() {
-                source.set(cell(grid, index), &content.to_string()).unwrap();
-            }
-            for (index, content) in expression.chars().enumerate() {
-                source
-                    .set(
-                        cell(grid, 2 * expression.len() + index),
-                        &content.to_string(),
-                    )
-                    .unwrap();
-            }
+            let source = commander(&[".=0101", "", expression]);
             let mut backend = FakeBackend {
                 state: state.clone(),
             };
@@ -1288,7 +1247,7 @@ mod tests {
             // destination. The note is sounding on the destination being
             // left, which is sent the safety action as it goes, so its scheduled
             // stop belongs to a device this engine no longer holds.
-            source.set(cell(grid, 5), "2").unwrap();
+            write_at(&source, 5, 0, "2");
             let messages_before_change = state.lock().unwrap().messages.len();
             select(&playback, &mut backend, &MidiDestinationId::new("one"));
             settle_until!(
@@ -1315,22 +1274,10 @@ mod tests {
         // both: the clear is the one the two schedules share.
         for expression in ["!~007FC402", "!%007FC402  "] {
             let state = Arc::new(Mutex::new(FakeState::default()));
-            let grid = Grid::with_shape(expression.len(), 4);
-            let source = SourceCommander::new(grid);
             // The same Play the successful change uses: a note stopped two
             // Ticks after it starts, and the comparison that generates its
             // activation.
-            for (index, content) in ".=0101".chars().enumerate() {
-                source.set(cell(grid, index), &content.to_string()).unwrap();
-            }
-            for (index, content) in expression.chars().enumerate() {
-                source
-                    .set(
-                        cell(grid, 2 * expression.len() + index),
-                        &content.to_string(),
-                    )
-                    .unwrap();
-            }
+            let source = commander(&[".=0101", "", expression]);
             let mut backend = FakeBackend {
                 state: state.clone(),
             };
@@ -1352,7 +1299,7 @@ mod tests {
             // Make the comparison false, then attempt a change the device
             // refuses. A refused port open never reaches the engine, so the
             // run keeps the connection it already had.
-            source.set(cell(grid, 5), "2").unwrap();
+            write_at(&source, 5, 0, "2");
             state.lock().unwrap().fail_next_connect = true;
             assert_eq!(
                 backend

@@ -5,9 +5,10 @@ use crate::grid::Grid;
 use crate::source::language_map::LanguageMap;
 use crate::source::{CellWrite, Cells};
 
-use super::fixture::{anchors, carried_source, cell, diagnostic, planned, snapshot, write};
+use super::fixture::{anchors, carried_source, diagnostic, planned, write};
 use super::observed::raw;
 use super::{Effect, Tick, resolve};
+use crate::source::rows::{cell, snapshot};
 
 #[test]
 fn write_claims_answer_overlapping_reservations() {

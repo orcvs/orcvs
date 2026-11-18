@@ -8,12 +8,12 @@ use lang::Token;
 
 use super::Tick;
 use super::fixture::{
-    carried_destinations, carried_source, carried_tick, cell, interpreted, messages, rows_of,
-    seeded_source, snapshot, turns,
+    carried_destinations, carried_source, carried_tick, interpreted, messages, turns,
 };
 use super::observed::{painted, raw, writes};
 use super::portals::{PortalOrigin, WriteRefusal};
 use crate::render_frame::PortalRole;
+use crate::source::rows::{cell, rows_of, seeded_source, snapshot};
 
 #[test]
 fn live_deep_sibling_computations_preserve_operand_order() {
@@ -639,7 +639,7 @@ fn a_late_spatial_write_keeps_its_ordering_reason_in_the_record_and_paints_nothi
     let mut expected = painted(
         seeded_source(
             grid,
-            &rows_of(grid, &source)
+            &rows_of(&source)
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),

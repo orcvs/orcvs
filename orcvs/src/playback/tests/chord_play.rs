@@ -5,13 +5,9 @@
 //! Equality at (0, 0) Bangs the Chord Play on row 2 while it reads `.=0101`,
 //! and stops Banging it once an edit makes it `.=0102`.
 
-use super::{HandDrivenRun, note_on, stop, write};
-use crate::grid::Grid;
+use super::{HandDrivenRun, commander, note_on, stop, write_at};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::SourceCommander;
-
-/// Where the row 2 Chord Play's operands start in a 20-wide Grid.
-const ROW_2: usize = 40;
 
 /// A run with `expression` on row 2, beneath the Equality that Bangs it.
 fn run_of(
@@ -21,9 +17,7 @@ fn run_of(
     SourceCommander,
     InMemoryOutputAdapter,
 ) {
-    let source = SourceCommander::new(Grid::with_shape(20, 3));
-    write(&source, 0, ".=0101");
-    write(&source, ROW_2, expression);
+    let source = commander(&[".=0101", "", expression]);
     let adapter = InMemoryOutputAdapter::default();
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
@@ -32,7 +26,7 @@ fn run_of(
 
 /// Stops the Equality Banging the Chord Play on later Ticks.
 fn stop_banging(source: &SourceCommander) {
-    write(source, 0, ".=0102");
+    write_at(source, 0, 0, ".=0102");
 }
 
 /// The C4 major triad, in Note Numbers.
@@ -70,7 +64,7 @@ fn velocity_zero_stops_every_tone_and_schedules_nothing() {
     run.run_tick(0);
     // Velocity is the operand after the channel: `00` stops every tone,
     // whatever the length says.
-    write(&source, ROW_2 + 4, "00");
+    write_at(&source, 4, 2, "00");
     run.run_tick(1);
     stop_banging(&source);
     for tick in 2..10 {
@@ -89,7 +83,7 @@ fn length_zero_starts_nothing_and_leaves_sounding_tones_standing() {
     let (mut run, source, adapter) = run_of("!#007FC4MACL0003");
 
     run.run_tick(0);
-    write(&source, ROW_2 + 14, "00");
+    write_at(&source, 14, 2, "00");
     run.run_tick(1);
     assert!(run.holds_note_ownership(), "the tones keep sounding");
     run.run_tick(2);
@@ -130,7 +124,7 @@ fn a_chord_overlapping_another_by_some_tones_releases_only_those() {
     run.run_tick(0);
     // E4 major shares only E4 with C4 major: the replacement stops that one
     // tone, and the C4 and G4 of the first chord run to their own stops.
-    write(&source, ROW_2 + 6, "E4");
+    write_at(&source, 6, 2, "E4");
     run.run_tick(1);
     stop_banging(&source);
     for tick in 2..6 {
@@ -207,13 +201,18 @@ fn every_lifecycle_action_that_silences_output_clears_a_sounding_chord() {
 
 #[test]
 fn a_chord_and_a_monophonic_play_on_one_channel_keep_separate_ownership() {
-    // Row 2 holds the chord at column 0 and a Mono Play at column 20, each
-    // Banged by its own Equality on row 0.
-    let source = SourceCommander::new(Grid::with_shape(40, 3));
-    write(&source, 0, ".=0101");
-    write(&source, 20, ".=0101");
-    write(&source, 80, "!#007FC4MACL0008");
-    write(&source, 100, "!%007FC404");
+    // Row 2 holds a chord and a Mono Play, each Banged by the Equality above
+    // it on row 0.
+    let rows = [
+        ".=0101              .=0101",
+        "",
+        "!#007FC4MACL0008    !%007FC404  ",
+    ];
+    let mono = rows[2].find("!%").expect("a Mono Play on row 2");
+    assert_eq!(rows[0].rfind(".="), Some(mono), "the Mono Play's Equality");
+    // The note follows the Mono Play's spelling, channel and velocity.
+    let mono_note = mono + "!%007F".len();
+    let source = commander(&rows);
     let adapter = InMemoryOutputAdapter::default();
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
@@ -221,10 +220,10 @@ fn a_chord_and_a_monophonic_play_on_one_channel_keep_separate_ownership() {
     run.run_tick(0);
     // The chord's Bang stops. The Mono Play goes on and changes its note, so
     // it replaces only its own voice: the chord's C4 is not the Mono C4.
-    write(&source, 0, ".=0102");
-    write(&source, 106, "D4");
+    write_at(&source, 0, 0, ".=0102");
+    write_at(&source, mono_note, 2, "D4");
     run.run_tick(1);
-    write(&source, 20, ".=0102");
+    write_at(&source, mono, 0, ".=0102");
     for tick in 2..9 {
         run.run_tick(tick);
     }

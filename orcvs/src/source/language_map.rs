@@ -942,6 +942,7 @@ mod tests {
 
     use crate::grid::Grid;
     use crate::source::Cells;
+    use crate::source::rows::cell;
 
     use lang::{Atom, Function, Token};
 
@@ -1395,10 +1396,6 @@ mod tests {
             hash.diagnostics()
                 .any(|diagnostic| diagnostic.message.contains("#"))
         );
-    }
-
-    fn cell(grid: Grid, idx: usize) -> crate::grid::CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
     }
 
     fn span(grid: Grid, start: usize, end: usize) -> Span {

@@ -638,6 +638,7 @@ mod test {
     use crate::grid::{CellIndex, Grid};
     use crate::source::Cells;
     use crate::source::language_map::{LanguageMap, occupied};
+    use crate::source::rows::cell;
 
     #[test]
     fn every_printable_cell_reaches_its_destination() {
@@ -649,14 +650,6 @@ mod test {
             placed(&portal, " ~"),
             vec![(cell(grid, 0), ' '), (cell(grid, 1), '~')]
         );
-    }
-
-    ///
-    /// The index `grid` mints for `idx`, so a test states a destination Cell
-    /// in the same terms a Tick Plan carries.
-    ///
-    fn cell(grid: Grid, idx: usize) -> CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
     }
 
     fn unit(portal: Portal, working: &[u8], map: &LanguageMap) -> PortalUnit {

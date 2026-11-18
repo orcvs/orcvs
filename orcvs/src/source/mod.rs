@@ -17,6 +17,8 @@ pub use portal::PortalError;
 mod model;
 mod planning;
 mod portal;
+#[cfg(any(test, feature = "test-grid-shapes"))]
+pub mod rows;
 mod tick;
 use crate::grid::{CellIndex, Grid, Position};
 use buffer::{Cells, EditedCells, SourceBuffer};
