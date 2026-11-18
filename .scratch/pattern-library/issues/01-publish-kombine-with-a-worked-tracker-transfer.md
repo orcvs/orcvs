@@ -15,7 +15,7 @@ establishes the library's first release.
       `console/src/console/files.rs`. `example-discard/01` removes the second
       list and has no ordering against this ticket, so whichever lands second
       adapts. A registered example also gains a web link name, as every
-      registered example does.
+      registered example does; the user confirmed this is intended.
 - [ ] Cycle C4, E4 and G4 against four velocity steps with a distinct loud
       accent. Specify cadence, channel and Note lifetime. Verify the delivered
       twelve-Tick pitch/velocity cycle, including its wrap.
