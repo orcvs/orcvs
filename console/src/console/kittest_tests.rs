@@ -3118,6 +3118,10 @@ async fn the_pointer_shows_no_grab_hand_where_alt_offers_no_pan() {
 async fn a_click_still_pans_to_follow_the_cursor_with_playback_stopped() {
     let mut harness = running_console(Vec2::from(DEFAULT_VIEW_SIZE));
     harness.run_steps(2);
+    // A machine with a MIDI port has the first frame auto-select it, and the
+    // Panel repaints until Playback takes the install. Playback runs on this
+    // test's single-threaded runtime, which `Harness::run` never yields to.
+    tokio::task::yield_now().await;
 
     harness.set_size(Vec2::new(200.0, 500.0));
     harness.run_steps(2);
