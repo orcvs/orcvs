@@ -1,15 +1,17 @@
 # Your first result
 
 In about ten minutes you will type a small sum, watch Orcvs work out the answer, change the sum
-while it plays, and add a counter that keeps time with the beat. You need nothing but a web
+while it plays, and add a Clock that keeps time with the beat. You need nothing but a web
 browser.
 
 ## Before you start
 
-On this site, press the example under **Write an Addition**, drawn as a grid of Cells. The
-console opens in the corner of the page with that example in it. The later grids show what the
+On this site, press the example under **Write an Addition**, drawn as a Grid of Cells. The
+console opens in the corner of the page with that example in it. The later Grids show what the
 console should look like, or what to type; pressing them does nothing. To use the whole window
-instead, choose **Console** in the sidebar. To run Orcvs on your own computer, see
+instead, choose **Console** in the sidebar. That page has no example to press and may open with
+another example on the Grid: choose **File → New**, press **Discard** if it asks, then type
+`.+0102` at the top-left Cell, where the Cursor starts. To run Orcvs on your own computer, see
 [Run it on your desktop](#run-it-on-your-desktop).
 
 The console is a Grid of Cells with the Panel along the bottom. The Panel shows the tempo under
@@ -43,8 +45,8 @@ Tick writes the answer into the two Cells directly below `.+`:
 03
 ```
 
-A Function that answers a value writes it one row below its first Cell, unless it names another
-place. Each later Tick writes the same `03` again.
+A Function that answers a value writes it one row below its first Cell, to the south, unless it
+names another place. Each later Tick writes the same `03` again.
 
 ## Change an operand while it plays
 
@@ -110,8 +112,9 @@ last values, and the next **Space** carries on from the following Tick. To begin
   shows Built-in Synth unless a MIDI device is connected; then it shows the device, and you can
   choose Built-in Synth under **O** instead. On your desktop, choose a MIDI destination under
   **O**.
-- In the full console, **Help > Function Reference** replaces what is on the Grid with one worked
-  example of every Function. Play it to watch each answer being written.
+- On the **Console** page, **Help → Function Reference** replaces what is on the Grid with one
+  worked example of every Function; the desktop console asks first. Play it to watch each answer
+  being written.
 - [`CONTEXT.md`](../CONTEXT.md), on GitHub, defines each term this walkthrough used: Source, Grid,
   Cell, Expression, Function, Number, Tick and Playback.
 
@@ -126,7 +129,7 @@ cargo run
 ```
 
 The first build takes several minutes. The console opens in its own window, with a menu bar above
-the Grid. A first start opens an empty Grid; afterwards, choose **File > New** (Command N on
+the Grid. A first start opens an empty Grid; afterwards, choose **File → New** (Command N on
 macOS, Ctrl N on Linux and Windows) for an empty one.
 
 The steps above work the same way, with these differences. There is no example to press: the

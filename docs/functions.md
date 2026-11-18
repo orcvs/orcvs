@@ -391,8 +391,8 @@ and D6, not the tones of `C413` an octave up.
 Each derives a Note or an Interval Set from the Notes and Interval Sets it reads, and runs every
 Tick. A `note` or `root` that does not spell a Note, such as `3C`, is an error. Up, Down and Pick
 answer a Note: an answer outside `00` to `7F` is an error and writes nothing, so a Note never wraps.
-Stack answers an Interval Set: when no name holds the semitones it reaches, it is an error and writes
-nothing.
+Stack answers an Interval Set: when no name holds the semitones it reaches, it is an error and
+writes nothing.
 
 ### `#+` Up
 
@@ -751,10 +751,10 @@ After Tick `0`:
 
 A Copy copies one two-Cell pair from its Input Portal to its Output Portal every Tick. It takes
 whatever the pair holds, a value, a Bang answered that Tick or two empty Cells, and writes it over
-the whole Output Portal. Part of a Function, or Cells that do not form one unit, is an error. A copied
-`**` activates the roots aligned with its Output Portal. A `**` standing in the Source is a Bang
-Function: it has taken its Turn by the time the Copy reads it, so the Copy reads its cleared Cells,
-or `**` while a Halt locks it.
+the whole Output Portal. Part of a Function, or Cells that do not form one unit, is an error. A
+copied `**` activates the roots aligned with its Output Portal. A `**` standing in the Source is a
+Bang Function: it has taken its Turn by the time the Copy reads it, so the Copy reads its cleared
+Cells, or `**` while a Halt locks it.
 
 ### `=v` Copy South
 
@@ -845,8 +845,8 @@ C4
 ## Read
 
 A Read reads one pair of Source and answers it, writing it one row south, every Tick. The Cells it
-reads are ordinary Source rather than part of its Expression. A pair outside the Grid, cut short
-by the row's edge, or holding Cells that form no unit, is an error. Empty Cells answer a Clear, and a
+reads are ordinary Source rather than part of its Expression. A pair outside the Grid, cut short by
+the row's edge, or holding Cells that form no unit, is an error. Empty Cells answer a Clear, and a
 Function spelling is carried as it stands.
 
 ### `&>` Read East

@@ -45,9 +45,14 @@ oxfmt reaches 1.0, and Oxlint lints Astro templates.
 I ran `typescript@6.0.3`'s `tsc --noEmit` from a scratch directory with a tsconfig whose `include`
 named the site's files:
 
-- **Current config** (`astro/tsconfigs/strict`): **1 error**, and it looks like a real bug.
-  At `src/console/small.ts:68`, `if (started) fail(reason)` is TS2801: "This condition will always
-  return true since this 'Promise<void>' is always defined." `astro build` ships this today.
+- **Current config** (`astro/tsconfigs/strict`): **1 error**, a false positive. At
+  `src/console/small.ts:68`, `if (started) fail(reason)` is TS2801: "This condition will always
+  return true since this 'Promise<void>' is always defined." The guard is deliberate: `started` is
+  a module-level `let` that `fail()` resets to `undefined`, so when two presses share one rejected
+  promise the first catch fails and clears it and the second skips a second notice. TypeScript
+  keeps its post-`??=` narrowing across the `await` for a mutable module variable, so it misreads
+  the guard. The strict gate will raise it, so the code needs a rewrite the checker can follow (for
+  example, comparing against the press's own promise), not a suppression.
 - **Proposed strictest config:** **58 errors** in 9 files, 35 of them in `sound-module.ts`. They
   break down as TS2532 ×26 and TS18048 ×8 (`noUncheckedIndexedAccess`), TS4111 ×8
   (`noPropertyAccessFromIndexSignature`: `process.env.CI`, `dataset.source` and similar),
@@ -60,7 +65,7 @@ named the site's files:
   `site/scripts/tests/*.sh`: no findings.
 - **Oxlint 1.94.0 + oxlint-tsgolint 7.0.2007 + TypeScript 7.0.2** with `--type-aware
   --type-check`, `-D correctness -D suspicious -D pedantic -D perf`, ran in about 0.2 s. It found
-  the same TS2801 bug, and also reported it as `no-misused-promises` and
+  the same TS2801, and also reported it as `no-misused-promises` and
   `strict-boolean-expressions`. It produced 109 `prefer-readonly-parameter-types` hits (noise for
   DOM code), 28 `require-unicode-regexp`, 15 `no-unsafe-member-access`, 8
   `no-confusing-void-expression`, 8 `no-unsafe-type-assertion`, 4 `no-misused-spread`, and 2
@@ -78,7 +83,8 @@ named the site's files:
   not ship with an API". Tools that embed TypeScript ("Vue, Astro, Svelte, Volar-based setups") must
   stay on 6.0. 7.1 is expected to bring a new, different API. For side-by-side use, Microsoft
   publishes `@typescript/typescript6`, which provides `tsc6` and the 6.0 API, and can be aliased:
-  `"typescript": "npm:@typescript/typescript6@^6.0.2"`, `"@typescript/native": "npm:typescript@^7.0.2"`.
+  `"typescript": "npm:@typescript/typescript6@^6.0.2"`,
+  `"@typescript/native": "npm:typescript@^7.0.2"`.
   `@typescript/native-preview` is retired in favour of `typescript@next`.
 - 7.0 also changes defaults: `strict` is true, `module` is `esnext`, `noUncheckedSideEffectImports`
   is true, `types` is `[]`, `libReplacement` is false, and `rootDir` is `./`. It makes `baseUrl`,
@@ -275,11 +281,11 @@ Flags I considered and rejected:
   optional; add it only if you want an explicit 100 % number **[inferred]**.
 - **publint** 0.3.25: not relevant. It lints published package metadata, and `orcvs-site` is
   `private`.
-- **ShellCheck** 0.11.0 (released 2025-08-04, latest; `gh api repos/koalaman/shellcheck/releases/latest`)
-  and **shfmt** 3.14.1 (2026-09-06, `mvdan/sh`). Pin both in `mise.toml` through aqua
-  (`aqua:koalaman/shellcheck`, `aqua:mvdan/sh`), matching the existing `actionlint`/`zizmor`
-  entries. I did not run the registry lookup to confirm those aqua package names
-  **[unverified]**. Strictest settings:
+- **ShellCheck** 0.11.0 (released 2025-08-04, latest;
+  `gh api repos/koalaman/shellcheck/releases/latest`) and **shfmt** 3.14.1 (2026-09-06,
+  `mvdan/sh`). Pin both in `mise.toml` through aqua (`aqua:koalaman/shellcheck`, `aqua:mvdan/sh`),
+  matching the existing `actionlint`/`zizmor` entries. I did not run the registry lookup to confirm
+  those aqua package names **[unverified]**. Strictest settings:
   - `shellcheck --severity=style --enable=all` (or a `.shellcheckrc` with `enable=all`), and
     `--external-sources` if the scripts `source` anything.
   - `shfmt -d -i 2 -ci -bn` (or read from `.editorconfig`).
@@ -310,7 +316,8 @@ Flags I considered and rejected:
   - `site_lint`: `eslint --max-warnings=0 .`
   - `site_types`: `astro check --minimumSeverity warning`, then `tsc -p ../synth/web` and
     `tsc -p ../console/assets`. `astro check` also takes `--noSync`; when run after
-    `astro sync` it avoids regenerating `.astro/` **[unverified flag names; check `astro check --help`]**.
+    `astro sync` it avoids regenerating `.astro/`
+    **[unverified flag names; check `astro check --help`]**.
   - `site_shell`: `shellcheck` and `shfmt -d` on `site/scripts/**/*.sh`
   - `site_knip`: `knip`
   - An umbrella `site_check` that depends on all of them.
@@ -449,7 +456,8 @@ devDependencies this adds, all exact:
   upgrades need deliberate review. Exact pins handle this.
 - **Initial cost:** 58 type errors under the strictest tsconfig, mostly
   `noUncheckedIndexedAccess` in `sound-module.ts`, plus an expected lint backlog of similar size.
-  The sw.js typing and the TS2801 bug in `small.ts` need code changes, not just config.
+  The sw.js typing and the TS2801 false positive in `small.ts` (a deliberate guard TypeScript
+  misreads) need code changes, not just config.
 - **Path filter:** the site workflow does not watch `synth/web/` or `console/assets/`.
 
 ## Scope beyond the ticket: `scripts/*.ts`

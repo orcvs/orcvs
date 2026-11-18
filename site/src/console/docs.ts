@@ -10,11 +10,18 @@ import { gridHtml } from "./grid";
 
 const DOCS = fileURLToPath(new URL("../../../docs/", import.meta.url));
 
-/** Each rendered doc, and the code blocks in it that hold a Source. */
-const SOURCE_BLOCKS: Record<string, (lang: string | null | undefined) => boolean> = {
-  "first-result.md": (lang) => lang === "text",
-  "functions.md": (lang) => lang === "orcvs",
+type HoldsSource = (lang: string | null | undefined) => boolean;
+
+/** Each rendered doc: its route on the site, and the code blocks in it that hold a Source. */
+const RENDERED_DOCS: Record<string, { route: string; holdsSource: HoldsSource }> = {
+  "first-result.md": { route: "/learn/", holdsSource: (lang) => lang === "text" },
+  "functions.md": { route: "/reference/", holdsSource: (lang) => lang === "orcvs" },
 };
+
+/** The rendered doc a repository file name names, if it names one. */
+function renderedDoc(name: string) {
+  return Object.hasOwn(RENDERED_DOCS, name) ? RENDERED_DOCS[name] : undefined;
+}
 
 const GITHUB_DOCS = "https://github.com/orcvs/orcvs/blob/main/docs/";
 
@@ -24,12 +31,11 @@ function siteLink(url: string): string {
   const hash = url.indexOf("#");
   const file = hash === -1 ? url : url.slice(0, hash);
   const fragment = hash === -1 ? "" : url.slice(hash);
-  if (file === "first-result.md") return "/learn/" + fragment;
-  if (file === "functions.md") return "/reference/" + fragment;
-  return new URL(url, GITHUB_DOCS).href;
+  const doc = renderedDoc(file);
+  return doc ? doc.route + fragment : new URL(url, GITHUB_DOCS).href;
 }
 
-function plugin(holdsSource: (lang: string | null | undefined) => boolean) {
+function plugin(holdsSource: HoldsSource) {
   return defineMdastPlugin({
     name: "orcvs-docs",
     heading(node, context) {
@@ -55,5 +61,6 @@ function plugin(holdsSource: (lang: string | null | undefined) => boolean) {
 export function repositoryDocs(context: PluginFactoryContext) {
   const path = context.fileURL && fileURLToPath(context.fileURL);
   const name = path?.startsWith(DOCS) ? path.slice(DOCS.length) : undefined;
-  return name && name in SOURCE_BLOCKS ? plugin(SOURCE_BLOCKS[name]) : null;
+  const doc = name && renderedDoc(name);
+  return doc ? plugin(doc.holdsSource) : null;
 }

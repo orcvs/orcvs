@@ -27,6 +27,7 @@ that Grid, unasked on the web, beside a Reference item that opens the page.
   point that line at the page and at Help → Examples → `Functions` instead.
 - 2026-11-18: The site's sidebar names the two pages "Your first result" and "Function
   reference", after the docs' own titles, while Help names them Learn and Reference
-  (`console/src/console/menu_bar.rs`). This ticket already renames Reference to Function
-  Reference; when it lands, decide whether Learn becomes Your First Result too, so a reader who
-  follows Help sees the name the page carries.
+  (`console/src/console/menu_bar.rs`). This ticket drops the Reference item and repoints the
+  existing Function Reference item at the page, so that name already matches; when it lands,
+  decide whether Learn becomes Your First Result too, so a reader who follows Help sees the name
+  the page carries.
