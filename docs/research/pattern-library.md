@@ -24,7 +24,7 @@ Start with an index in `examples/` linking a complete `.orcvs` Source File and a
 
 **Agreed worked transfer (Q4).** Demonstrate copying the accent Region into Tracker and connecting it to the velocity operand of one voice. Give the placement, wiring edits and expected accents. The other voices keep their existing behaviour.
 
-**Agreed discovery (Q5).** List playable library entries under Help → Examples and keep each guide beside its Source File.
+**Agreed discovery (Q5).** List playable library entries under Help → Examples and keep each guide beside its Source File. An index in `examples/` links every entry, and each registered entry keeps the web link name registration gives it (both confirmed 18 November 2026).
 
 **Agreed accent timing (Q6).** In the Tracker transfer, drive the accent Clock from absolute Tick with a division of two. The closed hi-hat samples four successive velocities on its four successive scheduled steps. Deleting a hit leaves a rest and preserves the phase of subsequent accents.
 
@@ -34,7 +34,7 @@ Start with an index in `examples/` linking a complete `.orcvs` Source File and a
 
 **Agreed first release (Q9, 18 November 2026).** Publish the library with one complete Kombine entry after its standalone example, worked Tracker transfer, guide and listening check pass. Use the first transfer’s results to refine subsequent entries.
 
-**Agreed Region documentation (Q10).** A diagram gives the copyable Region’s two corners, its output pair and the destination in Tracker. Include blank Cells used for runtime writes. A short `Accent` Comment above the Region identifies it in the playable Source.
+**Agreed Region documentation (Q10).** A diagram gives the copyable Region’s two corners, its output pair and the destination in Tracker. Include blank Cells used for runtime writes. A short `Accent` Comment above the Region identifies it in the playable Source. Every entry's guide carries such a diagram of its Region (confirmed 18 November 2026).
 
 **Agreed second entry (Q11).** Follow Kombine with preset recall. One selection changes several controller targets, each approaching its target at its own Slew `amount`.
 
