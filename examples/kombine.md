@@ -174,6 +174,9 @@ Row 34 is drawn as it stands before the first Tick, after copying from a
 Kombine that has not played. From the first Tick the Track writes the velocity
 at (2, 34) and the Clock its count at (4, 34).
 
+The Language Map diagnoses the pasted velocities, (12, 33) to (19, 33), as it
+does in Kombine. They play as written.
+
 | Positions | What is there |
 | --- | --- |
 | (2, 32) to (19, 34) | The accent Region in the Tracker. |

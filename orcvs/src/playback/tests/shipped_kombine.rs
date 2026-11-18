@@ -9,18 +9,15 @@
 //! rather than derived, so a misreading of the Tracks shared by the test and
 //! Playback cannot pass both.
 
-use super::{
-    HandDrivenRun, assert_guide_draws, functions_mapped, note_on, replace_at, stop,
-    tick_diagnostics,
-};
-use crate::playback::{InMemoryOutputAdapter, OutputCommand};
+use super::{assert_delivers, assert_guide_draws, edited, functions_mapped, note_on, stop};
+use crate::playback::OutputCommand;
 use crate::source::{SourceCommander, file};
 
 /// The shipped Kombine Source File's text.
-const KOMBINE: &str = include_str!("../../../../examples/kombine.orcvs");
+pub(super) const KOMBINE: &str = include_str!("../../../../examples/kombine.orcvs");
 
 /// The guide beside it, whose diagrams the edited rows must match.
-const GUIDE: &str = include_str!("../../../../examples/kombine.md");
+pub(super) const GUIDE: &str = include_str!("../../../../examples/kombine.md");
 
 /// The Play's channel: the Built-in Synth's sine voice.
 const SINE: u8 = 0x00;
@@ -34,46 +31,14 @@ const G4: u8 = 67;
 const PITCH_ROW: usize = 6;
 
 /// The row of the accent Track, below its `Accent` Comment.
-const ACCENT_ROW: usize = 10;
+pub(super) const ACCENT_ROW: usize = 10;
 
 ///
-/// Runs `text` from Tick 0 and asserts each Tick's delivery against
-/// `expected`, in order, with no Tick diagnosing anything.
+/// The accent Region the guide copies into the Tracker: its first row, the
+/// `Accent` Comment's, how many rows it holds, the last being the Track's
+/// Output Portal row, and how many columns, from column 0.
 ///
-fn assert_delivers(text: &str, expected: &[Vec<OutputCommand>]) {
-    let source = SourceCommander::with_source(
-        file::read(text.as_bytes()).expect("the Kombine is a Source File"),
-    );
-    let adapter = InMemoryOutputAdapter::default();
-    let mut run = HandDrivenRun::new(source, adapter.clone());
-    run.begin_run();
-
-    for (tick, delivery) in expected.iter().enumerate() {
-        let plan = run.run_tick(tick as u64);
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
-        assert_eq!(
-            adapter.command_lists().last(),
-            Some(delivery),
-            "Tick {tick}'s delivery"
-        );
-    }
-    assert_eq!(adapter.command_lists().len(), expected.len(), "deliveries");
-}
-
-///
-/// `text` with each of `edits`, a row, a column, the Cells there and what
-/// replaces them, applied in order: edits the guide documents, applied to the
-/// shipped file.
-///
-fn edited(text: &str, edits: &[(usize, usize, &str, &str)]) -> String {
-    let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
-    for &(row, column, before, after) in edits {
-        replace_at(&mut rows, row, column, before, after);
-    }
-    let mut text = rows.join("\n");
-    text.push('\n');
-    text
-}
+pub(super) const ACCENT_REGION: (usize, usize, usize) = (ACCENT_ROW - 1, 3, 18);
 
 ///
 /// The Cells of the Tracks' data, as column and row in Grid order: the pairs
@@ -205,6 +170,29 @@ fn three_accent_steps_keep_the_loud_accent_on_c() {
         vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
         vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
         vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+        vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
+        vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
+        vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],
+    ];
+    assert_delivers(&text, &expected);
+}
+
+///
+/// The two operand edits alone, with the fourth velocity left where it is:
+/// neither the Clock nor `count` reaches the pair `40`, so the delivery is the
+/// three-step edit's. Clearing `40` tidies the row and changes nothing heard.
+///
+#[test]
+fn both_operands_at_three_keep_the_loud_accent_on_c_with_the_fourth_velocity_left() {
+    let text = edited(
+        KOMBINE,
+        &[(ACCENT_ROW, 7, "4", "3"), (ACCENT_ROW, 9, "4", "3")],
+    );
+    let expected: [Vec<OutputCommand>; 7] = [
+        vec![note_on(SINE, 0x70, C4)],
         vec![stop(SINE, C4), note_on(SINE, 0x30, E4)],
         vec![stop(SINE, E4), note_on(SINE, 0x50, G4)],
         vec![stop(SINE, G4), note_on(SINE, 0x70, C4)],

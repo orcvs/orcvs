@@ -58,18 +58,25 @@ Automated evidence:
 - `orcvs/src/playback/tests/shipped_kombine.rs` runs the shipped
   `examples/kombine.orcvs` through `HandDrivenRun`. It checks the twelve-Tick
   pitch and velocity cycle and its wrap at Ticks 12 and 13, and the three
-  accent steps, where the loud `70` lands on every C4, and each of the two
-  single-operand edits the guide warns about. Each expected delivery is
+  accent steps, where the loud `70` lands on every C4, the two operand
+  edits alone with the fourth velocity left in place, which deliver the
+  same, and each of the two single-operand edits the guide warns about.
+  Each expected delivery is
   written out Tick by Tick. No Tick diagnoses anything. At load the Language
   Map diagnoses no Function, and diagnoses each Cell of the Tracks' data,
   and nothing else, as an unknown Function and as a character that starts no
-  Language Unit. The guide draws every row the tests run.
+  Language Unit. The guide draws every row of the shipped file and the
+  accent row after the three-step edit; it does not draw the rows of the
+  operand-only edits.
 - `orcvs/src/playback/tests/shipped_trackers.rs` builds the transferred
   Tracker from both shipped files and the guide's edits, and checks that the
   guide draws each changed row: rows 6, 7, 32 and 33, and row 34 empty, as
   it stands before the first Tick. Over two loops the hat plays `70 30 50 40` in
-  order, every other voice keeps `77`, and nothing is diagnosed. With the hat
-  hit on step 2 cleared, step 4 still plays `50` and step 8 still plays `70`.
+  order, every other voice keeps `77`, and no Tick diagnoses anything. With
+  the hat hit on step 2 cleared, step 4 still plays `50` and step 8 still
+  plays `70`. Before the first Tick the Language Map diagnoses the
+  transferred Tracker as it diagnoses the shipped one, plus each Cell of the
+  pasted velocities twice, as it does in Kombine.
 - In the transferred Tracker, the hat's Play waits on the accent Track below
   the pattern. Playback therefore receives its Note after the other voices'
   Notes on the same Tick. Both arrive on one Tick, so this order should not

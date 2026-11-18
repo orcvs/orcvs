@@ -1726,6 +1726,66 @@ mod tests {
     }
 
     ///
+    /// Runs the Source File `text` from Tick 0 and asserts each Tick's delivery
+    /// against `expected`, in order, with no Tick diagnosing anything and
+    /// nothing delivered beyond them.
+    ///
+    fn assert_delivers(text: &str, expected: &[Vec<OutputCommand>]) {
+        let source = crate::source::SourceCommander::with_source(
+            crate::source::file::read(text.as_bytes()).expect("the text is a Source File"),
+        );
+        let adapter = InMemoryOutputAdapter::default();
+        let mut run = HandDrivenRun::new(source, adapter.clone());
+        run.begin_run();
+
+        for (tick, delivery) in expected.iter().enumerate() {
+            let plan = run.run_tick(tick as u64);
+            assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
+            assert_eq!(
+                adapter.command_lists().last(),
+                Some(delivery),
+                "Tick {tick}'s delivery"
+            );
+        }
+        assert_eq!(adapter.command_lists().len(), expected.len(), "deliveries");
+    }
+
+    ///
+    /// The Language Map's diagnoses of `source` as it stands, as anchor
+    /// column, anchor row and message, in Grid order.
+    ///
+    fn map_diagnostics(source: &crate::source::SourceCommander) -> Vec<(usize, usize, String)> {
+        let mut diagnosed = Vec::new();
+        source.read_source(|source| {
+            diagnosed = source
+                .language_map()
+                .diagnostics()
+                .map(|d| (d.anchor().x(), d.anchor().y(), d.message.clone()))
+                .collect();
+        });
+        diagnosed.sort_by_key(|(column, row, _)| (*row, *column));
+        diagnosed
+    }
+
+    ///
+    /// `text` with each of `edits`, a row, a column, the Cells there and what
+    /// replaces them, applied in order: edits a guide documents, applied to the
+    /// shipped file. A row past the file's end is added empty first.
+    ///
+    fn edited(text: &str, edits: &[(usize, usize, &str, &str)]) -> String {
+        let mut rows: Vec<String> = text.lines().map(str::to_owned).collect();
+        for &(row, column, before, after) in edits {
+            if rows.len() <= row {
+                rows.resize(row + 1, String::new());
+            }
+            replace_at(&mut rows, row, column, before, after);
+        }
+        let mut text = rows.join("\n");
+        text.push('\n');
+        text
+    }
+
+    ///
     /// `rows[row]` with `before` at `column` replaced by `after`, asserting
     /// `before` stands there first, so an edit a guide documents cannot land
     /// on Cells the shipped file has moved.
