@@ -6,11 +6,9 @@ use crate::source::Cells;
 use crate::source::language_map::LanguageMap;
 
 use super::Tick;
-use super::fixture::{
-    carried_source, cell, interpreted, messages, planned, rows_of, seeded_source, snapshot,
-    tick_by_tick,
-};
+use super::fixture::{carried_source, interpreted, messages, planned, tick_by_tick};
 use super::observed::raw;
+use crate::source::rows::{cell, rows_of, seeded_source, snapshot};
 
 #[test]
 fn the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor() {
@@ -243,13 +241,13 @@ fn increment_reads_a_live_edited_previous_from_working_source() {
     let grid = Grid::with_shape(6, 2);
     let mut source = seeded_source(grid, &["~+0108", ""]);
     source.execute(Tick::ZERO);
-    assert_eq!(rows_of(grid, &source)[1], "01    ");
+    assert_eq!(rows_of(&source)[1], "01    ");
 
     source.set(cell(grid, 6), "0").unwrap();
     source.set(cell(grid, 7), "5").unwrap();
     source.execute(Tick::new(1));
 
-    assert_eq!(rows_of(grid, &source)[1], "06    ");
+    assert_eq!(rows_of(&source)[1], "06    ");
 }
 
 #[test]
@@ -261,7 +259,7 @@ fn increment_and_slew_keep_their_state_across_an_unwritten_operand() {
         let grid = Grid::with_shape(6, 2);
         let mut source = seeded_source(grid, &[function, ""]);
         source.execute(Tick::ZERO);
-        assert_eq!(rows_of(grid, &source)[1], format!("{before}    "));
+        assert_eq!(rows_of(&source)[1], format!("{before}    "));
 
         source.set(cell(grid, 2), " ").unwrap();
         source.set(cell(grid, 3), " ").unwrap();
@@ -273,20 +271,12 @@ fn increment_and_slew_keep_their_state_across_an_unwritten_operand() {
             "{function}"
         );
         source.execute(Tick::new(1));
-        assert_eq!(
-            rows_of(grid, &source)[1],
-            format!("{before}    "),
-            "{function}"
-        );
+        assert_eq!(rows_of(&source)[1], format!("{before}    "), "{function}");
 
         source.set(cell(grid, 2), &function[2..3]).unwrap();
         source.set(cell(grid, 3), &function[3..4]).unwrap();
         source.execute(Tick::new(2));
-        assert_eq!(
-            rows_of(grid, &source)[1],
-            format!("{after}    "),
-            "{function}"
-        );
+        assert_eq!(rows_of(&source)[1], format!("{after}    "), "{function}");
     }
 }
 
@@ -299,7 +289,7 @@ fn feedback_reads_a_portal_write_from_an_earlier_turn() {
         let row = format!(".+0203  {function}");
         let (plan, source) = carried_source(grid, &[&row, ""], &[(0, 22), (8, 22)]);
         assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-        assert_eq!(rows_of(grid, &source)[1], format!("        {expected}    "));
+        assert_eq!(rows_of(&source)[1], format!("        {expected}    "));
     }
 }
 

@@ -4,8 +4,9 @@
 use crate::grid::Grid;
 
 use super::Tick;
-use super::fixture::{rows_of, tick_by_tick};
+use super::fixture::tick_by_tick;
 use super::observed::raw;
+use crate::source::rows::{rows_of, seeded_source};
 
 #[test]
 fn an_unwritten_operand_does_not_hide_an_earlier_malformed_one() {
@@ -33,7 +34,7 @@ fn an_unwritten_operand_in_the_source_blocks_its_function_as_the_map_reports() {
     // not report it again. The nested `.^43` still answers and writes
     // `G4` south of itself; the Addition it returns to writes nothing.
     let grid = Grid::with_shape(8, 3);
-    let mut source = super::observed::source_of(grid, &[".+.^43  ", "xx"]);
+    let mut source = seeded_source(grid, &[".+.^43  ", "xx"]);
     assert!(
         source
             .language_map()
@@ -44,7 +45,7 @@ fn an_unwritten_operand_in_the_source_blocks_its_function_as_the_map_reports() {
     let plan = source.execute(Tick::ZERO);
 
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
-    assert_eq!(rows_of(grid, &source)[1], "xxG4    ");
+    assert_eq!(rows_of(&source)[1], "xxG4    ");
 }
 
 #[test]
@@ -149,21 +150,21 @@ fn a_bang_written_into_a_copied_operand_fires_once_freed() {
     // `.+` without reaching the `**`: it is a root again, so the next
     // Tick fires it as a Bang Function and plays the Raw Play once more.
     let grid = Grid::with_shape(14, 4);
-    let mut source = super::observed::source_of(grid, &["  .=0101", "    !>007FC4", "=^", ".+"]);
+    let mut source = seeded_source(grid, &["  .=0101", "    !>007FC4", "=^", ".+"]);
     let first = source.execute(Tick::ZERO);
     assert_eq!(first.play_commands, [raw(0, 0x7F, 60)]);
-    assert_eq!(super::observed::rows_of(&source)[1], ".+**!>007FC4  ");
+    assert_eq!(rows_of(&source)[1], ".+**!>007FC4  ");
 
     for idx in [2, 3, 4, 5, 6, 7, 14, 15, 28, 29, 42, 43] {
         source
             .set(grid.cell_index(idx).expect("inside the Grid"), " ")
             .unwrap();
     }
-    assert_eq!(super::observed::rows_of(&source)[1], "  **!>007FC4  ");
+    assert_eq!(rows_of(&source)[1], "  **!>007FC4  ");
 
     let freed = source.execute(Tick::new(1));
     assert_eq!(freed.play_commands, [raw(0, 0x7F, 60)]);
-    assert_eq!(super::observed::rows_of(&source)[1], "    !>007FC4  ");
+    assert_eq!(rows_of(&source)[1], "    !>007FC4  ");
 
     let after = source.execute(Tick::new(2));
     assert!(after.play_commands.is_empty(), "{:?}", after.play_commands);

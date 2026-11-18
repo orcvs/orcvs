@@ -6,8 +6,9 @@
 
 use lang::PlayCommand;
 
-use super::observed::{first_tick, raw, source_of, timed};
+use super::observed::{first_tick, raw, timed};
 use crate::grid::Grid;
+use crate::source::rows::seeded_source;
 
 /// The first Tick of `rows` on the Grid every test here shares.
 fn tick(rows: &[&str]) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>) {
@@ -96,7 +97,7 @@ fn a_chord_that_cannot_be_built_whole_diagnoses_and_sends_nothing() {
 #[test]
 fn a_chord_play_is_invalid_where_a_value_is_required() {
     let row = "  .+!:007FC4MACL0001";
-    let source = source_of(Grid::with_shape(20, 3), &[".=0101", row]);
+    let source = seeded_source(Grid::with_shape(20, 3), &[".=0101", row]);
     let reported: Vec<_> = source
         .language_map()
         .diagnostics()

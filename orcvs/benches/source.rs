@@ -7,9 +7,10 @@
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use orcvs::app::Orcvs;
-use orcvs::grid::{CellIndex, Grid};
+use orcvs::grid::Grid;
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::render_frame::PortalRole;
+use orcvs::source::rows::cell;
 use orcvs::source::{CellContent, CellWrite, LanguageMap, Source, SourceCommander, Tick, file};
 use std::hint::black_box;
 use std::sync::OnceLock;
@@ -69,12 +70,6 @@ const EDITED_VALID: &str = "3";
 /// A character that no operand accepts. Source is malformed for most of the
 /// keystrokes that produce it, and that revision is rebuilt and rendered too.
 const EDITED_INVALID: &str = "Z";
-
-/// The index `grid` mints for `idx`. A Cell is named by an index its Grid
-/// minted, so a benchmark states the number and the Grid answers with the Cell.
-fn cell(grid: Grid, idx: usize) -> CellIndex {
-    grid.cell_index(idx).expect("inside the Grid")
-}
 
 /// One Cell per Grid Position. Each row tiles `EXPRESSIONS` from a different
 /// starting point, separated by a space so a row holds several Expression extents

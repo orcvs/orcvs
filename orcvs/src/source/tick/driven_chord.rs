@@ -10,8 +10,9 @@
 
 use lang::{PlayCommand, Tick};
 
-use super::observed::{first_tick, quiet_plan, raw, rows_of, source_of, timed};
+use super::observed::{first_tick, quiet_plan, raw, timed};
 use crate::grid::Grid;
+use crate::source::rows::{rows_of, seeded_source};
 use crate::source::{Source, file};
 
 /// The Play Commands Tick `tick` of `source` plans, asserting it diagnoses
@@ -25,7 +26,7 @@ fn played(source: &mut Source, tick: u64) -> Vec<PlayCommand> {
 /// The Play Commands of `count` consecutive Ticks of `rows`, each of them
 /// diagnosing nothing.
 fn run(grid: Grid, rows: &[&str], count: u64) -> Vec<Vec<PlayCommand>> {
-    let mut source = source_of(grid, rows);
+    let mut source = seeded_source(grid, rows);
     (0..count).map(|tick| played(&mut source, tick)).collect()
 }
 
@@ -54,7 +55,7 @@ fn a_clock_steps_nested_reads_through_all_six_operands_after_channel() {
         timed(1, 0x40, 0x4F, 2),
         timed(1, 0x40, 0x54, 2),
     ];
-    let mut source = source_of(Grid::with_shape(80, 5), &rows);
+    let mut source = seeded_source(Grid::with_shape(80, 5), &rows);
     assert_eq!(played(&mut source, 0), step_0);
     assert_eq!(played(&mut source, 1), step_1);
 
@@ -504,7 +505,7 @@ fn a_chord_tracker_steps_root_and_set_columns_through_a_progression() {
         ),
     ];
 
-    let mut source = source_of(Grid::with_shape(90, 7), &rows);
+    let mut source = seeded_source(Grid::with_shape(90, 7), &rows);
     for tick in 0..5 {
         let (upper, lower) = bars[tick % 4];
         let chords: Vec<PlayCommand> = upper

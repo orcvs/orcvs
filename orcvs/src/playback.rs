@@ -1651,7 +1651,8 @@ async fn run_engine<A: OutputAdapter, D>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::{CellIndex, Grid};
+    use crate::grid::Grid;
+    use crate::source::rows::{commander, row, write_at};
 
     mod chord_play;
     mod shipped_knobs;
@@ -1660,14 +1661,6 @@ mod tests {
     mod shipped_trackers;
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-    ///
-    /// The index `grid` mints for `idx`. A Cell is named by an index its Grid
-    /// minted, so a test states the number and the Grid answers with the Cell.
-    ///
-    fn cell(grid: Grid, idx: usize) -> CellIndex {
-        grid.cell_index(idx).expect("inside the Grid")
-    }
 
     ///
     /// The Note On an adapter is handed for `channel`, `velocity` and `note`,
@@ -2399,15 +2392,6 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     impl OutputOnlyAdapter for StoppingOutputAdapter {}
 
-    fn write(source: &SourceCommander, start: usize, content: &str) {
-        let grid = source.grid();
-        for (offset, content) in content.chars().enumerate() {
-            source
-                .set(cell(grid, start + offset), &content.to_string())
-                .unwrap();
-        }
-    }
-
     ///
     /// A hand-driven run that has executed one Tick of `expression`, so it
     /// owns a note whose stop is due at a Tick it has not reached.
@@ -2420,9 +2404,7 @@ mod tests {
     fn run_owning_a_note(
         expression: &str,
     ) -> (HandDrivenRun<InMemoryOutputAdapter>, InMemoryOutputAdapter) {
-        let source = SourceCommander::new(Grid::with_shape(expression.len(), 3));
-        write(&source, 0, ".=0101");
-        write(&source, 2 * expression.len(), expression);
+        let source = commander(&[".=0101", "", expression]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
@@ -2725,10 +2707,7 @@ mod tests {
 
     #[test]
     fn a_tick_commits_source_before_submitting_play_commands() {
-        let source = SourceCommander::new(Grid::with_shape(10, 12));
-        write(&source, 20, ".+0102");
-        write(&source, 80, "!>007FC4");
-        write(&source, 60, ".=0101");
+        let source = commander(&["", "", ".+0102", "", "", "", ".=0101", "", "!>007FC4"]);
         let mut run =
             HandDrivenRun::new(source.clone(), RecordingAdapter::observing(source.clone()));
         run.begin_run();
@@ -2738,10 +2717,14 @@ mod tests {
             .expect("scheduled Tick runs");
 
         assert_eq!(
-            &run.inner.outputs.midi.source_at_submission[0][30..32],
+            &row(
+                source.grid(),
+                &run.inner.outputs.midi.source_at_submission[0],
+                3
+            )[..2],
             "03"
         );
-        assert_eq!(&source.snapshot()[30..32], "03");
+        assert_eq!(&row(source.grid(), &source.snapshot(), 3)[..2], "03");
         assert_eq!(tick.play_commands.len(), 1);
         assert_eq!(
             run.inner.outputs.midi.command_lists,
@@ -2751,16 +2734,19 @@ mod tests {
 
     #[test]
     fn a_tick_hands_the_adapter_how_late_it_is_submitted() {
-        let source = SourceCommander::new(Grid::with_shape(10, 12));
-        write(&source, 20, ".+0102");
-        write(&source, 60, ".=0101");
+        let source = commander(&["", "", ".+0102", "", "", "", ".=0101", ""]);
         let mut run = HandDrivenRun::new(source, RecordingAdapter::default());
         run.begin_run();
         let late = Duration::from_millis(300);
         let epoch = ClockInstant::now() - late;
 
-        run.tick(scheduled_from(epoch, Duration::ZERO, late));
-        run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
+        let first = run.tick(scheduled_from(epoch, Duration::ZERO, late));
+        assert_eq!(first.expect("a late Tick still runs").diagnostics, vec![]);
+        let second = run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
+        assert_eq!(
+            second.expect("a Tick due in the future runs").diagnostics,
+            vec![]
+        );
 
         let since_due = &run.inner.outputs.midi.since_due;
         assert!(
@@ -3123,8 +3109,7 @@ mod tests {
     ///
     #[test]
     fn a_clock_resumes_at_the_step_it_stopped_on() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
-        write(&source, 0, "~.0104");
+        let source = commander(&["~.0104", ""]);
         let mut run = HandDrivenRun::new(source.clone(), InMemoryOutputAdapter::default());
         let step = |source: &SourceCommander| -> String {
             let revision = source.read_revision();
@@ -3161,15 +3146,13 @@ mod tests {
 
     #[test]
     fn live_editing_changes_the_next_unsampled_tick() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
         run.begin_run();
 
         run.run_tick(0);
-        source.set(cell(source.grid(), 26), "D").unwrap();
+        write_at(&source, 6, 2, "D");
         run.run_tick(1);
 
         // The other half of Live Editing: the edit lands in the next
@@ -3184,9 +3167,7 @@ mod tests {
 
     #[test]
     fn repeated_commands_are_dispatched_as_exact_tick_lists() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
@@ -3201,10 +3182,9 @@ mod tests {
 
     #[test]
     fn an_inactive_terminal_root_reaches_the_output_adapter_as_an_empty_command_list() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
         // The Raw Play has no Bang anywhere in the Source, so nothing
         // activates its root.
-        write(&source, 20, "!>007FC4");
+        let source = commander(&["", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
@@ -3219,12 +3199,10 @@ mod tests {
 
     #[test]
     fn two_active_terminal_roots_dispatch_in_tick_plan_order_within_one_submission() {
-        let source = SourceCommander::new(Grid::with_shape(10, 12));
         // Each comparison emits a fresh Bang one row above its terminal root.
-        write(&source, 20, "!>0001C4");
-        write(&source, 0, ".=0101");
-        write(&source, 60, ".=0101");
-        write(&source, 80, "!>017FA4");
+        let source = commander(&[
+            ".=0101", "", "!>0001C4", "", "", "", ".=0101", "", "!>017FA4",
+        ]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
@@ -3247,15 +3225,13 @@ mod tests {
         // differs from PLAY-260: docs/requirements/playback.md lists it under
         // "Accepted but not built, or built differently".
         for expression in ["!~007FC402", "!%007FC402  "] {
-            let source = SourceCommander::new(Grid::with_shape(expression.len(), 9));
-            write(&source, 2 * expression.len(), expression);
-            write(&source, 0, ".=0101");
+            let source = commander(&[".=0101", "", expression]);
             let adapter = InMemoryOutputAdapter::default();
             let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
             run.begin_run();
 
             run.run_tick(0);
-            write(&source, 0, ".=0102");
+            write_at(&source, 0, 0, ".=0102");
             run.run_tick(1);
             // The adapter refuses the Tick the stop is due at. The schedule
             // describes what is sounding, so a stop no device received leaves
@@ -3290,9 +3266,7 @@ mod tests {
         // so the engine is never asked to replace the channel's voice: the
         // note the first Tick started runs to the stop its length scheduled,
         // with no Note Off in between.
-        let source = SourceCommander::new(Grid::with_shape(16, 4));
-        write(&source, 0, ".=0101");
-        write(&source, 32, "!%007F&>0204C4");
+        let source = commander(&[".=0101", "", "!%007F&>0204C4", ""]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
         run.begin_run();
@@ -3300,7 +3274,7 @@ mod tests {
         run.run_tick(0);
         // The nested Read now copies two empty Cells, so its Clear leaves the
         // note blank on every Tick that follows.
-        write(&source, 44, "  ");
+        write_at(&source, 12, 2, "  ");
         for tick in 1..4 {
             let plan = run.run_tick(tick);
             assert_eq!(plan.play_commands, vec![], "Tick {tick}");
@@ -3334,15 +3308,13 @@ mod tests {
             ("01", "C3", vec![note_on(8, 0x64, 48)]),
         ] {
             let play = format!("!%0864C302{legato}");
-            let source = SourceCommander::new(Grid::with_shape(play.len(), 3));
-            write(&source, 0, "~*0201");
-            write(&source, 2 * play.len(), &play);
+            let source = commander(&["~*0201", "", &play]);
             let adapter = InMemoryOutputAdapter::default();
             let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
             run.begin_run();
 
             run.run_tick(0);
-            write(&source, 2 * play.len() + 6, second);
+            write_at(&source, 6, 2, second);
             for tick in 1..=3 {
                 let plan = run.run_tick(tick);
                 assert_eq!(plan.diagnostics, vec![], "legato {legato}, Tick {tick}");
@@ -3363,24 +3335,20 @@ mod tests {
         // every later Bang, so the Play sends nothing and reports nothing, and
         // the note the first Tick started runs to its own stop, with no Note
         // Off in between.
-        for (route, (writes, blanked)) in [
-            (&[(32, "!%007FC404")][..], 38),
-            (&[(22, "&t0001C4"), (32, "!%007F  04")][..], 28),
+        for (route, (rows, (blank_column, blank_row))) in [
+            (&[".=0101", "", "!%007FC404  "][..], (6, 2)),
+            (&[".=0101", "      &t0001C4", "!%007F  04  "][..], (12, 1)),
         ]
         .into_iter()
         .enumerate()
         {
-            let source = SourceCommander::new(Grid::with_shape(16, 4));
-            write(&source, 0, ".=0101");
-            for &(cell, text) in writes {
-                write(&source, cell, text);
-            }
+            let source = commander(rows);
             let adapter = InMemoryOutputAdapter::default();
             let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
             run.begin_run();
 
             run.run_tick(0);
-            write(&source, blanked, "  ");
+            write_at(&source, blank_column, blank_row, "  ");
             for tick in 1..4 {
                 let plan = run.run_tick(tick);
                 assert_eq!(plan.play_commands, vec![], "route {route}, Tick {tick}");
@@ -3414,15 +3382,13 @@ mod tests {
 
     #[test]
     fn a_scheduled_stop_is_due_at_an_absolute_tick_rather_than_at_a_clock_tick() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
-        write(&source, 20, "!~007FC402");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!~007FC402"]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
         run.begin_run();
 
         run.run_tick(0);
-        write(&source, 0, ".=0102");
+        write_at(&source, 0, 0, ".=0102");
         // A Tick the engine declines consumes no absolute Tick, so it moves
         // nothing towards the stop either: the note lasts the two Ticks it
         // was given however many deadlines pass.
@@ -3486,9 +3452,7 @@ mod tests {
 
     #[test]
     fn missed_deadline_is_dropped_and_the_next_scheduled_tick_runs() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
@@ -3525,9 +3489,7 @@ mod tests {
     ///
     #[tokio::test(start_paused = true)]
     async fn a_late_tick_loses_its_turn_and_the_run_resumes_on_the_grid() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
         engine.start(Duration::from_secs(1)).unwrap();
@@ -3586,9 +3548,7 @@ mod tests {
     ///
     #[tokio::test(start_paused = true)]
     async fn a_stopped_run_does_not_tick_and_a_restarted_one_does() {
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
 
@@ -3659,18 +3619,16 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_rewind_of_a_live_run_silences_it_and_begins_again_at_tick_zero() {
         let period = Duration::from_secs(1);
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
         // A Timed note of eight Ticks, started on Tick 0 alone: the Bang is
         // gone from the Source before Tick 1.
-        write(&source, 20, "!~007FC408");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!~007FC408"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source.clone(), adapter.clone());
 
         engine.start(period).unwrap();
         settle(&engine).await;
         assert_eq!(adapter.command_lists(), vec![vec![note_on(0, 0x7F, 60)]]);
-        write(&source, 0, ".=0102");
+        write_at(&source, 0, 0, ".=0102");
         time::sleep(period * 2).await;
         settle(&engine).await;
         assert_eq!(engine.observation().tick, Tick::new(2));
@@ -3859,9 +3817,7 @@ mod tests {
     ///
     #[tokio::test(start_paused = true)]
     async fn a_message_queued_before_a_run_begins_is_applied_to_its_first_tick() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
 
@@ -4191,9 +4147,7 @@ mod tests {
     ///
     #[tokio::test(start_paused = true)]
     async fn dropping_the_last_handle_with_a_start_pending_executes_no_tick() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
         let mut observation = engine.observation.clone();
@@ -4216,9 +4170,7 @@ mod tests {
     ///
     #[tokio::test(start_paused = true)]
     async fn fairness_spent_while_stopped_does_not_invert_a_run_s_first_tick() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
 
@@ -4388,9 +4340,7 @@ mod tests {
     ///
     #[tokio::test(start_paused = true)]
     async fn retuning_keeps_the_absolute_tick_of_the_run_it_retunes() {
-        let source = SourceCommander::new(Grid::with_shape(10, 3));
-        write(&source, 0, "~*0102");
-        write(&source, 20, "!>007FC4");
+        let source = commander(&["~*0102", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
 
@@ -4455,10 +4405,7 @@ mod tests {
 
     #[test]
     fn adapter_failure_does_not_roll_back_source_or_stop_playback() {
-        let source = SourceCommander::new(Grid::with_shape(10, 12));
-        write(&source, 20, ".+0102");
-        write(&source, 80, "!>007FC4");
-        write(&source, 60, ".=0101");
+        let source = commander(&["", "", ".+0102", "", "", "", ".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("output unavailable");
         let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
@@ -4468,7 +4415,7 @@ mod tests {
             .tick(scheduled(Duration::ZERO, Duration::ZERO))
             .expect("Source Tick still succeeds");
 
-        assert_eq!(&source.snapshot()[30..32], "03");
+        assert_eq!(&row(source.grid(), &source.snapshot(), 3)[..2], "03");
         assert_eq!(failed_dispatch.play_commands.len(), 1);
         assert_eq!(run.state(), PlaybackState::Playing);
         assert_eq!(
@@ -4485,9 +4432,7 @@ mod tests {
     #[test]
     fn a_banged_udp_function_sends_its_payload_to_the_destination() {
         let network = crate::network::RecordingAdapter::default();
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 0, ".=0101");
-        write(&source, 12, "!uhi!");
+        let source = commander(&[".=0101", "  !uhi!"]);
         let mut run =
             HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
         run.network_destination
@@ -4512,9 +4457,7 @@ mod tests {
     fn a_repeated_network_failure_is_reported_once_and_playback_goes_on() {
         let network = crate::network::RecordingAdapter::default();
         network.refuse(Some("refused"));
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 0, ".=0101");
-        write(&source, 12, "!o/go!");
+        let source = commander(&[".=0101", "  !o/go!"]);
         let mut run =
             HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
         run.begin_run();
@@ -4535,9 +4478,7 @@ mod tests {
     fn the_observation_says_whether_the_last_network_sends_failed() {
         let network = crate::network::RecordingAdapter::default();
         network.refuse(Some("refused"));
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 0, ".=0101");
-        write(&source, 12, "!o/go!");
+        let source = commander(&[".=0101", "  !o/go!"]);
         let mut run =
             HandDrivenRun::with_network(source, InMemoryOutputAdapter::default(), &network);
         run.begin_run();
@@ -4561,14 +4502,14 @@ mod tests {
     #[test]
     fn the_observation_says_whether_the_last_midi_delivery_failed() {
         let adapter = InMemoryOutputAdapter::default();
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", ""]);
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
         assert!(!run.observation().midi_failed);
 
         adapter.fail_next_submission("device lost");
-        run.run_tick(0);
+        // The Source is clean, so the adapter's refusal is the only failure.
+        assert_eq!(run.run_tick(0).diagnostics, vec![]);
         assert!(run.observation().midi_failed);
 
         // Only a delivery answers whether the device recovered, so the
@@ -4591,9 +4532,7 @@ mod tests {
 
     #[test]
     fn a_run_that_begins_after_a_failed_run_reports_the_failure_again() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let mut run = HandDrivenRun::new(source, RefusingOutputAdapter);
 
         // Two runs, each of two Ticks the adapter refuses identically, with
@@ -5127,9 +5066,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn start_is_idempotent_and_draining_takes_the_diagnostics() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         adapter.fail_next_submission("device lost");
         let engine = engine(source, adapter.clone());
@@ -5348,9 +5285,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dropping_the_final_handle_during_a_tick_completes_playback_safety() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let control = BlockingOutputControl::default();
         let engine = engine(
             source,
@@ -5392,9 +5327,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(start_paused = true)]
     async fn stop_returns_without_waiting_for_a_tick_and_no_tick_follows_it() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = StoppingOutputAdapter::default();
         let engine = engine(source, adapter.clone());
         adapter.stop_next_delivery_of(engine.engine.clone());
@@ -5416,9 +5349,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn clock_failure_remains_observable_after_output_panics() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let delivery_started = Arc::new(AtomicBool::new(false));
         let engine = engine(
             source,
@@ -5460,9 +5391,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_run_keeps_ticking_while_messages_keep_arriving() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
         engine.start(Duration::from_millis(1)).unwrap();
@@ -5516,9 +5445,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_stop_whose_silence_panics_reports_failure_and_leaves_the_engine_usable() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let engine = engine(source, SilencePanickingOutputAdapter);
         engine.start(Duration::from_secs(1)).unwrap();
         settle(&engine).await;
@@ -5559,9 +5486,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_backend_that_panics_being_silenced_does_not_abort_the_process() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let delivery_started = Arc::new(AtomicBool::new(false));
         let engine = engine(
             source,
@@ -5615,9 +5540,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_engine_whose_task_died_refuses_a_later_start() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let delivery_started = Arc::new(AtomicBool::new(false));
         let engine = engine(
             source,
@@ -5658,9 +5581,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_tick_period_too_wide_to_schedule_is_refused_and_leaves_the_engine_usable() {
-        let source = SourceCommander::new(Grid::with_shape(10, 6));
-        write(&source, 20, "!>007FC4");
-        write(&source, 0, ".=0101");
+        let source = commander(&[".=0101", "", "!>007FC4"]);
         let adapter = InMemoryOutputAdapter::default();
         let engine = engine(source, adapter.clone());
 

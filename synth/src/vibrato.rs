@@ -28,22 +28,28 @@ pub(crate) struct Vibrato {
     target: f32,
 }
 
+/// The delay swing at a Control Change value, `00`–`7F`.
+pub(crate) const fn swing(value: u8) -> f32 {
+    MAX_SWING * value as f32 / 127.0
+}
+
 impl Vibrato {
-    pub(crate) fn new(sample_rate: f32) -> Self {
+    /// A vibrato at Control Change `value`'s depth from the start.
+    pub(crate) fn new(sample_rate: f32, value: u8) -> Self {
         Self {
             sample_rate,
             // The longest delay, and the sample either side to interpolate.
             line: vec![0.0; (2.0 * MAX_SWING * sample_rate).ceil() as usize + 2],
             write: 0,
             phase: 0.0,
-            swing: 0.0,
-            target: 0.0,
+            swing: swing(value),
+            target: swing(value),
         }
     }
 
     /// Sets the depth from a Control Change value, `00`–`7F`.
     pub(crate) fn set(&mut self, value: u8) {
-        self.target = MAX_SWING * f32::from(value) / 127.0;
+        self.target = swing(value);
     }
 
     /// Whether its depth is zero and staying there, so it passes the

@@ -12,13 +12,14 @@ use lang::{Function, Tick};
 use super::PortalError;
 use super::observed::{
     MISSED_BANG, accesses, committed_portals, diagnostic, first, observe_at, observed, painted,
-    quiet, raw, rows_of, source_of, turn_before, turns, writes,
+    quiet, raw, turn_before, turns, writes,
 };
 use super::portals::{PortalOrigin, WriteRefusal};
 use crate::grid::Grid;
 use crate::render_frame::PortalRole;
 use crate::source::Source;
 use crate::source::language_map::LanguageUnitKind;
+use crate::source::rows::{rows_of, seeded_source};
 
 #[test]
 fn a_write_answers_its_value_at_its_pair_and_writes_nothing_south() {
@@ -32,7 +33,7 @@ fn a_write_into_comment_text_writes_its_cells() {
     // A Comment's text is ordinary Cells, so the Write lands between the
     // delimiters and the Comment still closes after it.
     let grid = Grid::with_shape(8, 2);
-    let mut source = source_of(grid, &["@$0201C4", "||    ||"]);
+    let mut source = seeded_source(grid, &["@$0201C4", "||    ||"]);
     let comment = |source: &Source| {
         source
             .language_map()
@@ -67,7 +68,7 @@ fn a_value_is_written_as_it_is_spelled() {
 #[test]
 fn a_bang_in_value_is_written_as_a_bang_and_activates_the_root_below_it() {
     // The Bang lands at (0, 1), north of Raw Play's anchor.
-    let mut source = source_of(Grid::with_shape(8, 3), &["@$0001**", "", "!>007FC4"]);
+    let mut source = seeded_source(Grid::with_shape(8, 3), &["@$0001**", "", "!>007FC4"]);
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(plan.play_commands.len(), 1);
@@ -78,7 +79,7 @@ fn a_bang_in_value_is_written_as_a_bang_and_activates_the_root_below_it() {
 fn a_bang_written_onto_a_roots_anchor_overwrites_it_and_activates_the_roots_aligned_with_it() {
     // The `**` covers Raw Play C4's anchor at (0, 2), so C4 does not run,
     // and activates Raw Play D4 south of it.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(8, 4),
         &["@$0002**", "", "!>007FC4", "!>007FD4"],
     );
@@ -90,7 +91,7 @@ fn a_bang_written_onto_a_roots_anchor_overwrites_it_and_activates_the_roots_alig
 
 #[test]
 fn a_bang_written_onto_occupied_data_overwrites_it_and_activates_the_roots_aligned_with_it() {
-    let mut source = source_of(Grid::with_shape(8, 3), &["@$0001**", "C4", "!>007FD4"]);
+    let mut source = seeded_source(Grid::with_shape(8, 3), &["@$0001**", "C4", "!>007FD4"]);
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(plan.play_commands, [raw(0, 0x7F, 62)]);
@@ -170,7 +171,7 @@ fn a_bang_onto_a_root_that_fed_the_write_is_missed() {
     // inert: Equality answers no Bang. The Write's `**` at (0, 1) reaches
     // Halt after its Turn, and a Bang is never stored, so Halt misses it.
     // Nothing is stopped: the `**` display is still written.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(10, 3),
         &[".=0102    ", "  *!      ", "  @$0001**"],
     );
@@ -201,7 +202,7 @@ fn a_bang_onto_a_root_that_fed_an_earlier_write_is_missed() {
 fn a_missed_bang_still_activates_the_roots_still_to_take_their_turn() {
     // The second Write's `**` at (4, 1) has Halt, which has taken its Turn,
     // to the west and Raw Play, which has not, to the east.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(14, 4),
         &[".=0102", "  *!  !>007FC4", "  @$0803C4", "@$0401**"],
     );
@@ -265,7 +266,7 @@ fn an_empty_or_partially_written_operand_makes_the_write_invalid() {
         "@>  C4", "@>01  ", "@>01C ", "@$  01C4", "@$0001  ", "@^01xy",
     ] {
         let rows = [row, "xxxxxxxx"];
-        let source = source_of(Grid::with_shape(8, 2), &rows);
+        let source = seeded_source(Grid::with_shape(8, 2), &rows);
         assert!(
             source
                 .language_map()
@@ -603,7 +604,7 @@ fn a_read_nested_in_a_write_copies_one_pair_to_another_place() {
     quiet(&tick);
     // The Bang Equality writes at (8, 1) is copied to (0, 3), north of Raw
     // Play, which it activates.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(14, 5),
         &["        .=0101", "", "@$0003&$0801", "", "!>007FC4"],
     );
@@ -618,9 +619,9 @@ fn a_write_is_recorded_where_it_landed_and_paints_there() {
     // nothing paints it; once the Tick commits, its Cells play Output.
     let grid = Grid::with_shape(8, 3);
     let rows = ["@$0602C4", "xxxxxxxx"];
-    assert_eq!(painted(source_of(grid, &rows), PortalRole::Output), []);
+    assert_eq!(painted(seeded_source(grid, &rows), PortalRole::Output), []);
 
-    let mut source = source_of(grid, &rows);
+    let mut source = seeded_source(grid, &rows);
     source.execute(Tick::ZERO);
     assert_eq!(
         writes(&committed_portals(&source)),
@@ -661,7 +662,7 @@ fn a_refused_write_keeps_its_geometric_reason_and_paints_nothing() {
             at(7, 0),
         ),
     ] {
-        let mut source = source_of(grid, &[row, "xxxxxxxx"]);
+        let mut source = seeded_source(grid, &[row, "xxxxxxxx"]);
         source.execute(Tick::ZERO);
         assert_eq!(
             writes(&committed_portals(&source)),
@@ -684,7 +685,7 @@ fn a_refused_write_keeps_its_geometric_reason_and_paints_nothing() {
 fn a_turn_records_its_writes_in_order_with_the_owner_that_made_each() {
     // The nested Write is refused before its parent answers, and the parent
     // still writes at the pair it declares.
-    let mut source = source_of(Grid::with_shape(12, 2), &[".+@$FF010503"]);
+    let mut source = seeded_source(Grid::with_shape(12, 2), &[".+@$FF010503"]);
     source.execute(Tick::ZERO);
     assert_eq!(
         writes(&committed_portals(&source)),
@@ -713,7 +714,7 @@ fn an_owner_the_tick_overwrote_after_its_turn_still_owns_its_write() {
     // The nested `.+` writes `02` south of itself, and the Write it feeds
     // then puts `02` over the Cells `.+` stood in. The committed Source holds
     // no `.+`, and the record still names it.
-    let mut source = source_of(Grid::with_shape(12, 2), &["@$0600.+0101"]);
+    let mut source = seeded_source(Grid::with_shape(12, 2), &["@$0600.+0101"]);
     source.execute(Tick::ZERO);
     assert_eq!(rows_of(&source)[0], "@$0600020101");
     assert_eq!(
@@ -741,7 +742,7 @@ fn a_replaced_function_owns_its_writes_as_the_function_its_turn_ran() {
     // passes on, before `.+` takes its Turn. That Turn runs `.-`, and its
     // write is recorded as `.-`'s, after the write that replaced it. The
     // `.-` at (0, 3) depends on none of it and comes last in Grid order.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(12, 5),
         &["@$0001&$0003", ".+0302", "xx", ".-0101"],
     );

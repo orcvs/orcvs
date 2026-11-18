@@ -10,9 +10,10 @@ use std::collections::BTreeMap;
 use lang::{MidiChannel, Note, PlayCommand, Tick, Velocity};
 
 use super::execution::ComputationState;
-use super::observed::{diagnostic, first, observe_at, quiet_rows, raw, rows_of, source_of, turns};
+use super::observed::{diagnostic, first, observe_at, quiet_rows, raw, turns};
 use super::{plan, plan_carrying, shared_schedule};
 use crate::grid::{CellIndex, Grid, Position};
+use crate::source::rows::{rows_of, seeded_source};
 use crate::source::{Cells, Source};
 
 fn anchored_turns(
@@ -91,7 +92,7 @@ fn a_bang_track_reads_overwrites_the_root_it_lands_on_and_activates_the_roots_al
     // Equality writes `**` into pair 1 this Tick. Track writes it over Raw
     // Play C4's anchor, so C4 does not run, and activates Raw Play D4 south
     // of it.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(14, 4),
         &["        .=0101", "&t0103C4  E4", "!>007FC4", "!>007FD4"],
     );
@@ -106,7 +107,7 @@ fn an_empty_operand_makes_track_invalid() {
     // The Language Map diagnoses the unwritten operand, and the Tick writes
     // nothing and does not report it again.
     for rows in [["&t  03C4D4E4", "xx"], ["&t01  C4D4E4", "xx"]] {
-        let source = source_of(Grid::with_shape(12, 2), &rows);
+        let source = seeded_source(Grid::with_shape(12, 2), &rows);
         assert!(
             source
                 .language_map()
@@ -127,7 +128,7 @@ fn an_empty_operand_makes_track_invalid() {
 #[test]
 fn a_partially_written_operand_makes_track_invalid() {
     for row in ["&t0 03C4D4E4", "&t010 C4D4E4"] {
-        let source = source_of(Grid::with_shape(12, 2), &[row, "xx"]);
+        let source = seeded_source(Grid::with_shape(12, 2), &[row, "xx"]);
         let diagnostics: Vec<_> = source.language_map().diagnostics().collect();
         assert!(
             diagnostics.iter().any(|diagnostic| {
@@ -291,7 +292,7 @@ fn a_writer_that_waits_on_track_forms_a_cycle_and_the_rest_of_the_tick_runs() {
     // `.+` waits on Track before the Tick, and Track finds at its Turn that
     // it waits on `.+`. `.x0203` stands apart and still publishes.
     let grid = Grid::with_shape(12, 4);
-    let source = source_of(grid, &["&t0001  E4", ".+0000", ".x0203"]);
+    let source = seeded_source(grid, &["&t0001  E4", ".+0000", ".x0203"]);
     let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
     let site = |x, y| grid.position(x, y).expect("inside the Grid");
     let destinations: BTreeMap<CellIndex, Vec<Position>> = [
@@ -334,7 +335,7 @@ fn a_nested_track_returns_its_pair_and_writes_its_own_output_portal() {
 fn a_timed_play_plays_the_note_a_nested_track_supplies() {
     // Equality's Bang at (0, 1) activates Timed Play at (2, 1). Its length
     // is Track's pair 0, and Track reads pair 1.
-    let mut source = source_of(Grid::with_shape(18, 3), &[".=0101", "  !~017F&t010204C4"]);
+    let mut source = seeded_source(Grid::with_shape(18, 3), &[".=0101", "  !~017F&t010204C4"]);
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(
@@ -419,7 +420,7 @@ fn a_track_whose_nested_count_is_suppressed_waits_for_the_writer_of_the_pair_aft
             "              D4    ",
         ]
     );
-    let source = source_of(grid, &rows);
+    let source = seeded_source(grid, &rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
@@ -590,7 +591,7 @@ fn a_track_that_waits_reads_its_nested_index_again_unchanged() {
     // Addition is interpreted once.
     let grid = Grid::with_shape(16, 3);
     let rows = ["&t.+000103C4  E4", "            =^", "            D4"];
-    let source = source_of(grid, &rows);
+    let source = seeded_source(grid, &rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
     let (plan, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
@@ -652,7 +653,7 @@ fn a_cycle_a_track_finds_after_another_track_waited_is_diagnosed_as_one_found_fi
 #[test]
 fn a_cycle_discovered_by_a_nested_track_stops_its_sibling() {
     let grid = Grid::with_shape(18, 4);
-    let source = source_of(grid, &[".+&t0304.x0203", "=^        =>", ".+0102"]);
+    let source = seeded_source(grid, &[".+&t0304.x0203", "=^        =>", ".+0102"]);
     let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
     let site = |x, y| grid.position(x, y).expect("inside the Grid");
     let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(14, 0)])].into();
@@ -687,7 +688,7 @@ fn a_cycle_discovered_by_a_nested_track_stops_its_sibling() {
 #[test]
 fn a_late_cycle_preserves_a_completed_nested_operands_write() {
     let grid = Grid::with_shape(22, 4);
-    let source = source_of(grid, &[".+&t.+000304.x0203", "=^            =>", ".+0102"]);
+    let source = seeded_source(grid, &[".+&t.+000304.x0203", "=^            =>", ".+0102"]);
     let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
     let site = |x, y| grid.position(x, y).expect("inside the Grid");
     let destinations: BTreeMap<CellIndex, Vec<Position>> = [(cell(0, 1), vec![site(18, 0)])].into();
@@ -744,7 +745,7 @@ fn a_completed_operands_consumer_survives_a_late_cycle_after_an_earlier_wait() {
     let cell = |x, y| grid.index(grid.position(x, y).expect("inside the Grid"));
     let site = |x, y| grid.position(x, y).expect("inside the Grid");
     for earlier_wait in ["", "&t0001"] {
-        let source = source_of(
+        let source = seeded_source(
             grid,
             &[earlier_wait, ".+&t.+000304.x0203", "=^    =>", ".x0102"],
         );
