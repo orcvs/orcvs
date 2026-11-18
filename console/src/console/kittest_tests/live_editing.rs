@@ -101,12 +101,9 @@ fn tick(harness: &Harness<'_, Console>, tick: u64) -> TickPlan {
 
 /// The channel and MIDI note of each note a Tick's Timed Plays start.
 fn timed_notes(plan: &TickPlan) -> Vec<(u8, u8)> {
-    plan.play_commands
-        .iter()
-        .map(|command| match command {
-            PlayCommand::Timed { channel, note, .. } => (channel.value(), note.value()),
-            other => panic!("the trackers play only Timed notes, not {other:?}"),
-        })
+    timed_plays(plan)
+        .into_iter()
+        .map(|(channel, note, _)| (channel, note))
         .collect()
 }
 
