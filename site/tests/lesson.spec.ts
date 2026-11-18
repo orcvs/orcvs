@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 // `/learn/` is `docs/first-result.md` rendered at build time, each of its Sources drawn as a Grid
-// and the Source it starts from opening in the page's small console.
+// and the Source it starts from opening in the page's Small Console.
 
 const LESSON = readFileSync("../docs/first-result.md", "utf8");
 

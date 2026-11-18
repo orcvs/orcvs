@@ -6,6 +6,9 @@ browser.
 
 ## Before you start
 
+This walkthrough is written for the Orcvs site, at <https://orcvs.com/learn/>, where each step can
+be tried in the page. If you are reading it somewhere else, such as GitHub, open it there first.
+
 On this site, press the example under **Write an Addition**, drawn as a Grid of Cells. The
 console opens in the corner of the page with that example in it. The later Grids show what the
 console should look like, or what to type; pressing them does nothing. To use the whole window

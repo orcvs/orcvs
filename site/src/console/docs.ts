@@ -45,7 +45,7 @@ function plugin(holdsSource: HoldsSource) {
       context.setProperty(node, "url", siteLink(node.url));
     },
     // A Source is drawn as a Grid. A starting Source, a block with nothing after its language,
-    // opens in the page's small console when pressed; any meta, such as the reference's `tick 0`
+    // opens in the page's Small Console when pressed; any meta, such as the reference's `tick 0`
     // or the lesson's `result`, marks a Grid that is drawn but does not open.
     code(node, context) {
       if (!holdsSource(node.lang)) return;

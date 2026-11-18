@@ -43,17 +43,17 @@ build runs. Without mise, `npm ci && npm run build` in `site/` builds the site. 
   the repository's docs, never prose written for the site (`.scratch/site-as-console/spec.md`).
 - **Examples.** `site/src/console/docs.ts` draws each Source in `docs/first-result.md` and
   `docs/functions.md` as a Grid (`grid.ts`). Pressing a starting Source starts the page's one
-  small console, `/play/?small`, and posts it `{ type: "orcvs.open", source }` (`small.ts`, ADR
+  Small Console, `/play/?small`, and posts it `{ type: "orcvs.open", source }` (`small.ts`, ADR
   0086). Nothing opens a new tab or window.
 - **Links.** `/play/?example=<link-name>` opens a shipped example (`beat`, `melody`,
   `tracker`, `sequencer`, `knobs`); `/play/#source=<percent-encoded Source File>`
-  opens text, up to 16 KiB of fragment; `/play/?small` opens the small console. Each opens
+  opens text, up to 16 KiB of fragment; `/play/?small` opens the Small Console. Each opens
   stopped, none reads or writes saved work, and none registers the service worker
   (`console/src/linked_source.rs`, `console/index.html`). `/` frames `/play/` with its own query
   and fragment, so a link to share is `/?example=<link-name>`, which also plays through the page's
   Built-in Synth (ADR 0094).
 - **Started.** The canvas has no DOM. eframe gives `#the_canvas_id` a `width` attribute when it
-  starts, which is what a test waits on; the small console also posts `{ type: "orcvs.ready" }` to
+  starts, which is what a test waits on; the Small Console also posts `{ type: "orcvs.ready" }` to
   its page once it listens for Sources, which is what `small.ts` waits on. What the console shows is compared as frame
   screenshots, and keys reach it as real input.
 - **Markdown.** Astro 7 renders Markdown with Sätteri, not remark: a transform is a Sätteri mdast

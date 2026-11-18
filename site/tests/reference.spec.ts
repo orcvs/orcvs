@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { holdsStill, send } from "./examples";
 
 // `/reference/` is `docs/functions.md` rendered at build time, each Source drawn as a Grid and
-// each starting Source opening in the page's small console.
+// each starting Source opening in the page's Small Console.
 
 const REFERENCE = readFileSync("../docs/functions.md", "utf8");
 
@@ -32,12 +32,12 @@ test("a Grid draws one Cell per character", async ({ page }) => {
   await expect(add.locator("span.function")).toHaveCount(2);
 });
 
-test("pressing an example opens it in the page's small console", async ({ page }) => {
+test("pressing an example opens it in the page's Small Console", async ({ page }) => {
   await page.goto("/reference/");
   await send(page, page.locator(".orcvs-grid[data-source]").first());
 });
 
-test("pressing two Grids opens each in the one small console, stopped", async ({ page }) => {
+test("pressing two Grids opens each in the one Small Console, stopped", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/reference/");
   const grids = page.locator(".orcvs-grid[data-source]");
