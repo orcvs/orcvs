@@ -477,7 +477,8 @@ const ACCENT_REGION_ROW: usize = 32;
 ///    (26, 7), where the voice's Add writes it.
 ///
 /// Every row the transfer changes, the empty row 34 among them, is drawn in
-/// the guide as it stands here, before the first Tick.
+/// the guide as it stands here, before the first Tick. Rows 6 and 7 are drawn
+/// there as the shipped Tracker holds them too, before the transfer.
 ///
 fn transferred_tracker() -> String {
     let kombine = include_str!("../../../../examples/kombine.orcvs");
@@ -485,6 +486,9 @@ fn transferred_tracker() -> String {
         .lines()
         .map(str::to_owned)
         .collect();
+    for row in [6, 7] {
+        assert_guide_draws(KOMBINE_GUIDE, row, &rows[row]);
+    }
     rows.resize(ACCENT_REGION_ROW + 3, String::new());
     let region = kombine.lines().chain(std::iter::repeat("")).skip(9).take(3);
     for (row, line) in (ACCENT_REGION_ROW..).zip(region) {
