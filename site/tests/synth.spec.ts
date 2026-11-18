@@ -166,7 +166,7 @@ test("a click in the console starts the page's audio before Space", async ({ pag
 
 test("a framed console plays the page's synth at a constant offset from its Ticks", async ({ page }) => {
   await page.goto("/learn/");
-  // The first press of a Grid starts the small console and loads the page's synth; a console framed
+  // The first press of a Grid starts the Small Console and loads the page's synth; a console framed
   // beside it is answered the same way.
   await expect.poll(() => page.evaluate(() => !!window.synthSpy.context)).toBe(false);
   await page.locator(".orcvs-grid[data-source]").first().click();

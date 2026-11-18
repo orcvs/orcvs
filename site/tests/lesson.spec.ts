@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { holdsStill, send } from "./examples";
 
 // `/learn/` is `docs/first-result.md` rendered at build time, each of its Sources drawn as a Grid
-// that opens in the page's small console.
+// and the Source it starts from opening in the page's Small Console.
 
 const LESSON = readFileSync("../docs/first-result.md", "utf8");
 
@@ -14,24 +13,25 @@ test("the lesson is docs/first-result.md, heading for heading", async ({ page })
   expect(shown).toEqual(headings);
 });
 
-test("each of the lesson's Sources is a Grid that opens it", async ({ page }) => {
+// Pressing a Grid replaces the console's whole Source, so only the Source the lesson starts from
+// opens; the Grids that show a result, or what to type, are drawn but do not open.
+test("only the lesson's starting Source opens; the Grids along the way do not", async ({ page }) => {
   await page.goto("/learn/");
-  const sources = [...LESSON.matchAll(/^```text\n([\s\S]*?)^```$/gm)].map((match) => match[1]);
+  const blocks = [...LESSON.matchAll(/^```text(.*)\n([\s\S]*?)^```$/gm)];
+  await expect(page.locator(".orcvs-grid")).toHaveCount(blocks.length);
+  const starting = blocks.filter((match) => match[1] === "").map((match) => match[2]);
+  expect(starting).toEqual([".+0102\n"]);
   const sent = await page
     .locator(".orcvs-grid[data-source]")
     .evaluateAll((grids) => grids.map((grid) => (grid as HTMLElement).dataset.source));
-  expect(sent).toEqual(sources);
+  expect(sent).toEqual(starting);
 });
 
-test("pressing two Grids opens each in the one small console, stopped", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 720 });
+test("a link to a section of another doc stays on the site", async ({ page }) => {
   await page.goto("/learn/");
-  const grids = page.locator(".orcvs-grid[data-source]");
-  const frame = await send(page, grids.nth(0));
-  const first = await frame.screenshot();
-  await send(page, grids.nth(4));
-  await expect(page.locator("iframe")).toHaveCount(1);
-  expect((await frame.screenshot()).equals(first)).toBe(false);
-  // Stopped: no Tick runs, so the Grid does not change.
-  expect(await holdsStill(frame, page, 1_500)).toBe(true);
+  const link = page.locator('.sl-markdown-content a[href="/reference/#built-in-synth"]');
+  await expect(link).toHaveCount(1);
+  await link.click();
+  await expect(page).toHaveURL(/\/reference\/#built-in-synth$/);
+  await expect(page.locator("#built-in-synth")).toBeInViewport();
 });

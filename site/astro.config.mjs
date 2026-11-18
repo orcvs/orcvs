@@ -12,13 +12,13 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Orcvs",
-      description: "A grid-based environment for composing and performing compact musical expressions.",
+      description: "Write music as a grid of tiny Functions, and change it while it plays.",
       social: [{ icon: "github", label: "GitHub", href: "https://github.com/orcvs/orcvs" }],
       customCss: ["./src/styles/orcvs.css", "./src/console/grid.css"],
       sidebar: [
         { label: "Console", link: "/" },
-        { label: "Learn", link: "/learn/" },
-        { label: "Reference", link: "/reference/" },
+        { label: "Your first result", link: "/learn/" },
+        { label: "Function reference", link: "/reference/" },
       ],
     }),
   ],

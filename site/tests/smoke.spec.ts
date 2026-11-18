@@ -38,7 +38,7 @@ test("/play/ starts the console and registers its service worker", async ({ page
 });
 
 // `console/index.html` decides whether to register the worker before the console reads its URL,
-// so each link form `console/src/linked_source.rs` opens, and the small console, is checked here
+// so each link form `console/src/linked_source.rs` opens, and the Small Console, is checked here
 // too.
 for (const link of ["/play/?example=melody", "/play/#source=.%2B0102%0A", "/play/?small"]) {
   test(`${link} starts and registers no service worker`, async ({ page }) => {

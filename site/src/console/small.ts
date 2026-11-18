@@ -1,4 +1,4 @@
-// The page's small console (ADR 0086): `/play/?small`, started on the first press of a Grid and
+// The page's Small Console (ADR 0086): `/play/?small`, started on the first press of a Grid and
 // sent each pressed Grid's Source by message, so every example opens in the one console.
 
 /** How long the console has to say it is ready before the page gives up on it. */
@@ -55,7 +55,7 @@ function fail(reason: unknown) {
   failure = document.createElement("p");
   failure.className = "orcvs-small orcvs-small-failed";
   failure.setAttribute("role", "status");
-  failure.textContent = "The console did not start.";
+  failure.textContent = "The console did not start. Press an example to try again.";
   document.body.append(failure);
 }
 

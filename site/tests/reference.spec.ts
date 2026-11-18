@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { send } from "./examples";
+import { holdsStill, send } from "./examples";
 
 // `/reference/` is `docs/functions.md` rendered at build time, each Source drawn as a Grid and
-// each starting Source opening in the page's small console.
+// each starting Source opening in the page's Small Console.
 
 const REFERENCE = readFileSync("../docs/functions.md", "utf8");
 
@@ -32,9 +32,22 @@ test("a Grid draws one Cell per character", async ({ page }) => {
   await expect(add.locator("span.function")).toHaveCount(2);
 });
 
-test("pressing an example opens it in the page's small console", async ({ page }) => {
+test("pressing an example opens it in the page's Small Console", async ({ page }) => {
   await page.goto("/reference/");
   await send(page, page.locator(".orcvs-grid[data-source]").first());
+});
+
+test("pressing two Grids opens each in the one Small Console, stopped", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/reference/");
+  const grids = page.locator(".orcvs-grid[data-source]");
+  const frame = await send(page, grids.nth(0));
+  const first = await frame.screenshot();
+  await send(page, grids.nth(1));
+  await expect(page.locator("iframe")).toHaveCount(1);
+  expect((await frame.screenshot()).equals(first)).toBe(false);
+  // Stopped: no Tick runs, so the Grid does not change.
+  expect(await holdsStill(frame, page, 1_500)).toBe(true);
 });
 
 test("a console that does not start says so, and the next press starts another", async ({ page }) => {
@@ -45,7 +58,7 @@ test("a console that does not start says so, and the next press starts another",
   await grid.click();
   await expect(page.locator("iframe.orcvs-small")).toHaveCount(1);
   await page.clock.fastForward(30_000);
-  await expect(page.getByRole("status")).toHaveText("The console did not start.");
+  await expect(page.getByRole("status")).toHaveText("The console did not start. Press an example to try again.");
   await expect(page.locator("iframe.orcvs-small")).toHaveCount(0);
 
   await page.unroute("**/play/?small");
