@@ -7,10 +7,10 @@ record Q1–Q16, the prior art and four small checked Grids.
 Publish Kombine as the first complete entry, then preset recall. Each entry
 provides a playable Source File, a sibling guide, a copyable Region and one
 musically meaningful scaling edit. Discover entries through Help → Examples
-(Q5, confirmed). A library index beside the examples is carried from the
-research note's section 1 and is not a confirmed decision. Q10 confirms a
-diagram only for Kombine's Region; a diagram for every entry generalises it and
-is likewise unconfirmed. Where present, a diagram explains the Region, runtime
+(Q5, confirmed), each with the web link name registration gives it, which is
+intended. A library index beside the examples links every entry, and every
+entry's guide carries a diagram, generalising Q10 from Kombine's Region; the
+user confirmed both on 18 November 2026. A diagram explains the Region, runtime
 write space, output pairs and wiring after placement.
 
 ## Delivery order
