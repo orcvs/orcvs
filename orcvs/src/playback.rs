@@ -1652,7 +1652,7 @@ async fn run_engine<A: OutputAdapter, D>(
 mod tests {
     use super::*;
     use crate::grid::Grid;
-    use crate::source::rows::{commander, row, write_at};
+    use crate::source::rows::{at, commander, row, write_at};
 
     mod chord_play;
     mod shipped_knobs;
@@ -3662,13 +3662,12 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_rewind_keeps_the_cells_the_runs_before_it_wrote() {
         let period = Duration::from_secs(1);
-        let source = SourceCommander::new(Grid::with_shape(10, 9));
         // A Slew of `01` a Tick toward `40`, whose value is the pair below it.
-        write(&source, 0, "~>0140");
+        let source = commander(&["~>0140", ""]);
         let value = |source: &SourceCommander| {
             let grid = source.grid();
-            (10..12)
-                .map(|idx| source.get(cell(grid, idx)).unwrap_or_default())
+            (0..2)
+                .map(|column| source.get(at(grid, column, 1)).unwrap_or_default())
                 .collect::<String>()
         };
         let engine = engine(source.clone(), InMemoryOutputAdapter::default());
