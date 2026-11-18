@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 mod acid;
 mod channel;
 mod chorus;
-mod controller;
+pub mod controller;
 mod delay;
 mod drum;
 mod reverb;
@@ -23,6 +23,7 @@ mod web;
 use acid::{Acid, Controls};
 use channel::{Channel, Onset};
 use chorus::Chorus;
+use controller::Control;
 use delay::Delay;
 use drum::{Drum, Instrument};
 use reverb::{Reverb, Room};
@@ -247,20 +248,15 @@ impl Synth {
         match status & 0xF0 {
             0x90 if data2 > 0 => self.note_on(channel, data1, data2),
             0x80 | 0x90 => self.release_note(channel, data1),
-            // All Sound Off and All Notes Off.
-            0xB0 if data1 == 120 || data1 == 123 => self.release_channel(channel),
-            // The acid voice's own controllers come first, so on its channel
-            // CC 74 and 75 are its cutoff and decay.
-            0xB0 => {
-                let taken = if Part::of(channel) == Part::Acid {
-                    self.acid.take(data1, data2)
-                } else {
-                    false
-                };
-                if !taken {
-                    self.channels[usize::from(channel)].set(data1, data2);
+            0xB0 => match Control::of(Part::of(channel), data1) {
+                Some(Control::Release) => self.release_channel(channel),
+                Some(Control::Reset) => self.channels[usize::from(channel)].reset(),
+                Some(Control::Effect(effect)) => {
+                    self.channels[usize::from(channel)].set(effect, data2);
                 }
-            }
+                Some(Control::Acid(control)) => self.acid.set(control, data2),
+                None => {}
+            },
             _ => {}
         }
     }
@@ -383,7 +379,17 @@ impl Synth {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::{CH, DL, EQ, LN, MD, OF, R1, R2, RESET};
+    use crate::controller::{
+        ALL_NOTES_OFF, ALL_SOUND_OFF, CH, DL, ENV_MOD, EQ, LN, MD, OF, R1, R2, RESET, RESONANCE,
+        WAVEFORM,
+    };
+
+    /// Every controller the acid voice answers on its own channel.
+    fn acid_controls() -> impl Iterator<Item = u8> {
+        controller::tests::ACID
+            .into_iter()
+            .map(|(controller, _)| controller)
+    }
 
     const RATE: f32 = 48_000.0;
 
@@ -564,7 +570,7 @@ mod tests {
 
     #[test]
     fn all_notes_off_releases_tones_and_leaves_drums_ringing() {
-        for controller in [120, 123] {
+        for controller in [ALL_SOUND_OFF, ALL_NOTES_OFF] {
             let mut synth = Synth::new(RATE);
             synth.schedule(0, note_on(0, 60, 100));
             synth.schedule(0, note_on(KIT, 36, 100));
@@ -642,7 +648,7 @@ mod tests {
         synth.schedule(0, [0xE0, 0x00, 0x7F]);
         // The acid controls act on the acid channel alone, and controllers 2
         // to 8 are ones no effect answers.
-        for controller in [2, 3, 4, 5, 6, 7, 8, 70, 71, 79, 121] {
+        for controller in [2, 3, 4, 5, 6, 7, 8, WAVEFORM, RESONANCE, ENV_MOD, RESET] {
             synth.schedule(0, [0xB0, controller, 0x7F]);
         }
         synth.schedule(0, [0xC0, 5, 0]);
@@ -1105,8 +1111,8 @@ mod tests {
     /// The acid channel, with its filter opened all the way and no resonance,
     /// so the voice's pitch is plain to count.
     fn open_acid(synth: &mut Synth) {
-        synth.schedule(0, control_change(ACID, 74, 0x7F));
-        synth.schedule(0, control_change(ACID, 71, 0x00));
+        synth.schedule(0, control_change(ACID, EQ, 0x7F));
+        synth.schedule(0, control_change(ACID, RESONANCE, 0x00));
     }
 
     #[test]
@@ -1188,7 +1194,7 @@ mod tests {
     /// filter.
     fn closed_acid(controls: &[(u8, u8)]) -> Synth {
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, control_change(ACID, 74, 0x00));
+        synth.schedule(0, control_change(ACID, EQ, 0x00));
         for &(controller, value) in controls {
             synth.schedule(0, control_change(ACID, controller, value));
         }
@@ -1198,8 +1204,8 @@ mod tests {
 
     #[test]
     fn each_struck_note_opens_the_filter_and_it_closes_as_the_envelope_decays() {
-        let swept = render(&mut closed_acid(&[(79, 0x7F)]), seconds(1.0));
-        let flat = render(&mut closed_acid(&[(79, 0x00)]), seconds(1.0));
+        let swept = render(&mut closed_acid(&[(ENV_MOD, 0x7F)]), seconds(1.0));
+        let flat = render(&mut closed_acid(&[(ENV_MOD, 0x00)]), seconds(1.0));
 
         let opening = rms(&swept[seconds(0.05)..seconds(0.1)]);
         let closed = rms(&swept[seconds(0.9)..]);
@@ -1212,7 +1218,7 @@ mod tests {
     #[test]
     fn a_longer_decay_keeps_the_filter_open_longer() {
         let at_half_a_second = |decay| {
-            let out = render(&mut closed_acid(&[(75, decay)]), seconds(0.6));
+            let out = render(&mut closed_acid(&[(LN, decay)]), seconds(0.6));
             rms(&out[seconds(0.5)..])
         };
 
@@ -1238,8 +1244,8 @@ mod tests {
         // With no envelope depth, only accent opens the closed filter.
         let early = |velocity| {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, control_change(ACID, 74, 0x00));
-            synth.schedule(0, control_change(ACID, 79, 0x00));
+            synth.schedule(0, control_change(ACID, EQ, 0x00));
+            synth.schedule(0, control_change(ACID, ENV_MOD, 0x00));
             synth.schedule(0, note_on(ACID, 45, velocity));
             rms(&render(&mut synth, seconds(0.1))[seconds(0.05)..])
         };
@@ -1253,7 +1259,7 @@ mod tests {
         let note = |waveform| {
             let mut synth = Synth::new(RATE);
             open_acid(&mut synth);
-            synth.schedule(0, control_change(ACID, 70, waveform));
+            synth.schedule(0, control_change(ACID, WAVEFORM, waveform));
             synth.schedule(0, note_on(ACID, 45, 100));
             render(&mut synth, seconds(0.2))
         };
@@ -1275,8 +1281,7 @@ mod tests {
 
     #[test]
     fn reset_all_controllers_leaves_the_acid_voices_sound_alone() {
-        let turned: Vec<[u8; 3]> = [70, 71, 74, 75, 79]
-            .into_iter()
+        let turned: Vec<[u8; 3]> = acid_controls()
             .map(|controller| control_change(ACID, controller, 0x7F))
             .collect();
         let plain = acid_after(&[]);
@@ -1323,7 +1328,7 @@ mod tests {
     fn the_acid_controls_on_another_channel_change_nothing() {
         let plain = acid_after(&[]);
 
-        for controller in [70, 71, 74, 75, 79, 121] {
+        for controller in acid_controls().chain([RESET]) {
             assert_eq!(acid_after(&[[0xB0, controller, 0x7F]]), plain);
             assert_eq!(acid_after(&[control_change(KIT, controller, 0x7F)]), plain);
         }
@@ -1331,7 +1336,7 @@ mod tests {
 
     #[test]
     fn all_notes_off_silences_the_acid_voice() {
-        for controller in [120, 123] {
+        for controller in [ALL_SOUND_OFF, ALL_NOTES_OFF] {
             let mut synth = Synth::new(RATE);
             synth.schedule(0, note_on(ACID, 45, 100));
             synth.schedule(10, control_change(ACID, controller, 0));
@@ -1345,7 +1350,7 @@ mod tests {
     fn the_acid_voice_stays_finite_and_falls_silent_at_any_setting() {
         for value in [0x00, 0x7F] {
             let mut synth = Synth::new(RATE);
-            for controller in [70, 71, 74, 75, 79] {
+            for controller in acid_controls() {
                 synth.schedule(0, control_change(ACID, controller, value));
             }
             for step in 0..16u64 {
@@ -1367,7 +1372,7 @@ mod tests {
 
     #[test]
     fn resonance_keeps_the_note_about_as_loud() {
-        let loudness = |resonance| rms(&acid_after(&[control_change(ACID, 71, resonance)]));
+        let loudness = |resonance| rms(&acid_after(&[control_change(ACID, RESONANCE, resonance)]));
 
         let ratio = loudness(0x7F) / loudness(0x00);
         assert!((0.7..1.4).contains(&ratio), "{ratio}");
@@ -1390,8 +1395,8 @@ mod tests {
     fn raising_the_cutoff_opens_the_filter() {
         let loudness = |cutoff| {
             rms(&acid_after(&[
-                control_change(ACID, 79, 0x00),
-                control_change(ACID, 74, cutoff),
+                control_change(ACID, ENV_MOD, 0x00),
+                control_change(ACID, EQ, cutoff),
             ]))
         };
 
@@ -1403,9 +1408,9 @@ mod tests {
         // Cutoff `40` is about 330 Hz, the sixth harmonic of A1's 55 Hz.
         let peak = |resonance| {
             let out = acid_after(&[
-                control_change(ACID, 79, 0x00),
-                control_change(ACID, 74, 0x40),
-                control_change(ACID, 71, resonance),
+                control_change(ACID, ENV_MOD, 0x00),
+                control_change(ACID, EQ, 0x40),
+                control_change(ACID, RESONANCE, resonance),
             ]);
             let harmonic = |n: f32| amplitude_at(&out[seconds(0.05)..], 55.0 * n);
             harmonic(6.0) / harmonic(1.0)
@@ -1422,7 +1427,7 @@ mod tests {
     #[test]
     fn an_accented_note_takes_the_shortest_decay() {
         let closing = |velocity| {
-            let mut synth = closed_acid(&[(79, 0x7F), (75, 0x7F)]);
+            let mut synth = closed_acid(&[(ENV_MOD, 0x7F), (LN, 0x7F)]);
             synth.schedule(0, note_off(ACID, 45));
             synth.schedule(1, note_on(ACID, 45, velocity));
             let out = render(&mut synth, seconds(0.6));
@@ -1437,7 +1442,7 @@ mod tests {
         // C7's twenty-third harmonic, 48 139 Hz, would fold back to 139 Hz,
         // below the note and inside the filter's passband.
         let mut synth = Synth::new(RATE);
-        synth.schedule(0, control_change(ACID, 74, 0x7F));
+        synth.schedule(0, control_change(ACID, EQ, 0x7F));
         synth.schedule(0, note_on(ACID, 96, 100));
         let out = render(&mut synth, seconds(1.0));
 
@@ -1485,7 +1490,7 @@ mod tests {
     fn a_note_slid_into_takes_its_own_velocity() {
         let slid_into = |velocity| {
             let mut synth = Synth::new(RATE);
-            synth.schedule(0, control_change(ACID, 79, 0x00));
+            synth.schedule(0, control_change(ACID, ENV_MOD, 0x00));
             synth.schedule(0, note_on(ACID, 45, 0x40));
             synth.schedule(seconds(0.2) as u64, note_on(ACID, 47, velocity));
             rms(&render(&mut synth, seconds(0.4))[seconds(0.3)..])

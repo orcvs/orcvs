@@ -2,7 +2,7 @@
 //! them.
 
 use crate::chorus::Chorus;
-use crate::controller::{CH, DL, R1, R2};
+use crate::controller::SharedEffect;
 use crate::delay::Delay;
 use crate::reverb::Reverb;
 
@@ -19,25 +19,23 @@ pub(crate) struct Sends<C, D = C, S = C, L = S> {
 }
 
 impl<T> Sends<T> {
-    /// Four values, each made by `make`.
-    pub(crate) fn from_fn(mut make: impl FnMut() -> T) -> Self {
+    /// Four values, each made by `make` for its shared effect.
+    pub(crate) fn from_fn(mut make: impl FnMut(SharedEffect) -> T) -> Self {
         Self {
-            chorus: make(),
-            delay: make(),
-            small: make(),
-            large: make(),
+            chorus: make(SharedEffect::Chorus),
+            delay: make(SharedEffect::Delay),
+            small: make(SharedEffect::Small),
+            large: make(SharedEffect::Large),
         }
     }
 
-    /// The one sent on `controller`, if it is a send's: `CH`, `DL`, `R1` or
-    /// `R2`.
-    pub(crate) fn on(&mut self, controller: u8) -> Option<&mut T> {
-        match controller {
-            CH => Some(&mut self.chorus),
-            DL => Some(&mut self.delay),
-            R1 => Some(&mut self.small),
-            R2 => Some(&mut self.large),
-            _ => None,
+    /// The one for `effect`.
+    pub(crate) fn of(&mut self, effect: SharedEffect) -> &mut T {
+        match effect {
+            SharedEffect::Chorus => &mut self.chorus,
+            SharedEffect::Delay => &mut self.delay,
+            SharedEffect::Small => &mut self.small,
+            SharedEffect::Large => &mut self.large,
         }
     }
 

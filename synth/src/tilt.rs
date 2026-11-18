@@ -19,19 +19,25 @@ pub(crate) struct Tilt {
     tilt: Smoothing,
 }
 
+/// The tilt at a Control Change value, from `-1` to just under `1`: `40` is
+/// flat, lower is darker and higher is brighter.
+pub(crate) const fn amount(value: u8) -> f32 {
+    (value as f32 - 64.0) / 64.0
+}
+
 impl Tilt {
-    pub(crate) fn new(sample_rate: f32) -> Self {
+    /// A tilt at Control Change `value` from the start.
+    pub(crate) fn new(sample_rate: f32, value: u8) -> Self {
         Self {
             coefficient: 1.0 - (-TAU * PIVOT / sample_rate).exp(),
             low: 0.0,
-            tilt: Smoothing::new(sample_rate, 0.0),
+            tilt: Smoothing::new(sample_rate, amount(value)),
         }
     }
 
-    /// Sets the tilt from a Control Change value: `40` is flat, lower is
-    /// darker and higher is brighter.
+    /// Sets the tilt from a Control Change value.
     pub(crate) fn set(&mut self, value: u8) {
-        self.tilt.set((f32::from(value) - 64.0) / 64.0);
+        self.tilt.set(amount(value));
     }
 
     /// Whether it is flat and staying there, so it passes the channel
