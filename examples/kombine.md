@@ -120,8 +120,10 @@ at (x, y + 2).
 The Tracker's closed hat, voice 2, plays `f2` on every second step on channel
 `09` at velocity `77`. The transfer gives it the four accents.
 
-1. In Kombine, drag a Region from (0, 9) to (17, 11), or hold Shift with the
-   arrows, and copy it. The copy holds whatever the Track and Clock last
+1. Start from Kombine as shipped: if you made the three-step edit above, open
+   **Help > Examples > Kombine** again first, so the Region holds four
+   velocities and both operands read `04`. Then drag a Region from (0, 9) to
+   (17, 11), or hold Shift with the arrows, and copy it. The copy holds whatever the Track and Clock last
    wrote in row 11; the Track writes over it on the first Tick.
 2. Open **Help > Examples > Tracker**, put the Cursor at (2, 32), two rows
    below the last pattern row, and paste. The Region lands from (2, 32) to
