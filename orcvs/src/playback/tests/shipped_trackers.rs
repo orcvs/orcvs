@@ -6,7 +6,11 @@
 //! handed. The expected notes are written out per voice beside the file they
 //! describe, so a change to either shows up here.
 
-use super::{HandDrivenRun, functions_mapped, note_on, stop, tick_diagnostics};
+use super::shipped_kombine::{ACCENT_REGION, GUIDE as KOMBINE_GUIDE, KOMBINE};
+use super::{
+    HandDrivenRun, assert_delivers, assert_guide_draws, edited, functions_mapped, map_diagnostics,
+    note_on, stop, tick_diagnostics,
+};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::rows::at;
 use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, file};
@@ -27,11 +31,13 @@ struct Tracker<'a> {
 }
 
 /// One voice of a tracker: its MIDI channel, where its Timed Play is
-/// anchored, and the Note each step holds, `None` for an empty step.
+/// anchored, the Note each step holds, `None` for an empty step, and the
+/// velocity each step plays at when it is not the tracker's.
 struct Voice {
     channel: u8,
     play: (usize, usize),
     steps: Vec<Option<u8>>,
+    velocities: Option<Vec<u8>>,
 }
 
 impl Tracker<'_> {
@@ -55,8 +61,9 @@ impl Sounding {
     ///
     /// Each voice is banged on the first Tick of each step. Lifetimes that end
     /// at `tick` stop first, in the order they started. An occupied step then
-    /// plays its Note for the tracker's length, stopping the same Note first
-    /// if it is still sounding; an empty step's Timed Play sends nothing.
+    /// plays its Note for the tracker's length, at the voice's velocity for
+    /// that step or else the tracker's, stopping the same Note first if it is
+    /// still sounding; an empty step's Timed Play sends nothing.
     ///
     fn expect(&mut self, tracker: &Tracker<'_>, tick: u64) -> Vec<OutputCommand> {
         let mut delivery = Vec::new();
@@ -79,7 +86,11 @@ impl Sounding {
                 if self.0.len() < before {
                     delivery.push(stop(voice.channel, note));
                 }
-                delivery.push(note_on(voice.channel, tracker.velocity, note));
+                let velocity = voice
+                    .velocities
+                    .as_ref()
+                    .map_or(tracker.velocity, |velocities| velocities[step]);
+                delivery.push(note_on(voice.channel, velocity, note));
                 self.0.push((voice.channel, note, tick + tracker.length));
             }
         }
@@ -155,25 +166,9 @@ fn the_melody_delivers_its_first_loop_as_written_out() {
         vec![],
         vec![stop(0, 72), note_on(0, 0x64, 60)],
     ];
-    let source = SourceCommander::with_source(
-        file::read(include_bytes!("../../../../examples/melody.orcvs"))
-            .expect("the shipped file is a Source File"),
-    );
-    let adapter = InMemoryOutputAdapter::default();
-    let mut run = HandDrivenRun::new(source, adapter.clone());
-    run.begin_run();
-
-    for (tick, delivery) in expected.into_iter().enumerate() {
-        let plan = run.run_tick(tick as u64);
-        // The Play is banged with an empty note on steps 2, 4 and 7, which
-        // sends nothing and reports nothing.
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
-        assert_eq!(
-            adapter.command_lists().last(),
-            Some(&delivery),
-            "Tick {tick}'s delivery"
-        );
-    }
+    // The Play is banged with an empty note on steps 2, 4 and 7, which
+    // sends nothing and reports nothing.
+    assert_delivers(include_str!("../../../../examples/melody.orcvs"), &expected);
 }
 
 #[test]
@@ -201,6 +196,7 @@ fn the_melody_plays_two_loops_and_sends_nothing_on_its_empty_pairs() {
                     Some(72),
                     None,
                 ],
+                velocities: None,
             }],
         },
     );
@@ -327,6 +323,7 @@ fn tracker_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
                     13 - 3 * usize::from(v),
                 ),
                 steps: steps(notes, voice, 16),
+                velocities: None,
             });
         }
     }
@@ -441,6 +438,171 @@ fn a_half_typed_step_silences_only_its_own_voice() {
     assert_eq!(played, [(8, 33), (9, 42)]);
 }
 
+/// The shipped Tracker Source File's text.
+const TRACKER: &str = include_str!("../../../../examples/tracker.orcvs");
+
+/// The Tracker row the Kombine's accent Region lands on: the guide pastes its
+/// top-left Cell at (2, 32), two rows below the last pattern row.
+const ACCENT_REGION_ROW: usize = 32;
+
+///
+/// The Tracker after the Kombine guide's transfer, built from the two shipped
+/// files and the guide's edits rather than typed out, so a change to either
+/// file or to the guide shows up here:
+///
+/// 1. The Kombine's accent Region, from (0, 9) to (17, 11) with its blank
+///    row of written Cells, pasted with its top-left at (2, 32).
+/// 2. The pasted accent Clock's `division`, at (6, 33), changed from `01` to
+///    `02`, so the hat's hits on every second Tick each sample the next
+///    velocity.
+/// 3. The closed hat's Timed Play takes `&$0222`, an Absolute Read of the
+///    Region's Output Portal at (2, 34), for its velocity in place of `77`.
+///    The Read is four Cells wider than `77`, so the Play and its Every move
+///    four columns west, leaving the nested `&v`'s `distance` slot at
+///    (26, 7), where the voice's Add writes it.
+///
+/// Every row the transfer changes, the empty row 34 among them, is drawn in
+/// the guide as it stands here, before the first Tick. Rows 6 and 7 are drawn
+/// there as the shipped Tracker holds them too, before the transfer.
+///
+fn transferred_tracker() -> String {
+    for (row, line) in TRACKER.lines().enumerate().skip(6).take(2) {
+        assert_guide_draws(KOMBINE_GUIDE, row, line);
+    }
+    assert!(
+        TRACKER.lines().count() <= ACCENT_REGION_ROW,
+        "the Tracker ends above the rows the Region is pasted on"
+    );
+    let (first, height, width) = ACCENT_REGION;
+    let region: Vec<String> = KOMBINE
+        .lines()
+        .chain(std::iter::repeat(""))
+        .skip(first)
+        .take(height)
+        .map(|line| {
+            assert!(line.len() <= width, "the Region holds all of {line:?}");
+            // A row the Region holds only empty Cells on stays empty.
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("  {line}")
+            }
+        })
+        .collect();
+    let mut edits: Vec<(usize, usize, &str, &str)> = (ACCENT_REGION_ROW..)
+        .zip(&region)
+        .map(|(row, line)| (row, 0, "", line.as_str()))
+        .collect();
+    edits.extend([
+        (ACCENT_REGION_ROW + 1, 2, "&t~.01", "&t~.02"),
+        (6, 12, "    ~*0101", "~*0101    "),
+        (7, 14, "    !~0977&v  01", "!~09&$0222&v  01"),
+    ]);
+    let text = edited(TRACKER, &edits);
+    for row in (6..8).chain(ACCENT_REGION_ROW..ACCENT_REGION_ROW + height) {
+        let line = text.lines().nth(row).expect("the transfer holds the row");
+        assert_guide_draws(KOMBINE_GUIDE, row, line);
+    }
+    text
+}
+
+///
+/// The transferred Tracker's voices: the shipped Tracker's, with the closed
+/// hat's Play at (14, 7) and its steps playing `velocities`.
+///
+/// The hat comes last. Its Absolute Read waits on the accent Track below the
+/// pattern, so the Play takes its Turn, and hands Playback its Note, after
+/// every other voice's on the same Tick.
+///
+fn transferred_voices(notes: &[(u8, usize, u8)], velocities: [u8; 16]) -> Vec<Voice> {
+    let mut voices = tracker_voices(notes);
+    let at = voices
+        .iter()
+        .position(|voice| voice.play == (18, 7))
+        .expect("the closed hat's Play stands at (18, 7)");
+    let mut hat = voices.remove(at);
+    hat.play = (14, 7);
+    hat.velocities = Some(velocities.to_vec());
+    voices.push(hat);
+    voices
+}
+
+/// The transferred Tracker played as Orca plays it, with the Plays the
+/// Language Map diagnoses before Tick 0 in Source order.
+fn transferred_patch(voices: &[Voice]) -> Tracker<'_> {
+    let mut patch = orca_patch(voices);
+    patch.waiting.sort_by_key(|&(column, row)| (row, column));
+    patch
+}
+
+///
+/// The closed hat's velocity at each of the sixteen steps after the transfer:
+/// the accent Clock holds each velocity for two Ticks, so the hits on steps
+/// 0, 2, 4 and 6 play `70`, `30`, `50` and `40`, and steps 8 to 14 repeat
+/// them.
+///
+const HAT_ACCENTS: [u8; 16] = [
+    0x70, 0x70, 0x30, 0x30, 0x50, 0x50, 0x40, 0x40, 0x70, 0x70, 0x30, 0x30, 0x50, 0x50, 0x40, 0x40,
+];
+
+#[test]
+fn the_transferred_accent_region_plays_all_four_velocities_on_the_closed_hat() {
+    // The kick, snare and bassline keep velocity `77` and their own steps;
+    // only the hat's hits take the accents.
+    let voices = transferred_voices(&[beat(16), bassline(3, 16)].concat(), HAT_ACCENTS);
+    assert_two_loops(
+        transferred_tracker().as_bytes(),
+        &transferred_patch(&voices),
+    );
+}
+
+#[test]
+fn a_deleted_hat_hit_leaves_the_later_accents_on_their_tick() {
+    // Clearing the `f2` of step 2 rests that hit. The accent Clock follows the
+    // absolute Tick rather than counting hits, so step 4 still plays `50` and
+    // step 8 the loud `70`.
+    let text = edited(&transferred_tracker(), &[(17, 26, "f2", "  ")]);
+    let notes: Vec<(u8, usize, u8)> = [beat(16), bassline(3, 16)]
+        .concat()
+        .into_iter()
+        .filter(|&(voice, step, _)| (voice, step) != (2, 2))
+        .collect();
+    let voices = transferred_voices(&notes, HAT_ACCENTS);
+    assert_two_loops(text.as_bytes(), &transferred_patch(&voices));
+}
+
+///
+/// Before the first Tick the Language Map diagnoses the transferred Tracker
+/// as it diagnoses the shipped one, with the closed hat's Play diagnosed
+/// where it now stands, and each Cell of the pasted velocities twice, as an
+/// unknown Function and as a character that starts no Language Unit: the
+/// Track data Kombine itself opens diagnosed with.
+///
+#[test]
+fn the_transferred_tracker_opens_diagnosing_the_pasted_velocities() {
+    let diagnosed = |text: &str| -> Vec<(usize, usize)> {
+        let source = SourceCommander::with_source(
+            file::read(text.as_bytes()).expect("the text is a Source File"),
+        );
+        map_diagnostics(&source)
+            .into_iter()
+            .map(|(column, row, _)| (column, row))
+            .collect()
+    };
+    let shipped = diagnosed(TRACKER);
+    assert!(
+        shipped.contains(&(18, 7)),
+        "the hat's Play waits on its note"
+    );
+    let mut expected: Vec<(usize, usize)> = shipped
+        .into_iter()
+        .map(|anchor| if anchor == (18, 7) { (14, 7) } else { anchor })
+        .chain((12..20).flat_map(|column| [(column, ACCENT_REGION_ROW + 1); 2]))
+        .collect();
+    expected.sort_by_key(|&(column, row)| (row, column));
+    assert_eq!(diagnosed(&transferred_tracker()), expected);
+}
+
 /// The channel each Sequencer voice plays on: the beat's three voices and the
 /// ninth share the Built-in Synth's kit on `09`, the last plays its acid voice
 /// on `08`, and the others keep Learn Orca's.
@@ -458,6 +620,7 @@ fn sequencer_voices(notes: &[(u8, usize, u8)]) -> Vec<Voice> {
             channel: SEQUENCER_CHANNELS[usize::from(voice)],
             play: (4, 4 + 3 * usize::from(voice)),
             steps: steps(notes, voice, 32),
+            velocities: None,
         })
         .collect()
 }
