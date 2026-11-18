@@ -15,8 +15,10 @@ none of which test legato.
       `snapshot`, `seeded_source`, `rows_of` and `cell` helpers that `source/tick/fixture.rs` kept
       to itself.
 - [x] `playback.rs`, `playback/tests/*` and `midi.rs` build their Sources through it.
-- [x] The duplicate `cell(grid, idx)` helpers in `orcvs/src`, `orcvs/tests/allocation.rs` and
-      `orcvs/benches/source.rs` are gone.
+- [x] The duplicate named `cell(grid, idx)` helpers in `orcvs/src`, `orcvs/tests/allocation.rs`
+      and `orcvs/benches/source.rs` are gone. The `let cell = |idx| …` closures in the Source
+      model tests (`source/mod.rs`, `tests/language_map.rs`) and the Grid's own test of
+      `cell_index` (`grid.rs`) stay, for the reason `source/model.rs` keeps its writers below.
 - [x] The module is gated on `test-grid-shapes`, with the reason recorded in `orcvs/Cargo.toml`.
 
 ## Comments
@@ -39,3 +41,11 @@ empty last row or trailing spaces: `a_tick_hands_the_adapter_how_late_it_is_subm
 
 Other `orcvs` test modules, such as `render_frame.rs`, still write at flat indices into a stated
 Grid. They were left as they are.
+
+The Tick tests' shared fixture moved here and changed with the move: `snapshot` takes its width
+from `grid.columns()` rather than `grid.count() / rows.len()`, leaves every Grid row past the last
+one stated blank, and refuses text outside ASCII, a row wider than the Grid, and more rows than
+the Grid has. `rows_of` reads the Grid from the Source it is given and takes no `grid` parameter,
+which is why `tick/clear.rs`, `live_editing.rs`, `outputs.rs` and `tick_functions.rs` changed.
+The Tick tests' own `source_of` gave way to `seeded_source`, and the Tick test modules import
+these helpers from `crate::source::rows` directly.
