@@ -6,11 +6,12 @@ use crate::source::Cells;
 use crate::source::language_map::LanguageMap;
 
 use super::PortalError;
-use super::fixture::{anchors, messages, snapshot, tick_by_tick, turns};
+use super::fixture::{anchors, messages, tick_by_tick, turns};
 use super::observed::{committed_portals, locks, painted};
 use super::portals::LockVerdict;
 use super::{Tick, execution::ComputationState};
 use crate::render_frame::PortalRole;
+use crate::source::rows::snapshot;
 
 #[test]
 fn halt_does_not_supply_cells_read_by_a_copy() {

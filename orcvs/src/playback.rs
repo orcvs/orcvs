@@ -3232,7 +3232,7 @@ mod tests {
         // every later Bang, so the Play sends nothing and reports nothing, and
         // the note the first Tick started runs to its own stop, with no Note
         // Off in between.
-        for (route, (rows, (column, row))) in [
+        for (route, (rows, (blank_column, blank_row))) in [
             (&[".=0101", "", "!%007FC404  "][..], (6, 2)),
             (&[".=0101", "      &t0001C4", "!%007F  04  "][..], (12, 1)),
         ]
@@ -3245,7 +3245,7 @@ mod tests {
             run.begin_run();
 
             run.run_tick(0);
-            write_at(&source, column, row, "  ");
+            write_at(&source, blank_column, blank_row, "  ");
             for tick in 1..4 {
                 let plan = run.run_tick(tick);
                 assert_eq!(plan.play_commands, vec![], "route {route}, Tick {tick}");

@@ -6,8 +6,9 @@ use crate::source::language_map::LanguageMap;
 use crate::source::{Cells, MidiChannel, Note, PlayCommand, Velocity};
 
 use super::Tick;
-use super::fixture::{carried_source, planned, snapshot, tick_by_tick};
+use super::fixture::{carried_source, planned, tick_by_tick};
 use super::observed::raw;
+use crate::source::rows::snapshot;
 
 #[test]
 fn a_bang_activates_its_aligned_neighbours_and_no_further_root() {

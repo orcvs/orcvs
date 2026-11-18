@@ -5,10 +5,11 @@
 
 use lang::{NetworkSend, OscArgument, OscMessage, Tick};
 
-use super::observed::{diagnostic, observed, rows_of, source_of};
+use super::observed::{diagnostic, observed};
 use crate::grid::Grid;
 use crate::source::Source;
 use crate::source::language_map::LanguageUnitKind;
+use crate::source::rows::{rows_of, seeded_source};
 
 /// The Grid every test here draws, 24 Cells wide, so row 1 begins at Cell 24
 /// and the Payload of a root at (2, 1) at Cell 28.
@@ -25,7 +26,7 @@ fn banged_over(beside: &str, root: &str, below: &[&str]) -> Source {
         .map(String::as_str)
         .chain(below.iter().copied())
         .collect();
-    source_of(grid(), &rows)
+    seeded_source(grid(), &rows)
 }
 
 fn banged(beside: &str, root: &str) -> Source {
@@ -76,7 +77,7 @@ fn an_empty_payload_sends_nothing_and_reports_nothing() {
 
 #[test]
 fn an_unbanged_payload_function_sends_nothing() {
-    let mut source = source_of(grid(), &["", "  !uhello!"]);
+    let mut source = seeded_source(grid(), &["", "  !uhello!"]);
     assert!(source.execute(Tick::ZERO).network_sends.is_empty());
 }
 

@@ -8,6 +8,7 @@
 
 use super::{HandDrivenRun, functions_mapped, note_on, stop, tick_diagnostics};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
+use crate::source::rows::at;
 use crate::source::{LanguageUnitKind, PlayCommand, SourceCommander, Tick, file};
 
 ///
@@ -408,7 +409,7 @@ fn a_half_typed_step_silences_only_its_own_voice() {
             .expect("the shipped file is a Source File"),
     );
     let grid = source.grid();
-    source.unset(crate::source::rows::at(grid, 13, 15));
+    source.unset(at(grid, 13, 15));
 
     let plan = source.execute(Tick::ZERO);
 

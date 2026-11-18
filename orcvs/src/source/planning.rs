@@ -196,18 +196,9 @@ impl Attempt<'_, '_> {
 mod tests {
     use super::{StalePlan, TickCommit};
     use crate::grid::Grid;
-    use crate::source::rows::cell;
+    use crate::source::rows::{at, write_at};
     use crate::source::tick::observed::raw_c4;
     use crate::source::{OPTIMISTIC_TICK_ATTEMPTS, PortalEvent, SourceCommander, Tick};
-
-    fn type_at(source: &SourceCommander, start: usize, text: &str) {
-        let grid = source.grid();
-        for (offset, content) in text.chars().enumerate() {
-            source
-                .set(cell(grid, start + offset), &content.to_string())
-                .expect("a Cell the Source accepts");
-        }
-    }
 
     fn row(source: &SourceCommander, y: usize) -> String {
         let columns = source.grid().columns();
@@ -217,7 +208,7 @@ mod tests {
     #[test]
     fn a_captured_snapshot_holds_no_source_lock() {
         let source = SourceCommander::new(Grid::with_shape(8, 2));
-        type_at(&source, 0, ".+0102");
+        write_at(&source, 0, 0, ".+0102");
 
         let snapshot = source.planning_snapshot();
 
@@ -232,11 +223,11 @@ mod tests {
     #[test]
     fn a_snapshot_names_the_revision_its_contents_came_from() {
         let source = SourceCommander::new(Grid::with_shape(8, 2));
-        type_at(&source, 0, ".+0102");
+        write_at(&source, 0, 0, ".+0102");
         let before = source.revision();
 
         let snapshot = source.planning_snapshot();
-        type_at(&source, 5, "5");
+        write_at(&source, 5, 0, "5");
 
         assert_eq!(snapshot.revision, before);
         assert_eq!(&snapshot.cells.as_str()[..6], ".+0102");
@@ -246,7 +237,7 @@ mod tests {
     #[test]
     fn a_snapshot_shares_the_cells_rather_than_copying_them() {
         let source = SourceCommander::new(Grid::with_shape(8, 2));
-        type_at(&source, 0, ".+0102");
+        write_at(&source, 0, 0, ".+0102");
 
         let snapshot = source.planning_snapshot();
 
@@ -257,11 +248,11 @@ mod tests {
     #[test]
     fn an_edit_between_plan_and_commit_is_never_overwritten() {
         let source = SourceCommander::new(Grid::with_shape(8, 2));
-        type_at(&source, 0, ".+0102");
+        write_at(&source, 0, 0, ".+0102");
 
         let planned = source.planning_snapshot().plan(Tick::ZERO);
         // The edit lands while the plan that answers `03` is being made.
-        type_at(&source, 5, "5");
+        write_at(&source, 5, 0, "5");
         let edited = source.snapshot();
 
         assert_eq!(source.commit_planned(planned), Err(StalePlan));
@@ -278,14 +269,14 @@ mod tests {
     fn a_refused_plan_carrying_play_commands_delivers_none_of_them() {
         let grid = Grid::with_shape(10, 3);
         let source = SourceCommander::new(grid);
-        type_at(&source, 0, ".=0101");
-        type_at(&source, 20, "!>007FC4");
+        write_at(&source, 0, 0, ".=0101");
+        write_at(&source, 0, 2, "!>007FC4");
 
         let planned = source.planning_snapshot().plan(Tick::ZERO);
         assert_eq!(planned.executed.plan().play_commands, vec![raw_c4()]);
         assert!(!planned.executed.plan().writes.is_empty());
         // The Raw Play is deleted while the plan that sounds it is made.
-        source.unset(cell(grid, 20));
+        source.unset(at(grid, 0, 2));
         let edited = source.snapshot();
 
         // Refusal hands back no plan, so there is no Play Command, write,
@@ -304,18 +295,20 @@ mod tests {
         // Two Sources holding the same revision, one planned from a copied
         // snapshot and one under the write guard, Tick after Tick: every plan
         // and every revision the commits leave agree.
-        let fixtures: [(usize, &[(usize, &str)]); 3] = [
-            (8, &[(0, ".+0102")]),
-            (16, &[(0, "~+0110"), (8, "~.0110")]),
-            (10, &[(0, ".=0101"), (20, "!>007FC4")]),
+        // The text typed at a column of a row.
+        type Typed = (usize, usize, &'static str);
+        let fixtures: [(usize, &[Typed]); 3] = [
+            (8, &[(0, 0, ".+0102")]),
+            (16, &[(0, 0, "~+0110"), (8, 0, "~.0110")]),
+            (10, &[(0, 0, ".=0101"), (0, 2, "!>007FC4")]),
         ];
         for (columns, texts) in fixtures {
             let grid = Grid::with_shape(columns, 3);
             let planned = SourceCommander::new(grid);
             let locked = SourceCommander::new(grid);
-            for (start, text) in texts {
-                type_at(&planned, *start, text);
-                type_at(&locked, *start, text);
+            for (column, y, text) in texts {
+                write_at(&planned, *column, *y, text);
+                write_at(&locked, *column, *y, text);
             }
 
             let mut tick = Tick::ZERO;
@@ -341,7 +334,7 @@ mod tests {
     #[test]
     fn a_tick_nothing_edits_commits_on_its_first_optimistic_attempt() {
         let source = SourceCommander::new(Grid::with_shape(8, 2));
-        type_at(&source, 0, ".+0102");
+        write_at(&source, 0, 0, ".+0102");
         let mut commit = TickCommit::new(&source, Tick::ZERO);
 
         let first = commit.plan();
@@ -360,7 +353,7 @@ mod tests {
         // edit that landed before it.
         let grid = Grid::with_shape(8, 2);
         let source = SourceCommander::new(grid);
-        type_at(&source, 0, ".+0100");
+        write_at(&source, 0, 0, ".+0100");
         let mut commit = TickCommit::new(&source, Tick::ZERO);
 
         for attempt in 1..=OPTIMISTIC_TICK_ATTEMPTS {
@@ -370,14 +363,14 @@ mod tests {
                 source.inner.try_write().is_ok(),
                 "attempt {attempt} holds a guard between its plan and its commit"
             );
-            type_at(&source, 4, &format!("{attempt:02X}"));
+            write_at(&source, 4, 0, &format!("{attempt:02X}"));
             assert_eq!(planned.commit(), Err(StalePlan));
             assert_eq!(row(&source, 1), "        ", "attempt {attempt} wrote");
         }
 
         let locked = commit.plan();
         assert!(locked.is_locked());
-        type_at(&source, 4, "0A");
+        write_at(&source, 4, 0, "0A");
         let plan = locked
             .commit()
             .expect("the locked attempt cannot be refused");
@@ -395,13 +388,13 @@ mod tests {
         // the last edit pointed.
         let grid = Grid::with_shape(4, 4);
         let source = SourceCommander::new(grid);
-        type_at(&source, 0, "&v01");
+        write_at(&source, 0, 0, "&v01");
         let mut commit = TickCommit::new(&source, Tick::ZERO);
 
         for attempt in 1..=OPTIMISTIC_TICK_ATTEMPTS {
             let planned = commit.plan();
             assert!(!planned.is_locked(), "attempt {attempt} took the lock");
-            type_at(&source, 3, &format!("{}", attempt % 2 + 1));
+            write_at(&source, 3, 0, &format!("{}", attempt % 2 + 1));
             assert_eq!(planned.commit(), Err(StalePlan));
             assert!(
                 source.read_revision().tick_portals().is_none(),
@@ -411,7 +404,7 @@ mod tests {
 
         let locked = commit.plan();
         assert!(locked.is_locked());
-        type_at(&source, 3, "3");
+        write_at(&source, 3, 0, "3");
         locked
             .commit()
             .expect("the locked attempt cannot be refused");
@@ -448,15 +441,15 @@ mod tests {
         // count twice; a retry that consumed a Tick would skip a step.
         let grid = Grid::with_shape(16, 2);
         let source = SourceCommander::new(grid);
-        type_at(&source, 0, "~+0110");
-        type_at(&source, 8, "~.0110");
+        write_at(&source, 0, 0, "~+0110");
+        write_at(&source, 8, 0, "~.0110");
 
         let mut tick = Tick::ZERO;
         for step in 1..=6u8 {
             if step % 2 == 0 {
                 let planned = source.planning_snapshot().plan(tick);
                 // An edit in a Cell no Tick reads or writes.
-                type_at(&source, 15, if step % 4 == 0 { "x" } else { "y" });
+                write_at(&source, 15, 0, if step % 4 == 0 { "x" } else { "y" });
                 assert_eq!(source.commit_planned(planned), Err(StalePlan));
             }
             source.execute(tick);
@@ -476,7 +469,7 @@ mod tests {
         // surviving a stale plan; the deterministic tests above do.
         let grid = Grid::with_shape(16, 2);
         let source = SourceCommander::new(grid);
-        type_at(&source, 0, "~+01FF");
+        write_at(&source, 0, 0, "~+01FF");
         const TICKS: u8 = 200;
 
         let editor = source.clone();
@@ -484,9 +477,9 @@ mod tests {
             let grid = editor.grid();
             for round in 0..2_000usize {
                 let content = if round % 2 == 0 { "a" } else { "b" };
-                editor.set(cell(grid, 12), content).unwrap();
+                editor.set(at(grid, 12, 0), content).unwrap();
             }
-            editor.set(cell(grid, 12), "z").unwrap();
+            editor.set(at(grid, 12, 0), "z").unwrap();
         });
 
         let mut tick = Tick::ZERO;

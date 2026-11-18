@@ -12,9 +12,10 @@ use lang::{Function, Tick};
 
 use super::observed::{
     MISSED_BANG, Observed, accesses, committed_portals, diagnostic, first, observe_at, observed,
-    quiet, raw, rows_of, source_of, turn_before, turns,
+    quiet, raw, turn_before, turns,
 };
 use crate::grid::Grid;
+use crate::source::rows::{rows_of, seeded_source};
 use crate::source::{CellContent, CellWrite};
 
 /// The diagnostic `=$` gives a source pair it cannot read.
@@ -40,7 +41,7 @@ fn an_unwritten_operand_makes_the_absolute_copy_invalid() {
         "=$00010x02",
     ] {
         let rows = [row, "C4", "xxxxxxxxxx"];
-        let source = source_of(Grid::with_shape(10, 3), &rows);
+        let source = seeded_source(Grid::with_shape(10, 3), &rows);
         assert!(
             source
                 .language_map()
@@ -118,7 +119,7 @@ fn a_destination_the_turn_resolved_before_its_interpretation_failed_is_not_recor
     // `=$` resolves (6, 3) as its destination, reads the partial pair at
     // (10, 1), and its interpretation fails: the read is recorded and no
     // write, because nothing was delivered to (6, 3).
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(16, 4),
         &["=$0A010603", "        C4D 4", "", ""],
     );
@@ -144,7 +145,7 @@ fn an_empty_source_clears_the_destination() {
 fn a_bang_copied_onto_a_roots_anchor_overwrites_it_and_activates_the_roots_aligned_with_it() {
     // Equality writes `**` at (10, 1), and `=$` copies it over Raw Play C4's
     // anchor, so C4 does not run, and activates Raw Play D4 south of it.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(16, 4),
         &["=$0A010002.=0101", "", "!>007FC4", "!>007FD4"],
     );
@@ -271,7 +272,7 @@ fn a_source_that_is_the_destination_is_rewritten_unchanged() {
     // The Tick Plan carries the write of `C4` over itself, so a `=$` that
     // wrote nothing would fail here though the Cells read the same.
     let grid = Grid::with_shape(10, 2);
-    let mut source = source_of(grid, &["=$00010001", "C4"]);
+    let mut source = seeded_source(grid, &["=$00010001", "C4"]);
     for tick in 0..3 {
         let plan = source.execute(Tick::new(tick));
         let tick = observed(&source, &plan);
@@ -336,7 +337,7 @@ fn a_bang_copied_onto_a_root_that_fed_the_copy_is_missed() {
     let grid = Grid::with_shape(12, 5);
     let rows = [".=0102", "  *!", "  =$06040001", "      .=0101"];
     turn_before(&turns(grid, &rows), (2, 1), (2, 2));
-    let mut source = source_of(grid, &rows);
+    let mut source = seeded_source(grid, &rows);
     let plan = source.execute(Tick::ZERO);
     assert_eq!(
         observed(&source, &plan).diagnostics,

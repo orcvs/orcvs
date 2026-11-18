@@ -9,11 +9,10 @@
 
 use lang::{Function, MidiChannel, Note, PlayCommand, Tick, Velocity};
 
-use super::observed::{
-    diagnostic, first, observe_at, quiet_rows, raw, reads, rows_of, source_of, turn_before, turns,
-};
+use super::observed::{diagnostic, first, observe_at, quiet_rows, raw, reads, turn_before, turns};
 use super::portals::PortalOrigin;
 use crate::grid::Grid;
+use crate::source::rows::{rows_of, seeded_source};
 
 /// The diagnostic a Read spelled `spelling` gives a pair it cannot read.
 fn invalid(spelling: &str) -> String {
@@ -212,7 +211,7 @@ fn a_bang_a_read_reads_overwrites_the_root_it_lands_on_and_activates_the_roots_a
     // Equality writes `**` into the selected pair this Tick. The Read writes
     // it over Raw Play C4's anchor, so C4 does not run, and activates Raw
     // Play D4 south of it.
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(14, 4),
         &["        .=0101", "&>03C4  E4", "!>007FC4", "!>007FD4"],
     );
@@ -228,7 +227,7 @@ fn an_empty_or_partially_written_operand_makes_the_read_invalid() {
     // nothing and does not report it again.
     for row in ["&>  C4", "&>0 C4", "&v  ", "&<0 ", "&^  "] {
         let rows = ["", row, "xx"];
-        let source = source_of(Grid::with_shape(6, 3), &rows);
+        let source = seeded_source(Grid::with_shape(6, 3), &rows);
         assert!(
             source
                 .language_map()
@@ -533,7 +532,7 @@ fn a_timed_play_plays_the_note_a_nested_read_supplies() {
     // Equality's Bang at (0, 1) activates Timed Play at (2, 1). The Read's
     // operand is at (10, 1), its length is the `04` at (12, 1), and two pairs
     // east of the operand is the `C4`.
-    let mut source = source_of(Grid::with_shape(16, 3), &[".=0101", "  !~017F&>0204C4"]);
+    let mut source = seeded_source(Grid::with_shape(16, 3), &[".=0101", "  !~017F&>0204C4"]);
     let plan = source.execute(Tick::ZERO);
     assert!(plan.diagnostics.is_empty(), "{:?}", plan.diagnostics);
     assert_eq!(
@@ -656,7 +655,7 @@ fn an_absolute_read_answers_what_a_copy_answers_for_the_cells_it_reads() {
 
 #[test]
 fn a_bang_an_absolute_read_reads_is_written_as_a_bang() {
-    let mut source = source_of(
+    let mut source = seeded_source(
         Grid::with_shape(14, 4),
         &["        .=0101", "&$0801", "!>007FC4", "!>007FD4"],
     );
@@ -670,7 +669,7 @@ fn a_bang_an_absolute_read_reads_is_written_as_a_bang() {
 fn an_unwritten_column_or_row_makes_the_absolute_read_invalid() {
     for row in ["&$  00", "&$00  ", "&$0 00"] {
         let rows = [row, "xx"];
-        let source = source_of(Grid::with_shape(6, 2), &rows);
+        let source = seeded_source(Grid::with_shape(6, 2), &rows);
         assert!(
             source
                 .language_map()

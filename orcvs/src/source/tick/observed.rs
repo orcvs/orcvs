@@ -13,7 +13,7 @@ use crate::grid::Grid;
 use crate::opts::{CursorBloomRadius, SectorSeamSpacing};
 use crate::region::Region;
 use crate::render_frame::{PortalRole, RenderFrame, RenderFrameConfig};
-pub(super) use crate::source::rows::rows_of;
+use crate::source::rows::{rows_of, seeded_source};
 use crate::source::{Cells, Freshness, Source, SourceCommander, Span, TickPlan};
 
 /// The diagnostic for a Bang that reaches a root after its Turn.
@@ -51,24 +51,6 @@ pub(super) struct Observed {
     pub(super) diagnostics: Vec<(usize, usize, String)>,
 }
 
-/// A Source holding `rows`, each padded to the Grid's width, with every Cell
-/// of them set one at a time.
-pub(super) fn source_of(grid: Grid, rows: &[&str]) -> Source {
-    let mut source = Source::new(grid);
-    let width = grid.columns();
-    let text: String = rows.iter().map(|row| format!("{row:width$}")).collect();
-    assert!(text.len() <= grid.count(), "the rows fit the Grid");
-    for (index, byte) in text.bytes().enumerate() {
-        source
-            .set(
-                grid.cell_index(index).expect("inside the Grid"),
-                &char::from(byte).to_string(),
-            )
-            .unwrap();
-    }
-    source
-}
-
 /// `source` after it applied `plan`.
 pub(super) fn observed(source: &Source, plan: &TickPlan) -> Observed {
     Observed {
@@ -90,7 +72,7 @@ pub(super) fn observe_at(
     rows: &[&str],
     ticks: impl IntoIterator<Item = u64>,
 ) -> Vec<Observed> {
-    let mut source = source_of(grid, rows);
+    let mut source = seeded_source(grid, rows);
     ticks
         .into_iter()
         .map(|tick| {
@@ -133,7 +115,7 @@ pub(super) fn first_tick(
     grid: Grid,
     rows: &[&str],
 ) -> (Vec<PlayCommand>, Vec<(usize, usize, String)>) {
-    let mut source = source_of(grid, rows);
+    let mut source = seeded_source(grid, rows);
     let plan = source.execute(Tick::ZERO);
     let diagnostics = plan
         .diagnostics
@@ -153,7 +135,7 @@ pub(super) fn diagnostic(x: usize, y: usize, message: &str) -> (usize, usize, St
 
 /// The Turn each computation took in Tick zero of `rows`, by anchor.
 pub(super) fn turns(grid: Grid, rows: &[&str]) -> BTreeMap<(usize, usize), Option<usize>> {
-    let source = source_of(grid, rows);
+    let source = seeded_source(grid, rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
     let (_, states) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);
@@ -177,7 +159,7 @@ pub(super) type ObservedRead = (
 
 /// Every read the Tick Portals of Tick zero of `rows` recorded, in order.
 pub(super) fn reads(grid: Grid, rows: &[&str]) -> Vec<ObservedRead> {
-    let source = source_of(grid, rows);
+    let source = seeded_source(grid, rows);
     let map = source.shared_language_map();
     let bytes = source.snapshot();
     let (executed, _) = plan(grid, Cells::of(bytes.as_bytes()), &map, Tick::ZERO);

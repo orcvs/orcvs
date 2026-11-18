@@ -6,8 +6,9 @@ use crate::source::Cells;
 use crate::source::language_map::LanguageMap;
 
 use super::Tick;
-use super::fixture::{carried_source, cell, messages, planned, rows_of, seeded_source, snapshot};
+use super::fixture::{carried_source, messages, planned};
 use super::observed::raw;
+use crate::source::rows::{cell, rows_of, seeded_source, snapshot};
 
 #[test]
 fn outputs_beside_and_over_standalone_source_are_admitted() {

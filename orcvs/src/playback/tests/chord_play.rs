@@ -201,13 +201,18 @@ fn every_lifecycle_action_that_silences_output_clears_a_sounding_chord() {
 
 #[test]
 fn a_chord_and_a_monophonic_play_on_one_channel_keep_separate_ownership() {
-    // Row 2 holds the chord at column 0 and a Mono Play at column 20, each
-    // Banged by its own Equality on row 0.
-    let source = commander(&[
+    // Row 2 holds a chord and a Mono Play, each Banged by the Equality above
+    // it on row 0.
+    let rows = [
         ".=0101              .=0101",
         "",
         "!#007FC4MACL0008    !%007FC404  ",
-    ]);
+    ];
+    let mono = rows[2].find("!%").expect("a Mono Play on row 2");
+    assert_eq!(rows[0].rfind(".="), Some(mono), "the Mono Play's Equality");
+    // The note follows the Mono Play's spelling, channel and velocity.
+    let mono_note = mono + "!%007F".len();
+    let source = commander(&rows);
     let adapter = InMemoryOutputAdapter::default();
     let mut run = HandDrivenRun::new(source.clone(), adapter.clone());
     run.begin_run();
@@ -216,9 +221,9 @@ fn a_chord_and_a_monophonic_play_on_one_channel_keep_separate_ownership() {
     // The chord's Bang stops. The Mono Play goes on and changes its note, so
     // it replaces only its own voice: the chord's C4 is not the Mono C4.
     write_at(&source, 0, 0, ".=0102");
-    write_at(&source, 26, 2, "D4");
+    write_at(&source, mono_note, 2, "D4");
     run.run_tick(1);
-    write_at(&source, 20, 0, ".=0102");
+    write_at(&source, mono, 0, ".=0102");
     for tick in 2..9 {
         run.run_tick(tick);
     }

@@ -5,9 +5,9 @@
 //! them; `=<` reads east and writes west. Those Cells are the parent's
 //! spelling, its sibling operands, or the Cells just past the Expression.
 
-use super::super::observed;
 use super::{Observed, observe};
 use crate::grid::Grid;
+use crate::source::rows::seeded_source;
 
 ///
 /// One observed Tick, spelled as the rows and the diagnostics a performer
@@ -186,7 +186,7 @@ fn a_west_copy_reading_empty_cells_past_the_expression_blanks_the_operand_before
             ),
             "{row:?}"
         );
-        let source = observed::source_of(grid, &[blanked]);
+        let source = seeded_source(grid, &[blanked]);
         let map: Vec<_> = source
             .language_map()
             .diagnostics()

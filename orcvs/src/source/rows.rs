@@ -100,8 +100,8 @@ pub fn snapshot(grid: Grid, rows: &[&str]) -> String {
 }
 
 ///
-/// One Source built from `rows`, its Cells set one at a time as an editor
-/// sets them.
+/// One Source built from `rows`, every Cell of its Grid set one at a time,
+/// spaces included, as an editor sets them.
 ///
 /// Shared by every helper that runs a Tick against stated rows, so that
 /// comparing two of them compares what they do differently and never two
@@ -158,6 +158,11 @@ pub fn row(grid: Grid, snapshot: &str, index: usize) -> &str {
 ///
 /// A shared Source holding `rows`, in the Grid [`grid_of`] gives them.
 ///
+/// Only the characters each row states are set, as an editor types them:
+/// the padding past a row's end and every empty row are Cells never written,
+/// so they are not edited and make no revision. [`seeded_source`] sets every
+/// Cell of its Grid, spaces included.
+///
 /// # Panics
 ///
 /// As [`grid_of`] does, or if a row holds a character a Cell refuses.
@@ -183,6 +188,8 @@ pub fn commander(rows: &[&str]) -> SourceCommander {
 pub fn write_at(source: &SourceCommander, column: usize, row: usize, content: &str) {
     assert_ascii(content);
     let grid = source.grid();
+    // Checked before the loop, so an empty `content` is refused there too.
+    at(grid, column, row);
     for (offset, content) in content.chars().enumerate() {
         source
             .set(at(grid, column + offset, row), &content.to_string())
@@ -280,6 +287,13 @@ mod tests {
     fn an_edit_outside_ascii_is_refused() {
         let source = commander(&["ab"]);
         write_at(&source, 0, 0, "é");
+    }
+
+    #[test]
+    #[should_panic(expected = "inside the Grid")]
+    fn an_empty_edit_outside_the_grid_is_refused() {
+        let source = commander(&[".=0101"]);
+        write_at(&source, 0, 99, "");
     }
 
     #[test]

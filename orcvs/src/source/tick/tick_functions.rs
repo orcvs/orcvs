@@ -6,11 +6,9 @@ use crate::source::Cells;
 use crate::source::language_map::LanguageMap;
 
 use super::Tick;
-use super::fixture::{
-    carried_source, cell, interpreted, messages, planned, rows_of, seeded_source, snapshot,
-    tick_by_tick,
-};
+use super::fixture::{carried_source, interpreted, messages, planned, tick_by_tick};
 use super::observed::raw;
+use crate::source::rows::{cell, rows_of, seeded_source, snapshot};
 
 #[test]
 fn the_interpreter_is_handed_the_shared_tick_and_each_roots_own_anchor() {

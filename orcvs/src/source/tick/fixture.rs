@@ -3,7 +3,7 @@
 //! readings of the plans they commit.
 
 use crate::grid::{CellIndex, Grid};
-pub(super) use crate::source::rows::{cell, rows_of, seeded_source, snapshot};
+use crate::source::rows::{cell, rows_of, seeded_source};
 use crate::source::{Diagnostic, TickPlan};
 use lang::Atom;
 
@@ -241,11 +241,10 @@ pub(super) fn planned(plan: &TickPlan) -> Vec<(usize, char)> {
 }
 
 pub(super) fn diagnostic(grid: Grid, start: usize, end: usize, message: &str) -> Effect {
-    let cell = |idx: usize| grid.cell_index(idx).expect("inside the Grid");
     Effect::Diagnose(Diagnostic::for_range(
         grid,
-        cell(start),
-        cell(end),
+        cell(grid, start),
+        cell(grid, end),
         message.to_string(),
     ))
 }
