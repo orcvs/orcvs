@@ -83,7 +83,7 @@ The two tickets state the acceptance criteria for the agreed entries. For later 
 
 ## Evidence and provenance
 
-This consolidation covers the repository note and two documents supplied outside the repository, *Orcvs patterns library research.md* and *orcvs-patterns-library-agent-handoff-2026-11-17.md*. The handoff cites a separate, longer catalogue at revision `12bb62c6`. The supplied research attachment proposes twelve stamps and uses a different numbering scheme. The families here are grouped by the edit a musician can make. The current checkout supplies the Function spellings, example registry and execution evidence. The larger designs above remain candidates for later design. [Function reference](../functions.md) · [Learn Orca example provenance](../reference/learn-orca/README.md)
+This consolidation covers the repository note and two documents supplied outside the repository, *Orcvs patterns library research.md* and *orcvs-patterns-library-agent-handoff-2026-11-17.md*. The handoff cites a separate, longer catalogue at revision `12bb62c6`. The families here are grouped by the edit a musician can make. The current checkout supplies the Function spellings, example registry and execution evidence. The larger designs above remain candidates for later design. [Function reference](../functions.md) · [Learn Orca example provenance](../reference/learn-orca/README.md)
 
 ## Four grids you can try
 
