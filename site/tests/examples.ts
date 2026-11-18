@@ -1,9 +1,9 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-// The page's small console (`src/console/small.ts`). It draws on a canvas with no DOM, so what it
+// The page's Small Console (`src/console/small.ts`). It draws on a canvas with no DOM, so what it
 // shows is compared as screenshots of its frame.
 
-/** The page's small console, once a press of `grid` has started it and sent it the Source. */
+/** The page's Small Console, once a press of `grid` has started it and sent it the Source. */
 export async function send(page: Page, grid: Locator): Promise<Locator> {
   await grid.click();
   const frame = page.locator("iframe.orcvs-small");

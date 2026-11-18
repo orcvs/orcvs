@@ -46,7 +46,7 @@ function row(text: string, columns: number): string {
 
 /**
  * `source` as a Grid of Cells. A `sendable` Grid is a button that opens its Source in the page's
- * small console (`small.ts`).
+ * Small Console (`small.ts`).
  */
 export function gridHtml(source: string, sendable: boolean): string {
   const rows = source.replace(/\n$/, "").split("\n");
