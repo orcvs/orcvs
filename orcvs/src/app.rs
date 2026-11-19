@@ -1013,6 +1013,27 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_delete_clears_cell_and_moves_cursor_left() {
+        trace();
+
+        let mut app = app();
+        let grid = app.grid;
+
+        app.set_at(0, 0, "+");
+        app.set_at(1, 0, "+");
+
+        app.select_or_panic(1, 0);
+        app.event_handler(vec![InputEvent::KeyPressed(super::InputKey::Backspace)]);
+
+        assert_eq!(app.render_frame().cursor(), grid.position(0, 0).unwrap());
+        // The refused `+` owns only Cell 0; its neighbour is empty again.
+        assert_eq!(
+            rendered(&app, grid.position(1, 0).expect("inside the grid")),
+            (None, None)
+        );
+    }
+
+    #[tokio::test]
     async fn test_empty_source_cells_remain_empty_without_marker_glyphs() {
         trace();
 

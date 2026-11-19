@@ -81,7 +81,8 @@ pub enum InputEvent {
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Edit {
-    /// The event wrote to the Source.
+    /// The event was an edit, and the Source may have changed: a refused
+    /// write or an empty paste answers it too, having changed nothing.
     Wrote,
     /// The event put the Region's rows on the clipboard and wrote nothing.
     Copied(String),
