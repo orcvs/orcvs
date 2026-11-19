@@ -3,7 +3,6 @@ use tracing::error;
 use crate::midi::{MidiOutputAdapter, MidiSelectionHandle};
 use crate::opts::{Bpm, Opts};
 
-use crate::cursor::Cursor;
 use crate::grid::{Grid, Position};
 use crate::playback::{OutputOnlyAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
 use crate::region::Region;
@@ -135,7 +134,10 @@ pub struct Handled {
 ///
 pub struct Orcvs<S = MidiSelectionHandle> {
     opts: Opts,
-    cursor: Cursor,
+    ///
+    /// The Cell the console is editing: one of the Region's Cells.
+    ///
+    cursor: Position,
     ///
     /// The Cell the Region is spanned from; `end` is its other end. It is
     /// running state and never stored with the Source.
@@ -313,7 +315,7 @@ impl<S> Orcvs<S> {
         let grid = source.grid();
         let opts = Opts::new();
         Self {
-            cursor: Cursor::new(grid.origin()),
+            cursor: grid.origin(),
             anchor: grid.origin(),
             end: grid.origin(),
             fill_armed: false,
@@ -465,7 +467,7 @@ impl<S> Orcvs<S> {
         self.grid.assert_owns(position);
         self.fill_armed = false;
         self.end = position;
-        self.cursor.select(position);
+        self.cursor = position;
     }
 
     ///
@@ -473,7 +475,7 @@ impl<S> Orcvs<S> {
     /// its Cells.
     ///
     pub fn region(&self) -> Region {
-        Region::with_cursor(self.grid, self.anchor, self.end, self.cursor.position())
+        Region::with_cursor(self.grid, self.anchor, self.end, self.cursor)
     }
 
     ///
@@ -482,7 +484,7 @@ impl<S> Orcvs<S> {
     fn set_region(&mut self, region: Region) {
         self.anchor = region.anchor();
         self.end = region.end();
-        self.cursor.select(region.cursor());
+        self.cursor = region.cursor();
     }
 
     ///
@@ -490,7 +492,7 @@ impl<S> Orcvs<S> {
     /// is that one Cell.
     ///
     fn collapse_to(&mut self, position: Position) {
-        self.cursor.select(position);
+        self.cursor = position;
         self.anchor = position;
         self.end = position;
     }
@@ -512,10 +514,10 @@ impl<S> Orcvs<S> {
     /// logged and moves nothing.
     ///
     pub fn write(&mut self, s: &str) {
-        let cell = self.grid.index(self.cursor.position());
+        let cell = self.grid.index(self.cursor);
 
         match self.source.set(cell, s) {
-            Ok(_) => self.collapse_to(self.grid.right(self.cursor.position())),
+            Ok(_) => self.collapse_to(self.grid.right(self.cursor)),
             Err(e) => error!("rejected edit: {e}"),
         }
     }
@@ -527,15 +529,14 @@ impl<S> Orcvs<S> {
     /// exists and emptying it cannot be refused.
     ///
     fn delete(&mut self) {
-        self.source.unset(self.grid.index(self.cursor.position()));
-        self.collapse_to(self.grid.left(self.cursor.position()));
+        self.source.unset(self.grid.index(self.cursor));
+        self.collapse_to(self.grid.left(self.cursor));
     }
 
     pub fn render_frame(&self) -> RenderFrame {
         RenderFrame::derive(
             self.source.read_revision(),
             self.region(),
-            self.cursor.on,
             RenderFrameConfig {
                 sector_seam_spacing: self.opts.sector_seam_spacing,
                 cursor_bloom_radius: self.opts.cursor_bloom_radius,
@@ -557,24 +558,24 @@ impl<S> Orcvs<S> {
             let fill_armed = std::mem::take(&mut self.fill_armed);
             match event {
                 InputEvent::KeyPressed(InputKey::ArrowDown) => {
-                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Down))
+                    self.collapse_to(self.stepped(self.cursor, Arrow::Down))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowLeft) => {
-                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Left))
+                    self.collapse_to(self.stepped(self.cursor, Arrow::Left))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowRight) => {
-                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Right))
+                    self.collapse_to(self.stepped(self.cursor, Arrow::Right))
                 }
                 InputEvent::KeyPressed(InputKey::ArrowUp) => {
-                    self.collapse_to(self.stepped(self.cursor.position(), Arrow::Up))
+                    self.collapse_to(self.stepped(self.cursor, Arrow::Up))
                 }
                 InputEvent::KeyPressed(InputKey::Tab) => self.collapse_to(
                     self.grid
-                        .next_sector(self.cursor.position(), self.opts.sector_seam_spacing),
+                        .next_sector(self.cursor, self.opts.sector_seam_spacing),
                 ),
                 InputEvent::PreviousSector => self.collapse_to(
                     self.grid
-                        .previous_sector(self.cursor.position(), self.opts.sector_seam_spacing),
+                        .previous_sector(self.cursor, self.opts.sector_seam_spacing),
                 ),
                 // Stepped from the live end rather than the Cursor, which
                 // command A may have left inside the Region; the Cursor
@@ -582,12 +583,10 @@ impl<S> Orcvs<S> {
                 InputEvent::Extend(arrow) => {
                     let end = self.stepped(self.end, *arrow);
                     self.end = end;
-                    self.cursor.select(end);
+                    self.cursor = end;
                 }
-                InputEvent::SelectAll => {
-                    self.set_region(Region::whole(self.grid, self.cursor.position()))
-                }
-                InputEvent::Collapse => self.collapse_to(self.cursor.position()),
+                InputEvent::SelectAll => self.set_region(Region::whole(self.grid, self.cursor)),
+                InputEvent::Collapse => self.collapse_to(self.cursor),
                 InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => {
                     if self.region().is_one_cell() {
                         self.delete();
@@ -1221,13 +1220,11 @@ mod test {
         let origin = app.grid.origin();
         let initial = app.render_frame();
         assert_eq!(initial.cursor(), origin);
-        assert!(!initial.cursor_visible());
 
         let moved = app.grid.position(2, 1).unwrap();
         app.select(moved);
         let moved_frame = app.render_frame();
         assert_eq!(moved_frame.cursor(), moved);
-        assert!(!moved_frame.cursor_visible());
     }
 
     #[tokio::test]
@@ -1735,19 +1732,6 @@ mod test {
         assert_eq!(landed.cursor(), at(0, 0));
     }
 
-    #[tokio::test]
-    async fn deriving_a_render_frame_does_not_change_cursor_visibility() {
-        let mut app = orcvs();
-        app.cursor.on = false;
-
-        let first = app.render_frame();
-        let second = app.render_frame();
-
-        assert!(!first.cursor_visible());
-        assert!(!second.cursor_visible());
-        assert!(!app.cursor.on);
-    }
-
     ///
     /// A two-by-one running Orcvs on the test's own runtime.
     ///
@@ -1886,7 +1870,7 @@ mod test {
 
         app.select(target);
 
-        assert_eq!(app.cursor.position(), target);
+        assert_eq!(app.cursor, target);
     }
 
     #[tokio::test]
@@ -1898,7 +1882,7 @@ mod test {
 
         app.write("+");
 
-        assert_eq!(app.cursor.position(), app.grid.position(1, 0).unwrap());
+        assert_eq!(app.cursor, app.grid.position(1, 0).unwrap());
     }
 
     #[tokio::test]
@@ -1913,7 +1897,7 @@ mod test {
 
         app.delete_at(1, 0);
 
-        assert_eq!(app.cursor.position(), grid.position(0, 0).unwrap());
+        assert_eq!(app.cursor, grid.position(0, 0).unwrap());
         // The refused `+` owns only Cell 0; its neighbour is empty again.
         assert_eq!(
             rendered(&app, grid.position(1, 0).expect("inside the grid")),

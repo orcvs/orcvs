@@ -217,7 +217,6 @@ impl RenderExpression {
 pub struct RenderFrame {
     grid: Grid,
     region: Region,
-    cursor_visible: bool,
     sector_seam_spacing: SectorSeamSpacing,
     cursor_bloom_radius: CursorBloomRadius,
     cells: Vec<RenderCell>,
@@ -230,7 +229,6 @@ impl RenderFrame {
     pub(crate) fn derive(
         source: SourceRevision,
         region: Region,
-        cursor_visible: bool,
         config: RenderFrameConfig,
     ) -> Self {
         let grid = source.grid();
@@ -352,7 +350,6 @@ impl RenderFrame {
         Self {
             grid,
             region,
-            cursor_visible,
             sector_seam_spacing: config.sector_seam_spacing,
             cursor_bloom_radius: config.cursor_bloom_radius,
             cells,
@@ -386,15 +383,6 @@ impl RenderFrame {
     ///
     pub fn region(&self) -> Region {
         self.region
-    }
-
-    ///
-    /// Whether the Cursor is visible in this Frame.
-    ///
-    /// Visibility is a fact about the Frame, not about any one Cell.
-    ///
-    pub fn cursor_visible(&self) -> bool {
-        self.cursor_visible
     }
 
     ///
@@ -601,7 +589,6 @@ mod tests {
         let frame = RenderFrame::derive(
             source.read_revision(),
             Region::at(grid, selected),
-            true,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
                 cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
@@ -611,7 +598,6 @@ mod tests {
         assert_eq!(frame.grid().rows(), 2);
         assert_eq!(frame.grid().columns(), 2);
         assert_eq!(frame.cursor(), selected);
-        assert!(frame.cursor_visible());
         assert_eq!(
             frame.at(grid.position(0, 0).unwrap()).position(),
             grid.position(0, 0).unwrap()
@@ -638,7 +624,6 @@ mod tests {
         let frame = RenderFrame::derive(
             source.read_revision(),
             Region::at(grid, grid.origin()),
-            false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
                 cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
@@ -674,7 +659,6 @@ mod tests {
         let frame = RenderFrame::derive(
             source.read_revision(),
             Region::at(grid, grid.origin()),
-            false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
                 cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
@@ -925,7 +909,6 @@ mod tests {
         let frame = RenderFrame::derive(
             source.read_revision(),
             Region::at(grid, grid.origin()),
-            false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
                 cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
@@ -1118,7 +1101,6 @@ mod tests {
         let frame = RenderFrame::derive(
             source.read_revision(),
             Region::at(grid, grid.origin()),
-            false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(1).unwrap(),
                 cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
@@ -1168,7 +1150,6 @@ mod tests {
             let frame = RenderFrame::derive(
                 source.read_revision(),
                 Region::at(grid, grid.origin()),
-                false,
                 RenderFrameConfig {
                     sector_seam_spacing: SectorSeamSpacing::new(8).unwrap(),
                     cursor_bloom_radius: CursorBloomRadius::new(2).unwrap(),
@@ -1196,7 +1177,6 @@ mod tests {
         let frame = RenderFrame::derive(
             source.read_revision(),
             Region::at(grid, grid.origin()),
-            false,
             RenderFrameConfig {
                 sector_seam_spacing,
                 cursor_bloom_radius,
@@ -1217,7 +1197,6 @@ mod tests {
         let frame = RenderFrame::derive(
             source.read_revision(),
             region,
-            false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
                 cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
@@ -1246,7 +1225,6 @@ mod tests {
         RenderFrame::derive(
             source.read_revision(),
             Region::at(source.grid(), selected),
-            false,
             RenderFrameConfig {
                 sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
                 cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),
@@ -1902,7 +1880,6 @@ mod tests {
             RenderFrame::derive(
                 revision,
                 Region::at(grid, grid.origin()),
-                false,
                 RenderFrameConfig {
                     sector_seam_spacing: SectorSeamSpacing::new(2).unwrap(),
                     cursor_bloom_radius: CursorBloomRadius::new(1).unwrap(),

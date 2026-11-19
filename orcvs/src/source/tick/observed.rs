@@ -334,7 +334,6 @@ pub(super) fn painted(source: Source, role: PortalRole) -> Vec<(usize, usize)> {
     let frame = RenderFrame::derive(
         SourceCommander::with_source(source).read_revision(),
         Region::at(grid, grid.origin()),
-        false,
         RenderFrameConfig {
             sector_seam_spacing: SectorSeamSpacing::new(2).expect("a seam spacing"),
             cursor_bloom_radius: CursorBloomRadius::new(1).expect("a bloom radius"),
