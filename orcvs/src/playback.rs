@@ -1987,7 +1987,8 @@ mod tests {
         /// for an operand it leaves blank, is diagnosed and sends nothing, and
         /// a test that reads only what the adapter received would pass on that
         /// other path. A test whose subject is a diagnosed Tick runs it through
-        /// `SourceCommander::execute` and reads the plan.
+        /// `SourceCommander::execute` and reads the plan, or, when it also reads
+        /// what the adapter received, through `run_diagnosed_tick`.
         ///
         fn tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
             let plan = self.inner.execute_tick(timing);
@@ -2014,6 +2015,23 @@ mod tests {
                 Duration::from_secs(tick),
             ))
             .expect("a scheduled Tick runs")
+        }
+
+        ///
+        /// Runs the Tick numbered `tick` of the run, on time, and returns its
+        /// plan whatever the Source diagnoses.
+        ///
+        /// For a test whose subject is a diagnosed Tick and what it still
+        /// delivers: the test asserts the plan's diagnostics itself, since this
+        /// path does not refuse them.
+        ///
+        fn run_diagnosed_tick(&mut self, tick: u64) -> TickPlan {
+            self.inner
+                .execute_tick(scheduled(
+                    Duration::from_secs(tick),
+                    Duration::from_secs(tick),
+                ))
+                .expect("a scheduled Tick runs")
         }
 
         fn state(&self) -> PlaybackState {

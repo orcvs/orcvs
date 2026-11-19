@@ -143,7 +143,7 @@ impl Run {
     fn expect_diagnosed(&mut self, values: &[(u8, u8)], diagnostics: Vec<(usize, usize, String)>) {
         let tick = self.next;
         let before = map_diagnostics(&self.source);
-        let plan = self.run.run_tick(tick);
+        let plan = self.run.run_diagnosed_tick(tick);
         assert_eq!(
             tick_diagnostics(&plan),
             diagnostics,
