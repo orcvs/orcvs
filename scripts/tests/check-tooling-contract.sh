@@ -1025,7 +1025,7 @@ test_claude_review_outside_its_shape_is_rejected() {
   assert_rejected_with "the review on pull_request_target" "pull_request,issue_comment as its only trigger"
 
   make_fixture
-  perl -pi -e 's/^(    uses: cipherstash\/workflows\/[.]github\/workflows\/claude-review[.]yml@)[0-9a-f]{40}/${1}main/' "$fixture_dir/$review"
+  perl -pi -e 's/^(    uses: tobyhede\/workflows\/[.]github\/workflows\/claude-review[.]yml@)[0-9a-f]{40}/${1}main/' "$fixture_dir/$review"
   assert_rejected_with "the shared review workflow on a branch ref" 'claude-review[.]yml@[0-9a-f]{40}'
 
   make_fixture

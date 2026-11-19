@@ -305,14 +305,12 @@ cancellation, and unexpected skipping fail the aggregate. `scripts/tests/check-c
 exercises every combination of these job results.
 
 `.github/workflows/claude-review.yml` asks Claude's code-review routine to review a pull request
-through the shared review workflow in `cipherstash/workflows`, pinned by full commit. A review is
-requested when a team member's non-draft pull request is opened, reopened or marked ready for
-review, when a team member comments with a first line starting `@cipherstash-agent review`, or when
-a team member requests a review from `cipherstash-agent` in the Reviewers box. Pushes to an open
-pull request do not re-request a review, and bots' pull requests are skipped. The shared workflow's
-README states every rule. The caller passes three repository or organisation Actions secrets:
-`CLAUDE_ROUTINE_TOKEN`, and `CLAUDE_REVIEW_APP_ID` with `CLAUDE_REVIEW_APP_PRIVATE_KEY` for the
-GitHub App that checks membership of the orcvs `developers` team. The review arrives as comments
+through the shared review workflow in `tobyhede/workflows`, pinned by full commit. A review is
+requested when a non-draft pull request by the repository's owner is opened, reopened or marked
+ready for review, or when the owner comments with a first line starting `> orb ponder`. The owner
+is `repository.owner.login` as the event names it. Pushes to an open pull request do not re-request
+a review, and bots' pull requests are skipped. The shared workflow's README states every rule. The
+caller passes one repository Actions secret, `CLAUDE_ROUTINE_TOKEN`. The review arrives as comments
 from the routine's session, and a failed request shows as an error while the check stays green, so
 the job is not a required status context and gates nothing. Because the job reads a secret, the
 contract holds whichever workflow names it to the `pull_request` and `issue_comment` triggers, to a

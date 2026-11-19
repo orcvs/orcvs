@@ -984,7 +984,7 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
     assert_occurs_exactly "$workflow" '^    permissions:$' 1
     assert_occurs_exactly "$workflow" '^      [a-z-]+: (read|write)$' 1
     assert_contains "$workflow" '^      issues: write$'
-    assert_contains "$workflow" '^    uses: cipherstash/workflows/[.]github/workflows/claude-review[.]yml@[0-9a-f]{40}([[:space:]]+#.*)?$'
+    assert_contains "$workflow" '^    uses: tobyhede/workflows/[.]github/workflows/claude-review[.]yml@[0-9a-f]{40}([[:space:]]+#.*)?$'
     assert_not_contains "$workflow" '^    steps:'
   fi
 done
