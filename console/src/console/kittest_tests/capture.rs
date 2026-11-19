@@ -445,7 +445,7 @@ fn assert_capturable(harness: &Harness<'_, Console>, mode: egui::Theme, theme: &
         "{situation}: egui zoom is not 1.0"
     );
 
-    let region = console.orcvs.region();
+    let region = console.orcvs.editor().region();
     assert_eq!(
         (region.columns(), region.rows()),
         (REGION_COLUMNS, REGION_ROWS),

@@ -442,11 +442,11 @@ impl PointerSelection {
     ///
     pub(super) fn apply(self, orcvs: &mut Orcvs) {
         match self {
-            Self::Select(position) => orcvs.select(position),
-            Self::Extend(position) => orcvs.extend(position),
+            Self::Select(position) => orcvs.editor_mut().select(position),
+            Self::Extend(position) => orcvs.editor_mut().extend(position),
             Self::Span { anchor, cursor } => {
-                orcvs.select(anchor);
-                orcvs.extend(cursor);
+                orcvs.editor_mut().select(anchor);
+                orcvs.editor_mut().extend(cursor);
             }
         }
     }

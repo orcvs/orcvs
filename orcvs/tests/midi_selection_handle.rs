@@ -136,12 +136,12 @@ async fn selected_destination_receives_playback_from_the_running_orcvs() {
         .unwrap();
     assert_eq!(midi.selected_destination_id().unwrap(), None);
     for content in ".=0101".chars() {
-        orcvs.write(&content.to_string());
+        orcvs.event_handler(vec![InputEvent::Text(content.to_string())]);
     }
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowDown); 2]);
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowLeft); 6]);
     for content in "!>007FC4".chars() {
-        orcvs.write(&content.to_string());
+        orcvs.event_handler(vec![InputEvent::Text(content.to_string())]);
     }
 
     orcvs.toggle_playback();
@@ -204,12 +204,12 @@ async fn selection_requests_fail_when_the_engine_task_has_ended() {
         .install(&midi, &MidiDestinationId::new("studio"))
         .unwrap();
     for content in ".=0101".chars() {
-        orcvs.write(&content.to_string());
+        orcvs.event_handler(vec![InputEvent::Text(content.to_string())]);
     }
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowDown); 2]);
     orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowLeft); 6]);
     for content in "!>007FC4".chars() {
-        orcvs.write(&content.to_string());
+        orcvs.event_handler(vec![InputEvent::Text(content.to_string())]);
     }
 
     orcvs.toggle_playback();

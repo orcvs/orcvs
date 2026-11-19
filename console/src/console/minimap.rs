@@ -397,8 +397,10 @@ mod tests {
     fn write_row(orcvs: &mut Orcvs, row: usize, text: &str) {
         let grid = orcvs.grid();
         for (x, character) in text.chars().enumerate() {
-            orcvs.select(grid.position(x, row).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            orcvs
+                .editor_mut()
+                .select(grid.position(x, row).expect("inside the grid"));
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
     }
 
@@ -437,7 +439,8 @@ mod tests {
         write_row(&mut orcvs, 1, "**");
         write_row(&mut orcvs, 2, "||ab");
         write_row(&mut orcvs, 3, ".+XY");
-        orcvs.select(orcvs.grid().position(7, 3).expect("inside the grid"));
+        let position = orcvs.grid().position(7, 3).expect("inside the grid");
+        orcvs.editor_mut().select(position);
         let theme = default_theme(Appearance::Dark);
         let picture = picture(&orcvs, &theme);
 

@@ -1,84 +1,13 @@
-use tracing::error;
-
 use crate::midi::{MidiOutputAdapter, MidiSelectionHandle};
 use crate::opts::{Bpm, Opts};
 
-use crate::grid::{Grid, Position};
+use crate::editor::{Edit, Editor};
+use crate::grid::Grid;
 use crate::playback::{OutputOnlyAdapter, PlaybackDiagnostic, PlaybackEngine, PlaybackStartError};
-use crate::region::Region;
 use crate::render_frame::{RenderFrame, RenderFrameConfig};
-use crate::source::{CellContent, CellWrite, Source, SourceCommander};
+use crate::source::{Source, SourceCommander};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InputKey {
-    ArrowDown,
-    ArrowLeft,
-    ArrowRight,
-    ArrowUp,
-    Backspace,
-    Delete,
-    Space,
-    Tab,
-}
-
-///
-/// One of the four directions an arrow key moves the Cursor.
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Arrow {
-    Down,
-    Left,
-    Right,
-    Up,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InputEvent {
-    KeyPressed(InputKey),
-    ///
-    /// Shift with an arrow: moves the Cursor and keeps the anchor, so the
-    /// Region grows or shrinks from the Cell it was spanned from.
-    ///
-    Extend(Arrow),
-    ///
-    /// Shift Tab: moves the Cursor to its Sector's first Cell, or from
-    /// there to the previous Sector's, the way a bare Tab moves it on to the
-    /// next.
-    ///
-    PreviousSector,
-    ///
-    /// Command `A`: spans the Region across the whole Grid.
-    ///
-    SelectAll,
-    ///
-    /// Escape: collapses the Region onto the Cursor.
-    ///
-    Collapse,
-    ///
-    /// Command Enter: the next event, when it is a character, fills every
-    /// Cell of the Region with it. Any other event disarms the fill.
-    ///
-    Fill,
-    ///
-    /// Puts the Region's rows on the clipboard.
-    ///
-    Copy,
-    ///
-    /// Puts the Region's rows on the clipboard, then empties the Region.
-    ///
-    Cut,
-    ///
-    /// Writes the text from the Region's top-left and spans the Region over
-    /// what landed.
-    ///
-    Paste(String),
-    ///
-    /// Command Shift `R`: makes Tick `0` the next Tick Playback executes,
-    /// without playing or stopping it. Space then resumes from there.
-    ///
-    Rewind,
-    Text(String),
-}
+pub use crate::editor::{Arrow, InputEvent, InputKey};
 
 ///
 /// What one input batch asks of the console that delivered it.
@@ -101,16 +30,13 @@ pub struct Handled {
 }
 
 ///
-/// One running Orcvs: its options, Source and Grid, Cursor, and Playback
+/// One running Orcvs: its options, Source and Grid, Editor, and Playback
 /// lifecycle. Output-device discovery and selection belong to the console.
 ///
 /// `S` is the selection capability, not the output backend. MIDI construction
 /// supplies a [`MidiSelectionHandle`]; output-only construction uses `()`.
 ///
-/// Selection names a Position, and only a Grid mints one. A pair outside the
-/// Grid never becomes a Position at all, so `select` has no rejection to make
-/// and cannot silently leave the Cursor on the Cell it was already on and send
-/// the next write there:
+/// Its Render Frame shows the Region its [`Editor`] holds:
 ///
 /// ```
 /// use orcvs::app::Orcvs;
@@ -123,40 +49,14 @@ pub struct Handled {
 /// let mut orcvs = Orcvs::new().expect("a Tokio runtime");
 /// let grid = orcvs.grid();
 ///
-/// // the Grid refuses a pair outside itself, so there is no Position to select
-/// assert_eq!(grid.position(256, 256), None);
-///
-/// // every Position `select` can be handed is one this Grid minted
 /// let position = grid.position(15, 15).expect("inside the grid");
-/// orcvs.select(position);
+/// orcvs.editor_mut().select(position);
 /// assert_eq!(orcvs.render_frame().cursor(), position);
 /// ```
 ///
 pub struct Orcvs<S = MidiSelectionHandle> {
     opts: Opts,
-    ///
-    /// The Cell the console is editing: one of the Region's Cells.
-    ///
-    cursor: Position,
-    ///
-    /// The Cell the Region is spanned from; `end` is its other end. It is
-    /// running state and never stored with the Source.
-    ///
-    anchor: Position,
-    ///
-    /// The Region's live end: the corner opposite the anchor, which a drag or
-    /// Shift with an arrow moves. The Cursor sits on it, except after command
-    /// A spans the whole Grid and leaves the Cursor where it was.
-    ///
-    end: Position,
-    ///
-    /// Whether command Enter has armed a fill for the next character.
-    ///
-    /// Held across input batches, because the chord and the character are
-    /// two presses a viewer makes one after the other, and those may arrive in
-    /// different frames.
-    ///
-    fill_armed: bool,
+    editor: Editor,
     grid: Grid,
 
     source: SourceCommander,
@@ -315,10 +215,7 @@ impl<S> Orcvs<S> {
         let grid = source.grid();
         let opts = Opts::new();
         Self {
-            cursor: grid.origin(),
-            anchor: grid.origin(),
-            end: grid.origin(),
-            fill_armed: false,
+            editor: Editor::new(grid, opts.sector_seam_spacing),
             grid,
             opts,
             source,
@@ -422,85 +319,24 @@ impl<S> Orcvs<S> {
     }
 
     ///
-    /// Moves the Cursor to `position` and collapses the Region onto it,
-    /// refusing a Position minted by another Grid. Disarms a fill, as any
-    /// event between command Enter and its character does.
+    /// The Region, with its Cursor, and the edits made through it.
     ///
-    pub fn select(&mut self, position: Position) {
-        self.grid.assert_owns(position);
-        self.fill_armed = false;
-        self.collapse_to(position);
+    pub fn editor(&self) -> &Editor {
+        &self.editor
     }
 
     ///
-    /// Disarms a fill armed by command Enter, for input that went to
-    /// something other than the Source and so never reaches
-    /// [`event_handler`](Self::event_handler) as the event that would have
-    /// disarmed it.
+    /// The Editor, for a pointer that selects or spans the Region and for
+    /// input that went elsewhere and so disarms a fill.
     ///
-    pub fn disarm_fill(&mut self) {
-        self.fill_armed = false;
-    }
-
-    ///
-    /// Moves the Cursor to `position` and keeps the anchor, so the Region
-    /// spans from the anchor to `position`. Disarms a fill, as
-    /// [`select`](Self::select) does.
-    ///
-    /// ```
-    /// use orcvs::app::Orcvs;
-    ///
-    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
-    /// # let _runtime = runtime.enter();
-    /// let mut orcvs = Orcvs::new().expect("a Tokio runtime");
-    /// let grid = orcvs.grid();
-    /// let at = |x, y| grid.position(x, y).expect("inside the Grid");
-    ///
-    /// orcvs.select(at(5, 3));
-    /// orcvs.extend(at(2, 1));
-    ///
-    /// let region = orcvs.render_frame().region();
-    /// assert_eq!((region.columns(), region.rows()), (2..6, 1..4));
-    /// ```
-    ///
-    pub fn extend(&mut self, position: Position) {
-        self.grid.assert_owns(position);
-        self.fill_armed = false;
-        self.end = position;
-        self.cursor = position;
-    }
-
-    ///
-    /// The Region from the anchor to its live end, with the Cursor on one of
-    /// its Cells.
-    ///
-    pub fn region(&self) -> Region {
-        Region::with_cursor(self.grid, self.anchor, self.end, self.cursor)
-    }
-
-    ///
-    /// Takes on `region`'s anchor, live end and Cursor.
-    ///
-    fn set_region(&mut self, region: Region) {
-        self.anchor = region.anchor();
-        self.end = region.end();
-        self.cursor = region.cursor();
-    }
-
-    ///
-    /// Moves the Cursor to `position` and the anchor with it, so the Region
-    /// is that one Cell.
-    ///
-    fn collapse_to(&mut self, position: Position) {
-        self.cursor = position;
-        self.anchor = position;
-        self.end = position;
+    pub fn editor_mut(&mut self) -> &mut Editor {
+        &mut self.editor
     }
 
     ///
     /// The Grid this running Orcvs's Source occupies.
     ///
-    /// The only thing that mints a Position [`select`](Self::select) will
+    /// The only thing that mints a Position [`Editor::select`] will
     /// accept. `Grid` is `Copy`, and the same Grid is already reachable as
     /// `render_frame().grid()` — this answers it without deriving a Frame.
     ///
@@ -508,35 +344,10 @@ impl<S> Orcvs<S> {
         self.grid
     }
 
-    ///
-    /// Writes `s` into the Cell under the Cursor and collapses the Region onto
-    /// the next Cell right, clamped at the last column. A refused edit is
-    /// logged and moves nothing.
-    ///
-    pub fn write(&mut self, s: &str) {
-        let cell = self.grid.index(self.cursor);
-
-        match self.source.set(cell, s) {
-            Ok(_) => self.collapse_to(self.grid.right(self.cursor)),
-            Err(e) => error!("rejected edit: {e}"),
-        }
-    }
-
-    ///
-    /// Empties the Cell under the Cursor and steps left.
-    ///
-    /// The Cursor sits on a Position this Grid minted, so the Cell it names
-    /// exists and emptying it cannot be refused.
-    ///
-    fn delete(&mut self) {
-        self.source.unset(self.grid.index(self.cursor));
-        self.collapse_to(self.grid.left(self.cursor));
-    }
-
     pub fn render_frame(&self) -> RenderFrame {
         RenderFrame::derive(
             self.source.read_revision(),
-            self.region(),
+            self.editor.region(),
             RenderFrameConfig {
                 sector_seam_spacing: self.opts.sector_seam_spacing,
                 cursor_bloom_radius: self.opts.cursor_bloom_radius,
@@ -549,187 +360,24 @@ impl<S> Orcvs<S> {
     /// and what it put on the clipboard.
     ///
     pub fn event_handler(&mut self, events: Vec<InputEvent>) -> Handled {
-        let mut repaint = false;
-        let mut copied = None;
-        let mut playback_requests = 0;
+        let mut handled = Handled::default();
         for event in &events {
-            // A fill is armed for exactly one event: the character it fills
-            // with, or whatever else arrived instead and so disarmed it.
-            let fill_armed = std::mem::take(&mut self.fill_armed);
+            match self.editor.handle(event, &self.source) {
+                Some(Edit::Wrote) => handled.repaint = true,
+                Some(Edit::Copied(text)) => handled.copied = Some(text),
+                Some(Edit::Cut(text)) => {
+                    handled.copied = Some(text);
+                    handled.repaint = true;
+                }
+                None => {}
+            }
             match event {
-                InputEvent::KeyPressed(InputKey::ArrowDown) => {
-                    self.collapse_to(self.stepped(self.cursor, Arrow::Down))
-                }
-                InputEvent::KeyPressed(InputKey::ArrowLeft) => {
-                    self.collapse_to(self.stepped(self.cursor, Arrow::Left))
-                }
-                InputEvent::KeyPressed(InputKey::ArrowRight) => {
-                    self.collapse_to(self.stepped(self.cursor, Arrow::Right))
-                }
-                InputEvent::KeyPressed(InputKey::ArrowUp) => {
-                    self.collapse_to(self.stepped(self.cursor, Arrow::Up))
-                }
-                InputEvent::KeyPressed(InputKey::Tab) => self.collapse_to(
-                    self.grid
-                        .next_sector(self.cursor, self.opts.sector_seam_spacing),
-                ),
-                InputEvent::PreviousSector => self.collapse_to(
-                    self.grid
-                        .previous_sector(self.cursor, self.opts.sector_seam_spacing),
-                ),
-                // Stepped from the live end rather than the Cursor, which
-                // command A may have left inside the Region; the Cursor
-                // rejoins the live end.
-                InputEvent::Extend(arrow) => {
-                    let end = self.stepped(self.end, *arrow);
-                    self.end = end;
-                    self.cursor = end;
-                }
-                InputEvent::SelectAll => self.set_region(Region::whole(self.grid, self.cursor)),
-                InputEvent::Collapse => self.collapse_to(self.cursor),
-                InputEvent::KeyPressed(InputKey::Backspace | InputKey::Delete) => {
-                    if self.region().is_one_cell() {
-                        self.delete();
-                    } else {
-                        self.fill(CellContent::SPACE);
-                    }
-                    repaint = true;
-                }
-                InputEvent::Fill => self.fill_armed = true,
-                InputEvent::Copy => copied = Some(self.region_text()),
-                InputEvent::Cut => {
-                    copied = Some(self.region_text());
-                    self.fill(CellContent::SPACE);
-                    repaint = true;
-                }
-                InputEvent::Paste(text) => {
-                    self.paste(text);
-                    repaint = true;
-                }
-                InputEvent::KeyPressed(InputKey::Space) => playback_requests += 1,
+                InputEvent::KeyPressed(InputKey::Space) => handled.playback_requests += 1,
                 InputEvent::Rewind => self.rewind(),
-                InputEvent::Text(text_to_insert)
-                    if text_to_insert.len() == 1 && text_to_insert != " " =>
-                {
-                    match CellContent::new(text_to_insert.as_bytes()[0]) {
-                        Some(content) if fill_armed => self.fill(content),
-                        _ => self.write(text_to_insert),
-                    }
-                    repaint = true;
-                }
-                InputEvent::Text(_) => {}
+                _ => {}
             }
         }
-        Handled {
-            repaint,
-            copied,
-            playback_requests,
-        }
-    }
-
-    ///
-    /// The Region's rows as text joined by newlines, an empty Cell as a
-    /// space, so trailing spaces keep the Region's shape.
-    ///
-    fn region_text(&self) -> String {
-        let revision = self.source.read_revision();
-        let rows: Vec<String> = self
-            .region()
-            .positions_by_row()
-            .map(|row| {
-                row.map(|position| revision.content_at(position).unwrap_or(' '))
-                    .collect()
-            })
-            .collect();
-        rows.join("\n")
-    }
-
-    ///
-    /// Writes `text` from the Region's top-left, in one revision, and spans
-    /// the Region over the rectangle that landed.
-    ///
-    /// The text lands as a block, spaces included, so it replaces what was
-    /// under it: a row shorter than the longest lands empty Cells to the
-    /// block's width, which is what makes the Region the rectangle that
-    /// landed and a copy of it the text that was pasted. A character that
-    /// cannot be a Cell lands as an empty Cell rather than shifting the rest
-    /// of its row. `\r\n` and `\n` both break a row, and a break at the very
-    /// end adds no row of its own. What runs past the Grid's right or bottom
-    /// edge is dropped. The Cursor stays on the top-left, so the Source View
-    /// does not move to follow it.
-    ///
-    fn paste(&mut self, text: &str) {
-        let text = text.trim_suffix('\n');
-        let text = text.trim_suffix('\r');
-        let top_left = self.region().top_left();
-        let rows: Vec<Vec<char>> = text
-            .split('\n')
-            .map(|line| line.trim_suffix('\r').chars().collect())
-            .take(self.grid.rows() - top_left.y())
-            .collect();
-        let width = rows
-            .iter()
-            .map(Vec::len)
-            .max()
-            .unwrap_or(0)
-            .min(self.grid.columns() - top_left.x());
-        if width == 0 {
-            return;
-        }
-        let mut writes = Vec::with_capacity(width * rows.len());
-        for (dy, row) in rows.iter().enumerate() {
-            for dx in 0..width {
-                let position = self
-                    .grid
-                    .position(top_left.x() + dx, top_left.y() + dy)
-                    .expect("the block is clipped to the Grid");
-                let content = row
-                    .get(dx)
-                    .and_then(|character| u8::try_from(*character).ok())
-                    .and_then(CellContent::new)
-                    .unwrap_or(CellContent::SPACE);
-                writes.push(CellWrite {
-                    cell: self.grid.index(position),
-                    content,
-                });
-            }
-        }
-        self.source.write_cells(&writes);
-        let far_corner = self
-            .grid
-            .position(top_left.x() + width - 1, top_left.y() + rows.len() - 1)
-            .expect("the far corner of the block is clipped to the Grid");
-        self.set_region(Region::span(self.grid, far_corner, top_left));
-    }
-
-    ///
-    /// Writes `content` into every Cell of the Region, in one revision, and
-    /// keeps the Region.
-    ///
-    fn fill(&mut self, content: CellContent) {
-        let writes: Vec<CellWrite> = self
-            .region()
-            .positions_by_row()
-            .flatten()
-            .map(|position| CellWrite {
-                cell: self.grid.index(position),
-                content,
-            })
-            .collect();
-        self.source.write_cells(&writes);
-    }
-
-    ///
-    /// The Cell one step from `from` towards `arrow`, clamped at the
-    /// Grid's edge.
-    ///
-    fn stepped(&self, from: Position, arrow: Arrow) -> Position {
-        match arrow {
-            Arrow::Down => self.grid.down(from),
-            Arrow::Left => self.grid.left(from),
-            Arrow::Right => self.grid.right(from),
-            Arrow::Up => self.grid.up(from),
-        }
+        handled
     }
 
     ///
@@ -839,10 +487,9 @@ impl Orcvs {
 mod test {
     use std::time::Duration;
 
-    use super::Orcvs;
+    use super::{InputEvent, Orcvs};
     use crate::opts::Bpm;
     use crate::playback::PlaybackState;
-    use crate::region::Region;
     use crate::source::Tick;
     use crate::test::trace;
     use crate::{
@@ -1142,7 +789,7 @@ mod test {
     ///
     #[tokio::test]
     async fn a_batch_counts_each_space_as_a_playback_request() {
-        use super::{InputEvent, InputKey};
+        use super::InputKey;
 
         let mut orcvs = Orcvs::new().expect("the test runtime");
         let space = InputEvent::KeyPressed(InputKey::Space);
@@ -1151,7 +798,11 @@ mod test {
 
         assert_eq!(handled.playback_requests, 2);
         assert!(!orcvs.playback_requested(), "a Space toggled Playback");
-        assert!(!orcvs.fill_armed, "the Space after the Fill left it armed");
+        // The Space after the Fill disarmed it, so a character is typed at the
+        // Cursor, which steps right, rather than filling its one Cell.
+        orcvs.event_handler(vec![InputEvent::Text("x".to_owned())]);
+        let stepped = orcvs.grid().position(1, 0).expect("inside the Grid");
+        assert_eq!(orcvs.render_frame().cursor(), stepped);
     }
 
     ///
@@ -1196,7 +847,7 @@ mod test {
     #[tokio::test]
     async fn render_frame_reflects_a_write_and_the_selection() {
         let mut app = orcvs();
-        app.write("x");
+        app.event_handler(vec![InputEvent::Text("x".to_owned())]);
 
         let frame = app.render_frame();
 
@@ -1222,7 +873,7 @@ mod test {
         assert_eq!(initial.cursor(), origin);
 
         let moved = app.grid.position(2, 1).unwrap();
-        app.select(moved);
+        app.editor_mut().select(moved);
         let moved_frame = app.render_frame();
         assert_eq!(moved_frame.cursor(), moved);
     }
@@ -1235,501 +886,6 @@ mod test {
 
         assert!(region.is_one_cell());
         assert_eq!(region.cursor(), app.grid.origin());
-    }
-
-    ///
-    /// `extend` keeps the anchor, `select` moves it with the Cursor, and a
-    /// write collapses the Region onto the Cell it stepped to.
-    ///
-    #[tokio::test]
-    async fn extend_spans_a_region_that_select_and_a_write_collapse() {
-        let mut app = Orcvs::with_shape(6, 4).expect("the test runtime");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-
-        app.select(at(1, 1));
-        app.extend(at(3, 2));
-        let spanned = app.render_frame().region();
-        assert_eq!((spanned.columns(), spanned.rows()), (1..4, 1..3));
-        assert_eq!(app.render_frame().cursor(), at(3, 2));
-
-        app.select(at(4, 0));
-        assert_eq!(app.region(), Region::at(grid, at(4, 0)));
-
-        app.extend(at(0, 0));
-        app.write("x");
-        assert_eq!(app.region(), Region::at(grid, at(1, 0)));
-    }
-
-    ///
-    /// Shift with an arrow moves the Cursor and keeps the anchor, and passing
-    /// the anchor flips the Region; a bare arrow collapses it and moves.
-    ///
-    #[tokio::test]
-    async fn shift_arrows_extend_the_region_and_a_bare_arrow_collapses_it() {
-        use super::{Arrow, InputEvent, InputKey};
-
-        let mut app = Orcvs::with_shape(8, 6).expect("the test runtime");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(3, 3));
-
-        app.event_handler(vec![
-            InputEvent::Extend(Arrow::Right),
-            InputEvent::Extend(Arrow::Right),
-            InputEvent::Extend(Arrow::Down),
-        ]);
-        let region = app.region();
-        assert_eq!((region.columns(), region.rows()), (3..6, 3..5));
-        assert_eq!(region.cursor(), at(5, 4));
-
-        app.event_handler(vec![InputEvent::Extend(Arrow::Left); 4]);
-        let flipped = app.region();
-        assert_eq!((flipped.columns(), flipped.rows()), (1..4, 3..5));
-        assert_eq!(flipped.anchor(), at(3, 3));
-
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowUp)]);
-        assert_eq!(app.region(), Region::at(grid, at(1, 3)));
-    }
-
-    ///
-    /// Tab moves the Cursor to the first Cell of the next Sector on its row,
-    /// and stays put in the Grid's last Sector — cut short at the right edge
-    /// when the column count is not a whole multiple of the spacing.
-    ///
-    #[tokio::test]
-    async fn tab_steps_to_the_next_sector_and_stays_in_the_last_one() {
-        use super::{InputEvent, InputKey};
-        use crate::opts::SectorSeamSpacing;
-
-        // 10 columns and spacing 3: sectors at 0-2, 3-5, 6-8, and a last
-        // Sector cut short to the single Cell at column 9.
-        let mut app = Orcvs::with_shape(10, 1).expect("the test runtime");
-        app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(1, 0));
-
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
-        assert_eq!(app.region(), Region::at(grid, at(3, 0)));
-
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
-        assert_eq!(app.region(), Region::at(grid, at(6, 0)));
-
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
-        assert_eq!(
-            app.region(),
-            Region::at(grid, at(9, 0)),
-            "reached the cut-short last Sector"
-        );
-
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
-        assert_eq!(
-            app.region(),
-            Region::at(grid, at(9, 0)),
-            "the last Sector stays put"
-        );
-    }
-
-    ///
-    /// Shift Tab moves the Cursor to the first Cell of its own Sector, then,
-    /// once there, to the previous Sector's first Cell, staying put at the
-    /// Grid's first Sector.
-    ///
-    #[tokio::test]
-    async fn shift_tab_steps_to_the_sector_start_then_the_previous_sector() {
-        use super::InputEvent;
-        use crate::opts::SectorSeamSpacing;
-
-        let mut app = Orcvs::with_shape(10, 1).expect("the test runtime");
-        app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(4, 0));
-
-        app.event_handler(vec![InputEvent::PreviousSector]);
-        assert_eq!(
-            app.region(),
-            Region::at(grid, at(3, 0)),
-            "moved to its own Sector's first Cell"
-        );
-
-        app.event_handler(vec![InputEvent::PreviousSector]);
-        assert_eq!(
-            app.region(),
-            Region::at(grid, at(0, 0)),
-            "already there: moved to the previous Sector's first Cell"
-        );
-
-        app.event_handler(vec![InputEvent::PreviousSector]);
-        assert_eq!(
-            app.region(),
-            Region::at(grid, at(0, 0)),
-            "the first Sector's first Cell stays put"
-        );
-    }
-
-    ///
-    /// Tab and Shift Tab collapse a multi-Cell Region onto the Cursor's
-    /// stepped Position, the way a plain arrow does.
-    ///
-    #[tokio::test]
-    async fn tab_and_shift_tab_collapse_a_multi_cell_region_to_the_cursor() {
-        use super::{InputEvent, InputKey};
-        use crate::opts::SectorSeamSpacing;
-
-        let mut app = Orcvs::with_shape(10, 4).expect("the test runtime");
-        app.opts.sector_seam_spacing = SectorSeamSpacing::new(3).expect("a positive spacing");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-
-        app.select(at(1, 1));
-        app.extend(at(4, 3));
-        assert!(!app.region().is_one_cell(), "test setup spanned no Region");
-
-        app.event_handler(vec![InputEvent::KeyPressed(InputKey::Tab)]);
-        assert_eq!(
-            app.region(),
-            Region::at(grid, at(6, 3)),
-            "Tab did not collapse the Region to the Cursor's new Sector"
-        );
-
-        app.select(at(1, 1));
-        app.extend(at(4, 3));
-        app.event_handler(vec![InputEvent::PreviousSector]);
-        assert_eq!(
-            app.region(),
-            Region::at(grid, at(3, 3)),
-            "Shift Tab did not collapse the Region to the Cursor's new Sector"
-        );
-    }
-
-    ///
-    /// Command `A` spans the whole Grid and Escape collapses the Region onto
-    /// the Cursor. Neither writes to the Source.
-    ///
-    #[tokio::test]
-    async fn select_all_spans_the_grid_and_collapse_returns_to_the_cursor() {
-        use super::InputEvent;
-
-        let mut app = Orcvs::with_shape(5, 4).expect("the test runtime");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(2, 1));
-        let before = app.source.snapshot();
-
-        // Command A spans the Grid around the Cursor and leaves it where it
-        // was, so nothing follows it and the next keystroke writes there.
-        app.event_handler(vec![InputEvent::SelectAll]);
-        let whole = app.region();
-        assert_eq!((whole.columns(), whole.rows()), (0..5, 0..4));
-        assert_eq!(app.render_frame().cursor(), at(2, 1));
-
-        app.event_handler(vec![InputEvent::Collapse]);
-        assert_eq!(app.region(), Region::at(grid, at(2, 1)));
-
-        assert_eq!(
-            app.source.snapshot(),
-            before,
-            "a Region chord wrote to the Source"
-        );
-    }
-
-    ///
-    /// After command A, Shift with an arrow moves the Region's live corner,
-    /// and the Cursor rejoins it there.
-    ///
-    #[tokio::test]
-    async fn a_shift_arrow_after_select_all_moves_the_live_corner() {
-        use super::{Arrow, InputEvent};
-
-        let mut app = Orcvs::with_shape(5, 4).expect("the test runtime");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(2, 1));
-
-        app.event_handler(vec![InputEvent::SelectAll, InputEvent::Extend(Arrow::Left)]);
-
-        let region = app.region();
-        assert_eq!((region.columns(), region.rows()), (0..4, 0..4));
-        assert_eq!(region.cursor(), at(3, 3));
-    }
-
-    ///
-    /// Typing after command A writes at the Cursor, steps right, and
-    /// collapses the Region.
-    ///
-    #[tokio::test]
-    async fn typing_after_select_all_writes_at_the_cursor() {
-        use super::InputEvent;
-
-        let mut app = Orcvs::with_shape(5, 2).expect("the test runtime");
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(2, 1));
-
-        app.event_handler(vec![
-            InputEvent::SelectAll,
-            InputEvent::Text("x".to_owned()),
-        ]);
-
-        assert_eq!(rows(&app), ["     ", "  x  "]);
-        assert_eq!(app.region(), Region::at(grid, at(3, 1)));
-    }
-
-    ///
-    /// The Source's rows, as a test reads them back.
-    ///
-    fn rows(app: &Orcvs) -> Vec<String> {
-        let snapshot = app.source.snapshot();
-        snapshot
-            .as_bytes()
-            .chunks(app.grid.columns())
-            .map(|row| String::from_utf8(row.to_vec()).expect("printable ASCII"))
-            .collect()
-    }
-
-    ///
-    /// An Orcvs of `text`'s rows, each padded to the widest.
-    ///
-    fn written(text: &[&str]) -> Orcvs {
-        let columns = text.iter().map(|row| row.len()).max().unwrap_or(1);
-        let mut app = Orcvs::with_shape(columns, text.len()).expect("the test runtime");
-        for (y, row) in text.iter().enumerate() {
-            for (x, character) in row.chars().enumerate() {
-                app.set_at(x, y, &character.to_string());
-            }
-        }
-        app
-    }
-
-    #[tokio::test]
-    async fn backspace_and_delete_empty_a_region_larger_than_one_cell_and_keep_it() {
-        use super::{InputEvent, InputKey};
-
-        for key in [InputKey::Backspace, InputKey::Delete] {
-            let mut app = written(&["abcd", "efgh", "ijkl"]);
-            let grid = app.grid;
-            let at = |x, y| grid.position(x, y).expect("inside the Grid");
-            let (anchor, cursor) = (at(2, 2), at(1, 0));
-            app.select(anchor);
-            app.extend(cursor);
-
-            app.event_handler(vec![InputEvent::KeyPressed(key)]);
-
-            assert_eq!(rows(&app), ["a  d", "e  h", "i  l"], "{key:?}");
-            assert_eq!(app.region(), Region::span(grid, anchor, cursor));
-        }
-    }
-
-    #[tokio::test]
-    async fn backspace_and_delete_on_one_cell_empty_it_and_step_left() {
-        use super::{InputEvent, InputKey};
-
-        for key in [InputKey::Backspace, InputKey::Delete] {
-            let mut app = written(&["abcd"]);
-            let grid = app.grid;
-            let at = |x| grid.position(x, 0).expect("inside the Grid");
-            app.select(at(2));
-
-            app.event_handler(vec![InputEvent::KeyPressed(key)]);
-
-            assert_eq!(rows(&app), ["ab d"], "{key:?}");
-            assert_eq!(app.region(), Region::at(grid, at(1)));
-        }
-    }
-
-    #[tokio::test]
-    async fn typing_in_a_region_writes_at_the_cursor_steps_right_and_collapses() {
-        use super::InputEvent;
-
-        let mut app = written(&["....", "...."]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(0, 0));
-        app.extend(at(2, 1));
-
-        app.event_handler(vec![InputEvent::Text("x".to_owned())]);
-
-        assert_eq!(rows(&app), ["....", "..x."]);
-        assert_eq!(app.region(), Region::at(grid, at(3, 1)));
-    }
-
-    ///
-    /// Command Enter arms a fill that the next character carries into every
-    /// Cell of the Region. A keystroke on its own never fills, and any other
-    /// event between the chord and the character disarms it.
-    ///
-    #[tokio::test]
-    async fn command_enter_then_a_character_fills_the_region() {
-        use super::{Arrow, InputEvent};
-
-        let mut app = written(&["....", "....", "...."]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(1, 0));
-        app.extend(at(2, 1));
-        let region = app.region();
-
-        app.event_handler(vec![InputEvent::Fill]);
-        app.event_handler(vec![InputEvent::Text("#".to_owned())]);
-
-        assert_eq!(rows(&app), [".##.", ".##.", "...."]);
-        assert_eq!(app.region(), region, "a fill keeps the Region");
-
-        // Disarmed by an arrow between the chord and the character: the
-        // character is typed rather than filled.
-        app.event_handler(vec![
-            InputEvent::Fill,
-            InputEvent::Extend(Arrow::Down),
-            InputEvent::Text("*".to_owned()),
-        ]);
-        assert_eq!(rows(&app), [".##.", ".##.", "..*."]);
-
-        // A plain keystroke with a Region never fills.
-        app.select(at(0, 0));
-        app.extend(at(3, 2));
-        app.event_handler(vec![InputEvent::Text("=".to_owned())]);
-        assert_eq!(rows(&app), [".##.", ".##.", "..*="]);
-    }
-
-    ///
-    /// A pointer that moves the Region between the chord and the character
-    /// is an event like any other, so it disarms the fill: the character is
-    /// typed at the Cursor, which steps right.
-    ///
-    #[tokio::test]
-    async fn selecting_or_extending_between_command_enter_and_a_character_disarms_the_fill() {
-        use super::InputEvent;
-
-        let mut app = written(&["....", "...."]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-
-        // A drag: the Region is spanned anew after the chord.
-        app.event_handler(vec![InputEvent::Fill]);
-        app.select(at(0, 0));
-        app.extend(at(1, 1));
-        app.event_handler(vec![InputEvent::Text("x".to_owned())]);
-        assert_eq!(rows(&app), ["....", ".x.."]);
-        assert_eq!(app.region(), Region::at(grid, at(2, 1)));
-
-        // A click: the Region collapses onto one Cell after the chord.
-        app.event_handler(vec![InputEvent::Fill]);
-        app.select(at(2, 0));
-        app.event_handler(vec![InputEvent::Text("y".to_owned())]);
-        assert_eq!(rows(&app), ["..y.", ".x.."]);
-        assert_eq!(app.region(), Region::at(grid, at(3, 0)));
-
-        // A Shift click: the Region grows from the anchor after the chord.
-        app.event_handler(vec![InputEvent::Fill]);
-        app.extend(at(0, 0));
-        app.event_handler(vec![InputEvent::Text("z".to_owned())]);
-        assert_eq!(rows(&app), ["z.y.", ".x.."]);
-        assert_eq!(app.region(), Region::at(grid, at(1, 0)));
-    }
-
-    ///
-    /// Keys another control took between the chord and the character are
-    /// events the Source never sees, so its presenter disarms the fill for
-    /// them and the character is typed at the Cursor.
-    ///
-    #[tokio::test]
-    async fn a_fill_disarmed_for_input_elsewhere_types_the_next_character() {
-        use super::InputEvent;
-
-        let mut app = written(&["....", "...."]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(0, 0));
-        app.extend(at(1, 1));
-
-        app.event_handler(vec![InputEvent::Fill]);
-        app.disarm_fill();
-        app.event_handler(vec![InputEvent::Text("x".to_owned())]);
-
-        assert_eq!(rows(&app), ["....", ".x.."]);
-        assert_eq!(app.region(), Region::at(grid, at(2, 1)));
-    }
-
-    #[tokio::test]
-    async fn copy_puts_the_regions_rows_on_the_clipboard_with_trailing_spaces() {
-        use super::InputEvent;
-
-        let mut app = written(&["ab  ", "c d ", "    "]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(3, 2));
-        app.extend(at(0, 0));
-        let before = rows(&app);
-
-        let handled = app.event_handler(vec![InputEvent::Copy]);
-
-        assert_eq!(handled.copied.as_deref(), Some("ab  \nc d \n    "));
-        assert_eq!(rows(&app), before, "a copy wrote to the Source");
-        assert_eq!(app.region(), Region::span(grid, at(3, 2), at(0, 0)));
-    }
-
-    #[tokio::test]
-    async fn cut_copies_and_then_empties_the_region() {
-        use super::InputEvent;
-
-        let mut app = written(&["abcd", "efgh"]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(1, 0));
-        app.extend(at(2, 1));
-
-        let handled = app.event_handler(vec![InputEvent::Cut]);
-
-        assert_eq!(handled.copied.as_deref(), Some("bc\nfg"));
-        assert_eq!(rows(&app), ["a  d", "e  h"]);
-        assert_eq!(app.region(), Region::span(grid, at(1, 0), at(2, 1)));
-    }
-
-    ///
-    /// A paste writes from the Region's top-left, spaces included, clips at
-    /// the Grid's edges, and leaves the Region on the rectangle that landed.
-    ///
-    #[tokio::test]
-    async fn paste_writes_from_the_top_left_clipped_and_spans_what_landed() {
-        use super::InputEvent;
-
-        let mut app = written(&["....", "....", "...."]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(3, 2));
-        app.extend(at(2, 1));
-
-        app.event_handler(vec![InputEvent::Paste("a b\nxyz\n123".to_owned())]);
-
-        // Two columns and two rows of the three-by-three block fit.
-        assert_eq!(rows(&app), ["....", "..a ", "..xy"]);
-        let landed = app.region();
-        assert_eq!((landed.columns(), landed.rows()), (2..4, 1..3));
-    }
-
-    ///
-    /// A character that cannot be a Cell lands as an empty Cell, `\r\n` is one
-    /// row break, and a trailing break adds no row.
-    ///
-    #[tokio::test]
-    async fn a_pasted_character_that_cannot_be_a_cell_lands_empty() {
-        use super::InputEvent;
-
-        let mut app = written(&["....", "....", "...."]);
-        let grid = app.grid;
-        let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(0, 0));
-
-        app.event_handler(vec![InputEvent::Paste("aé\tb\r\ncd\r\n".to_owned())]);
-
-        // The shorter row lands empty Cells to the width of what landed, so
-        // the Region holds exactly the block that was pasted.
-        assert_eq!(rows(&app), ["a  b", "cd  ", "...."]);
-        let landed = app.region();
-        assert_eq!((landed.columns(), landed.rows()), (0..4, 0..2));
-        assert_eq!(landed.cursor(), at(0, 0));
     }
 
     ///
@@ -1778,17 +934,12 @@ mod test {
                 .grid
                 .position(x, y)
                 .unwrap_or_else(|| panic!("test position ({x}, {y}) is outside the Grid"));
-            self.collapse_to(position);
-        }
-
-        pub fn delete_at(&mut self, x: usize, y: usize) {
-            self.select_or_panic(x, y);
-            self.delete()
+            self.editor.select(position);
         }
 
         pub fn set_at(&mut self, x: usize, y: usize, s: &str) {
             self.select_or_panic(x, y);
-            self.write(s);
+            self.event_handler(vec![InputEvent::Text(s.to_owned())]);
         }
     }
 
@@ -1862,50 +1013,6 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_select_moves_the_cursor_to_the_position() {
-        trace();
-
-        let mut app = app();
-        let target = app.grid.position(3, 0).expect("inside the grid");
-
-        app.select(target);
-
-        assert_eq!(app.cursor, target);
-    }
-
-    #[tokio::test]
-    async fn test_write_moves_cursor_right() {
-        trace();
-
-        let mut app = app();
-        app.select_or_panic(0, 0);
-
-        app.write("+");
-
-        assert_eq!(app.cursor, app.grid.position(1, 0).unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_delete_clears_cell_and_moves_cursor_left() {
-        trace();
-
-        let mut app = app();
-        let grid = app.grid;
-
-        app.set_at(0, 0, "+");
-        app.set_at(1, 0, "+");
-
-        app.delete_at(1, 0);
-
-        assert_eq!(app.cursor, grid.position(0, 0).unwrap());
-        // The refused `+` owns only Cell 0; its neighbour is empty again.
-        assert_eq!(
-            rendered(&app, grid.position(1, 0).expect("inside the grid")),
-            (None, None)
-        );
-    }
-
-    #[tokio::test]
     async fn test_empty_source_cells_remain_empty_without_marker_glyphs() {
         trace();
 
@@ -1972,7 +1079,7 @@ mod test {
         let mut app = Orcvs::with_shape(24, 16).expect("the test runtime");
         let grid = app.grid;
         let at = |x, y| grid.position(x, y).expect("inside the Grid");
-        app.select(at(8, 8));
+        app.editor_mut().select(at(8, 8));
 
         assert_eq!(rendered(&app, at(14, 10)), (None, None));
         assert_eq!(rendered(&app, at(16, 10)), (None, None));

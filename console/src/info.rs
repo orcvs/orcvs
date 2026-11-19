@@ -127,7 +127,9 @@ mod tests {
         let mut orcvs = Orcvs::with_shape(16, 4).expect("the test runtime");
         write_rows(&orcvs, rows);
         let grid = orcvs.grid();
-        orcvs.select(grid.position(cursor.0, cursor.1).expect("inside the Grid"));
+        orcvs
+            .editor_mut()
+            .select(grid.position(cursor.0, cursor.1).expect("inside the Grid"));
         let frame = orcvs.render_frame();
         info(&frame)
             .into_iter()

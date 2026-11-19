@@ -451,11 +451,17 @@ async fn escape_dismisses_the_toasts_once_it_has_nothing_else_to_undo() {
     harness.run_steps(3);
     harness.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowRight);
     harness.run_steps(1);
-    assert!(!harness.state().orcvs.region().is_one_cell(), "a Region");
+    assert!(
+        !harness.state().orcvs.editor().region().is_one_cell(),
+        "a Region"
+    );
 
     harness.key_press(egui::Key::Escape);
     harness.run_steps(2);
-    assert!(harness.state().orcvs.region().is_one_cell(), "collapsed");
+    assert!(
+        harness.state().orcvs.editor().region().is_one_cell(),
+        "collapsed"
+    );
     assert!(
         harness.query_by_label("clock stopped").is_some(),
         "the Escape that collapsed the Region dismissed the Toast"

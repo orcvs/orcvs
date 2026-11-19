@@ -576,12 +576,12 @@ mod tests {
         )
         .expect("the test runtime");
         for content in ".=0101".chars() {
-            orcvs.write(&content.to_string());
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(content.to_string())]);
         }
         orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowDown); 2]);
         orcvs.event_handler(vec![InputEvent::KeyPressed(InputKey::ArrowLeft); 6]);
         for content in "!>007FC4".chars() {
-            orcvs.write(&content.to_string());
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(content.to_string())]);
         }
         let mut midi = MidiDeviceSelection::new(
             orcvs.midi_selection_handle(),

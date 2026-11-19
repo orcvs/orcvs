@@ -61,8 +61,8 @@ fn populated_app() -> Orcvs<()> {
         }
         for (position, content) in positions.iter().zip(line.chars()) {
             if content != ' ' {
-                orcvs.select(*position);
-                orcvs.write(&content.to_string());
+                orcvs.editor_mut().select(*position);
+                orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(content.to_string())]);
             }
         }
     }

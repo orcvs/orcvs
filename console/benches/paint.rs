@@ -113,11 +113,11 @@ fn populated_app(cols: usize, rows: usize) -> Orcvs<()> {
 
     for (position, content) in positions.iter().zip(text.chars()) {
         if content != ' ' {
-            orcvs.select(*position);
-            orcvs.write(&content.to_string());
+            orcvs.editor_mut().select(*position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(content.to_string())]);
         }
     }
-    orcvs.select(positions[positions.len() / 2]);
+    orcvs.editor_mut().select(positions[positions.len() / 2]);
 
     assert_eq!(
         occupied_cells(&orcvs),
@@ -223,8 +223,8 @@ fn region_frame() -> &'static RenderFrame {
         let mut orcvs = populated_app(32, 32);
         let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
         let (from, to) = (at(4, 4), at(27, 27));
-        orcvs.select(from);
-        orcvs.extend(to);
+        orcvs.editor_mut().select(from);
+        orcvs.editor_mut().extend(to);
         let frame = orcvs.render_frame();
         assert!(
             !frame.region().is_one_cell(),
