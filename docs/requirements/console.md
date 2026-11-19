@@ -381,7 +381,7 @@ that one Cell. The Cursor sits at the live end, except after command `A`.
 Reason: every rule written about the Cursor's one Cell keeps holding.
 Not: a Cursor with an extent.
 Sources: [ADR 0046](../adr/0046-the-primary-drag-selects-a-region.md).
-Evidence: `orcvs/src/region.rs`, `orcvs/src/app.rs`; test `orcvs/src/app.rs` `a_fresh_orcvs_has_a_region_of_the_cursors_one_cell`.
+Evidence: `orcvs/src/region.rs`, `orcvs/src/editor.rs`; test `orcvs/src/app.rs` `a_fresh_orcvs_has_a_region_of_the_cursors_one_cell`.
 
 ### CONS-051 The pointer selects a Region
 
@@ -408,7 +408,7 @@ Moving the live end past the anchor flips the rectangle.
 
 Reason: every spreadsheet leaves the active Cell, and the view with it, where it was.
 Sources: [ADR 0046](../adr/0046-the-primary-drag-selects-a-region.md).
-Evidence: test `orcvs/src/app.rs` `shift_arrows_extend_the_region_and_a_bare_arrow_collapses_it`.
+Evidence: test `orcvs/src/editor.rs` `shift_arrows_extend_the_region_and_a_bare_arrow_collapses_it`.
 
 ### CONS-053 A Region is written as a block
 
@@ -424,7 +424,7 @@ Evidence: test `orcvs/src/app.rs` `shift_arrows_extend_the_region_and_a_bare_arr
 Reason: Orcvs has no undo, so the fill sits behind an explicit chord.
 Not: typing fills the Region.
 Sources: [ADR 0046](../adr/0046-the-primary-drag-selects-a-region.md).
-Evidence: test `orcvs/src/app.rs` `command_enter_then_a_character_fills_the_region`.
+Evidence: test `orcvs/src/editor.rs` `command_enter_then_a_character_fills_the_region`.
 
 ### CONS-054 A Region is not stored with the Source
 
