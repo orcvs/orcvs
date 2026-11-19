@@ -80,7 +80,7 @@ pub enum InputEvent {
 /// What one event the [`Editor`] handled did beyond moving the Region.
 ///
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Edit {
+pub(crate) enum Edit {
     /// The event wrote to the Source.
     Wrote,
     /// The event put the Region's rows on the clipboard and wrote nothing.
@@ -197,7 +197,8 @@ impl Editor {
     ///
     /// Disarms a fill armed by command Enter, for input that went to
     /// something other than the Source and so never reaches
-    /// [`handle`](Self::handle) as the event that would have disarmed it.
+    /// [`Orcvs::event_handler`](crate::app::Orcvs::event_handler) as the event
+    /// that would have disarmed it.
     ///
     pub fn disarm_fill(&mut self) {
         self.fill_armed = false;
@@ -211,9 +212,18 @@ impl Editor {
     /// Every event disarms a fill armed by the event before it, Space and
     /// Rewind included: a fill is armed for exactly one event, the character
     /// it fills with or whatever else arrived instead. Space and Rewind are
-    /// otherwise Playback requests, which the Editor leaves to its caller.
+    /// otherwise Playback requests, which the Editor leaves to its caller, so
+    /// only the running Orcvs that answers them hands the Editor events.
     ///
-    pub fn handle(&mut self, event: &InputEvent, source: &SourceCommander) -> Option<Edit> {
+    /// Refuses a `source` on another Grid: the Editor indexes it with
+    /// Positions its own Grid minted.
+    ///
+    pub(crate) fn handle(&mut self, event: &InputEvent, source: &SourceCommander) -> Option<Edit> {
+        assert_eq!(
+            source.grid(),
+            self.grid,
+            "the Source is on another Grid than the Editor's"
+        );
         let fill_armed = std::mem::take(&mut self.fill_armed);
         let cursor = self.region.cursor();
         match event {
@@ -986,6 +996,15 @@ mod test {
         let landed = editing.region();
         assert_eq!((landed.columns(), landed.rows()), (0..4, 0..2));
         assert_eq!(landed.cursor(), editing.at(0, 0));
+    }
+
+    #[test]
+    #[should_panic(expected = "the Source is on another Grid than the Editor's")]
+    fn an_event_against_a_source_on_another_grid_is_refused() {
+        let mut editing = Editing::blank(4, 1);
+        let elsewhere = SourceCommander::new(Grid::with_shape(8, 2));
+
+        editing.editor.handle(&text("x"), &elsewhere);
     }
 
     ///
