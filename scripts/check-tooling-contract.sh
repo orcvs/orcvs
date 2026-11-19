@@ -840,7 +840,9 @@ assert_not_contains "$root_dir/.github/workflows/bench.yml" 'benchmark-action/gi
 # number of jobs the file declares rather than a literal, so a job added without a
 # bound fails this check instead of quietly inheriting the default. Four spaces is
 # the job-level indent; a step-level `timeout-minutes` sits deeper and is not
-# counted, so a bound on one step cannot stand in for the job's.
+# counted, so a bound on one step cannot stand in for the job's. A job that calls
+# a reusable workflow (`uses:` at the job indent) is not counted: GitHub rejects
+# `timeout-minutes` there, and the called workflow's jobs carry their own bounds.
 # A cache saved on a pull request's ref can only ever be read back by that same
 # pull request. Saving there fills the repository's shared quota with entries no
 # run reads and evicts the ones on `main` that every run restores from, so each
@@ -869,7 +871,8 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
     echo "expected $workflow to declare at least one job" >&2
     exit 1
   fi
-  assert_occurs_exactly "$workflow" '^    timeout-minutes: [0-9]+$' "$workflow_jobs"
+  assert_occurs_exactly "$workflow" '^    timeout-minutes: [0-9]+$' \
+    "$((workflow_jobs - $(count_matches "$workflow" '^    uses: ')))"
 done
 
 # Miri is deliberate and non-gating, and both halves of that are pinned here.
@@ -965,16 +968,24 @@ for workflow in "$root_dir"/.github/workflows/*.yml; do
   fi
 done
 
-# The routine token is the one secret a pull request's own run reads, so the
-# workflow that reads it is held to the trigger that withholds secrets from fork
-# pull requests and to an empty token permission set. `pull_request_target` runs
-# with secrets and a write token on behalf of any fork; that is the shape this
-# rejects. Stated over whichever workflow names the secret, as the Miri rule is.
+# The routine token is the one secret a pull request's own run reads. The
+# workflow that names it holds no steps of its own: it hands the secret to the
+# shared review workflow, pinned by full commit, which runs no code from the pull
+# request. It is held to `pull_request`, which withholds secrets from fork pull
+# requests, and `issue_comment`, which runs this file from the default branch;
+# `pull_request_target` runs with secrets and a write token on behalf of any
+# fork, and is the shape this rejects. Its token permissions are empty but for
+# the one job grant the shared workflow's 👀 reaction needs. Stated over
+# whichever workflow names the secret, as the Miri rule is.
 for workflow in "$root_dir"/.github/workflows/*.yml; do
   if grep -Ev '^[[:space:]]*#' "$workflow" | grep -E 'secrets[.]CLAUDE_ROUTINE_TOKEN' >/dev/null; then
-    assert_only_trigger "$workflow" 'pull_request'
+    assert_only_trigger "$workflow" 'pull_request,issue_comment'
     assert_contains "$workflow" '^permissions: [{][}]$'
-    assert_not_contains "$workflow" '^    permissions:'
+    assert_occurs_exactly "$workflow" '^    permissions:$' 1
+    assert_occurs_exactly "$workflow" '^      [a-z-]+: (read|write)$' 1
+    assert_contains "$workflow" '^      issues: write$'
+    assert_contains "$workflow" '^    uses: cipherstash/workflows/[.]github/workflows/claude-review[.]yml@[0-9a-f]{40}([[:space:]]+#.*)?$'
+    assert_not_contains "$workflow" '^    steps:'
   fi
 done
 

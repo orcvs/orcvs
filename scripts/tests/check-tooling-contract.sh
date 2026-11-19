@@ -48,11 +48,12 @@ make_fixture() {
   cp "$repo_root/orcvs/Cargo.toml" "$fixture_dir/orcvs/"
   cp "$repo_root/lang/Cargo.toml" "$fixture_dir/lang/"
   cp "$repo_root/synth/Cargo.toml" "$fixture_dir/synth/"
-  # `miri.yml` and `release-captures.yml` are copied like the other three. The
-  # contract's Miri and capture rules are stated over whichever workflow runs the
-  # task rather than over a file name, so without the files here nothing in the
-  # fixture matches and every one of those rules is dead code in this suite.
-  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/release-captures.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
+  # `miri.yml`, `release-captures.yml` and `claude-review.yml` are copied like the
+  # other three. The contract's Miri, capture and routine-token rules are stated
+  # over whichever workflow runs the task or names the secret rather than over a
+  # file name, so without the files here nothing in the fixture matches and every
+  # one of those rules is dead code in this suite.
+  cp "$repo_root/.github/workflows/test.yml" "$repo_root/.github/workflows/bench.yml" "$repo_root/.github/workflows/advisories.yml" "$repo_root/.github/workflows/miri.yml" "$repo_root/.github/workflows/release-captures.yml" "$repo_root/.github/workflows/claude-review.yml" "$repo_root/.github/workflows/tooling.yml" "$fixture_dir/.github/workflows/"
   cp "$repo_root/.github/dependabot.yml" "$fixture_dir/.github/"
   cp "$repo_root/scripts/ci-compile-needed.sh" "$fixture_dir/scripts/"
   cp "$repo_root/.vscode/launch.json" "$fixture_dir/.vscode/"
@@ -1013,6 +1014,29 @@ test_shipped_kittest_dependency_is_rejected() {
   assert_rejected "a test harness in the console's shipped dependencies"
 }
 
+test_claude_review_outside_its_shape_is_rejected() {
+  # The workflow that names the routine token hands it to the pinned shared
+  # workflow and nothing else. Each mutation below is a way the secret could
+  # reach code a fork controls, or a token broader than the reaction needs.
+  local review=".github/workflows/claude-review.yml"
+
+  make_fixture
+  perl -pi -e 's/^  pull_request:$/  pull_request_target:/' "$fixture_dir/$review"
+  assert_rejected_with "the review on pull_request_target" "pull_request,issue_comment as its only trigger"
+
+  make_fixture
+  perl -pi -e 's/^(    uses: cipherstash\/workflows\/[.]github\/workflows\/claude-review[.]yml@)[0-9a-f]{40}/${1}main/' "$fixture_dir/$review"
+  assert_rejected_with "the shared review workflow on a branch ref" 'claude-review[.]yml@[0-9a-f]{40}'
+
+  make_fixture
+  perl -pi -e 's/^      issues: write$/      issues: write\n      contents: write/' "$fixture_dir/$review"
+  assert_rejected_with "a review job granted contents: write" '^      [a-z-]+: (read|write)$'
+
+  make_fixture
+  perl -pi -e 's/^permissions: [{][}]$/permissions:\n  contents: read/' "$fixture_dir/$review"
+  assert_rejected_with "a review workflow with workflow-level permissions" '^permissions: [{][}]$'
+}
+
 test_optional_persistence_default_is_rejected() {
   make_fixture
   # Every feature arm in the tiers is stated relative to the console default.
@@ -1349,6 +1373,7 @@ case "${1:-all}" in
   eframe-clipboard) test_eframe_without_the_system_clipboard_is_rejected ;;
   shipped-kittest) test_shipped_kittest_dependency_is_rejected ;;
   optional-persistence-default) test_optional_persistence_default_is_rejected ;;
+  claude-review-shape) test_claude_review_outside_its_shape_is_rejected ;;
   prohibited-action) test_prohibited_action_main_ref_is_rejected ;;
   ungated-rust-cache) test_ungated_rust_cache_save_is_rejected ;;
   ungated-mise-cache) test_ungated_mise_cache_save_is_rejected ;;
@@ -1477,6 +1502,7 @@ case "${1:-all}" in
     test_eframe_without_the_system_clipboard_is_rejected
     test_shipped_kittest_dependency_is_rejected
     test_optional_persistence_default_is_rejected
+    test_claude_review_outside_its_shape_is_rejected
     test_fixture_cleanup_removes_tmp_dirs_on_failure
     ;;
   *) echo "unknown test: $1" >&2; exit 2 ;;
