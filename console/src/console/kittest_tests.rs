@@ -124,7 +124,9 @@ fn write_an_add_and_select(harness: &mut Harness<'_, Console>, x: usize) {
     let orcvs = &mut harness.state_mut().orcvs;
     crate::info::write_rows(orcvs, &[".+0304"]);
     let grid = orcvs.grid();
-    orcvs.select(grid.position(x, 0).expect("inside the Grid"));
+    orcvs
+        .editor_mut()
+        .select(grid.position(x, 0).expect("inside the Grid"));
 }
 
 ///
@@ -573,7 +575,7 @@ fn console_with_minimap_and_region() -> Harness<'static, Console> {
     }
     harness.run_steps(1);
     assert!(
-        !harness.state().orcvs.region().is_one_cell(),
+        !harness.state().orcvs.editor().region().is_one_cell(),
         "Shift with the arrows did not extend the Region"
     );
     harness
@@ -590,7 +592,7 @@ fn console_with_minimap_and_region() -> Harness<'static, Console> {
 async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays() {
     let mut harness = console_with_minimap_and_region();
     let cursor_before = cursor(harness.state());
-    let region_before = harness.state().orcvs.region();
+    let region_before = harness.state().orcvs.editor().region();
 
     let picture = minimap_picture(&harness);
     let outline = source_view_on_minimap(&harness);
@@ -641,7 +643,7 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
         "the press moved the Cursor"
     );
     assert_eq!(
-        harness.state().orcvs.region(),
+        harness.state().orcvs.editor().region(),
         region_before,
         "the press changed the Region"
     );
@@ -661,7 +663,7 @@ async fn a_press_outside_the_outline_centres_the_source_view_there_and_it_stays(
 async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_without_a_jump() {
     let mut harness = console_with_minimap_and_region();
     let cursor_before = cursor(harness.state());
-    let region_before = harness.state().orcvs.region();
+    let region_before = harness.state().orcvs.editor().region();
 
     let outline = source_view_on_minimap(&harness);
     let press = outline.center() + Vec2::new(outline.width() / 4.0, outline.height() / 4.0);
@@ -700,7 +702,7 @@ async fn a_drag_from_inside_the_outline_moves_the_source_view_by_the_drag_withou
         "the drag moved the Cursor"
     );
     assert_eq!(
-        harness.state().orcvs.region(),
+        harness.state().orcvs.editor().region(),
         region_before,
         "the drag changed the Region"
     );
@@ -3225,7 +3227,7 @@ async fn a_focused_menu_item_keeps_region_and_clipboard_commands_from_the_source
         Some('x'),
         "command A, Backspace, or a paste with a menu item focused reached the Source"
     );
-    let region = harness.state().orcvs.region();
+    let region = harness.state().orcvs.editor().region();
     assert!(
         region.is_one_cell(),
         "command A with a menu item focused selected the whole Source: {region:?}"
@@ -3323,7 +3325,7 @@ async fn escape_with_a_menu_open_closes_it_and_keeps_the_region() {
     harness.key_press_modifiers(Modifiers::SHIFT, egui::Key::ArrowRight);
     harness.step();
     harness.run_steps(1);
-    let region_before = harness.state().orcvs.region();
+    let region_before = harness.state().orcvs.editor().region();
     assert!(!region_before.is_one_cell(), "test setup spanned no Region");
 
     harness.get_by_label("View").click();
@@ -3343,7 +3345,7 @@ async fn escape_with_a_menu_open_closes_it_and_keeps_the_region() {
         "Escape did not close the open menu"
     );
     assert_eq!(
-        harness.state().orcvs.region(),
+        harness.state().orcvs.editor().region(),
         region_before,
         "the Escape that closed a menu also collapsed the Region"
     );
@@ -3424,7 +3426,7 @@ async fn tab_focuses_no_widget_collapses_the_region_and_leaves_typing_open() {
     harness.step();
     harness.run_steps(1);
     assert!(
-        !harness.state().orcvs.region().is_one_cell(),
+        !harness.state().orcvs.editor().region().is_one_cell(),
         "test setup spanned no Region"
     );
 
@@ -3433,7 +3435,7 @@ async fn tab_focuses_no_widget_collapses_the_region_and_leaves_typing_open() {
     harness.run_steps(1);
 
     assert!(
-        harness.state().orcvs.region().is_one_cell(),
+        harness.state().orcvs.editor().region().is_one_cell(),
         "Tab did not collapse the Region"
     );
     assert_eq!(

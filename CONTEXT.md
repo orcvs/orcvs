@@ -408,7 +408,7 @@ _Avoid_: internal synth, sound module, Pilot, Enfer
 ## Console
 
 **Orcvs (running instance)**:
-One active console session, owning its Source and the Grid that shapes it, its Cursor, its Playback lifecycle, and its presentation options. Choosing an output device is console configuration rather than part of a running Orcvs. The unqualified system name Orcvs still names the environment and language as a whole.
+One active console session, owning its Source and the Grid that shapes it, its Editor, its Playback lifecycle, and its presentation options. Choosing an output device is console configuration rather than part of a running Orcvs. The unqualified system name Orcvs still names the environment and language as a whole.
 _Avoid_: App, Session, Machine
 
 **Render Frame**:
@@ -422,6 +422,10 @@ _Avoid_: Caret, pointer, insertion point
 **Region**:
 A rectangle of Positions within the Grid, spanned from an anchor Cell to a live end, with the Cursor on one of its Cells. The Cursor stays one Cell, at the live end except after command `A` spans the whole Grid around it; the Region is what holds the extent.
 _Avoid_: Selection, range, block, marquee
+
+**Editor**:
+The Region, with its Cursor, and the edits a viewer makes through it in one running Orcvs: moving and spanning the Region, typing, deleting, fill, copy, cut and paste. It writes the Source and is never stored with it; Playback is not part of it.
+_Avoid_: Selection, caret, input handler
 
 **Source View**:
 The region of the Source's space the console shows, at the Source's own Cell size in points; Zoom changes how many physical pixels a point is, never that size. It shows no further than the Grid's edges: the Grid is bounded, so its presentation is too.

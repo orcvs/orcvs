@@ -6,7 +6,7 @@
 //! cosmetic: CI parses the output with a regex that only matches that format.
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
-use orcvs::app::Orcvs;
+use orcvs::app::{InputEvent, Orcvs};
 use orcvs::grid::Grid;
 use orcvs::playback::InMemoryOutputAdapter;
 use orcvs::render_frame::PortalRole;
@@ -146,15 +146,15 @@ fn populated_app(cols: usize, rows: usize) -> Orcvs<()> {
 
     for (position, content) in positions.iter().zip(text.chars()) {
         if content != ' ' {
-            orcvs.select(*position);
-            orcvs.write(&content.to_string());
+            orcvs.editor_mut().select(*position);
+            orcvs.event_handler(vec![InputEvent::Text(content.to_string())]);
         }
     }
     // A Cursor in the middle of the Grid pays the representative share of the
     // bloom and seam work a frame does around it.
-    orcvs.select(positions[positions.len() / 2]);
+    orcvs.editor_mut().select(positions[positions.len() / 2]);
 
-    // `Orcvs::write` reports a rejected edit through `tracing` and returns nothing,
+    // A rejected edit is reported through `tracing` and nothing else,
     // and a bench binary installs no subscriber. Unchecked, a fixture that never
     // landed would be measured as an empty Grid and still report a plausible number.
     assert_eq!(

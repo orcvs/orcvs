@@ -324,8 +324,9 @@ async fn a_glyph_is_laid_out_at_its_cells_own_size_at_every_device_scale() {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
         let mut orcvs = running_orcvs(4, 4);
-        orcvs.select(orcvs.grid().position(1, 1).expect("inside the grid"));
-        orcvs.write("+");
+        let position = orcvs.grid().position(1, 1).expect("inside the grid");
+        orcvs.editor_mut().select(position);
+        orcvs.event_handler(vec![::orcvs::app::InputEvent::Text("+".to_owned())]);
         let mut view = SourceView::new(CELL_SIZE);
 
         let (viewport, painted) = console_pass_at(
@@ -1122,14 +1123,15 @@ async fn a_console_started_with_a_configured_cell_presents_the_source_at_it() {
     let mut host = eframe::Frame::_new_kittest();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     console.orcvs = running_orcvs(200, 100);
-    console.orcvs.select(
-        console
-            .orcvs
-            .grid()
-            .position(1, 1)
-            .expect("inside the grid"),
-    );
-    console.orcvs.write("+");
+    let position = console
+        .orcvs
+        .grid()
+        .position(1, 1)
+        .expect("inside the grid");
+    console.orcvs.editor_mut().select(position);
+    console
+        .orcvs
+        .event_handler(vec![::orcvs::app::InputEvent::Text("+".to_owned())]);
 
     let output = {
         use eframe::App as _;
@@ -1780,8 +1782,9 @@ async fn escape_reverts_a_valid_uncommitted_bpm() {
     let grid = console.orcvs.grid();
     console
         .orcvs
+        .editor_mut()
         .extend(grid.position(3, 2).expect("inside the Grid"));
-    let region = console.orcvs.region();
+    let region = console.orcvs.editor().region();
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     focus_bpm_field(&ctx, screen, &mut console, &mut host);
@@ -1805,7 +1808,7 @@ async fn escape_reverts_a_valid_uncommitted_bpm() {
         "Escape committed the typed BPM"
     );
     assert_eq!(
-        console.orcvs.region(),
+        console.orcvs.editor().region(),
         region,
         "Escape in the BPM field collapsed the Region"
     );
@@ -1823,7 +1826,7 @@ async fn keys_the_bpm_field_took_disarm_a_fill_armed_before_it() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::from(DEFAULT_VIEW_SIZE));
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the Grid");
-    console.orcvs.extend(at(2, 1));
+    console.orcvs.editor_mut().extend(at(2, 1));
 
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
     app_pass(
@@ -1881,7 +1884,7 @@ fn fill_survives(frames: Vec<Vec<Event>>) -> bool {
 
     // The Region is spanned after the first pass, which places the Cursor.
     app_pass(&ctx, screen, Vec::new(), &mut console, &mut host);
-    console.orcvs.extend(at(2, 1));
+    console.orcvs.editor_mut().extend(at(2, 1));
     for events in frames {
         app_pass(&ctx, screen, events, &mut console, &mut host);
     }
@@ -2101,11 +2104,11 @@ async fn copy_reaches_the_platform_clipboard_and_paste_writes_the_source() {
         &mut host,
     );
     assert_eq!(origin_content(&console.orcvs), Some('a'));
-    let landed = console.orcvs.region();
+    let landed = console.orcvs.editor().region();
     assert_eq!((landed.columns(), landed.rows()), (0..2, 0..2));
 
-    console.orcvs.select(at(1, 0));
-    console.orcvs.extend(at(1, 1));
+    console.orcvs.editor_mut().select(at(1, 0));
+    console.orcvs.editor_mut().extend(at(1, 1));
     let input = egui::RawInput {
         screen_rect: Some(screen),
         events: vec![Event::Copy],
@@ -2988,11 +2991,13 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(5, 5);
     for (x, character) in ".+".chars().enumerate() {
-        orcvs.select(orcvs.grid().position(x, 1).expect("inside the grid"));
-        orcvs.write(&character.to_string());
+        let position = orcvs.grid().position(x, 1).expect("inside the grid");
+        orcvs.editor_mut().select(position);
+        orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
     }
     // `.+`'s Output Portal Cell, below `+`.
-    orcvs.select(orcvs.grid().position(1, 2).expect("inside the grid"));
+    let position = orcvs.grid().position(1, 2).expect("inside the grid");
+    orcvs.editor_mut().select(position);
     let frame = orcvs.render_frame();
     let theme = Theme {
         output_portal_border: Color32::from_rgb(200, 0, 0),
@@ -3075,7 +3080,8 @@ async fn the_cursor_outline_is_one_box_the_same_on_all_four_sides() {
 async fn an_outline_narrower_than_the_grid_lines_turns_its_corners_at_its_own_width() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(5, 5);
-    orcvs.select(orcvs.grid().position(2, 2).expect("inside the grid"));
+    let position = orcvs.grid().position(2, 2).expect("inside the grid");
+    orcvs.editor_mut().select(position);
     let frame = orcvs.render_frame();
     let theme = Theme {
         grid_border_width: crate::theme::GridWidth::from_points(1.0).expect("1.0 is within 0..=1"),
@@ -3169,8 +3175,8 @@ async fn a_region_hides_the_cursors_cell_border() {
     let mut orcvs = running_orcvs(8, 8);
     let at = |x, y| orcvs.grid().position(x, y).expect("inside the grid");
     let (anchor, cursor) = (at(1, 1), at(4, 3));
-    orcvs.select(anchor);
-    orcvs.extend(cursor);
+    orcvs.editor_mut().select(anchor);
+    orcvs.editor_mut().extend(cursor);
     let frame = orcvs.render_frame();
     let theme = Theme {
         region_border: Color32::from_rgb(200, 0, 0),
@@ -3217,8 +3223,9 @@ async fn every_background_is_painted_before_every_glyph_and_no_cell_strokes_the_
     // A Glyph in the first Cell of the Grid, so every other Cell's
     // background is built after it and would paint over it if the Shapes
     // were emitted Cell by Cell.
-    orcvs.write("1");
-    orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+    orcvs.event_handler(vec![::orcvs::app::InputEvent::Text("1".to_owned())]);
+    let position = orcvs.grid().position(0, 0).expect("inside the grid");
+    orcvs.editor_mut().select(position);
     let frame = orcvs.render_frame();
     let viewport = presented(screen, 8, 8, 1.0);
     let paint = painted(&frame, viewport, screen);
@@ -3279,8 +3286,9 @@ async fn the_shape_groups_reach_the_painter_in_the_order_into_shapes_chains_them
     let mut orcvs = running_orcvs(16, 16);
     let mut view = SourceView::new(CELL_SIZE);
     // A written Cell, so a Glyph is painted at all.
-    orcvs.write("1");
-    orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+    orcvs.event_handler(vec![::orcvs::app::InputEvent::Text("1".to_owned())]);
+    let position = orcvs.grid().position(0, 0).expect("inside the grid");
+    orcvs.editor_mut().select(position);
 
     let (_viewport, shapes) = console_pass(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
 
@@ -3972,10 +3980,12 @@ async fn neighbouring_diagnostic_cells_share_one_line_composited_once() {
     let mut orcvs = running_orcvs(8, 3);
     // `**` at columns 2 and 3 is the rejected Number operand of `.+`.
     for (x, character) in ".+**01".chars().enumerate() {
-        orcvs.select(orcvs.grid().position(x, 1).expect("inside the grid"));
-        orcvs.write(&character.to_string());
+        let position = orcvs.grid().position(x, 1).expect("inside the grid");
+        orcvs.editor_mut().select(position);
+        orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
     }
-    orcvs.select(orcvs.grid().position(7, 0).expect("inside the grid"));
+    let position = orcvs.grid().position(7, 0).expect("inside the grid");
+    orcvs.editor_mut().select(position);
     let frame = orcvs.render_frame();
     // The Function and Number borders are cleared, so the Diagnostic border
     // meets only Grid lines.
@@ -4081,8 +4091,10 @@ async fn a_one_pixel_crossing_is_drawn() {
 async fn the_grid_lines_lie_over_the_backgrounds() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0));
     let mut orcvs = running_orcvs(4, 4);
-    orcvs.select(orcvs.grid().position(1, 1).expect("inside the grid"));
-    orcvs.extend(orcvs.grid().position(2, 2).expect("inside the grid"));
+    let position = orcvs.grid().position(1, 1).expect("inside the grid");
+    orcvs.editor_mut().select(position);
+    let position = orcvs.grid().position(2, 2).expect("inside the grid");
+    orcvs.editor_mut().extend(position);
     let frame = orcvs.render_frame();
     let viewport = presented(screen, 4, 4, 1.0);
     let shapes = source_geometry(&painted(&frame, viewport, screen), viewport, 1.0);
@@ -4120,10 +4132,12 @@ async fn a_glyph_is_painted_for_every_cell_that_shows_one_and_no_other() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(8, 8);
     for (x, character) in ".+".chars().enumerate() {
-        orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
-        orcvs.write(&character.to_string());
+        let position = orcvs.grid().position(x, 2).expect("inside the grid");
+        orcvs.editor_mut().select(position);
+        orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
     }
-    orcvs.select(orcvs.grid().position(5, 5).expect("inside the grid"));
+    let position = orcvs.grid().position(5, 5).expect("inside the grid");
+    orcvs.editor_mut().select(position);
 
     let frame = orcvs.render_frame();
     let viewport = presented(screen, 8, 8, 1.0);
@@ -4554,7 +4568,7 @@ async fn a_sector_seam_is_drawn_on_the_cell_edge_the_paint_asks_for() {
     let mut orcvs = running_orcvs(16, 16);
     // The Cursor goes on a Cell that would otherwise carry both seams.
     let cursor = orcvs.grid().position(8, 8).expect("inside the grid");
-    orcvs.select(cursor);
+    orcvs.editor_mut().select(cursor);
     let frame = orcvs.render_frame();
     let theme = default_theme(Appearance::Dark);
 
@@ -4664,7 +4678,8 @@ async fn zero_grid_and_sector_widths_hide_every_border_and_seam_at_every_device_
     let mut orcvs = running_orcvs(16, 16);
     // A sector corner, so the fixture would otherwise draw both a grid
     // line and a seam on plenty of Cells.
-    orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
+    let position = orcvs.grid().position(8, 8).expect("inside the grid");
+    orcvs.editor_mut().select(position);
     let frame = orcvs.render_frame();
     // Both line widths zeroed: `grid_border_width` for every edge and
     // `cursor_border_width` for the outline of the Cursor selected above.
@@ -4700,7 +4715,7 @@ async fn the_grid_and_cursor_border_widths_vary_independently() {
     // Eight Cells square, so no Sector Seam lies on the lattice.
     let mut orcvs = running_orcvs(8, 8);
     let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
-    orcvs.select(cursor);
+    orcvs.editor_mut().select(cursor);
     let frame = orcvs.render_frame();
     let viewport = presented(screen, 8, 8, 1.0);
     let theme = Theme {
@@ -4745,7 +4760,7 @@ async fn zero_width_suppresses_only_its_own_border_stroke() {
     // Eight Cells square, so no Sector Seam lies on the lattice.
     let mut orcvs = running_orcvs(8, 8);
     let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
-    orcvs.select(cursor);
+    orcvs.editor_mut().select(cursor);
     let frame = orcvs.render_frame();
     let viewport = presented(screen, 8, 8, 1.0);
 
@@ -4795,7 +4810,7 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(320.0));
     let mut orcvs = running_orcvs(20, 20);
     let cursor = orcvs.grid().position(4, 4).expect("inside the grid");
-    orcvs.select(cursor);
+    orcvs.editor_mut().select(cursor);
     let frame = orcvs.render_frame();
     let viewport = presented(screen, 20, 20, 1.0);
     let theme = Theme {
@@ -4824,7 +4839,8 @@ async fn zero_cursor_border_width_hides_the_cursors_frame() {
 async fn grid_and_sector_widths_stay_fixed_display_points_across_device_scales() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
     let mut orcvs = running_orcvs(16, 16);
-    orcvs.select(orcvs.grid().position(8, 8).expect("inside the grid"));
+    let position = orcvs.grid().position(8, 8).expect("inside the grid");
+    orcvs.editor_mut().select(position);
     let frame = orcvs.render_frame();
     let theme = default_theme(Appearance::Dark);
 
@@ -5004,7 +5020,7 @@ async fn a_primary_drag_without_alt_does_not_pan() {
 }
 
 fn region_of(orcvs: &Orcvs) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
-    let region = orcvs.region();
+    let region = orcvs.editor().region();
     (region.columns(), region.rows())
 }
 
@@ -5054,8 +5070,12 @@ async fn a_click_collapses_the_region_and_a_shift_click_extends_it() {
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::new(CELL_SIZE);
     let grid = orcvs.grid();
-    orcvs.select(grid.position(1, 1).expect("inside the Grid"));
-    orcvs.extend(grid.position(9, 9).expect("inside the Grid"));
+    orcvs
+        .editor_mut()
+        .select(grid.position(1, 1).expect("inside the Grid"));
+    orcvs
+        .editor_mut()
+        .extend(grid.position(9, 9).expect("inside the Grid"));
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     click(
@@ -5175,7 +5195,7 @@ async fn an_unequal_cell_is_measured_across_by_its_width_and_down_by_its_height(
     // A Cursor move to the far corner Pans the least distance that shows its
     // whole Cell.
     let far = orcvs.grid().position(63, 63).expect("inside the grid");
-    orcvs.select(far);
+    orcvs.editor_mut().select(far);
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
         viewport.cell_rect(63, 63).max,
@@ -5185,7 +5205,7 @@ async fn an_unequal_cell_is_measured_across_by_its_width_and_down_by_its_height(
 
     // Back to the top-left, then a drag held far past the bottom-right.
     let near = orcvs.grid().position(0, 0).expect("inside the grid");
-    orcvs.select(near);
+    orcvs.editor_mut().select(near);
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let from = viewport.cell_rect(4, 4).center();
     console_frame(&ctx, screen, click_at(from), &mut orcvs, &mut view);
@@ -5256,9 +5276,13 @@ async fn an_alt_drag_and_a_middle_drag_leave_the_region() {
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::new(CELL_SIZE);
     let grid = orcvs.grid();
-    orcvs.select(grid.position(1, 1).expect("inside the Grid"));
-    orcvs.extend(grid.position(4, 3).expect("inside the Grid"));
-    let region = orcvs.region();
+    orcvs
+        .editor_mut()
+        .select(grid.position(1, 1).expect("inside the Grid"));
+    orcvs
+        .editor_mut()
+        .extend(grid.position(4, 3).expect("inside the Grid"));
+    let region = orcvs.editor().region();
 
     let viewport = console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     let from = viewport.cell_rect(8, 8).center();
@@ -5286,7 +5310,7 @@ async fn an_alt_drag_and_a_middle_drag_leave_the_region() {
         );
         console_frame(&ctx, screen, release, &mut orcvs, &mut view);
         assert_ne!(view.pan, before, "the drag did not Pan");
-        assert_eq!(orcvs.region(), region, "the drag moved the Region");
+        assert_eq!(orcvs.editor().region(), region, "the drag moved the Region");
     }
 }
 
@@ -5455,7 +5479,8 @@ async fn a_culled_row_covers_exactly_the_cells_its_runs_replace() {
     let mut orcvs = running_orcvs(COL_COUNT, ROW_COUNT);
     let mut view = SourceView::new(CELL_SIZE);
     // Below the window the console shows.
-    orcvs.select(orcvs.grid().position(18, 20).expect("inside the grid"));
+    let position = orcvs.grid().position(18, 20).expect("inside the grid");
+    orcvs.editor_mut().select(position);
 
     // The Grid's near corner at (-700, -500), so the console shows a window
     // in the middle of it rather than a corner.
@@ -5824,7 +5849,8 @@ async fn a_zoom_that_would_open_a_gap_settles_the_source_view_back_inside() {
     // Wider and taller than the zoomed-out console, so both axes still Pan.
     let mut orcvs = running_orcvs(40, 32);
     let mut view = SourceView::new(CELL_SIZE);
-    orcvs.select(orcvs.grid().position(39, 31).expect("inside the grid"));
+    let position = orcvs.grid().position(39, 31).expect("inside the grid");
+    orcvs.editor_mut().select(position);
 
     // The far edge of a console is the Grid less its size in.
     let far_edge = |console: f32| Vec2::splat(console) - Vec2::new(40.0, 32.0) * CELL_SIZE;
@@ -5866,7 +5892,8 @@ async fn a_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_show_it() {
     let mut view = SourceView::new(CELL_SIZE);
     // Column 13 and row 9 end 14 and 10 Cells along: inside a 200 point
     // console and past a 160 point one.
-    orcvs.select(orcvs.grid().position(13, 9).expect("inside the grid"));
+    let position = orcvs.grid().position(13, 9).expect("inside the grid");
+    orcvs.editor_mut().select(position);
 
     console_frame(&ctx, screen, Vec::new(), &mut orcvs, &mut view);
     assert_eq!(
@@ -5919,7 +5946,8 @@ async fn a_browser_zoom_that_would_leave_the_cursor_outside_the_view_pans_to_sho
     let mut view = SourceView::new(CELL_SIZE);
     // Column 13 and row 9 end 14 and 10 Cells along: inside a 200 point
     // console and past a 160 point one.
-    orcvs.select(orcvs.grid().position(13, 9).expect("inside the grid"));
+    let position = orcvs.grid().position(13, 9).expect("inside the grid");
+    orcvs.editor_mut().select(position);
 
     console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
     assert_eq!(
@@ -5965,7 +5993,8 @@ async fn a_new_cell_side_that_would_leave_the_cursor_outside_the_view_pans_to_sh
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0));
     let mut orcvs = running_orcvs(32, 32);
     let mut view = SourceView::new(CELL_SIZE);
-    orcvs.select(orcvs.grid().position(9, 9).expect("inside the grid"));
+    let position = orcvs.grid().position(9, 9).expect("inside the grid");
+    orcvs.editor_mut().select(position);
 
     console_pass_at(&ctx, screen, Vec::new(), &mut orcvs, &mut view, 1.0);
     // The Cursor's Cell, 9 Cells along unpanned, flush against the top-left.
@@ -6091,7 +6120,8 @@ async fn a_cursor_follow_shows_the_whole_snapped_cursor_cell() {
     );
     // Column and row 34 end 35 Cells in, past a 400 point console at either
     // Cell side.
-    orcvs.select(orcvs.grid().position(34, 34).expect("inside the grid"));
+    let position = orcvs.grid().position(34, 34).expect("inside the grid");
+    orcvs.editor_mut().select(position);
     let (viewport, _) = console_pass_at(
         &ctx,
         screen,
@@ -6282,7 +6312,7 @@ async fn no_layer_carrying_the_source_grid_is_transformed() {
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::splat(256.0));
     // Larger than the console, so there is room to Pan.
     let mut orcvs = running_orcvs(32, 32);
-    orcvs.write("1");
+    orcvs.event_handler(vec![::orcvs::app::InputEvent::Text("1".to_owned())]);
     let mut view = SourceView::new(CELL_SIZE);
     pinned_at(&mut view, -CELL_SIZE / 2.0);
     let frame = orcvs.render_frame();
@@ -6730,12 +6760,14 @@ async fn the_minimap_uploads_its_picture_only_when_the_source_or_appearance_chan
     let grid = console.orcvs.grid();
     console
         .orcvs
+        .editor_mut()
         .select(grid.position(9, 7).expect("inside the grid"));
     let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     assert_eq!(uploads(&textures), [], "a Cursor move uploaded");
 
     console
         .orcvs
+        .editor_mut()
         .extend(grid.position(12, 8).expect("inside the grid"));
     let (_, textures) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     assert_eq!(uploads(&textures), [], "a Region change uploaded");
@@ -6925,8 +6957,8 @@ async fn the_minimap_marks_the_region_and_the_cursor_between_the_picture_and_the
     open_minimap(&ctx, screen, &mut console, &mut host);
     let grid = console.orcvs.grid();
     let at = |x, y| grid.position(x, y).expect("inside the grid");
-    console.orcvs.select(at(9, 7));
-    console.orcvs.extend(at(12, 8));
+    console.orcvs.editor_mut().select(at(9, 7));
+    console.orcvs.editor_mut().extend(at(12, 8));
 
     let near =
         |a: Rect, b: Rect| (a.min - b.min).length() < 1e-3 && (a.max - b.max).length() < 1e-3;
@@ -6995,7 +7027,7 @@ async fn the_minimap_marks_the_region_and_the_cursor_between_the_picture_and_the
         "drawn out of order: image {image_at}, Region {region_at}, Cursor {cursor_at}, outline {outline_at}"
     );
 
-    console.orcvs.select(at(30, 20));
+    console.orcvs.editor_mut().select(at(30, 20));
     let (shapes, _) = console_output_at(&ctx, screen, Vec::new(), &mut console, &mut host, 1.0);
     let marks: Vec<_> = shapes
         .iter()
@@ -7068,10 +7100,10 @@ fn cursor_mark_fills(style: &str) -> (Color32, Color32) {
             })
             .expect("the Minimap drew no Cursor mark")
     };
-    console.orcvs.select(at(9, 7));
-    console.orcvs.extend(at(12, 8));
+    console.orcvs.editor_mut().select(at(9, 7));
+    console.orcvs.editor_mut().extend(at(12, 8));
     let in_region = cursor_fill(&mut console);
-    console.orcvs.select(at(12, 8));
+    console.orcvs.editor_mut().select(at(12, 8));
     (in_region, cursor_fill(&mut console))
 }
 

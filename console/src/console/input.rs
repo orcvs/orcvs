@@ -313,7 +313,7 @@ impl Console {
         if self.keyboard_elsewhere {
             // Keys a control took are still the event that follows a command
             // Enter, so they disarm its fill as one reaching the Source would.
-            self.orcvs.disarm_fill();
+            self.orcvs.editor_mut().disarm_fill();
             return None;
         }
         // A command `+`, `=`, `-` or `0` chord is egui's whole-UI zoom, which
@@ -331,7 +331,7 @@ impl Console {
         // Escape backs out of the innermost thing first: a focused control
         // took it above, and a Region collapses. Only an Escape with nothing
         // else to undo dismisses the Toasts.
-        if self.orcvs.region().is_one_cell() && events.contains(&InputEvent::Collapse) {
+        if self.orcvs.editor().region().is_one_cell() && events.contains(&InputEvent::Collapse) {
             self.toasts.dismiss_all();
         }
         let handled = self.orcvs.event_handler(events);

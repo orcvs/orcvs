@@ -804,8 +804,10 @@ mod tests {
     fn write_row(orcvs: &mut Orcvs, row: usize, text: &str) {
         let grid = orcvs.grid();
         for (x, character) in text.chars().enumerate() {
-            orcvs.select(grid.position(x, row).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            orcvs
+                .editor_mut()
+                .select(grid.position(x, row).expect("inside the grid"));
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
     }
 
@@ -872,10 +874,12 @@ mod tests {
     async fn a_cell_is_answered_at_the_position_the_grid_indexes() {
         let mut orcvs = running_orcvs(6, 4);
         for (x, character) in ".+a".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x + 1, 2).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x + 1, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
-        orcvs.select(orcvs.grid().position(4, 1).expect("inside the grid"));
+        let position = orcvs.grid().position(4, 1).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         // The expected answer is each Cell's own visuals, so the Cursor's
@@ -925,7 +929,7 @@ mod tests {
     async fn the_cursor_outline_encloses_the_selected_position() {
         let mut orcvs = running_orcvs(9, 5);
         let selected = orcvs.grid().position(6, 3).expect("inside the grid");
-        orcvs.select(selected);
+        orcvs.editor_mut().select(selected);
 
         let outline = whole(&orcvs.render_frame()).outline.expect("an outline");
 
@@ -961,7 +965,7 @@ mod tests {
             Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
         };
 
-        orcvs.select(at(1, 1));
+        orcvs.editor_mut().select(at(1, 1));
         let collapsed = painted(&orcvs, None, Some(own));
         assert!(
             collapsed.cells().all(|(_, cell)| cell.background.is_none()),
@@ -969,7 +973,7 @@ mod tests {
         );
         assert!(!outline_spans(&collapsed));
 
-        orcvs.extend(at(3, 2));
+        orcvs.editor_mut().extend(at(3, 2));
         for (cursor, region_cursor, expected) in [
             (None, None, None),
             (Some(cursor_fill), None, Some(cursor_fill)),
@@ -1022,7 +1026,7 @@ mod tests {
             "`.+` reserves its Output Portal below `+`"
         );
 
-        orcvs.select(at(1, 2));
+        orcvs.editor_mut().select(at(1, 2));
         let single = painted(&orcvs);
         assert_eq!(
             single.outline,
@@ -1042,8 +1046,8 @@ mod tests {
             "the Cursor's Cell keeps its fact"
         );
 
-        orcvs.select(at(0, 0));
-        orcvs.extend(at(1, 2));
+        orcvs.editor_mut().select(at(0, 0));
+        orcvs.editor_mut().extend(at(1, 2));
         let spanning = painted(&orcvs);
         assert_eq!(
             spanning.outline,
@@ -1074,7 +1078,7 @@ mod tests {
     async fn a_single_cell_cursor_with_no_fill_takes_no_region_fill() {
         let mut orcvs = running_orcvs(4, 3);
         let at = orcvs.grid().position(1, 1).expect("inside the grid");
-        orcvs.select(at);
+        orcvs.editor_mut().select(at);
         let theme = Theme {
             cursor_background: None,
             cell_background: Color32::TRANSPARENT,
@@ -1106,7 +1110,7 @@ mod tests {
             Paint::derive_with_theme(FramePaint::whole(&orcvs.render_frame()), &theme)
         };
 
-        orcvs.select(at(1, 1));
+        orcvs.editor_mut().select(at(1, 1));
         let single = painted(&orcvs);
         assert_eq!(single.outline, None);
         assert!(
@@ -1119,7 +1123,7 @@ mod tests {
             "a blank Grid with no outline shows only Grid lines"
         );
 
-        orcvs.extend(at(2, 2));
+        orcvs.editor_mut().extend(at(2, 2));
         assert_eq!(painted(&orcvs).outline, None);
     }
 
@@ -1136,8 +1140,8 @@ mod tests {
         let mut orcvs = running_orcvs(6, 4);
         let grid = orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the grid");
-        orcvs.select(at(1, 1));
-        orcvs.extend(at(3, 2));
+        orcvs.editor_mut().select(at(1, 1));
+        orcvs.editor_mut().extend(at(3, 2));
         let frame = orcvs.render_frame();
         let cursor_fill = Color32::from_rgb(1, 2, 3);
         let base = Color32::from_rgba_unmultiplied(10, 20, 30, 128);
@@ -1203,8 +1207,8 @@ mod tests {
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         // The Region spans both rows; the Cursor lands on the blank row's
         // far corner, away from every role-bearing Cell of row 1.
-        orcvs.select(at(0, 1));
-        orcvs.extend(at(5, 0));
+        orcvs.editor_mut().select(at(0, 1));
+        orcvs.editor_mut().extend(at(5, 0));
 
         let frame = orcvs.render_frame();
         // The Region's Cursor is left unfilled, so its Cell has no fill of
@@ -1281,8 +1285,8 @@ mod tests {
             "the fixture's Region fill must actually change the composite"
         );
 
-        orcvs.select(at(1, 1));
-        orcvs.extend(at(3, 2));
+        orcvs.editor_mut().select(at(1, 1));
+        orcvs.editor_mut().extend(at(3, 2));
         let cursor = at(3, 2);
 
         let frame = orcvs.render_frame();
@@ -1333,7 +1337,7 @@ mod tests {
         let function = at(0, 0);
         let ordinary = at(4, 2);
         let selected = at(5, 2);
-        orcvs.select(selected);
+        orcvs.editor_mut().select(selected);
         let cursor_fill = Color32::from_rgba_unmultiplied(9, 8, 7, 111);
         let role_fill = Color32::from_rgba_unmultiplied(200, 100, 50, 128);
 
@@ -1392,7 +1396,7 @@ mod tests {
         let mut orcvs = running_orcvs(24, 24);
         // A sector corner at the default Sector Seam spacing of eight.
         let corner = orcvs.grid().position(8, 8).expect("inside the grid");
-        orcvs.select(corner);
+        orcvs.editor_mut().select(corner);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -1466,8 +1470,8 @@ mod tests {
         let grid = orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the grid");
         // A sector corner at the default Sector Seam spacing of eight.
-        orcvs.select(at(4, 4));
-        orcvs.extend(at(8, 8));
+        orcvs.editor_mut().select(at(4, 4));
+        orcvs.editor_mut().extend(at(8, 8));
 
         let frame = orcvs.render_frame();
         let spacing = frame.sector_seam_spacing().cells();
@@ -1495,10 +1499,12 @@ mod tests {
     async fn every_cell_shows_only_its_own_content_or_the_space() {
         let mut orcvs = running_orcvs(8, 8);
         for (x, character) in ".+".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 2).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
-        orcvs.select(orcvs.grid().position(5, 5).expect("inside the grid"));
+        let position = orcvs.grid().position(5, 5).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -1533,14 +1539,17 @@ mod tests {
     async fn an_empty_claimed_number_or_note_operand_shows_tint_and_no_character() {
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in ".+".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
         for (x, character) in ".v".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 1).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 1).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
-        orcvs.select(orcvs.grid().position(7, 1).expect("inside the grid"));
+        let position = orcvs.grid().position(7, 1).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -1609,10 +1618,12 @@ mod tests {
     async fn a_row_truncated_operand_cell_carries_its_declared_token_tint_and_no_character() {
         let mut orcvs = running_orcvs(5, 1);
         for (x, character) in ".+01".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
-        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+        let position = orcvs.grid().position(0, 0).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -1659,7 +1670,8 @@ mod tests {
         for (row, text) in [(0, ".+"), (1, ".v")] {
             write_row(&mut orcvs, row, text);
         }
-        orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+        let position = orcvs.grid().position(0, 0).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -1708,11 +1720,13 @@ mod tests {
         let mut orcvs = running_orcvs(10, 2);
         for (row, text) in [(0, "hi 07 |"), (1, ".+c401")] {
             for (x, character) in text.chars().enumerate() {
-                orcvs.select(orcvs.grid().position(x, row).expect("inside the grid"));
-                orcvs.write(&character.to_string());
+                let position = orcvs.grid().position(x, row).expect("inside the grid");
+                orcvs.editor_mut().select(position);
+                orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
             }
         }
-        orcvs.select(orcvs.grid().position(9, 1).expect("inside the grid"));
+        let position = orcvs.grid().position(9, 1).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -1772,11 +1786,13 @@ mod tests {
         let mut orcvs = running_orcvs(8, 4);
         for (row, text) in [(0, ".+**01"), (2, ".+||02")] {
             for (x, character) in text.chars().enumerate() {
-                orcvs.select(orcvs.grid().position(x, row).expect("inside the grid"));
-                orcvs.write(&character.to_string());
+                let position = orcvs.grid().position(x, row).expect("inside the grid");
+                orcvs.editor_mut().select(position);
+                orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
             }
         }
-        orcvs.select(orcvs.grid().position(7, 3).expect("inside the grid"));
+        let position = orcvs.grid().position(7, 3).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -1850,11 +1866,12 @@ mod tests {
     async fn the_cursor_fills_over_an_invalid_operands_tint_and_leaves_its_diagnostic_glyph() {
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in ".+**01".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
         let cursor = orcvs.grid().position(2, 0).expect("inside the grid");
-        orcvs.select(cursor);
+        orcvs.editor_mut().select(cursor);
 
         let frame = orcvs.render_frame();
         // The Cursor's glyph colour is cleared, so its Cell's glyph is the
@@ -1903,8 +1920,9 @@ mod tests {
     async fn a_written_invalid_operand_shows_a_non_transparent_diagnostic_border() {
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in ".+**01".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
         let frame = orcvs.render_frame();
         let visible = Color32::from_rgb(200, 30, 30);
@@ -1943,8 +1961,9 @@ mod tests {
     async fn a_visible_function_border_strokes_the_function_cells_at_its_own_width() {
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in ".+0102".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
         let frame = orcvs.render_frame();
         let visible = Color32::from_rgb(30, 200, 30);
@@ -1984,8 +2003,8 @@ mod tests {
         write_row(&mut orcvs, 1, ".+");
         let grid = orcvs.grid();
         let at = |x, y| grid.position(x, y).expect("inside the grid");
-        orcvs.select(at(3, 3));
-        orcvs.extend(at(0, 1));
+        orcvs.editor_mut().select(at(3, 3));
+        orcvs.editor_mut().extend(at(0, 1));
         let frame = orcvs.render_frame();
         let theme = Theme {
             source_function_border: Color32::from_rgb(30, 200, 30),
@@ -2008,7 +2027,8 @@ mod tests {
     async fn a_bang_border_wins_the_edge_it_shares_with_a_function() {
         let mut orcvs = running_orcvs(8, 3);
         write_row(&mut orcvs, 1, "**.+0102");
-        orcvs.select(orcvs.grid().position(7, 2).expect("inside the grid"));
+        let position = orcvs.grid().position(7, 2).expect("inside the grid");
+        orcvs.editor_mut().select(position);
         let frame = orcvs.render_frame();
         let width = GridWidth::from_points(1.0).expect("within 0..=1");
         let theme = Theme {
@@ -2044,7 +2064,8 @@ mod tests {
         let mut orcvs = running_orcvs(6, 3);
         write_row(&mut orcvs, 0, "=v=v");
         write_row(&mut orcvs, 1, "**");
-        orcvs.select(orcvs.grid().position(5, 2).expect("inside the grid"));
+        let position = orcvs.grid().position(5, 2).expect("inside the grid");
+        orcvs.editor_mut().select(position);
         let frame = orcvs.render_frame();
         let grid = orcvs.grid();
         assert!(
@@ -2083,8 +2104,9 @@ mod tests {
     async fn a_transparent_function_border_leaves_the_grid_line_and_its_width() {
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in ".+0102".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
         let frame = orcvs.render_frame();
         let width = |points| GridWidth::from_points(points).expect("within 0..=1");
@@ -2117,8 +2139,9 @@ mod tests {
     async fn a_comment_border_frames_its_blank_cells_as_well_as_its_text() {
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in [(0, '|'), (1, '|'), (2, 'a'), (4, 'b')] {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
         let frame = orcvs.render_frame();
         let visible = Color32::from_rgb(30, 30, 200);
@@ -2172,8 +2195,9 @@ mod tests {
 
         let mut orcvs = running_orcvs(8, 2);
         for (x, character) in ".+0102".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
         let frame = orcvs.render_frame();
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
@@ -2221,7 +2245,7 @@ mod tests {
         let glyph = Color32::from_rgb(1, 200, 3);
 
         for (cursor, role) in cells.into_iter().zip(roles) {
-            orcvs.select(cursor);
+            orcvs.editor_mut().select(cursor);
             let frame = orcvs.render_frame();
             assert!(frame.at(cursor).content().is_some(), "{cursor:?} is empty");
             let painted = |cursor_foreground| {
@@ -2271,7 +2295,7 @@ mod tests {
         .expect("the document resolves over its parent");
 
         let (mut orcvs, [function, ..]) = cursor_glyph_sampler();
-        orcvs.select(function);
+        orcvs.editor_mut().select(function);
         let frame = orcvs.render_frame();
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
         let beside = orcvs.grid().position(1, 0).expect("inside the grid");
@@ -2295,8 +2319,8 @@ mod tests {
     #[tokio::test]
     async fn the_regions_cursor_glyph_falls_back_to_the_cursor_glyph_then_the_role() {
         let (mut orcvs, [function, invalid, _]) = cursor_glyph_sampler();
-        orcvs.select(invalid);
-        orcvs.extend(function);
+        orcvs.editor_mut().select(invalid);
+        orcvs.editor_mut().extend(function);
         let frame = orcvs.render_frame();
         let painted = |region_cursor_foreground, cursor_foreground| {
             let theme = Theme {
@@ -2362,8 +2386,8 @@ mod tests {
         .expect("the document resolves over its parent");
 
         let (mut orcvs, [function, invalid, _]) = cursor_glyph_sampler();
-        orcvs.select(invalid);
-        orcvs.extend(function);
+        orcvs.editor_mut().select(invalid);
+        orcvs.editor_mut().extend(function);
         let frame = orcvs.render_frame();
         let paint = Paint::derive_with_theme(FramePaint::whole(&frame), &theme);
 
@@ -2397,7 +2421,8 @@ mod tests {
         for (row, text) in [(0, ".+"), (2, ".vC4"), (4, ".vXY")] {
             write_row(&mut orcvs, row, text);
         }
-        orcvs.select(orcvs.grid().position(7, 0).expect("inside the grid"));
+        let position = orcvs.grid().position(7, 0).expect("inside the grid");
+        orcvs.editor_mut().select(position);
         orcvs
     }
 
@@ -2526,7 +2551,8 @@ mod tests {
         let mut orcvs = running_orcvs(14, 4);
         write_row(&mut orcvs, 0, "&t0103C4D4E4");
         write_row(&mut orcvs, 2, ".+0103C4D4E4");
-        orcvs.select(orcvs.grid().position(13, 0).expect("inside the grid"));
+        let position = orcvs.grid().position(13, 0).expect("inside the grid");
+        orcvs.editor_mut().select(position);
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
         let grid = orcvs.grid();
@@ -2648,7 +2674,8 @@ mod tests {
         let mut orcvs = running_orcvs(8, 4);
         write_row(&mut orcvs, 0, "||hello");
         write_row(&mut orcvs, 2, "**");
-        orcvs.select(orcvs.grid().position(7, 3).expect("inside the grid"));
+        let position = orcvs.grid().position(7, 3).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let theme = Theme {
@@ -2705,7 +2732,7 @@ mod tests {
         let mut orcvs = running_orcvs(6, 2);
         write_row(&mut orcvs, 0, ".+0102");
         let cursor = orcvs.grid().position(0, 0).expect("inside the grid");
-        orcvs.select(cursor);
+        orcvs.editor_mut().select(cursor);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -2759,7 +2786,8 @@ mod tests {
         async fn each_built_in_frames_an_empty_output_portal_cell_without_a_fill() {
             let mut orcvs = running_orcvs(6, 3);
             write_row(&mut orcvs, 0, ".+0102");
-            orcvs.select(orcvs.grid().position(5, 2).expect("inside the grid"));
+            let position = orcvs.grid().position(5, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
             let frame = orcvs.render_frame();
             let grid = orcvs.grid();
 
@@ -2794,7 +2822,8 @@ mod tests {
             let mut orcvs = running_orcvs(6, 3);
             write_row(&mut orcvs, 0, ".+0304");
             write_row(&mut orcvs, 1, "07");
-            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+            let position = orcvs.grid().position(0, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let theme = filled_output_portal_theme();
@@ -2847,7 +2876,8 @@ mod tests {
             let mut orcvs = running_orcvs(4, 3);
             write_row(&mut orcvs, 0, ".^3C");
             write_row(&mut orcvs, 1, "C4");
-            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+            let position = orcvs.grid().position(0, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let theme = filled_output_portal_theme();
@@ -2882,7 +2912,8 @@ mod tests {
             write_row(&mut orcvs, 0, "~*0401");
             write_row(&mut orcvs, 1, "**");
             write_row(&mut orcvs, 2, "**");
-            orcvs.select(orcvs.grid().position(4, 2).expect("inside the grid"));
+            let position = orcvs.grid().position(4, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
@@ -2934,7 +2965,8 @@ mod tests {
         async fn an_empty_output_portal_cell_shows_the_fill_and_no_glyph_before_any_tick() {
             let mut orcvs = running_orcvs(6, 3);
             write_row(&mut orcvs, 0, ".+0102");
-            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+            let position = orcvs.grid().position(0, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let theme = filled_output_portal_theme();
@@ -2982,7 +3014,8 @@ mod tests {
         async fn a_terminal_output_functions_south_row_is_ordinary() {
             let mut orcvs = running_orcvs(8, 2);
             write_row(&mut orcvs, 0, "!>007F");
-            orcvs.select(orcvs.grid().position(6, 0).expect("inside the grid"));
+            let position = orcvs.grid().position(6, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
@@ -3013,7 +3046,8 @@ mod tests {
         async fn halts_south_row_is_ordinary() {
             let mut orcvs = running_orcvs(4, 3);
             write_row(&mut orcvs, 0, "*!");
-            orcvs.select(orcvs.grid().position(0, 2).expect("inside the grid"));
+            let position = orcvs.grid().position(0, 2).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
@@ -3049,7 +3083,8 @@ mod tests {
             let mut orcvs = running_orcvs(6, 1);
             write_row(&mut orcvs, 0, ">>");
             // The Function's own anchor, outside the asserted range 2..6.
-            orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+            let position = orcvs.grid().position(0, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let paint = whole(&frame);
@@ -3091,7 +3126,8 @@ mod tests {
             // Writing leaves the Cursor at the last Cell it wrote (row 1,
             // column 5) — one of the Cells this test asserts about. Move it
             // back onto row 0, which no assertion below reads.
-            orcvs.select(orcvs.grid().position(0, 0).expect("inside the grid"));
+            let position = orcvs.grid().position(0, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
 
             let frame = orcvs.render_frame();
             let theme = filled_output_portal_theme();
@@ -3596,10 +3632,12 @@ mod tests {
      {
         let mut orcvs = running_orcvs(10, 2);
         for (x, character) in ".+.x010203".chars().enumerate() {
-            orcvs.select(orcvs.grid().position(x, 0).expect("inside the grid"));
-            orcvs.write(&character.to_string());
+            let position = orcvs.grid().position(x, 0).expect("inside the grid");
+            orcvs.editor_mut().select(position);
+            orcvs.event_handler(vec![::orcvs::app::InputEvent::Text(character.to_string())]);
         }
-        orcvs.select(orcvs.grid().position(0, 1).expect("inside the grid"));
+        let position = orcvs.grid().position(0, 1).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let paint = whole(&frame);
@@ -3721,7 +3759,8 @@ mod tests {
     #[tokio::test]
     async fn a_paint_decides_the_drawn_cells_and_answers_them_unchanged() {
         let mut orcvs = running_orcvs(40, 30);
-        orcvs.select(orcvs.grid().position(9, 10).expect("inside the grid"));
+        let position = orcvs.grid().position(9, 10).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let grid = frame.grid();
@@ -3770,7 +3809,8 @@ mod tests {
     #[tokio::test]
     async fn the_runs_a_culled_paint_answers_are_the_whole_grids_clipped_to_it() {
         let mut orcvs = running_orcvs(32, 24);
-        orcvs.select(orcvs.grid().position(15, 11).expect("inside the grid"));
+        let position = orcvs.grid().position(15, 11).expect("inside the grid");
+        orcvs.editor_mut().select(position);
 
         let frame = orcvs.render_frame();
         let grid = frame.grid();
@@ -3807,7 +3847,7 @@ mod tests {
     async fn the_cursor_is_answered_only_where_the_paint_covers_it() {
         let mut orcvs = running_orcvs(20, 20);
         let selected = orcvs.grid().position(5, 4).expect("inside the grid");
-        orcvs.select(selected);
+        orcvs.editor_mut().select(selected);
 
         let frame = orcvs.render_frame();
         let grid = frame.grid();

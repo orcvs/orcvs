@@ -50,7 +50,9 @@ async fn info_describes_the_function_under_the_cursor() {
     {
         let orcvs = &mut harness.state_mut().orcvs;
         let grid = orcvs.grid();
-        orcvs.select(grid.position(0, 3).expect("inside the Grid"));
+        orcvs
+            .editor_mut()
+            .select(grid.position(0, 3).expect("inside the Grid"));
     }
     harness.run_steps(2);
     assert!(harness.query_by_label("left + right").is_none());

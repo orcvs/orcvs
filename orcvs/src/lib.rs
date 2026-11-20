@@ -1,7 +1,7 @@
 #![warn(clippy::all)]
 
 pub mod app;
-pub mod cursor;
+pub mod editor;
 pub mod grid;
 pub mod midi;
 pub mod network;

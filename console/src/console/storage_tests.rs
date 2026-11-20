@@ -351,7 +351,9 @@ async fn a_linked_console_neither_restores_nor_stores_the_source() {
         "the linked console restored the stored Source"
     );
 
-    console.orcvs.write("9");
+    console
+        .orcvs
+        .event_handler(vec![::orcvs::app::InputEvent::Text("9".to_owned())]);
     console.save(&mut storage);
 
     assert_eq!(eframe::Storage::get_string(&storage, SOURCE_KEY), stored);
