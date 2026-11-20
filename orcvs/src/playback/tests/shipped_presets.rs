@@ -143,7 +143,7 @@ impl Run {
     fn expect_diagnosed(&mut self, values: &[(u8, u8)], diagnostics: Vec<(usize, usize, String)>) {
         let tick = self.next;
         let before = map_diagnostics(&self.source);
-        let plan = self.run.run_tick(tick);
+        let plan = self.run.run_diagnosed_tick(tick);
         assert_eq!(
             tick_diagnostics(&plan),
             diagnostics,
@@ -643,14 +643,8 @@ fn the_controls_moved_into_the_tracker_slew_its_bassline_and_leave_its_notes() {
             transferred.type_at(SELECTOR_COLUMN + 1, TRACKER_SELECTOR_ROW, "1");
         }
         let tick = tick as u64;
-        let notes = shipped.run.run_tick(tick);
-        assert_eq!(
-            tick_diagnostics(&notes),
-            vec![],
-            "the shipped Tracker's Tick {tick}"
-        );
-        let plan = transferred.run.run_tick(tick);
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
+        shipped.run.run_tick(tick);
+        transferred.run.run_tick(tick);
         let mut expected = shipped
             .adapter
             .command_lists()

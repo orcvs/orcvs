@@ -1745,8 +1745,7 @@ mod tests {
         run.begin_run();
 
         for (tick, delivery) in expected.iter().enumerate() {
-            let plan = run.run_tick(tick as u64);
-            assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
+            run.run_tick(tick as u64);
             assert_eq!(
                 adapter.command_lists().last(),
                 Some(delivery),
@@ -1977,8 +1976,30 @@ mod tests {
             self.inner.begin_run();
         }
 
+        ///
+        /// Runs the Tick `timing` schedules, and refuses one whose plan
+        /// carries a diagnostic.
+        ///
+        /// A Function with no Cell to write to, or an Expression with no Cell
+        /// for an operand it leaves blank, is diagnosed and sends nothing, so a
+        /// test that reads only what the adapter received would pass though
+        /// nothing was sent. Only the Tick's own diagnostics are refused: a
+        /// test that needs a clean Language Map asserts it itself. A test whose
+        /// subject is a diagnosed Tick runs it through
+        /// `SourceCommander::execute` and reads the plan, or, when it also reads
+        /// what the adapter received, through `run_diagnosed_tick`.
+        ///
         fn tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
-            self.inner.execute_tick(timing)
+            let tick = self.inner.tick.get();
+            let plan = self.inner.execute_tick(timing);
+            if let Some(plan) = &plan {
+                assert_eq!(
+                    tick_diagnostics(plan),
+                    vec![],
+                    "Tick {tick} of a hand-driven run is expected to diagnose nothing"
+                );
+            }
+            plan
         }
 
         ///
@@ -1994,6 +2015,23 @@ mod tests {
                 Duration::from_secs(tick),
             ))
             .expect("a scheduled Tick runs")
+        }
+
+        ///
+        /// Runs the Tick numbered `tick` of the run, on time, and returns its
+        /// plan whatever the Source diagnoses.
+        ///
+        /// For a test whose subject is a diagnosed Tick and what it still
+        /// delivers: the test asserts the plan's diagnostics itself, since this
+        /// path does not refuse them.
+        ///
+        fn run_diagnosed_tick(&mut self, tick: u64) -> TickPlan {
+            self.inner
+                .execute_tick(scheduled(
+                    Duration::from_secs(tick),
+                    Duration::from_secs(tick),
+                ))
+                .expect("a scheduled Tick runs")
         }
 
         fn state(&self) -> PlaybackState {
@@ -2740,13 +2778,10 @@ mod tests {
         let late = Duration::from_millis(300);
         let epoch = ClockInstant::now() - late;
 
-        let first = run.tick(scheduled_from(epoch, Duration::ZERO, late));
-        assert_eq!(first.expect("a late Tick still runs").diagnostics, vec![]);
-        let second = run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
-        assert_eq!(
-            second.expect("a Tick due in the future runs").diagnostics,
-            vec![]
-        );
+        run.tick(scheduled_from(epoch, Duration::ZERO, late))
+            .expect("a late Tick still runs");
+        run.tick(scheduled(Duration::from_secs(1), Duration::ZERO))
+            .expect("a Tick due in the future runs");
 
         let since_due = &run.inner.outputs.midi.since_due;
         assert!(
@@ -3278,7 +3313,6 @@ mod tests {
         for tick in 1..4 {
             let plan = run.run_tick(tick);
             assert_eq!(plan.play_commands, vec![], "Tick {tick}");
-            assert_eq!(plan.diagnostics, vec![], "Tick {tick}");
             assert!(run.holds_note_ownership(), "Tick {tick}");
         }
         run.run_tick(4);
@@ -3316,8 +3350,7 @@ mod tests {
             run.run_tick(0);
             write_at(&source, 6, 2, second);
             for tick in 1..=3 {
-                let plan = run.run_tick(tick);
-                assert_eq!(plan.diagnostics, vec![], "legato {legato}, Tick {tick}");
+                run.run_tick(tick);
             }
 
             assert_eq!(
@@ -3352,7 +3385,6 @@ mod tests {
             for tick in 1..4 {
                 let plan = run.run_tick(tick);
                 assert_eq!(plan.play_commands, vec![], "route {route}, Tick {tick}");
-                assert_eq!(plan.diagnostics, vec![], "route {route}, Tick {tick}");
                 source.read_source(|source| {
                     assert_eq!(
                         source.language_map().diagnostics().count(),
@@ -4501,14 +4533,15 @@ mod tests {
     #[test]
     fn the_observation_says_whether_the_last_midi_delivery_failed() {
         let adapter = InMemoryOutputAdapter::default();
+        // The empty row is the Cell `.=` writes to; without it the Tick is
+        // diagnosed and sends nothing.
         let source = commander(&[".=0101", ""]);
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();
         assert!(!run.observation().midi_failed);
 
         adapter.fail_next_submission("device lost");
-        // The Source is clean, so the adapter's refusal is the only failure.
-        assert_eq!(run.run_tick(0).diagnostics, vec![]);
+        run.run_tick(0);
         assert!(run.observation().midi_failed);
 
         // Only a delivery answers whether the device recovered, so the
