@@ -304,14 +304,18 @@ skipped on pull requests and successful on merge groups, pushes, and manual disp
 cancellation, and unexpected skipping fail the aggregate. `scripts/tests/check-ci-results.sh`
 exercises every combination of these job results.
 
-`.github/workflows/code-review.yml` asks Claude's code-review routine to review a pull request when
-it is opened, reopened or marked ready for review; drafts, Dependabot and fork pull requests are
-skipped. It reads the `CLAUDE_ROUTINE_TOKEN` repository Actions secret and fails, naming the secret,
-when the secret is empty. The review arrives as comments from the routine's session, so the job is
-not a required status context and gates nothing. Pushes to an open pull request do not re-request
-a review, so each review is asked for once rather than once per commit. Because the job reads a
-secret, the contract holds whichever workflow names it to the `pull_request` trigger alone and to
-an empty token permission set.
+`.github/workflows/claude-review.yml` asks Claude's code-review routine to review a pull request
+through the shared review workflow in `tobyhede/workflows`, pinned by full commit. A review is
+requested when a non-draft pull request by the repository's owner is opened, reopened or marked
+ready for review, or when the owner comments with a first line starting `> orb ponder`. The owner
+is `repository.owner.login` as the event names it. Pushes to an open pull request do not re-request
+a review, and bots' pull requests are skipped. The shared workflow's README states every rule. The
+caller passes one repository Actions secret, `CLAUDE_ROUTINE_TOKEN`. The review arrives as comments
+from the routine's session, and a failed request shows as an error while the check stays green, so
+the job is not a required status context and gates nothing. Because the job reads a secret, the
+contract holds whichever workflow names it to the `pull_request` and `issue_comment` triggers, to a
+single job that only calls the pinned shared workflow, and to empty token permissions but for the
+`issues: write` grant the 👀 reaction needs.
 
 ### The tooling contract
 
