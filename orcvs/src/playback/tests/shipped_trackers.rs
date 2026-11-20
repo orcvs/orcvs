@@ -9,7 +9,7 @@
 use super::shipped_kombine::{ACCENT_REGION, GUIDE as KOMBINE_GUIDE, KOMBINE};
 use super::{
     HandDrivenRun, assert_delivers, assert_guide_draws, edited, functions_mapped, map_diagnostics,
-    note_on, stop, tick_diagnostics,
+    note_on, stop,
 };
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::rows::at;
@@ -120,9 +120,8 @@ fn assert_two_loops(text: &[u8], tracker: &Tracker<'_>) {
     );
 
     for tick in 0..2 * tracker.loop_ticks() {
-        let plan = run.run_tick(tick);
+        run.run_tick(tick);
         let commands = sounding.expect(tracker, tick);
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
         assert_eq!(
             functions_mapped(&source),
             vec![],
@@ -707,7 +706,7 @@ fn the_beat_plays_one_bar_with_nothing_diagnosed() {
     run.begin_run();
 
     for tick in 0..17u64 {
-        let plan = run.run_tick(tick);
+        run.run_tick(tick);
         let mut delivery = Vec::new();
         // Each hit stops on the Tick after it starts, in the order they started.
         if tick % 4 == 1 {
@@ -728,7 +727,6 @@ fn the_beat_plays_one_bar_with_nothing_diagnosed() {
         if tick % 2 == 0 {
             delivery.push(note_on(9, 0x40, hat));
         }
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
         assert_eq!(
             adapter.command_lists().last(),
             Some(&delivery),

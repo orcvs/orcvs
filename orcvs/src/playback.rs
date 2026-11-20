@@ -1745,8 +1745,7 @@ mod tests {
         run.begin_run();
 
         for (tick, delivery) in expected.iter().enumerate() {
-            let plan = run.run_tick(tick as u64);
-            assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}'s diagnostics");
+            run.run_tick(tick as u64);
             assert_eq!(
                 adapter.command_lists().last(),
                 Some(delivery),
@@ -1978,25 +1977,26 @@ mod tests {
         }
 
         ///
-        /// Runs the Tick `timing` schedules, and refuses one the Source
-        /// diagnoses.
+        /// Runs the Tick `timing` schedules, and refuses one whose plan
+        /// carries a diagnostic.
         ///
-        /// A run is driven through a Source that plays as written. A Source
-        /// stated as rows sits in a Grid exactly as large as those rows, so a
-        /// Function with no Cell to write to, or an Expression with no Cell
-        /// for an operand it leaves blank, is diagnosed and sends nothing, and
-        /// a test that reads only what the adapter received would pass on that
-        /// other path. A test whose subject is a diagnosed Tick runs it through
+        /// A Function with no Cell to write to, or an Expression with no Cell
+        /// for an operand it leaves blank, is diagnosed and sends nothing, so a
+        /// test that reads only what the adapter received would pass though
+        /// nothing was sent. Only the Tick's own diagnostics are refused: a
+        /// test that needs a clean Language Map asserts it itself. A test whose
+        /// subject is a diagnosed Tick runs it through
         /// `SourceCommander::execute` and reads the plan, or, when it also reads
         /// what the adapter received, through `run_diagnosed_tick`.
         ///
         fn tick(&mut self, timing: TickTiming) -> Option<TickPlan> {
+            let tick = self.inner.tick.get();
             let plan = self.inner.execute_tick(timing);
             if let Some(plan) = &plan {
                 assert_eq!(
                     tick_diagnostics(plan),
                     vec![],
-                    "the Source a run is driven through diagnoses its Tick"
+                    "Tick {tick} of a hand-driven run is expected to diagnose nothing"
                 );
             }
             plan
@@ -2778,8 +2778,10 @@ mod tests {
         let late = Duration::from_millis(300);
         let epoch = ClockInstant::now() - late;
 
-        run.tick(scheduled_from(epoch, Duration::ZERO, late));
-        run.tick(scheduled(Duration::from_secs(1), Duration::ZERO));
+        run.tick(scheduled_from(epoch, Duration::ZERO, late))
+            .expect("a late Tick still runs");
+        run.tick(scheduled(Duration::from_secs(1), Duration::ZERO))
+            .expect("a Tick due in the future runs");
 
         let since_due = &run.inner.outputs.midi.since_due;
         assert!(
@@ -3311,7 +3313,6 @@ mod tests {
         for tick in 1..4 {
             let plan = run.run_tick(tick);
             assert_eq!(plan.play_commands, vec![], "Tick {tick}");
-            assert_eq!(plan.diagnostics, vec![], "Tick {tick}");
             assert!(run.holds_note_ownership(), "Tick {tick}");
         }
         run.run_tick(4);
@@ -3349,8 +3350,7 @@ mod tests {
             run.run_tick(0);
             write_at(&source, 6, 2, second);
             for tick in 1..=3 {
-                let plan = run.run_tick(tick);
-                assert_eq!(plan.diagnostics, vec![], "legato {legato}, Tick {tick}");
+                run.run_tick(tick);
             }
 
             assert_eq!(
@@ -3385,7 +3385,6 @@ mod tests {
             for tick in 1..4 {
                 let plan = run.run_tick(tick);
                 assert_eq!(plan.play_commands, vec![], "route {route}, Tick {tick}");
-                assert_eq!(plan.diagnostics, vec![], "route {route}, Tick {tick}");
                 source.read_source(|source| {
                     assert_eq!(
                         source.language_map().diagnostics().count(),
@@ -4534,6 +4533,8 @@ mod tests {
     #[test]
     fn the_observation_says_whether_the_last_midi_delivery_failed() {
         let adapter = InMemoryOutputAdapter::default();
+        // The empty row is the Cell `.=` writes to; without it the Tick is
+        // diagnosed and sends nothing.
         let source = commander(&[".=0101", ""]);
         let mut run = HandDrivenRun::new(source, adapter.clone());
         run.begin_run();

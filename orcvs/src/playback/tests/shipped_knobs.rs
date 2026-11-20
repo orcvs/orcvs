@@ -8,7 +8,7 @@
 //! at a time and wraps to `00`. The bassline and knobs are written out
 //! here rather than read from the file, so a change to either shows up.
 
-use super::{HandDrivenRun, control_change, functions_mapped, note_on, stop, tick_diagnostics};
+use super::{HandDrivenRun, control_change, functions_mapped, note_on, stop};
 use crate::playback::{InMemoryOutputAdapter, OutputCommand};
 use crate::source::{SourceCommander, file};
 
@@ -146,10 +146,9 @@ fn the_knobs_turn_the_acid_voice_and_the_effects_under_an_accented_sliding_bassl
     // Long enough for the slowest Clock, `R2`'s, to wrap at Tick `200` and
     // its value to ramp back down.
     for tick in 0..0x210 {
-        let plan = run.run_tick(tick);
+        run.run_tick(tick);
         // The two bassline rows not holding the step read a blank note, which
-        // sends nothing and reports nothing.
-        assert_eq!(tick_diagnostics(&plan), vec![], "Tick {tick}");
+        // sends nothing and, as `run_tick` checks, reports nothing.
         // Once each Add has written its row's Read offset, the Language Map
         // diagnoses no Function, the blank-note rows' Plays included.
         assert_eq!(
