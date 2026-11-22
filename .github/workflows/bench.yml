@@ -97,7 +97,7 @@ jobs:
       # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}
@@ -332,7 +332,7 @@ jobs:
       # The two bench tasks need only cargo, which the toolchain step provides. Without
       # this, mise builds cargo-nextest, cargo-deny, trunk, and wasm-pack from source:
       # ten minutes for tools this job never invokes.
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}
