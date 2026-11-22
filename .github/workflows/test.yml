@@ -76,7 +76,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # The merge queue runs the merge-only gates and not this tier again: the
@@ -115,7 +115,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run check_pull_request
@@ -143,7 +143,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Mise only to run the task: the job calls no tool `mise.toml` pins, and
       # `install: false` keeps it from installing them on the slowest runner.
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install: false
           cache_save: ${{ github.ref == 'refs/heads/main' }}
@@ -164,7 +164,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # Passed on the pull request; the queue runs only the browser suite below.
